@@ -83,25 +83,57 @@ capabilities there without copying data into our datastore. That is more honest,
 more flexible, and costs nothing extra because the capability check already
 exists.
 
-## 3. Hosted and registered
+## 3. Registered, derived, managed — three roles
 
-The distinction an administrator has to hold in their head, and the answer to
-Q-31.
+> **Corrected 2026-08-12.** An earlier version of this section said "hosted data
+> gets full capability, registered data gets whatever its provider supports".
+> **That was wrong**, and researching the ArcGIS model properly showed it was in
+> places backwards: referenced data there is editable and writes through to the
+> source, and some advanced capabilities *require* referencing rather than
+> copying. See [research/arcgis-datastore-model.md](research/arcgis-datastore-model.md).
+>
+> The axis is not capability. It is **who manages the storage, and where edits
+> land.**
 
-| | Hosted | Registered |
-|---|---|---|
-| Where the data lives | Datastore (or any writable source) | The organisation's own database or files |
-| How it got there | Uploaded, or copied during migration | Already existed; we point at it |
-| Editing | Yes, with our concurrency model | Only if the provider allows it and we were granted rights |
-| Runtime schema change | Yes ([runtime-schema-evolution.md](research/runtime-schema-evolution.md)) | No |
-| Generalised geometry for tiles | Yes | Only where writable |
-| Tile performance | Best | Depends on the provider; the cache absorbs the difference |
-| Who is responsible for the data | Us | The organisation |
+Taking the owner's posture — editing happens in the source database, with a QGIS
+extension as the tool — our model can be simpler than ArcGIS's. Three roles, not
+two modes:
 
-**The promise to state in documentation:** hosted data gets full capability;
-registered data gets whatever its provider supports and whatever rights we were
-granted. Not a capability matrix per provider — a single distinction, with a
-capability report available per layer for anyone who wants the detail.
+### 1. Registered source — the system of record
+
+Always the organisation's. Always current. **This is the normal case, and
+everything should be designed around it being the default.** No staleness,
+because we are not holding a copy.
+
+### 2. Derived store — our materialisations
+
+Generalised geometry per zoom level, tile caches, query response caches, index
+helpers. Explicitly derived, explicitly regenerable, **never the system of
+record**. If it is lost we rebuild it.
+
+Once editing lives at the source, this is what the "datastore" mostly turns out
+to be — a performance store, not a content store.
+
+Note that this splits further by lifecycle, as ArcGIS's does: cache bytes are
+disposable and high-churn, generalised geometry is expensive to build and
+long-lived. They should not share storage merely because both are derived.
+
+### 3. Managed store — data with nowhere else to live
+
+Uploaded files, migration landing area. **This is the only genuine hosting**, and
+it may not be needed in v1 at all. Q-40 decides it.
+
+### Why this beats copying the ArcGIS model
+
+- It removes the staleness problem rather than managing it. ArcGIS's copy mode
+  goes stale and the remedy is to overwrite or republish. A derived store is
+  stale by definition and has a refresh policy, which is a far smaller promise.
+- It matches the owner's posture: hosting is not where content lives, it is
+  where speed comes from.
+- It dissolves Q-33. Copy-versus-replicate stops being a question when the copy
+  is openly a derived artefact.
+- The write-capability dimension in §2 still applies, but it now governs **what
+  we can materialise**, not what the user can do.
 
 ## 4. What the datastore is not
 
@@ -116,18 +148,25 @@ Worth stating, because each of these is a plausible misreading:
 - **Not a requirement for vector tiles.** We write our own MVT encoder, so tiles
   work from any provider. Hosting makes them faster, not possible
   ([hosted-datastore-and-tiles.md](research/hosted-datastore-and-tiles.md) §4).
-- **Not a replication target.** Whether hosting copies once or tracks the source
-  continuously is Q-33, and continuous replication is a synchronisation product
-  nobody asked for.
+- **Not a replication target.** Under §3 the derived store is openly a derived
+  artefact with a refresh policy, which dissolves the copy-versus-replicate
+  question rather than answering it.
+- **Not where the customer's data lives.** The system of record is the
+  registered source. We materialise for speed; we do not take custody.
 
 ## 5. Open questions this raises
 
 | # | Question |
 |---|---|
-| Q-38 | Can a layer move between registered and hosted while keeping its service identity and URL? An administrator who registers a layer and later wants editing will ask for exactly this. Stable IDs (§37) should make it possible; it needs to be designed rather than discovered. |
-| Q-39 | If a registered source is writable, do we offer hosted-grade capabilities there automatically, or only on explicit opt-in? Automatic is friendlier and surprises DBAs. Opt-in is safer and gets forgotten. |
-| Q-33 | Does hosting copy once or track the source? (already open) |
-| Q-34 | Are generalised geometry tables datastore-only, or attempted wherever writable? **§2 suggests the latter.** (already open) |
+| Q-40 | **[OWNER]** Do we accept data uploads at all, or does the administrator load data into their own database with QGIS and register it? If the latter, role 3 disappears from v1 and the architecture gets materially smaller. |
+| Q-41 | Do we offer an optional companion schema in a registered database where we are granted rights, to hold versioning and editor-tracking bookkeeping? That is how ArcGIS gives referenced data advanced capability — via an enterprise geodatabase schema it controls inside the customer's database. It means being a resident in someone else's database. |
+| Q-34 | Are generalised geometry tables derived-store-only, or attempted wherever writable? **§2 suggests the latter.** (already open) |
+| Q-31 | **Reopened.** The previous answer rested on a wrong reading of the ArcGIS model. |
+
+**Q-38 answered 2026-08-12: no.** A layer does not migrate between registered
+and hosted. If someone wants to edit, they edit the source database directly,
+with QGIS. This is a deliberate narrowing and it is what makes §3's simplification
+available.
 
 ## 6. Not yet written
 
