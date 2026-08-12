@@ -21,7 +21,7 @@ finished, however confident the ADR sounds.
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | — | DRAFT | — | — | — | — | — | not started |
 | Plugin model | — | DRAFT | — | — | — | — | — | not started |
-| Service runtime | — | DRAFT | — | — | — | — | — | not started |
+| Service runtime | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | the ArcSOC question answered. Structure decided, numbers are conditions. Affinity routing (A-014) is the unproven part |
 | Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
 | Raster engine | rescoped | DRAFT | — | — | — | — | — | catalog + access control only; no pixel production. Q-27 is now the deciding question |
 | Caching | — | DRAFT | — | — | — | — | — | not started |
@@ -38,7 +38,7 @@ finished, however confident the ADR sounds.
 | Compatibility layer (§51) | — | — | — | — | — | — | — | not started — **required**, not optional (migration is a goal). Outside the core domain. |
 | AuthN / AuthZ (§41, §42) | — | — | — | — | — | — | — | not started |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
-| Backpressure (§48) | — | — | — | — | — | — | — | not started |
+| Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9: bounded queues, admission control, immediate rejection with retry signal |
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |

@@ -28,6 +28,16 @@ and there is no contention to skip.
 `LISTEN`/`NOTIFY` is also unavailable portably, so job wake-up cannot depend on
 it. Polling with a sensible interval is the assumed mechanism (Q-30).
 
+**Job workers are now defined, 2026-08-12.** [ADR-007](ADR-007-service-runtime.md)
+§4.1 makes the job pool the platform's isolation boundary. It carries everything
+that is long-running, untrusted or crash-prone: geoprocessing, data registration
+and validation through GDAL, overview generation, cache seeding, and plugins if
+ADR-006 admits any.
+
+That is a wider remit than "geoprocessing", and it means this ADR is on the
+critical path for data registration — not just for §36. Registration is the
+first thing an administrator does, so the job system cannot be a later phase.
+
 Option 3 is on the §82 challenge list and needs a concrete justification to
 survive, given that the baseline deployment already has PostgreSQL.
 

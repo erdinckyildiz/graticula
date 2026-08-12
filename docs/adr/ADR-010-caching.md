@@ -54,6 +54,16 @@ is "seeding 1,000 services takes how long, and what happens when the data
 changes underneath". Invalidation was already the harder half; it is now the
 harder half of a more important ADR.
 
+**L1 lifetime resolved, 2026-08-12.** [ADR-007](ADR-007-service-runtime.md) §4.3
+and §4.4 settle what L1 is attached to: **the service context, not the worker
+process.** Contexts bind lazily on first request and evict LRU under a bounded
+per-worker budget, so L1 lifetime is context lifetime — much shorter and much
+more predictable than process lifetime, and unaffected by worker recycling.
+
+This also means L1 and routing are literally the same data structure. The router
+knows which worker holds which context; that is the same knowledge as knowing
+where a warm cache lives.
+
 **Cache key identity, added 2026-08-12.** [ADR-008](ADR-008-query-engine.md)
 gives us a natural cache key: the compiled plan's identity plus the layer's
 schema fingerprint. Using the plan rather than the request URL means

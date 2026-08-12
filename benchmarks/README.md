@@ -24,5 +24,5 @@ Planned:
 | `geometry-hotpath/` | Cost of library overhead and FFI on tile-path primitives | ADR-003, A-004 |
 | `worker-model/` | Memory, cold start and interference across runtime models | ADR-007 |
 | `duckdb-compute-layer/` | Is an in-process compute engine worth it, and does reading PostGIS through DuckDB cost too much? | ADR-008, Q-19 |
-| `connection-budget/` | Does the connection budget hold at 1,000 services? | ADR-007, Q-04 |
+| `connection-budget/` | Does the budget hold at 1,000 services on each of the three providers, and what do shrink-to-zero pools cost in cold latency? | ADR-007 §4.8, Q-04 |
 | `rendering/` | Rasterisation backend throughput | ADR-004 |
