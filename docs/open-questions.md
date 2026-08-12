@@ -26,6 +26,8 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-20 | How many distinct GEOS builds end up evaluating our predicates (PostGIS's, ours, possibly DuckDB's), and how do we prevent behavioural divergence between them? Applies today, before any DuckDB decision. | Council | ADR-003, `experiments/geometry-oracle` |
 | Q-21 | Does the Query AST target more than one SQL dialect from day one, to keep the provider abstraction honest rather than PostGIS-shaped? | Council | ADR-008 |
 | Q-22 | Is a PostgreSQL-free deployment profile a goal, or is PostGIS an acceptable hard requirement? Challenges A-009. | Council → possibly Owner | ADR-002 |
+| Q-23 | Can a PROJ `PJ` transformation object be used from more than one thread, or is it thread-affine? Decides whether prepared transformations are shared or duplicated per thread — tile and render hot path, and it changes what L1 costs. | Council | ADR-010, [research/dependency-thread-safety.md](research/dependency-thread-safety.md) §4 |
+| Q-24 | Do we require GDAL 3.10 or later for read-only raster thread safety? A hard minimum version constrains air-gapped and distro-packaged deployments. | Council | ADR-009, deployment |
 
 ## Open, not blocking
 

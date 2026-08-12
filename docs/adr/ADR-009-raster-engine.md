@@ -21,6 +21,24 @@ Raster and imagery as a first-class subsystem (§35): GDAL, COG, STAC, overviews
 Crash containment is the deciding axis here, not throughput. Malformed raster and
 decompression bombs are explicit threats (§54, §59).
 
+**Added 2026-08-12** — a second deciding axis, from
+[research/dependency-thread-safety.md](../research/dependency-thread-safety.md)
+§5: **GDAL datasets are thread-affine resources, not shareable cache entries.**
+GDAL forbids concurrent calls on the same instance *or on instances related by
+ownership* — two threads on two bands of one file, or two layers of one
+GeoPackage, is unsafe. So the raster provider cannot simply cache an open
+dataset per source. The options are per-source-per-thread caching, serialised
+access behind a lock, or a checked-out dataset pool; each has a different memory
+and latency profile, and this ADR must choose between them.
+
+`VERIFY` GDAL 3.10 and later offer read-only raster thread safety
+(`GDAL_OF_THREAD_SAFE`), which would remove the problem for the raster *read*
+path at the cost of a hard minimum version (Q-24). Vector providers and every
+write path are unaffected and still need one of the three options above.
+
+This is the most likely site in the platform for a subtle, load-dependent
+correctness bug: the naive design mostly works, and fails intermittently.
+
 ## 3. Counterarguments to the preferred option
 
 Not yet written — no option is preferred yet.

@@ -28,21 +28,22 @@ ADR depends on is either mislabelled or unnecessary.
 | A-008 | Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive | `VALIDATING` — supported by prior art | ArcGIS Server's documented guidance asks administrators to "pare down the number of running service instances to as many as are needed", a per-service manual task at a scale where it will not happen. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §4 (P8). Still needs a real operator's view to move to `VALIDATED`. | ADR-007 |
 | A-011 | A distinguished central manager process is a robustness and recovery liability, so placement and routing state must be recoverable without one | `VALIDATING` — supported by prior art | Esri removed the SOM/SOC split at 10.1 citing robustness, reduced failure and simpler provisioning and recovery. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §3.1 | ADR-007, ADR-012 |
 | A-012 | The sharing question is really about per-service state size, binding cost and neighbour tolerance — not about "shared versus dedicated" | `VALIDATING` — supported by prior art | ArcGIS shared instances are restricted to map and image services with limited capabilities, and exclude geoprocessing; `VERIFY` ~50 cached service contexts per instance. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §3.4 | ADR-007, §20 worker classes |
-| A-013 | Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model | `UNVALIDATED` — **blocking** | Verify per API against upstream documentation. QGIS Server's whole process model follows from its classes not being thread safe; this must not be discovered late. See [research/runtime-models-compared.md](research/runtime-models-compared.md) §2.2 | ADR-007, ADR-003, ADR-009 |
+| A-013 | Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model | `VALIDATED` (2026-08-12) | Confirmed against upstream documentation: GEOS reentrant C API with one context per thread; PROJ one `PJ_CONTEXT` per thread; GDAL re-entrant with one dataset instance per thread. None forces process-per-worker. Three derived constraints remain live — see [research/dependency-thread-safety.md](research/dependency-thread-safety.md) §6 | ADR-007, ADR-003, ADR-009 |
 | A-014 | Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance | `UNVALIDATED` | Prototype and benchmark under both uniform and skewed load. See [research/runtime-models-compared.md](research/runtime-models-compared.md) §3 | ADR-007, ADR-010 |
 | A-015 | Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap | `UNVALIDATED` | Measure. GeoServer's documented cache inventory supports it; if true it changes the shared-vs-dedicated calculation substantially | ADR-007, ADR-010 |
 | A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment | `UNVALIDATED` | Owner decision plus deployment review | ADR-002, ADR-011 |
 | A-010 | The 100–1,000 service target will not shift upward by an order of magnitude after launch | `UNVALIDATED` | Owner confirmation; revisit at each phase gate | ADR-007, ADR-012 |
 
-**Priority.** A-013 is **blocking** — dependency thread safety constrains the
-whole runtime model and must be settled before ADR-007 is decided. A-003 is the
+**Priority.** A-013 is resolved — a threaded worker model is available. A-003 is the
 load-bearing assumption under the shared-worker model. A-007 is now `CONTESTED`
 and needs splitting into a managed-code path and a native-code path rather than
 being answered once.
 
 ## Validated
 
-*(none yet)*
+| ID | Assumption | Validated | Evidence |
+|---|---|---|---|
+| A-013 | GDAL, GEOS and PROJ permit a threaded worker model | 2026-08-12 | [research/dependency-thread-safety.md](research/dependency-thread-safety.md). Deliberately left in the open table too: the headline is validated, but three derived constraints are still live design work — per-thread context lifecycle, GDAL dataset thread-affinity, and two contention points (PROJ grid cache mutex, GDAL block cache under concurrent writes). |
 
 ## Invalidated / superseded
 

@@ -141,10 +141,29 @@ Directly from §80, plus the ones the scale target forces:
 classes are not thread safe, so multiprocessing is mandatory. A Tier 2
 dependency dictated the runtime model.
 
-**Thread-safety guarantees for GDAL, GEOS and PROJ must be established before
-this ADR is decided**, precisely and per API rather than in general terms. This
-is a blocking precondition, not a footnote — discovering it during
-implementation would invalidate the decision.
+**RESOLVED 2026-08-12** —
+[research/dependency-thread-safety.md](../research/dependency-thread-safety.md).
+
+**No dependency forces process-per-worker.** A threaded worker model is
+available, so options 1-3 can be evaluated on their merits rather than having
+option 3 imposed by a library.
+
+Three constraints come with that, and they belong to the port layer rather than
+to this ADR:
+
+- GEOS and PROJ both require **one context per thread** (`GEOS_init_r`,
+  `PJ_CONTEXT`). Context lifecycle is owned inside `IGeometryEngine` and
+  `ICrsTransformer`, bound to pool threads, invisible to callers.
+- **GDAL datasets are thread-affine.** Not merely one dataset per thread — GDAL
+  forbids concurrent use of *related* instances, so two threads on two bands of
+  the same file, or two layers of the same GeoPackage, is unsafe. The obvious
+  design (cache one open dataset per source, share it across threads) is wrong
+  in the worst way: it mostly works, then fails intermittently under load.
+  Shapes ADR-009.
+- `VERIFY` GDAL 3.10 and later offer read-only raster thread safety
+  (`GDAL_OF_THREAD_SAFE`), which would remove per-thread dataset duplication for
+  the raster read path — at the cost of a hard minimum version (Q-24). Vector
+  providers and every write path get nothing from it.
 
 ## 6. Required modelling — service explosion (§24)
 
