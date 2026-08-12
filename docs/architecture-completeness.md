@@ -46,6 +46,7 @@ finished, however confident the ADR sounds.
 | **Runtime supervisor (§21)** | — | **none** | — | — | — | — | — | **severe gap** — ADR-007 depends on it and it has no design (Q-54) |
 | **TLS / certificates** | — | **none** | — | — | — | — | — | **severe gap** — absent from the whole architecture (Q-55) |
 | Failure scenarios (§59) | **walked** | n/a | — | — | — | — | ✓ | [failure-scenarios.md](failure-scenarios.md) |
+| Geometry & CRS policy | **written** | n/a | — | — | — | — | — | [geometry-crs-policy.md](geometry-crs-policy.md). Per-engine claims need `VERIFY` |
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
@@ -96,12 +97,12 @@ a failure reopens the relevant decisions rather than being noted and passed over
       tiles, a slow service, a failed registration. What does the administrator
       see, from which endpoint, composed from what? If it cannot be written, the
       observability model is missing rather than deferred.
-- [ ] **Geometry and CRS reality pass** — fresh-challenger review G4. A written
-      policy, per provider, for invalid geometry, wrong or missing SRID, datum
-      transformation selection, Z and M coordinates, curve geometry, oversized
-      single features, mixed geometry types, and collation. Nine ADRs currently
-      do not mention any of them, and invalid geometry is the most common
-      real-world GIS problem there is.
+- [x] **Geometry and CRS reality pass** — fresh-challenger review G4.
+      [geometry-crs-policy.md](geometry-crs-policy.md), 2026-08-12. Found that
+      five separate problems are one problem: **lossy on read means not
+      writable**, now enforced by the write path in ADR-008 §4.5a. Answered Q-56
+      and gave Q-36 its first concrete requirement. Per-engine behaviour still
+      needs verification.
 - [ ] **Air-gapped checklist written and tested** — adversarial review F11.
       Q-15. Offline PROJ grids, GDAL driver data, fonts, MapLibre glyph packs and
       sprites, COG-capable clients, and any rasteriser's display requirements.

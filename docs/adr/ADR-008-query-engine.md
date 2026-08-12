@@ -202,6 +202,30 @@ Keyset pagination is stable and cheap but requires a total order.
   ([data-model.md](../data-model.md) §3), the token is rejected with a clear
   error rather than silently returning incoherent pages.**
 
+### 4.5a Lossy on read means not writable
+
+From [geometry-crs-policy.md](../geometry-crs-policy.md), which found the same
+problem in five places and resolved it once.
+
+> **Any representation that discarded information on read must not be the basis
+> of a write.**
+
+Z and M dropped by a 2D format. A curve linearised for GeoJSON or MVT.
+Coordinate precision lost to tile quantisation. In each case a client does
+something entirely reasonable - read a feature, change an attribute, save it -
+and destroys geometry it never knew was there.
+
+**The write path enforces this, rather than trusting clients.** A write is
+refused when the geometry it carries came from a lossy representation, unless
+the client supplies the full-fidelity geometry. Concretely: geometry that
+arrived via a tile is never a write source, and a client that read 2D must not
+write back over 3D.
+
+This is the geometry counterpart of [ADR-005](ADR-005-api-architecture.md)
+§3.8's rule that optimistic concurrency rests on database-maintained state
+rather than on what we remember - both are cases where trusting the client
+produces silent data loss.
+
 ### 4.6 Safety
 
 - **Parameterise everything.** Values never reach SQL as text.
@@ -224,6 +248,16 @@ them.
 
 Enforcing a limit after the work has been done protects the client and not the
 server, which is the wrong way round.
+
+**Refined 2026-08-12 (Q-56).** A single response-size limit is the wrong
+granularity when one feature is enormous - a national coastline as one polygon
+makes the *layer* unusable rather than failing one call. Three tiers instead:
+
+| Situation | Behaviour |
+|---|---|
+| Over the limit because of many features | Paginate, as designed |
+| Over the limit because of **one** feature | Return that feature alone with a warning header. The limit protects the server; a single feature the user asked for is not an attack. |
+| One feature over the absolute cap | Refuse **that feature**, identified by id - not the query |
 
 ### 4.8 The tile path is a specialisation, not a separate engine
 

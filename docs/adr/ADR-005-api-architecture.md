@@ -155,6 +155,12 @@ out in advance. That condition is discharged here.
 - **Per collection**, a capability resource states which filter operators,
   spatial predicates, aggregations, sort and pagination semantics are available,
   and which are refused.
+- **Extended 2026-08-12** by [geometry-crs-policy.md](../geometry-crs-policy.md):
+  it also carries the layer's **validity summary**, its **dimensionality** and
+  whether tiles drop Z, **curve handling** and the linearisation tolerance, the
+  **collation and case-sensitivity** behaviour of string matching, and the
+  **datum transformation pipeline** in use. Each is a provider difference a
+  client can otherwise only discover by getting a wrong answer.
 - It is **derived from the provider's capability negotiation**
   ([ADR-008](ADR-008-query-engine.md) §4.2), not hand-maintained. A hand-written
   capability document drifts from reality and is worse than none.
