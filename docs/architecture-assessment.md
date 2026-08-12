@@ -39,6 +39,33 @@ This definition also bounds us. Where those five problems do not exist — one
 consumer, public data, static content — a server is not the right answer, and we
 should say so. See §10.
 
+### Correction after fresh-challenger review (G2)
+
+**That definition is true of hosted data and largely false of registered data**,
+which [data-model.md](data-model.md) §3 designates as the normal case. Checked
+honestly against the five problems above:
+
+| Claimed | On registered data |
+|---|---|
+| Per-layer authorization | Partly delegated to row-level security where the provider supports it — we govern by asking the thing we are meant to govern |
+| Audit and visibility | Incomplete by design: writes can bypass us (A-027) |
+| A publication boundary | The schema changes under us; we detect drift and follow |
+| Consistent interpretation | Best-effort cache coherence, bounded by a poll interval |
+| Credentials | **Genuinely solved.** Consumers hold ours, not the database's |
+
+One of five holds unconditionally.
+
+So the honest statement is two products, not one:
+
+- **Hosted data gets a governed publication boundary.** All five hold.
+- **Registered data gets a governed *access* layer** — a capable read and write
+  proxy with a catalog, a uniform API and one credential boundary.
+
+Both are worth having. They are not the same claim, and several decisions
+justified by the word "governance" need re-examining under the weaker one. This
+is not a wording problem: it is the difference between owning a data lifecycle
+and observing someone else's.
+
 ## 2. ArcGIS Server — strengths
 
 Written charitably, because a strawman here poisons every comparison downstream.

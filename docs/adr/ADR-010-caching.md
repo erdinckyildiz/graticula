@@ -91,6 +91,12 @@ us inventing a layout.
 The key is **the compiled plan's identity, plus the layer's schema
 fingerprint** — not the request URL.
 
+**⚠ Incomplete, found by fresh-challenger review G5 (debt D-02): the key must
+also include the authorization context.** Two principals with different rights
+can produce the same plan against the same layer, so as specified a cache hit
+crosses an authorization boundary. That is a data breach, not a stale read. One
+line to fix now; severe if it reaches implementation unfixed.
+
 Two consequences, both good:
 
 - Semantically identical requests that differ in URL form share one entry.

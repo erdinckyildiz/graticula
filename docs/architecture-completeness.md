@@ -48,7 +48,8 @@ finished, however confident the ADR sounds.
 | Round | Date | Findings | Status |
 |---|---|---|---|
 | 1 — adversarial | 2026-08-12 | 12 (3 severe) | [adversarial-review-1.md](reviews/adversarial-review-1.md) — all dispositions applied |
-| 2 — fresh challenger (§67) | — | — | Not run. Must be someone uninvolved in the above. |
+| 2 — fresh challenger (§67) | 2026-08-12 | 8 (3 severe) | [fresh-challenger-review-2.md](reviews/fresh-challenger-review-2.md) — **written by the same agent, which §67 forbids.** Findings are real; coverage is suspect. A genuine independent review is still owed. |
+| 3 — genuinely independent | — | — | **Still owed.** §67 requires a reviewer who did not participate. Rounds 1 and 2 were both self-review. |
 
 ## Review gates (§66)
 
@@ -85,6 +86,12 @@ a failure reopens the relevant decisions rather than being noted and passed over
       tiles, a slow service, a failed registration. What does the administrator
       see, from which endpoint, composed from what? If it cannot be written, the
       observability model is missing rather than deferred.
+- [ ] **Geometry and CRS reality pass** — fresh-challenger review G4. A written
+      policy, per provider, for invalid geometry, wrong or missing SRID, datum
+      transformation selection, Z and M coordinates, curve geometry, oversized
+      single features, mixed geometry types, and collation. Nine ADRs currently
+      do not mention any of them, and invalid geometry is the most common
+      real-world GIS problem there is.
 - [ ] **Air-gapped checklist written and tested** — adversarial review F11.
       Q-15. Offline PROJ grids, GDAL driver data, fonts, MapLibre glyph packs and
       sprites, COG-capable clients, and any rasteriser's display requirements.
