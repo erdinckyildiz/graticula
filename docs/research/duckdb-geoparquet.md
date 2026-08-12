@@ -214,11 +214,16 @@ off `DRAFT`:
 2. **Selective query**: the opposite case — small bbox, high selectivity, high
    request rate. PostGIS should win; the size of the gap decides whether DuckDB
    can touch the feature endpoint path at all.
-3. **Reading PostGIS through DuckDB** (`VERIFY` the postgres scanner): what does
-   it cost versus querying PostgreSQL directly? This is the load-bearing
-   measurement for P3 — if pulling data into DuckDB to compute on it is
-   expensive, the compute-layer idea collapses for PostGIS-resident data, which
-   is most data.
+3. **Reading a database through DuckDB** (`VERIFY` the postgres scanner): what
+   does it cost versus querying directly? Load-bearing for P3 — if pulling data
+   into DuckDB to compute on it is expensive, the compute-layer idea collapses
+   for database-resident data, which is most data.
+
+   **Reprioritised 2026-08-12.** With Oracle Spatial and SQL Server Spatial now
+   first-class, the compute-layer argument is stronger, because those two have
+   real capability gaps against PostGIS and the missing work has to execute
+   somewhere. Measuring the *non-PostGIS* path matters at least as much as the
+   PostGIS one — that is where the gap actually is.
 4. **Cross-provider join**: PostGIS layer joined to a GeoParquet layer. Compare
    against the alternative of doing it in our own code. This is the capability
    that justifies P3 on its own if it holds up.

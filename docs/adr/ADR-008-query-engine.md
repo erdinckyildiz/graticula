@@ -18,6 +18,36 @@ A Query AST and spatial query planner (§29), with parameterised execution and c
 2. Direct provider-specific query construction, no shared AST
 3. Adopt an existing query or expression framework
 
+**Updated 2026-08-12 — alternative 2 is now excluded, and Q-21 is answered.**
+
+The owner made Oracle Spatial and SQL Server Spatial first-class alongside
+PostGIS ([product-context.md](../product-context.md)). Three spatial dialects of
+unequal capability, from day one. See
+[research/multi-database-consequences.md](../research/multi-database-consequences.md)
+§3.
+
+- **The Query AST targets multiple dialects from day one** (Q-21: yes). An
+  abstraction exercised by one implementation is not an abstraction; it is a
+  wrapper that will not survive the second.
+- **Capability negotiation is core, not a refinement.** PostGIS is substantially
+  more capable than the other two. The engine may neither ship a
+  lowest-common-denominator design that wastes PostGIS, nor a PostGIS-shaped one
+  with fallbacks bolted on afterwards.
+- **`ST_AsMVT` exists only in PostGIS.** For SQL Server and Oracle, in-process
+  MVT encoding is the *only* path. Tile generation therefore cannot be modelled
+  as "push down to the database, with a fallback" — the fallback is the majority
+  case in enterprise deployments. This is the single most consequential fact to
+  come out of the decision.
+- **The compute-layer question (Q-19) becomes load-bearing.** When a provider
+  cannot execute part of a plan, the work has to happen somewhere, and today
+  that somewhere is code we have not written. With three providers of unequal
+  capability this stops being an interesting option and becomes a gap that must
+  be filled by something.
+- **Editing semantics differ across the three** — isolation levels, locking, what
+  a conflict looks like. This produces provider-dependent *bugs* rather than
+  provider-dependent features, and §28's optimistic concurrency design must
+  account for it.
+
 Must also cover: CQL2 and OGC filter mapping, result streaming for millions of
 features (§47), pagination and cursor stability, statistics and aggregation, and
 result-size governance (§49).

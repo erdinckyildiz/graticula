@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Status** | `REOPENED` → re-decided, `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-08-12 |
+| **Decided** | 2026-08-12, amended same day |
 
 ---
 
@@ -106,13 +106,25 @@ Against Alternative C, honestly:
 
 ## 4. Decision
 
-**PostgreSQL is the platform's single source of truth for all durable platform
-state.** Alternative C, with the following shape:
+**A relational database is the platform's single source of truth for all durable
+platform state, and it is not necessarily PostgreSQL.** Alternative C, with the
+following shape:
 
-1. **The platform database is logically distinct from data source databases.**
+> **AMENDED 2026-08-12.** The owner decided PostgreSQL is not mandatory; Oracle
+> Spatial and SQL Server Spatial are first-class. A-009 is `INVALIDATED` and
+> §4.1 and §4.4 below are superseded by §4a. Everything else in this decision
+> survives — see
+> [research/multi-database-consequences.md](../research/multi-database-consequences.md)
+> §5 for why the reopening stops there.
+>
+> The condition in §9.2 required this to be revisited *before any metadata SQL is
+> written*. Nothing had been written. The register worked.
+
+1. ~~**The platform database is logically distinct from data source databases.**
    The baseline deployment may put both in one PostgreSQL instance — as separate
    databases, or as a separate schema — and that should be the default a small
-   install gets. **The architecture must never assume co-location.**
+   install gets. **The architecture must never assume co-location.**~~
+   *Superseded by §4a; the separation itself stands and is strengthened.*
 2. **Data sources are registered connections**, first-class entities in the
    platform database. They may be foreign, read-only, numerous, and of different
    provider types. We require no DDL rights on them, and no rights at all beyond
@@ -122,10 +134,10 @@ state.** Alternative C, with the following shape:
    diff-friendly format, and imports back. This serves air-gapped promotion,
    GitOps-style review, disaster recovery, and migration intake — without
    introducing concurrent writers to a filesystem.
-4. **Metadata access lives in one module**, not behind a dialect abstraction.
-   Keeping the SQL in one place is ordinary good practice and it keeps a future
-   port cheap. Building a speculative multi-store abstraction now would violate
-   §82; we are not paying for a portability we have not been asked for.
+4. ~~**Metadata access lives in one module**, not behind a dialect abstraction.~~
+   *Superseded by §4a. The reasoning was sound on the information available —
+   §82 forbids paying for unrequested portability — and it is now void, because
+   the portability has been requested for a concrete reason.*
 5. **Schema migrations exist from day one**, versioned, forward-only by default,
    with an explicit and tested rollback story. Q-13 is thereby forced early
    rather than discovered late.
@@ -137,6 +149,37 @@ state.** Alternative C, with the following shape:
    external secret store. Data source credentials must never be readable by
    someone with a database dump. External secret managers are an optional
    provider, never a requirement (§2).
+
+## 4a. Amendment — the platform store is portable
+
+Replaces §4.1 and §4.4.
+
+1. **The platform store is a port with a deliberately boring surface.**
+   Supported implementations: **SQLite** (embedded default for developer and
+   single-node small installs), **PostgreSQL**, **SQL Server**, **Oracle**. No
+   spatial types, no exotic SQL, nothing that only one engine can do.
+2. **The platform store is independent of the data source engines.** A customer
+   may run Oracle Spatial for data and SQLite for the platform, or SQL Server
+   for both. Co-location is a deployment convenience, never an assumption. This
+   strengthens the separation in the original §4.1 rather than weakening it.
+3. **Portability constraints are binding on all platform SQL**, and are settled
+   before the first statement is written:
+   no `JSONB` operators · no `LISTEN`/`NOTIFY` · no arrays or PostgreSQL-specific
+   types · `SKIP LOCKED` expressed per dialect (`FOR UPDATE SKIP LOCKED` on
+   PostgreSQL and Oracle, `WITH (UPDLOCK, READPAST)` on SQL Server) · identity,
+   upsert and `RETURNING` behind the store module · conservative identifier
+   naming for Oracle.
+4. **Losing `LISTEN`/`NOTIFY` is the real cost.** Cross-node change notification
+   must be portable, so polling a change-sequence column is the assumed
+   mechanism. This affects the event architecture (§45) and cache invalidation.
+   Recorded as Q-30.
+5. **Phasing is permitted; unvalidated design is not.** SQLite and PostgreSQL
+   may ship first with SQL Server and Oracle following, **provided the port
+   design is checked against all four dialects on paper now.** Designing against
+   two and discovering the third does not fit is the standard failure here.
+6. **An untested backend is a broken backend.** Any store claimed as supported
+   runs in CI against the full migration and integration suite, or it is
+   documented as unsupported. Q-29 decides which ship in v1.
 
 ## 5. State inventory
 
@@ -197,13 +240,23 @@ is not discovered during a clustering project.
 - Losing files-as-source-of-truth costs some of the GitOps experience, only
   partly recovered by §4.3.
 
-**Ports created.** None. PostgreSQL is used directly and deliberately, per §4.4.
+**Ports created.** The **platform store port** (§4a.1) — a deliberately narrow
+relational surface with SQLite, PostgreSQL, SQL Server and Oracle
+implementations. This is a Tier 2 seam in the sense of
+[build-vs-adopt-policy.md](../build-vs-adopt-policy.md), and it exists because
+portability was requested for a concrete reason, not anticipated speculatively.
+
+**Additional negative consequence from the amendment.** Four backends means four
+migration paths and a four-way test matrix that must actually run. This is
+ongoing cost for the life of the project, and it buys removal of an adoption
+barrier in front of our primary migration target.
 
 ## 7. Assumptions
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline | `UNVALIDATED` — **this decision depends on it** |
+| A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline | `INVALIDATED` 2026-08-12 — superseded by A-018 |
+| A-018 | A deliberately boring platform schema can be supported across SQLite, PostgreSQL, SQL Server and Oracle at acceptable cost | `UNVALIDATED` — **this decision now depends on it** |
 | A-017 | Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them | `VALIDATING` — follows from the confirmed migration goal; confirm with Q-08 |
 
 ## 8. Dependencies
@@ -219,11 +272,13 @@ its precondition), publishing (§38), admin API (§39), authorization (§42).
 
 This ADR is `ACCEPTED WITH CONDITIONS`. The conditions:
 
-1. **A-009 must be confirmed.** If PostgreSQL is not an acceptable hard
-   dependency, §4.1 fails and this reopens.
-2. **Q-22 must be answered.** If a PostgreSQL-free deployment profile becomes a
-   goal, Alternative D returns and §4.4's "no abstraction" stance must be
-   revisited **before** the metadata SQL is written, not after.
+1. ~~A-009 must be confirmed.~~ **Fired 2026-08-12.** A-009 was invalidated and
+   this ADR reopened, exactly as the condition specified. See §4a.
+2. ~~Q-22 must be answered.~~ **Fired at the same time**, and the timing held:
+   the revisit happened before any metadata SQL existed.
+2a. **A-018 must hold.** If a portable boring schema across four engines proves
+   more expensive than §4a assumes, the supported set shrinks — and the
+   documentation shrinks with it rather than claiming untested support.
 3. **The export/import format must be specified before the admin API ships.**
    Retrofitting a serialisation format onto an established schema produces a
    format shaped by the schema rather than by the operator, and it is the kind

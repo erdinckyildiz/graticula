@@ -31,9 +31,10 @@ ADR depends on is either mislabelled or unnecessary.
 | A-013 | Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model | `VALIDATED` (2026-08-12) | Confirmed against upstream documentation: GEOS reentrant C API with one context per thread; PROJ one `PJ_CONTEXT` per thread; GDAL re-entrant with one dataset instance per thread. None forces process-per-worker. Three derived constraints remain live — see [research/dependency-thread-safety.md](research/dependency-thread-safety.md) §6 | ADR-007, ADR-003, ADR-009 |
 | A-014 | Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance | `UNVALIDATED` | Prototype and benchmark under both uniform and skewed load. See [research/runtime-models-compared.md](research/runtime-models-compared.md) §3 | ADR-007, ADR-010 |
 | A-015 | Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap | `UNVALIDATED` | Measure. GeoServer's documented cache inventory supports it; if true it changes the shared-vs-dedicated calculation substantially | ADR-007, ADR-010 |
+| A-018 | A deliberately boring platform schema can be supported across SQLite, PostgreSQL, SQL Server and Oracle at acceptable cost | `UNVALIDATED` | Design the schema and port surface, then check it against all four dialects on paper before implementing. Cost is a test matrix, not an architecture — but the matrix must actually run (Q-29) | ADR-002, ADR-011 |
+| A-019 | In-process MVT encoding can meet our latency targets, since `ST_AsMVT` is unavailable on SQL Server and Oracle | `UNVALIDATED` — **now load-bearing** | `experiments/lang-slice` endpoint C, and `benchmarks/mvt-generation`. If this fails, the non-PostGIS providers cannot serve tiles at acceptable latency and the multi-database promise is hollow | ADR-001, ADR-008, tile pipeline |
 | A-017 | Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them | `VALIDATING` | Follows from the confirmed migration goal — an organisation displacing GeoServer has PostGIS administered by someone else. Confirm via Q-08. Load-bearing for [ADR-002](adr/ADR-002-primary-data-architecture.md) §4.1–4.2 | ADR-002, ADR-008, publishing (§38) |
 | A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment ships as one artefact | `UNVALIDATED` | Design spike. If false, ADR-001's C7 single-binary criterion is largely neutralised for all candidates (Q-28) | ADR-001, ADR-006, deployment |
-| A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment | `UNVALIDATED` | Owner decision plus deployment review | ADR-002, ADR-011 |
 | A-010 | The 100–1,000 service target will not shift upward by an order of magnitude after launch | `UNVALIDATED` | Owner confirmation; revisit at each phase gate | ADR-007, ADR-012 |
 
 **Priority.** A-013 is resolved — a threaded worker model is available. A-003 is the
@@ -49,7 +50,9 @@ being answered once.
 
 ## Invalidated / superseded
 
-*(none yet)*
+| ID | Assumption | Status | What happened |
+|---|---|---|---|
+| A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment | `INVALIDATED` 2026-08-12 | The owner decided PostgreSQL is not mandatory: Oracle Spatial and SQL Server Spatial are first-class. The reasoning is that ArcGIS Server deployments run heavily on those engines, and requiring PostgreSQL purely for our metadata puts a barrier in front of the migration target. Superseded by **A-018**. Triggered a reopening of [ADR-002](adr/ADR-002-primary-data-architecture.md) — which its own §9.2 condition had anticipated, and the timing held: no metadata SQL had been written. **The register worked as designed, on its first real test.** |
 
 ---
 

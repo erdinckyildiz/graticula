@@ -28,6 +28,7 @@ for every review gate.
 | **Day-one workload** | **Features first, then vector tiles** | Answered 2026-08-12 — see below |
 | **Migration posture** | **Displacing existing ArcGIS Server / GeoServer deployments is a goal** | Answered 2026-08-12 — see below |
 | **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
+| **Databases** | **PostgreSQL is not mandatory. Oracle Spatial and SQL Server Spatial are first-class, for both spatial data and the platform store.** | Answered 2026-08-12 — see below |
 
 ## The primary user is the GIS administrator
 
@@ -194,6 +195,39 @@ narrow job of rendering *our own vector tiles* with *our own MapLibre styles*
 into WMS images, MapLibre Native stops being a liability and becomes the
 obviously correct tool — precisely because it is not neutral. It already speaks
 the language we chose.
+
+## Databases — PostgreSQL is not mandatory
+
+**Decided by the project owner, 2026-08-12.** Invalidates A-009 and reopened
+[ADR-002](adr/ADR-002-primary-data-architecture.md). Full analysis:
+[research/multi-database-consequences.md](research/multi-database-consequences.md).
+
+The reasoning is stronger than the earlier baseline assumption gave it credit
+for. **ArcGIS Server deployments run heavily on SQL Server and Oracle.**
+Displacing them is a confirmed goal. Requiring such an organisation to stand up
+PostgreSQL — a database they may have no expertise in, no backup tooling for and
+no approval to run — merely to hold our service definitions puts a barrier
+directly in front of our stated migration target.
+
+Two distinct consequences, which must not be conflated:
+
+**The platform store becomes portable.** SQLite as the embedded default for
+developer and small single-node installs, plus PostgreSQL, SQL Server and
+Oracle. This is affordable because platform metadata is not spatial and not
+high-volume — a few thousand rows of ordinary relational data. What is needed is
+a dialect abstraction, not a capability abstraction. The cost is a test matrix
+and migration scripts, and it is real: an untested backend is a broken backend.
+
+**Three first-class spatial dialects.** This is the larger change, and the
+single most consequential fact is that **`ST_AsMVT` exists only in PostGIS.** For
+SQL Server and Oracle, in-process MVT encoding is not an alternative — it is the
+only path. That promotes the language prototype's third endpoint from a
+comparison to the primary path, makes A-001 considerably more likely to be true,
+and puts our own hot-path geometry primitives back on the critical path.
+
+It also settles Q-21: the Query AST targets multiple dialects from day one, and
+capability negotiation is core rather than a later refinement. An abstraction
+exercised by a single implementation is not an abstraction.
 
 ## Why a server at all
 

@@ -58,6 +58,19 @@ HTTP request
 That is **an HTTP server, a PostgreSQL client and a serialiser.** With pushdown
 working, very little heavy computation happens in our process at all.
 
+> **Partially reversed 2026-08-12.** The owner made Oracle Spatial and SQL Server
+> Spatial first-class, and **`ST_AsMVT` exists only in PostGIS**. For two of the
+> three primary providers, in-process MVT encoding is the only path — so the
+> tile path *is* CPU-bound in our process for most enterprise deployments. A-001
+> becomes considerably more likely to be true, and C1 recovers part of the weight
+> the vector-first decision took from it, because our own clip / quantise /
+> simplify primitives are now on the critical path.
+>
+> The analysis below still holds for PostGIS-only deployments. It no longer
+> holds for the deployments we most want to win. See
+> [research/multi-database-consequences.md](../research/multi-database-consequences.md)
+> §3.1.
+
 ### The uncomfortable consequence for C1
 
 **The geometry engine is largely not on the hot path.**
@@ -84,7 +97,7 @@ geoprocessing paths. It is simply no longer a throughput argument.
 
 | # | Criterion | Weight | Change and why |
 |---|---|---|---|
-| C8 | **PostgreSQL driver quality** | **Critical** | Raised. Binary protocol, `COPY`, server-side cursors, cancellation, pooling. The platform is largely a very good PostgreSQL client. |
+| C8 | **Database driver quality — PostgreSQL, SQL Server *and* Oracle** | **Critical** | Raised, and widened 2026-08-12. Three first-class engines means three mature drivers with good streaming, cancellation and pooling. Driver quality across all three now discriminates between languages more sharply than PostgreSQL alone did. |
 | C6 | **Streaming large result sets** | **Critical** | Raised. Features first means millions of rows streamed, never materialised (§47). |
 | C5 | Memory behaviour under sustained load | High | Unchanged. Tile bursts, streaming buffers, p99 predictability. |
 | C4 | Concurrency and worker model | High | Unchanged. Shapes ADR-007. |

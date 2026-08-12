@@ -14,9 +14,19 @@ Asynchronous execution for long-running work — geoprocessing (§36), cache see
 
 ## 2. Alternatives to evaluate
 
-1. In-database job queue (PostgreSQL SKIP LOCKED)
+1. In-database job queue using skip-locked semantics
 2. In-process scheduler with database-persisted state
 3. External broker (Kafka, RabbitMQ, NATS)
+
+**Updated 2026-08-12.** The platform store is now portable across SQLite,
+PostgreSQL, SQL Server and Oracle (ADR-002 §4a). Option 1 survives but must be
+expressed per dialect: `FOR UPDATE SKIP LOCKED` on PostgreSQL and Oracle,
+`WITH (UPDLOCK, READPAST)` on SQL Server. SQLite has neither, so a single-writer
+strategy is needed there — acceptable, since SQLite is the single-node default
+and there is no contention to skip.
+
+`LISTEN`/`NOTIFY` is also unavailable portably, so job wake-up cannot depend on
+it. Polling with a sensible interval is the assumed mechanism (Q-30).
 
 Option 3 is on the §82 challenge list and needs a concrete justification to
 survive, given that the baseline deployment already has PostgreSQL.

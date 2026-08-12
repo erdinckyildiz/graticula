@@ -48,16 +48,25 @@ Three endpoints:
 
 ### Why endpoint C is the important one
 
-B and C exist to be compared with each other.
+**Upgraded 2026-08-12 from "the interesting comparison" to "the primary path".**
 
-Under vector-first, C is the only place where language CPU performance still
-plausibly decides anything: clipping, quantising, simplifying and protobuf
-encoding, in our process, thousands of geometries per tile.
+`ST_AsMVT` exists only in PostGIS. The owner made Oracle Spatial and SQL Server
+Spatial first-class, so for two of the three providers **endpoint C is the only
+way to serve a tile**
+([research/multi-database-consequences.md](../research/multi-database-consequences.md)
+§3.1).
 
-**If B and C perform comparably, the platform is database-bound and ADR-001 does
-not turn on performance at all.** That would be the single most useful result
-this experiment can produce, and it is a real possibility rather than a
-rhetorical hedge. It also directly settles A-001.
+C therefore measures the real tile path for most enterprise deployments, not an
+alternative to it: clipping, quantising, simplifying and protobuf encoding, in
+our process, thousands of geometries per tile.
+
+B remains worth running as the PostGIS-only best case, and the **B-to-C gap is
+the number that matters** — it is the cost of not being on PostGIS, and it is a
+figure the product will be judged on.
+
+If B and C turn out comparable, the platform is database-bound and ADR-001 does
+not turn on performance. That is still possible, and still the most useful
+result the experiment could produce. It is now less likely.
 
 ## 3. Prohibited shortcuts
 
