@@ -74,7 +74,13 @@ they prove is unnecessary in a GIS server, and where do they stop being enough?*
 *COG, STAC, PMTiles, range requests, static tile hosting. Which of these remove
 the need for server components rather than adding to them?*
 
-> Not written.
+*Must include the client-side case (GeoLibre and equivalents): a full analysis
+stack in WebAssembly against remote cloud-native formats, with no server at all.
+This section answers Q-18 — where a server genuinely earns its cost — and it is
+the section the Adversarial Reviewer should attack hardest.*
+
+> Not written. See `research/client-side-platforms.md` and the standing
+> challenge in [product-context.md](product-context.md).
 
 ## 11. Legacy patterns to avoid
 

@@ -27,7 +27,8 @@ finished, however confident the ADR sounds.
 | Feature services (§28) | — | — | — | — | — | — | — | not started |
 | Vector tiles (§33) | — | — | — | — | — | — | — | not started |
 | Publishing (§38) | — | — | — | — | — | — | — | not started |
-| Admin API (§39) | — | — | — | — | — | — | — | not started |
+| Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
+| Compatibility layer (§51) | — | — | — | — | — | — | — | not started — **required**, not optional (migration is a goal). Outside the core domain. |
 | AuthN / AuthZ (§41, §42) | — | — | — | — | — | — | — | not started |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
 | Backpressure (§48) | — | — | — | — | — | — | — | not started |

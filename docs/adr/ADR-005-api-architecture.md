@@ -21,6 +21,16 @@ How OGC API Features/Tiles/Maps/Processes, WMS/WMTS/WFS and any compatibility su
 Also to decide: versioning strategy, content negotiation, error model, and where
 the compatibility layer (§51) sits relative to the core.
 
+**Updated 2026-08-12 — the compatibility layer is now a requirement.** Displacing
+existing ArcGIS Server and GeoServer deployments is a confirmed product goal
+(see [product-context.md](../product-context.md)), which promotes §51 from
+optional investigation to deliverable. This raises the stakes on option 1: with a
+required compatibility surface, an internal model shaped by any external protocol
+(option 3) becomes actively dangerous. Which surface to target is Q-17 and is
+still open.
+
+Clean room applies with full force here (§5): published protocol behaviour only.
+
 ## 3. Counterarguments to the preferred option
 
 Not yet written — no option is preferred yet.
