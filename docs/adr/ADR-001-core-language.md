@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` |
-| **Confidence** | — |
-| **Decided** | — |
+| **Status** | `ACCEPTED` — **not validated by a language benchmark**, see §6 |
+| **Confidence** | `MEDIUM` |
+| **Decided** | 2026-08-12 |
 
 ---
 
@@ -193,7 +193,14 @@ not processes. We will run a small number of workers, so per-runtime overhead
 multiplies by worker count, not service count. The objection does not survive
 its own arithmetic.
 
-## 5. Narrowing for the prototype
+## 5. Narrowing for the prototype — superseded
+
+**The two-language comparison was not run.** See §6 for why, and for what
+replaced it. This section is retained because it defines the measurement
+methodology that `benchmarks/` inherited, and because the reasoning behind the
+narrowing is still the reasoning behind the choice.
+
+### Original narrowing
 
 The four split cleanly along one axis:
 
@@ -246,17 +253,61 @@ of criteria, and the honest one.
 
 ## 6. Decision
 
-**Pending — narrowed, not decided.** Go and C#/.NET proceed to the prototype at
-`experiments/lang-slice/`. Rust and Java remain live under the escalation
-triggers in §5. Status stays `REQUIRES PROTOTYPE`.
+**C# / .NET.** Decided 2026-08-12.
 
-Recording what would make this ADR wrong, before the numbers arrive: if the
-prototype shows both candidates comfortably within our latency and memory
-targets — which §3 suggests is plausible, since the hot path may be
-database-bound — then **this ADR should not pretend the benchmark decided it.**
-It should say the performance criteria did not discriminate, and decide on C9,
-C10 and C11 instead. An ADR that manufactures a performance justification for a
-preference is worse than one that admits the preference.
+**This decision was not validated by a language benchmark, and that is stated
+first rather than buried.** The two-language comparison specified in §5 was not
+run. What follows is the reasoning, and readers should weigh it as argument
+rather than as evidence.
+
+### Why the comparison was dropped
+
+§5 of `experiments/lang-slice` carried a condition written before any of this:
+*"If we cannot commit to tuning both fairly, we should not run it and should
+decide ADR-001 on secondary criteria instead. That is a legitimate outcome."*
+That condition was invoked deliberately, not forgotten.
+
+Three things moved after §3's weighting was set, and all three moved the same
+way:
+
+- **In-process MVT encoding became mandatory.** `ST_AsMVT` is PostGIS-only, and
+  Oracle and SQL Server are first-class (Q-50a). That puts CPU back on the hot
+  path and raises the weight of C1 — geometry access — which is Go's weakest
+  criterion and the one where `go-geos`'s own documentation steers long-running
+  servers toward `go-geom` instead.
+- **The single-binary story was restored for both candidates** by the rule that
+  the serving container ships no GDAL (Q-28). That neutralised C7, which was
+  Go's strongest advantage.
+- **A direct peer built this exact workload in .NET** with 4,608 commits behind
+  it ([research/honua-server.md](../research/honua-server.md) §3). Not a
+  benchmark, and explicitly not treated as one — but real evidence that the
+  runtime is adequate for the profile.
+
+### Why .NET rather than Java or Rust
+
+Unchanged from §4. NetTopologySuite runs in-runtime, which serves the owner's
+defect-resolution requirement directly; Npgsql is a strong PostgreSQL driver;
+diagnostics are a genuine strength for the 2 AM test; and single-file publish
+makes C7 credible. Java's JTS advantage is marginal against NTS and its
+distribution story is weaker. Rust's advantages are memory and p99, which the
+next section makes measurable rather than assumed.
+
+### What replaces the comparison
+
+**A-019 matters more than this ADR**, and a single-language prototype answers it
+completely.
+
+A-019 asks whether in-process MVT encoding meets our latency targets. If it
+fails, the multi-database promise is hollow and the architecture changes. This
+ADR chooses between runtimes that are probably both adequate.
+
+So the effort moves from *relative* measurement to *absolute*: does .NET hit the
+targets, how does streaming behave at a million features, and what does the
+`ST_AsMVT`-versus-in-process gap cost. That work now lives in
+`benchmarks/mvt-generation` and `benchmarks/feature-query`.
+
+**The fallback is explicit.** If .NET misses the targets, the comparison becomes
+necessary and is run then — with a reason, rather than as a ritual.
 
 ## 7. Assumptions
 
@@ -273,8 +324,10 @@ preference is worse than one that admits the preference.
 
 ## 9. Revisit triggers
 
-- The prototype shows less than a materially significant gap between candidates
-  on C1–C6, making secondary criteria decisive.
+- **.NET misses the absolute targets in `benchmarks/mvt-generation` or
+  `benchmarks/feature-query`.** That is what would make the language comparison
+  necessary after all, and it would reopen this ADR with a reason rather than as
+  a ritual.
 - The chosen language's geometry or GDAL binding becomes unmaintained.
 - A polyglot boundary (§80.2) proves necessary for a worker class, which would
   change what "core language" means.

@@ -2,11 +2,23 @@
 
 | | |
 |---|---|
-| **Status** | `DRAFT` |
+| **Status** | `DRAFT` — **unblocked 2026-08-12**, ADR-001 chose .NET |
 | **Confidence** | — |
 | **Decided** | — |
 
 ---
+
+> **Unblocked 2026-08-12.** [ADR-001](ADR-001-core-language.md) chose .NET, so
+> the in-runtime engine is **NetTopologySuite** — a managed port of JTS, the
+> reference implementation, debuggable in the same debugger as our own code.
+> That is the strongest available position on the owner's defect-resolution
+> requirement, and it settles the *which engine* half of this ADR.
+>
+> What remains open is the **split** (§2, Alternative B): which work goes to
+> NTS, which is pushed to the provider, and which uses our own hot-path
+> primitives. In-process MVT encoding being mandatory (Q-50a) makes that split
+> more consequential than it was, because clip, quantise, simplify and
+> tile-space transform are now on the critical path for two of three providers.
 
 ## 1. Context
 

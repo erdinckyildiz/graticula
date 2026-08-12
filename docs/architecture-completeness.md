@@ -10,14 +10,14 @@ finished, however confident the ADR sounds.
 
 | Area | Decision | ADR | Prototype | Benchmark | Security review | Ops review | Failure review | Status |
 |---|---|---|---|---|---|---|---|---|
-| Core language | narrowed to Go vs .NET | DRAFT | specified | — | — | — | — | `REQUIRES PROTOTYPE` — paper round done, prototype spec written |
+| Core language | **.NET** | `ACCEPTED` | n/a | — | — | — | — | Decided on paper analysis and secondary criteria. **Not validated by a language benchmark** — stated in ADR-001 §6. Effort moved to absolute measurement (A-019) |
 | Primary data architecture | **decided, amended twice** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | Platform store is SQLite and PostgreSQL only (Q-51 narrowed it from four engines). SQL Server and Oracle remain providers and datastores. Conditions in ADR-002 §9. State inventory delivered for ADR-012. |
 | Provider architecture — multi-dialect | — | — | — | — | — | — | — | **elevated**: three first-class spatial dialects. `ST_AsMVT` is PostGIS-only, so in-process MVT encoding is mandatory |
 | Hosted datastore (optional) | **decided: v1, PostGIS only, managed appliance** | — | — | — | — | — | — | storage model in [data-model.md](data-model.md); Q-32 now only decides v1 phasing |
 | Data model — storage and layer modes | **decided** | n/a | — | — | — | — | — | four lifecycles separated; datastore is a provider we own, on any of three spatial engines; editing is out of our API |
 | Connection discipline / quiesce | — | — | — | — | — | — | — | new obligation: we must not block a DBA's DDL. Lands on ADR-007 §5b and the admin API |
 | Schema drift detection | — | — | — | — | — | — | — | improvement over ArcGIS, which requires manual restart. A-023 |
-| Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
+| Geometry engine | engine settled | DRAFT | — | — | — | — | — | **unblocked**: .NET means NetTopologySuite in-runtime. Open part is the split between NTS, provider pushdown and our own hot-path primitives |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; legacy protocols in the compatibility layer; capability report generated not hand-written |
 | Plugin model | **decided** | `ACCEPTED WITH CONDITIONS` | n/a | n/a | — | — | — | internal extension points only; no third-party plugin system until a specific trigger fires |

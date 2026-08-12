@@ -17,7 +17,8 @@ Planned:
 
 | Directory | Question | Settles |
 |---|---|---|
-| `lang-slice/` | Which language, measured on the same vertical slice? Go vs .NET, per ADR-001 §5 | ADR-001, A-001, A-002 — **specified**, see its README |
+| `_env/` | Local PostGIS and GDAL for every experiment and benchmark. Disposable | unblocks everything measurable |
+| ~~`lang-slice/`~~ | **SUPERSEDED, not run.** The two-language comparison was dropped deliberately; ADR-001 decided .NET on paper analysis. Effort moved to absolute measurement in `benchmarks/` | see its README for why |
 | `geometry-oracle/` | Correctness corpus with the adopted engine as oracle. **Scope set by [geometry-crs-policy.md](../docs/geometry-crs-policy.md):** real pathological data — self-intersecting rings, wrong SRIDs, mixed types, Z/M, curves, oversized features — not synthetic adversarial data. Must also cover the three engines' *differing definitions of validity* | ADR-003, Q-20, G4 |
 | `worker-isolation/` | What does process isolation actually cost per worker? | ADR-007, A-007 |
 | `affinity-routing/` | Does warmth-aware routing beat blind routing, and where does it break under skew? | ADR-007, ADR-010, A-014 |

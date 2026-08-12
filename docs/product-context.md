@@ -22,7 +22,7 @@ for every review gate.
 |---|---|---|
 | Licensing | Open source, copyleft (GPL/AGPL) acceptable | No dependency is excluded on licence grounds. LGPL/MIT are free of friction. AGPL obligations apply over the network for a server product and must be stated explicitly wherever relevant. |
 | Scale target | 100–1,000 published services | Kubernetes, mandatory Redis, message brokers and container-per-service are out of scope for the baseline. Worker pooling and DB connection budgeting are in scope and serious: a naive process-per-service model does not survive 1,000 services. |
-| Core language | Genuinely open, decided by evidence | [ADR-001](adr/ADR-001-core-language.md) requires a comparison *and a prototype*. No default. |
+| Core language | **C# / .NET** | Decided 2026-08-12. [ADR-001](adr/ADR-001-core-language.md) §6 records that the two-language comparison was deliberately not run, and why. Effort moved to absolute measurement, since A-019 gates the architecture and the language choice does not. |
 | Build vs adopt | Own the server domain; adopt foundational libraries behind our own ports; never adopt finished GIS server products | See [build-vs-adopt-policy.md](build-vs-adopt-policy.md) |
 | **Primary user** | **The GIS administrator** | Answered 2026-08-12 — see below |
 | **Day-one workload** | **Features first, then vector tiles** | Answered 2026-08-12 — see below |

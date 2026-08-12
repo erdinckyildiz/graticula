@@ -1,149 +1,68 @@
-# Experiment: lang-slice
+# Experiment: lang-slice — SUPERSEDED, not run
 
-**Question it answers:** [ADR-001](../../docs/adr/ADR-001-core-language.md) —
-which core language, on measured evidence rather than taste (§14, §57).
-**Assumptions it settles:** A-001, A-002, and partially A-005.
-**Candidates:** Go and C# / .NET. Rust and Java on escalation triggers, see
-ADR-001 §5.
-
-**Status:** SPECIFIED, not yet built.
+**Status:** SUPERSEDED 2026-08-12. The two-language comparison was **deliberately
+not run.**
+**Replaced by:** `benchmarks/mvt-generation` and `benchmarks/feature-query`,
+which measure absolutes in one language instead of comparing two.
+**Decision it was meant to settle:** [ADR-001](../../docs/adr/ADR-001-core-language.md),
+now `ACCEPTED` as .NET on paper analysis and secondary criteria.
 
 ---
 
-## 1. The one thing this experiment must not do
+## Why it was not run
 
-It must not be run in a way that produces the answer someone already wants.
+This experiment carried a condition written into it from the start:
 
-Both implementations must be written to the same specification, tuned to a
-comparable degree, and measured on identical hardware and data. If one is
-written carefully and the other in a hurry, the result is a measurement of
-effort, not of language — and it will be quoted for years as though it were the
-latter.
+> *"If we cannot commit to tuning both fairly, we should not run it and should
+> decide ADR-001 on secondary criteria instead. That is a legitimate outcome."*
 
-If we cannot commit to tuning both fairly, we should not run it and should
-decide ADR-001 on secondary criteria instead. That is a legitimate outcome.
+That condition was invoked deliberately. Three things moved after the experiment
+was specified, all in the same direction:
 
-## 2. The slice
+- **In-process MVT encoding became mandatory.** `ST_AsMVT` is PostGIS-only and
+  Oracle and SQL Server are first-class (Q-50a), so CPU returned to the hot path
+  and geometry access — Go's weakest criterion — gained weight.
+- **The single-binary story was restored for both candidates** by the rule that
+  the serving container ships no GDAL (Q-28), neutralising Go's strongest
+  advantage.
+- **A direct peer built this exact workload in .NET** with 4,608 commits behind
+  it, which is evidence of adequacy even though it is not a benchmark.
 
-Identical in both languages. Deliberately narrow — this is not a small GIS
-server, it is the thinnest path that exercises what the day-one workload
-actually does.
+## What replaced it, and why that is better
 
-```text
-HTTP request
-  → parse and validate parameters
-  → parameterised SQL against PostGIS
-  → stream result
-  → serialise
-  → HTTP response
-```
+**A-019 matters more than ADR-001.**
 
-Three endpoints:
+A-019 asks whether in-process MVT encoding meets our latency targets. If it
+fails, the multi-database promise is hollow and the architecture changes.
+ADR-001 chose between two runtimes that are probably both adequate.
 
-| # | Endpoint | Purpose |
-|---|---|---|
-| **A** | `GET /collections/{id}/items?bbox=&limit=` → streamed GeoJSON | The feature path. Tests C6 streaming and C8 driver quality. |
-| **B** | `GET /tiles/{z}/{x}/{y}.mvt` via `ST_AsMVT` | The pushdown tile path. Mostly measures how efficiently the language moves bytes from socket to socket. |
-| **C** | `GET /tiles-local/{z}/{x}/{y}.mvt`, geometry fetched as WKB and **encoded in-process** | The in-process tile path. |
+A single-language prototype answers A-019 completely. It does not tell us
+whether Go is faster; it tells us whether **this is fast enough**, which is the
+question that actually gates the architecture.
 
-### Why endpoint C is the important one
+So the effort moved from *relative* to *absolute* measurement:
 
-**Upgraded 2026-08-12 from "the interesting comparison" to "the primary path".**
-
-`ST_AsMVT` exists only in PostGIS. The owner made Oracle Spatial and SQL Server
-Spatial first-class, so for two of the three providers **endpoint C is the only
-way to serve a tile**
-([research/multi-database-consequences.md](../research/multi-database-consequences.md)
-§3.1).
-
-C therefore measures the real tile path for most enterprise deployments, not an
-alternative to it: clipping, quantising, simplifying and protobuf encoding, in
-our process, thousands of geometries per tile.
-
-B remains worth running as the PostGIS-only best case, and the **B-to-C gap is
-the number that matters** — it is the cost of not being on PostGIS, and it is a
-figure the product will be judged on.
-
-If B and C turn out comparable, the platform is database-bound and ADR-001 does
-not turn on performance. That is still possible, and still the most useful
-result the experiment could produce. It is now less likely.
-
-## 3. Prohibited shortcuts
-
-Each of these would invalidate the comparison, and each is tempting:
-
-- Buffering the whole result set before writing the response. Endpoint A must
-  stream — that is the point of it.
-- Using a different PostgreSQL driver mode between implementations (one binary
-  protocol, one text).
-- Caching anything. No L1, no HTTP caching, no prepared-statement warmth that
-  only one side gets.
-- Connection pool sizes that differ. Fix the pool size explicitly and identically.
-- Different JSON or protobuf libraries chosen for convenience rather than because
-  each is the idiomatic best-in-class choice for its language. Record what was
-  chosen and why.
-- Running the two on different machines, or against different database instances.
-
-## 4. Dataset
-
-Real data, not synthetic. Synthetic uniform points make every implementation
-look good and hide exactly the behaviour we care about.
-
-Requirements:
-
-- One polygon layer with **at least 1 million features** and realistically
-  irregular vertex counts — administrative boundaries or building footprints.
-- One point layer of similar cardinality.
-- One line layer with long, high-vertex geometries — roads or hydrography. These
-  are where clipping and simplification actually cost something.
-- Indexed as we would index in production (GiST), `ANALYZE`d, and identical for
-  both runs.
-
-Record the exact source, extract date, feature counts and total vertex counts.
-`VERIFY` OpenStreetMap extracts are the obvious source and are licence-clean for
-benchmarking; confirm before use.
-
-## 5. Measurements
-
-| Metric | Why |
+| Was | Is now |
 |---|---|
-| Throughput (req/s) at fixed concurrency | Headline capacity |
-| p50 / p95 / **p99** latency | p99 is the one that matters. Averages hide GC pauses. |
-| Peak RSS under sustained load | C5, and it compounds across workers |
-| Allocation rate / GC pause distribution | The managed-camp question, stated precisely |
-| Cold start to first successful response | ADR-007 worker recycling and lazy start |
-| Artefact size, and whether it is one file | C7, with the Q-28 caveat that GDAL is excluded here |
-| Behaviour at saturation | Does it degrade predictably or fall over? Feeds §48 backpressure |
+| Endpoint A, streamed GeoJSON, both languages | `benchmarks/feature-query` |
+| Endpoint B versus C, `ST_AsMVT` versus in-process, both languages | `benchmarks/mvt-generation` |
+| Which language is faster | Whether .NET hits the targets at all |
 
-Run each at three concurrency levels including one deliberately past saturation.
-A language that degrades gracefully under overload is worth more to a GIS
-administrator at 2 AM than one that is 15% faster below it.
+## What survives from this document
 
-### Recorded, not measured
+The methodology, which the benchmarks inherited and which still applies:
 
-Written down honestly by whoever implements each side, including the parts that
-are unflattering:
+- **Real data, not synthetic.** Synthetic uniform data makes every
+  implementation look good and hides exactly the behaviour we need to see.
+- **The prohibited shortcuts** — no buffering a result set before responding, no
+  caching, fixed connection pool sizes, no mixing driver modes.
+- **p99 over averages**, because averages hide GC pauses.
+- **Behaviour at saturation**, not only below it. Graceful degradation under
+  overload is worth more to an administrator at 2 AM than being faster below it.
+- **Recorded, not measured**: implementation friction, and what diagnosability
+  was actually like when something was slow.
 
-- Time to working implementation.
-- Where the language fought back.
-- What the diagnosability experience was actually like when something was slow —
-  this is C9, and it is best assessed by having genuinely needed it.
-- Whether the idiomatic solution was also the fast solution, or whether
-  performance required unidiomatic code. This predicts what the codebase looks
-  like in three years.
+## The trigger that would revive it
 
-## 6. Reporting
-
-`RESULTS.md` in this directory containing: hardware, OS, database version and
-configuration, dataset description, both implementations' library choices, raw
-numbers, and the honest notes from §5.
-
-Then a summary into [ADR-001](../../docs/adr/ADR-001-core-language.md) §4
-(Evidence) — including, if that is what the numbers say, **"the performance
-criteria did not discriminate."**
-
-## 7. Afterwards
-
-This code is deleted, or left here permanently marked as disposable. It is never
-promoted to production (§56, [CLAUDE.md](../../CLAUDE.md) §1). If it validates an
-approach, production is written fresh.
+**.NET missing the absolute targets.** That is what makes a language comparison
+necessary — with a reason, rather than as a ritual. Recorded in ADR-001 §9.
