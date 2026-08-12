@@ -17,7 +17,7 @@ finished, however confident the ADR sounds.
 | Data model — storage and layer modes | **decided** | n/a | — | — | — | — | — | four lifecycles separated; datastore is a provider we own, on any of three spatial engines; editing is out of our API |
 | Connection discipline / quiesce | — | — | — | — | — | — | — | new obligation: we must not block a DBA's DDL. Lands on ADR-007 §5b and the admin API |
 | Schema drift detection | — | — | — | — | — | — | — | improvement over ArcGIS, which requires manual restart. A-023 |
-| Geometry engine | engine settled | DRAFT | — | — | — | — | — | **unblocked**: .NET means NetTopologySuite in-runtime. Open part is the split between NTS, provider pushdown and our own hot-path primitives |
+| Geometry engine | engine settled | DRAFT | prototype | **measured x2** | — | — | — | .NET means NetTopologySuite in-runtime. The split is now empirically placed, not argued: clip and simplify are ours, topology stays NTS (ADR-003 §5a-§5b). Q-66 asks the next question — whether the tile path takes geometry objects at all |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; legacy protocols in the compatibility layer; capability report generated not hand-written |
 | Plugin model | **decided** | `ACCEPTED WITH CONDITIONS` | n/a | n/a | — | — | — | internal extension points only; no third-party plugin system until a specific trigger fires |
@@ -30,7 +30,7 @@ finished, however confident the ADR sounds.
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | scope under revision | — | — | — | — | — | — | Q-52 splits serving providers from import sources; §27's list wrongly includes interchange formats as providers. Q-53 recommends against warehouses. |
 | Feature services (§28) | — | — | — | — | — | — | — | read **and write**. A-026 asks whether OGC API Features plus additive extensions covers §28; A-027 covers concurrency against writes that bypass us |
-| Vector tiles (§33) | — | — | prototype | **measured** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes at 94 ms vs 62 ms; own clipper 63x faster than general overlay. Simplify is next. PostGIS only so far |
+| Vector tiles (§33) | — | — | prototype | **measured x2** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes; own clipper 63x and own simplifier 47x faster than the adopted equivalents, at equal output. Geometry is no longer the cost — allocation is (204 MB per z12 tile, A-037). PostGIS only so far, which is the largest hole in the evidence |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |

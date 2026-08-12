@@ -127,17 +127,36 @@ app.MapGet("/tiles/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlD
 // the cost is, and ADR-003's open question is precisely whether our own
 // hot-path primitives are worth writing.
 app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlDataSource ds,
-    int z, int x, int y, string? clip) =>
+    int z, int x, int y, string? clip, string? simplify) =>
 {
     bool fastClip = clip is "fast";
+    // nts    — DouglasPeuckerSimplifier, the default, topology repair on
+    // ntsraw — the same, with EnsureValidTopology off. Isolates what the
+    //          IsValid/Buffer(0) repair actually costs on tile geometry
+    // ours   — TileSimplify, after the transform, on the integer grid
+    string simpMode = simplify is "ours" or "ntsraw" ? simplify : "nts";
     var total = Stopwatch.StartNew();
     long tQuery = 0, tFetch = 0, tParse = 0, tPrepare = 0, tEncode = 0;
     long tClip = 0, tSimplify = 0, tTransform = 0;
     int fetched = 0, emitted = 0, trivialInside = 0;
+    long vIn = 0, vOut = 0;
+    var simpStats = default(TileSimplify.Stats);
 
     var env = TileMath.TileEnvelope(z, x, y);
     var buf = TileMath.BufferedEnvelope(env);
     double tolerance = env.Width / TileMath.Extent; // one tile unit, in map units
+
+    // Allocation and collection accounting. Added after the stage timings stopped
+    // adding up: at z12 the measured stages are 132 ms of a 323 ms request, and a
+    // claim about where the other 190 ms goes needs evidence like anything else.
+    // Process-wide, not GetAllocatedBytesForCurrentThread(): this handler is
+    // async and resumes on a different pool thread after each await, so the
+    // per-thread counter subtracts two unrelated threads and can go negative.
+    // It did, which is how the mistake was caught. Process-wide is correct here
+    // only because the benchmark is strictly sequential.
+    long alloc0 = GC.GetTotalAllocatedBytes(precise: false);
+    int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
+    var pause0 = GC.GetTotalPauseDuration();
 
     var sql = $"""
         SELECT osm_id, COALESCE(name,'') AS name, ST_AsBinary({GeomCol}) AS g
@@ -198,17 +217,51 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
             tClip += swp.ElapsedMicroseconds();
             if (clipped.IsEmpty) continue;
 
-            swp.Restart();
-            var simplified = DouglasPeuckerSimplifier.Simplify(clipped, tolerance);
-            tSimplify += swp.ElapsedMicroseconds();
-            if (simplified.IsEmpty) continue;
+            if (simpMode == "ours")
+            {
+                // Transform first, then simplify. Quantisation to the 4096 grid
+                // collapses vertices on its own, so doing it first means DP
+                // never sees the points the next stage would have merged.
+                swp.Restart();
+                var tiled = ToTileSpace(clipped, env, geomFactory);
+                tTransform += swp.ElapsedMicroseconds();
 
-            swp.Restart();
-            prepared = ToTileSpace(simplified, env, geomFactory);
-            tTransform += swp.ElapsedMicroseconds();
+                swp.Restart();
+                var simplified = TileSimplify.Simplify(tiled, 1.0, geomFactory, ref simpStats);
+                tSimplify += swp.ElapsedMicroseconds();
+                if (simplified is null || simplified.IsEmpty) continue;
+                prepared = simplified;
+            }
+            else
+            {
+                swp.Restart();
+                Geometry simplified;
+                if (simpMode == "ntsraw")
+                {
+                    var dp = new DouglasPeuckerSimplifier(clipped) { EnsureValidTopology = false };
+                    dp.DistanceTolerance = tolerance;
+                    simplified = dp.GetResultGeometry();
+                }
+                else
+                {
+                    simplified = DouglasPeuckerSimplifier.Simplify(clipped, tolerance);
+                }
+                tSimplify += swp.ElapsedMicroseconds();
+                if (simplified.IsEmpty) continue;
+
+                swp.Restart();
+                prepared = ToTileSpace(simplified, env, geomFactory);
+                tTransform += swp.ElapsedMicroseconds();
+            }
         }
         catch { continue; }
         tPrepare = tClip + tSimplify + tTransform;
+
+        // Vertex accounting sits outside the stage timers: it is reporting, not
+        // pipeline work, and paying for it inside the measurement would be the
+        // observer changing what it observes.
+        vIn += geom.NumPoints;
+        vOut += prepared.NumPoints;
 
         sw.Restart();
         if (encoder.Add(id, prepared, [new("name", name)])) emitted++;
@@ -221,6 +274,9 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
 
     var h = ctx.Response.Headers;
     h["X-Total-Ms"] = total.ElapsedMilliseconds.ToString();
+    h["X-Alloc-MB"] = ((GC.GetTotalAllocatedBytes(precise: false) - alloc0) / 1048576.0).ToString("F1");
+    h["X-Gc"] = $"{GC.CollectionCount(0) - g0}/{GC.CollectionCount(1) - g1}/{GC.CollectionCount(2) - g2}";
+    h["X-Gc-Pause-Ms"] = (GC.GetTotalPauseDuration() - pause0).TotalMilliseconds.ToString("F1");
     h["X-Fetched"] = fetched.ToString();
     h["X-Emitted"] = emitted.ToString();
     h["X-Bytes"] = bytes.Length.ToString();
@@ -232,6 +288,10 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     h["X-Clip-Mode"] = fastClip ? "fast" : "nts";
     h["X-Trivial-Inside"] = trivialInside.ToString();
     h["X-Us-Simplify"] = tSimplify.ToString();
+    h["X-Simplify-Mode"] = simpMode;
+    h["X-Vertices-In"] = vIn.ToString();
+    h["X-Vertices-Out"] = vOut.ToString();
+    h["X-Rings-Dropped"] = simpStats.RingsDropped.ToString();
     h["X-Us-Transform"] = tTransform.ToString();
     h["X-Us-Encode"] = tEncode.ToString();
     ctx.Response.ContentType = "application/vnd.mapbox-vector-tile";

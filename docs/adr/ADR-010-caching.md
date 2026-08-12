@@ -246,6 +246,26 @@ realistic estate take, per provider? That is `benchmarks/tile-seeding/` and it
 determines whether A-020 — that seeding absorbs the provider gap — is true or
 wishful.
 
+### 6a. What a seed actually costs, measured
+
+**2026-08-12**, [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md).
+
+A single z12 tile: **204 MB allocated**, 291 ms best-observed on a contended
+machine, 456 ms median. Seeding a metropolitan area across z10–z16 is tens of
+thousands of tiles of that shape, and the cost is not linear in tile count
+because low zooms carry far more geometry per tile — the z12 tile in the
+benchmark cost 8x the z14 one and 20x the z16 one.
+
+Two things this changes in §6:
+
+- **Seeding is an allocation load, not only a CPU load.** ADR-007 §4.14 records
+  that neither ADR sizes anything against allocation rate.
+- **Cheapest-first is the wrong seed order if the goal is bounded memory.** Low
+  zooms are both the most expensive and the most valuable to have cached.
+
+No decision changes here. The number is recorded because §6 currently reasons
+about seeding without one.
+
 ## 7. Multi-node
 
 Inherited from [ADR-002](ADR-002-primary-data-architecture.md) §5 and owed to

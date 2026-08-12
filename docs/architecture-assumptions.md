@@ -52,10 +52,13 @@ ADR depends on is either mislabelled or unnecessary.
 | A-021 | Filter, clip and simplify can be pushed down usefully on all three spatial dialects, with comparable enough semantics to produce equivalent tiles | `UNVALIDATED` | `VERIFY` the per-dialect table in [research/hosted-datastore-and-tiles.md](research/hosted-datastore-and-tiles.md) §2, then measure | ADR-008 |
 | A-017 | Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them | `VALIDATING` | Follows from the confirmed migration goal — an organisation displacing GeoServer has PostGIS administered by someone else. Confirm via Q-08. Load-bearing for [ADR-002](adr/ADR-002-primary-data-architecture.md) §4.1–4.2 | ADR-002, ADR-008, publishing (§38) |
 | A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment ships as one artefact | `VALIDATED` by design decision, 2026-08-12 | Adopted as a rule rather than tested as a hope: **the serving container ships no GDAL**; it lives only in the job worker image. Any provider requiring GDAL is therefore an import source, not a serving provider. See [research/honua-server.md](research/honua-server.md) §2b | ADR-001 C7, ADR-009, deployment, Q-15 |
+| A-037 | Allocation rate, not CPU, sets the tile-serving ceiling per worker | `UNVALIDATED` — **new 2026-08-12** | A concurrency benchmark on the tile path, watching allocation rate and GC pause rather than single-request latency. Opened by [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md) finding 10: one z12 tile allocates 204 MB and single-request GC pauses reached 153 ms. If true, ADR-007 §4.1's worker sizing needs an allocation term it does not have | ADR-007 §4.14, ADR-010 §6a |
 | A-010 | The 100–1,000 service target will not shift upward by an order of magnitude after launch | `UNVALIDATED` | Owner confirmation; revisit at each phase gate | ADR-007, ADR-012 |
 
 **Priority.** A-013 is resolved — a threaded worker model is available. A-003 is the
-load-bearing assumption under the shared-worker model. A-007 is now `CONTESTED`
+load-bearing assumption under the shared-worker model. **A-037 is new and is the
+first assumption this project found by measuring rather than by reasoning**: it
+was not on anyone's list until a tile turned out to allocate 204 MB. A-007 is now `CONTESTED`
 and needs splitting into a managed-code path and a native-code path rather than
 being answered once.
 

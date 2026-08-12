@@ -143,9 +143,35 @@ not. That is exactly the line
 [build-vs-adopt-policy.md](../build-vs-adopt-policy.md) §4 drew, and the
 measurement confirms where it belongs.
 
-**The bottleneck has moved.** With the clip fixed, `DouglasPeuckerSimplifier` is
-55% of a z12 tile. The same argument applies again and simplification is the
-next candidate to own.
+**The bottleneck moved, and was taken.** With the clip fixed,
+`DouglasPeuckerSimplifier` was 55% of a z12 tile. Run 2 of the same benchmark
+replaced it with `TileSimplify`: **363.9 ms to 7.8 ms on the stage**, 637 ms to
+291 ms on the request, emitting **0.27% fewer vertices** — that is, it is not
+faster by discarding more.
+
+## 5b. Where the boundary actually falls, after two rounds
+
+The hypothesis going into run 2 was that NTS's cost was topology repair —
+`IsValid` on every simplified polygon and `Buffer(0)` on the failures.
+**Measurement refuted it.** With `EnsureValidTopology` off, the simplifier was
+307.5 ms against 363.9 ms; within the noise, nothing. The polygons are valid and
+the repair never fires.
+
+The cost is object churn. NTS `Coordinate` is a `class`, so a 556,728-vertex
+tile is 556,728 heap objects before the first distance calculation. Measured
+directly: **a z12 tile request allocates 404 MB with NTS simplification and
+204 MB with ours**, with GC pauses of 18–153 ms landing inside the request.
+
+That refines §3's lean in a way the earlier framing did not anticipate. The
+question is not *which operations* to own — it is **where geometry stops being
+objects**. Both primitives we have written are fast for the same reason: they
+work on flat arrays. The largest remaining cost is WKB parsing building an NTS
+geometry graph that exists only to be discarded one stage later.
+
+That points at a decision this ADR does not currently contain: whether the
+provider interface hands back geometry objects at all on the tile path, or hands
+back coordinates. Raised as **Q-66** rather than decided here, because it
+changes the provider contract and not just an implementation.
 
 ## 6. Decision
 
@@ -155,7 +181,7 @@ Pending. Blocked on ADR-001.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-004 | Hot-path geometry overhead is material enough to justify our own primitives | `UNVALIDATED` |
+| A-004 | Hot-path geometry overhead is material enough to justify our own primitives | **`VALIDATED` 2026-08-12** — twice, on clipping and on simplification |
 | A-006 | A single internal geometry representation can serve both vector and tile paths without a second conversion | `UNVALIDATED` |
 
 ## 8. Dependencies

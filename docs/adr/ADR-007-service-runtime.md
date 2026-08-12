@@ -412,6 +412,34 @@ detection and whatever routes reads that state, so detection happens **before**
 routing - provided the routing component observes supervisor state, which is a
 constraint on Q-63's answer.
 
+### 4.14 Allocation rate, which this ADR sizes nothing against
+
+**Added 2026-08-12 from measurement**, [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) finding 10.
+
+A single z12 vector tile request allocates **204 MB**, after the optimisation
+that halved it from 404 MB. That is one request, on one tile, single-threaded.
+
+Everything in §4 sizes workers against CPU and against a per-worker service
+context budget. Neither is necessarily the binding constraint. At the
+concurrency this ADR assumes, allocation rate plausibly sets the ceiling first —
+and unlike CPU it is not visible in a per-request latency measurement, because
+the pause lands on whichever request is unlucky. The measured GC pauses of
+18–153 ms were distributed across stages in a way that made individual stage
+timings unusable until minima were taken.
+
+Three consequences, none of them yet quantified:
+
+- **Worker sizing (§4.1) has no allocation term.** A worker that is CPU-idle can
+  still be GC-bound. `A-037` records this and it is `UNVALIDATED`.
+- **Server GC's heap grows with core count.** The measurement ran with
+  `ServerGarbageCollection`, which is right for throughput and means per-worker
+  memory is not the flat number §4.4's context budget assumes.
+- **Seeding (ADR-010 §6) walks whole tile pyramids** of exactly this cost, on
+  job workers that §4.2 deliberately gave less memory than request workers.
+
+This does not change any decision in §4. It records that a load-bearing number
+is missing, so that it is not discovered during a capacity incident instead.
+
 ## 5. Service explosion model (§24)
 
 | Services | Request workers | Bound contexts | Processes | DB connections |
