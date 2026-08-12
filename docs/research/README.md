@@ -23,6 +23,7 @@ Planned topics, in priority order:
 | `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, binding quality — **written, first pass** |
 | `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written, first pass** |
 | `multi-database-consequences.md` | PostgreSQL, SQL Server, Oracle as first-class — **written**, analysis of an owner decision |
+| `hosted-datastore-and-tiles.md` | Own MVT encoder, cache as the equaliser, optional managed datastore — **written**, proposal |
 | `spatial-dialects.md` | PostGIS vs SQL Server Spatial vs Oracle Spatial: function coverage, indexing, SRID handling, validity semantics — **not started, now high priority** |
 | `rendering-engines.md` | Skia, Cairo, MapLibre Native — **written, first pass, deliberately thin** |
 

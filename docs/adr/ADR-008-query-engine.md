@@ -43,10 +43,32 @@ unequal capability, from day one. See
   that somewhere is code we have not written. With three providers of unequal
   capability this stops being an interesting option and becomes a gap that must
   be filled by something.
-- **Editing semantics differ across the three** — isolation levels, locking, what
-  a conflict looks like. This produces provider-dependent *bugs* rather than
-  provider-dependent features, and §28's optimistic concurrency design must
+- **Editing semantics differ across the three.** Isolation levels, locking, and
+  what a conflict looks like. This produces provider-dependent *bugs* rather
+  than provider-dependent features, and §28's optimistic concurrency design must
   account for it.
+
+**Tile path, added 2026-08-12** — see
+[research/hosted-datastore-and-tiles.md](../research/hosted-datastore-and-tiles.md).
+
+The proposed shape, to be confirmed by benchmark:
+
+1. **Our own MVT encoder is the default path.** Mandatory anyway for SQL Server
+   and Oracle, so it is the one path guaranteed to exist.
+2. **Filter, clip and simplify push down per dialect.** All three engines can do
+   these, with different function names and different semantics. Tile-space
+   transform and protobuf encoding are not portable and stay with us.
+3. **`ST_AsMVT` is an optional PostGIS fast path**, adopted only if
+   `benchmarks/mvt-generation/` shows the gain justifies a second code path.
+4. **If both paths ship, they must produce equivalent output**, proven by a
+   conformance test in the style of `experiments/geometry-oracle`. Otherwise the
+   same layer looks different depending on which database it lives in. This is a
+   requirement on this ADR, not an implementation detail — and it is a real
+   argument for having only one path.
+
+`VERIFY` the per-dialect pushdown table in that note before deciding. What each
+engine's `simplify` does to topology, and whether its `intersection` is
+affordable at tile rates, is what actually determines the design.
 
 Must also cover: CQL2 and OGC filter mapping, result streaming for millions of
 features (§47), pagination and cursor stability, statistics and aggregation, and

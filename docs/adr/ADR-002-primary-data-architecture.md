@@ -202,6 +202,14 @@ Each has an identity row in the platform database. **The bytes are node-local
 unless placed on shared storage**, and that is the main thing clustering will
 have to confront.
 
+> **2026-08-12 — a possible home for these.** An optional managed datastore is
+> proposed in
+> [research/hosted-datastore-and-tiles.md](../research/hosted-datastore-and-tiles.md)
+> §4. If deployed, it gives cache bytes, generalised geometry and uploaded data
+> somewhere shared to live, which closes the ambiguity below rather than merely
+> recording it. Where no datastore is deployed the ambiguity stands. Q-32
+> decides whether it is in scope for v1.
+
 ### Ephemeral and node-local
 
 L1 caches and warm per-service state · worker process state · in-flight requests

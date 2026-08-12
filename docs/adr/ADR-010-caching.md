@@ -42,6 +42,18 @@ This is a substantial simplification of this ADR, and it makes the seeding
 question sharper rather than softer: vector tile seeding across 1,000 services
 is now the whole of the seeding problem, not a part of it.
 
+**Raised in importance 2026-08-12.** With Oracle Spatial and SQL Server Spatial
+first-class and `ST_AsMVT` unavailable on both, **the cache is the mechanism
+that absorbs the performance difference between providers** — not the encoder
+([research/hosted-datastore-and-tiles.md](../research/hosted-datastore-and-tiles.md)
+§3). An expensive tile from Oracle is acceptable if it is built once at seed
+time rather than per request.
+
+That reframes this ADR's worst case. It is not "Oracle is slow per request", it
+is "seeding 1,000 services takes how long, and what happens when the data
+changes underneath". Invalidation was already the harder half; it is now the
+harder half of a more important ADR.
+
 L1 lifetime is coupled to worker lifetime (ADR-007): aggressive worker recycling
 destroys L1 value, so the two decisions must be made together rather than
 sequentially.
