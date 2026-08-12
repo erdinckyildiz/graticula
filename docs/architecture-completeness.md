@@ -28,7 +28,7 @@ finished, however confident the ADR sounds.
 | Job system | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | queue in the platform store, no broker; job classes with reserved capacity; every job declares its re-run behaviour |
 | Clustering | deferred | DEFERRED | n/a | n/a | — | — | — | `DEFERRED` (§79) |
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
-| Provider architecture (§27) | — | — | — | — | — | — | — | not started |
+| Provider architecture (§27) | scope under revision | — | — | — | — | — | — | Q-52 splits serving providers from import sources; §27's list wrongly includes interchange formats as providers. Q-53 recommends against warehouses. |
 | Feature services (§28) | — | — | — | — | — | — | — | read **and write**. A-026 asks whether OGC API Features plus additive extensions covers §28; A-027 covers concurrency against writes that bypass us |
 | Vector tiles (§33) | — | — | — | — | — | — | — | not started — **elevated**: the only tile format, and the source for WMS compatibility |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |

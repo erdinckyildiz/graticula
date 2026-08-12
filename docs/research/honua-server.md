@@ -37,6 +37,8 @@ are fully visible without opening a source file.
 | Runtime | .NET 10 |
 | Primary backend | PostGIS, read and write |
 | Other sources | DuckDB, SQL Server, Oracle, MySQL/MariaDB, Redshift, Snowflake, Databricks — **read-only** |
+| File formats | **Import only, not providers.** `VERIFY` GeoJSON, Shapefile (zip), GeoPackage, GPX, KML, WKT, FlatGeobuf, File Geodatabase, GeoParquet — "import … directly, with CRS auto-detection and PostGIS reprojection" |
+| GDAL | **Not in the serving container.** `VERIFY` "the serving container ships no GDAL, while optional geoprocessing worker images bundle it separately" |
 | Cache and jobs | Redis, with in-memory fallback |
 | Deployment | Stateless, container-first, Kubernetes via Helm |
 | Observability | OpenTelemetry |
@@ -80,6 +82,59 @@ source — which the owner already said is how schema changes work anyway
 question as a third option.** It preserves the owner's requirement — an Oracle
 shop is served without running PostgreSQL for their data — while removing most
 of what makes multi-provider expensive.
+
+## 2a. The second idea we should take — files are imported, not served
+
+An initial reading of "supports many formats" was wrong. **Honua does not serve
+file formats as providers. It imports them into PostGIS.**
+
+That distinction is one we had not made, and our §27 provider list gets it
+wrong. Not all formats are the same kind of thing:
+
+| Kind | Examples | As a live provider |
+|---|---|---|
+| **Serving formats** | COG, PMTiles, GeoParquet, FlatGeobuf | Legitimate. Designed for range-request access, with internal indexes, meant to be read in place. |
+| **Interchange formats** | Shapefile, KML, GPX, File Geodatabase, GeoJSON files | **Bad.** No concurrency control, no usable indexes, encoding inconsistency, file locking, and no way to detect that someone changed them. |
+
+§27 currently lists Shapefile, GeoPackage and GeoJSON as *providers*. They should
+be **import sources** instead — registered as a job, converted into the datastore,
+and served afterwards as a first-class hosted layer with real indexes and real
+capability. That is better for the user than serving a shapefile badly, and it
+reuses the registration machinery [ADR-011](../adr/ADR-011-job-system.md) and
+[ADR-009](../adr/ADR-009-raster-engine.md) already define for raster.
+
+It also protects [ADR-008](../adr/ADR-008-query-engine.md). Every
+capability-poor provider widens the matrix that "never degrade silently" has to
+cover honestly, and interchange formats are the poorest of all.
+
+## 2b. The rule worth adopting verbatim
+
+> `VERIFY` "the serving container ships no GDAL, while optional geoprocessing
+> worker images bundle it separately."
+
+We reached the same placement in [ADR-009](../adr/ADR-009-raster-engine.md) §2.2
+— GDAL on job workers, not the request path — but this is the cleaner statement,
+because it is an **architectural rule about the artefact** rather than a decision
+about where code runs.
+
+Adopting it settles something we had left open. **Q-28 asked whether GDAL-backed
+providers could be made optional so that a PostGIS-only deployment is genuinely
+one artefact.** Under this rule the answer is yes by construction: the serving
+binary never links GDAL.
+
+Consequences:
+
+- **A-016 and Q-28 are answered.** The single-binary story becomes real rather
+  than aspirational, which restores weight to [ADR-001](../adr/ADR-001-core-language.md)'s
+  C7 criterion that §3.1 had discounted.
+- **Smaller attack surface.** GDAL parses untrusted files; keeping it out of the
+  process that serves public requests is a security win, not only a packaging
+  one.
+- **The air-gapped checklist shrinks** (Q-15). GDAL driver data belongs to the
+  job worker image only.
+- **It constrains the file-provider decision above**: any provider needing GDAL
+  cannot be a serving provider. That is a clean test, and it lands exactly where
+  §2a's line falls.
 
 ## 3. What it tells us about ADR-001
 
@@ -133,6 +188,24 @@ to be something else.
 Candidates, none tested: the runtime that holds 1,000 services on one machine;
 governance as the product rather than protocol breadth; vector-first as a
 deliberate reduction; genuinely open licensing against an open-core competitor.
+
+## 5a. Warehouses — recommend against
+
+DuckDB aside, their read-only list includes Redshift, Snowflake and Databricks.
+
+**Recommendation: no.** Not because the drivers are hard, but because warehouses
+introduce a dimension this architecture has no concept of: **every query costs
+money.**
+
+Our caching, our seeding jobs and [ADR-011](../adr/ADR-011-job-system.md)'s
+"re-run it on reclaim" semantics all assume compute is roughly free. Seeding a
+tile pyramid from Snowflake could generate a large bill, silently, from a job
+that looks like any other. §49's resource governance counts features, bytes and
+time — it has no notion of currency, and no per-source spend budget.
+
+That is a missing dimension in the architecture, not a missing driver. If a
+warehouse provider is ever wanted, the prerequisite is a cost model, not a
+connector.
 
 ## 6. Also worth noting
 

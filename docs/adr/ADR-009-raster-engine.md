@@ -41,7 +41,23 @@ Conversion needs somewhere to write, which means a writable store
 a non-COG raster can be catalogued but not served. That is a real limitation and
 it should be documented rather than discovered.
 
-### 2.2 GDAL runs at registration, not per request
+### 2.2 GDAL runs at registration, not per request — and not in the serving artefact
+
+**Strengthened 2026-08-12** from a placement decision to an artefact rule, after
+observing the same rule stated more cleanly elsewhere
+([research/honua-server.md](../research/honua-server.md) §2b):
+
+> **The serving container ships no GDAL.** It exists only in the job worker
+> image.
+
+This is stronger than "GDAL runs on job workers", because it is checkable at
+build time rather than depending on discipline. It answers Q-28 by construction,
+makes the single-binary deployment real, removes an untrusted-file parser from
+the process that serves public requests, and keeps GDAL driver data out of the
+air-gapped checklist for the serving artefact.
+
+It also gives a clean test for Q-52: **any provider that needs GDAL cannot be a
+serving provider.** It is an import source.
 
 Registration and conversion run on job workers, isolated
 ([ADR-007](ADR-007-service-runtime.md) §4.1). This is where GDAL's thread
