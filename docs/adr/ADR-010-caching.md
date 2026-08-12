@@ -31,6 +31,17 @@ cache lifecycle. That combination is one of the few defensible answers to Q-18 �
 it is something neither a thin server nor static publishing provides — which
 also means it has to actually work, not merely be listed.
 
+**Narrowed 2026-08-12** by the vector-first decision
+([product-context.md](../product-context.md), "Rendering posture"). **Raster
+tile caches and pyramids leave the architecture entirely** — historically the
+largest and most awkward cache in a GIS server, with the worst invalidation
+story. What remains to cache: vector tiles, feature query results, catalog and
+metadata, and glyph and sprite assets (static, trivially cacheable).
+
+This is a substantial simplification of this ADR, and it makes the seeding
+question sharper rather than softer: vector tile seeding across 1,000 services
+is now the whole of the seeding problem, not a part of it.
+
 L1 lifetime is coupled to worker lifetime (ADR-007): aggressive worker recycling
 destroys L1 value, so the two decisions must be made together rather than
 sequentially.

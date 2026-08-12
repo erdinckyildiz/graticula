@@ -1,8 +1,24 @@
 # Rendering Engines
 
-**Status:** FIRST PASS — thinner than the other notes. Marked `VERIFY`
-throughout; rendering is the area where public comparative evidence is weakest
-and our own measurement will matter most.
+**Status:** LARGELY SUPERSEDED, 2026-08-12 — kept for the record.
+
+The owner decided the platform is vector-first: no server-side raster tiles, the
+client renders ([product-context.md](../product-context.md), "Rendering
+posture"). Server-side cartography left the core, so most of this note now
+describes a decision we are not making.
+
+Two things survive and are worth reading: §2's assessment of MapLibre Native —
+whose central objection has since **inverted**, see
+[ADR-004](../adr/ADR-004-rendering-engine.md) — and the headless/X-server
+operational caveat, which is now the main argument against the only rendering
+job we have left.
+
+The §3 list of "what is not commodity and is therefore ours" is now a list of
+things that are **not ours at all**. That is the clearest measure of how much
+this decision removed.
+
+*Original status: FIRST PASS — thinner than the other notes, marked `VERIFY`
+throughout.*
 **Feeds:** [ADR-004](../adr/ADR-004-rendering-engine.md),
 [ADR-001](../adr/ADR-001-core-language.md) criterion C3
 

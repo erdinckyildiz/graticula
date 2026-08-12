@@ -98,17 +98,29 @@ not assumed.
 
 One runtime policy is unlikely to fit all workloads. To evaluate:
 
+**Revised 2026-08-12** after the vector-first decision
+([product-context.md](../product-context.md), "Rendering posture"). The map
+rendering class is gone and the raster class is a shadow of what it was.
+
 | Worker class | Distinguishing pressure |
 |---|---|
 | Feature | DB-bound, high request rate, small responses |
 | Vector tile | CPU-bound, cacheable, bursty |
-| Map rendering | CPU and memory bound, font/graphics state, long-lived caches |
-| Raster | GDAL native code, large memory, I/O bound, **crash risk from malformed input** |
+| Raster metadata / delivery | Catalog reads and, depending on Q-27, range-request proxying. I/O bound, little CPU. GDAL only at registration. |
 | Geoprocessing | Long-running, must never block request workers (§36) |
+| ~~Map rendering~~ | **Removed.** The client renders. No fonts, no graphics state, no cartographic caches on the server. |
 
-The raster case is notable: GDAL is native code processing untrusted files. That
-is an argument for process isolation on that class specifically, independent of
-the general model. See also ADR-001 §4.
+**This materially weakens the case for process isolation.** The strongest
+argument for it was GDAL decoding untrusted raster files in the request path,
+and that path no longer exists. Combined with GeoServer's evidence that a shared
+heap works in practice
+([research/runtime-models-compared.md](../research/runtime-models-compared.md)
+§4), A-007 now leans further toward *isolation is not required by default*.
+
+What remains as isolation candidates: registration and overview generation
+(GDAL, untrusted input, but off the request path and naturally job-shaped, so
+ADR-011's job workers may cover it), geoprocessing, and third-party plugins if
+ADR-006 admits any.
 
 ## 5. Questions this ADR must answer
 

@@ -27,6 +27,7 @@ for every review gate.
 | **Primary user** | **The GIS administrator** | Answered 2026-08-12 — see below |
 | **Day-one workload** | **Features first, then vector tiles** | Answered 2026-08-12 — see below |
 | **Migration posture** | **Displacing existing ArcGIS Server / GeoServer deployments is a goal** | Answered 2026-08-12 — see below |
+| **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
 
 ## The primary user is the GIS administrator
 
@@ -100,6 +101,99 @@ deployments are actually being displaced, and it materially changes the work.
   organisation displacing GeoServer already has its data somewhere. Still needs
   confirmation; it significantly changes the publishing architecture (§38).
 - `TBD` **Product name.** Working title `gis-server`.
+
+## Rendering posture — vector-first, the client renders
+
+**Decided by the project owner, 2026-08-12.**
+
+> Tiles will not be raster on the server side. Vector tiles at most.
+
+With two clarifications, also from the owner:
+
+- **WMS and rendered map images live in the compatibility layer**, not the core.
+  Low priority, for migration only, most plausibly derived from our own vector
+  tiles rather than from a separate cartographic pipeline.
+- **Raster and imagery data is catalogued and access-controlled, not
+  rasterised.** COG over HTTP range requests; the client renders the pixels.
+
+### What this removes
+
+This is the largest simplification taken so far, and it removes the least
+tractable part of the architecture:
+
+- **Label placement, decluttering and cross-tile label consistency leave the
+  server.** MapLibre does label placement client-side. Q-26 is closed rather
+  than answered — a stateless per-tile renderer producing labels that collide at
+  seams is no longer a problem we have.
+- **No rasterisation backend in the core.** Skia, Cairo and friends leave the
+  critical path entirely.
+- **The map rendering worker class disappears** (§20). Four classes remain:
+  feature, vector tile, raster metadata, geoprocessing.
+- **Style handling drops from evaluation to storage.** We store and serve style
+  documents; we do not interpret them. Serving a JSON document is not a
+  subsystem.
+- **Raster tile caches and pyramids disappear** from the caching architecture.
+- **GDAL leaves the request hot path.** See "the quiet consequence" below — this
+  turns out to matter more than the rendering change itself.
+
+### What it adds
+
+Small, and mostly unglamorous, but real and easy to forget:
+
+- **Glyph and sprite serving.** MapLibre clients fetch font PBF ranges and
+  sprite sheets over HTTP. That is now our job. It is static asset serving, not
+  text shaping — but it must exist, and it must work air-gapped, which makes
+  font bundling and licensing a real question (Q-15).
+- **Style document management.** Storage, versioning, association with services.
+- **Client-side styling shifts the migration burden.** ArcGIS renderer JSON and
+  SLD do not become MapLibre styles by themselves. This lands on Q-16.
+
+### The quiet consequence — GDAL leaves the hot path
+
+Serving imagery as COG with range requests, rather than decoding pixels
+server-side, removes GDAL from per-request work. Three earlier findings change:
+
+- The **GDAL thread-affinity trap**
+  ([research/dependency-thread-safety.md](research/dependency-thread-safety.md)
+  §5) largely evaporates. It was the most likely site in the platform for a
+  subtle, load-dependent correctness bug, and we are no longer doing the thing
+  that causes it.
+- **Q-24** (do we require GDAL 3.10 for thread-safe raster reads) becomes
+  largely moot.
+- **A-007** (crash containment is genuinely required) weakens substantially. The
+  strongest case for process isolation was native code decoding untrusted raster
+  files. We are not decoding them.
+
+GDAL is still needed — for metadata and validation when registering a COG, and
+for file-based vector providers — but not thousands of times per second on the
+tile path.
+
+### The tension the owner accepted
+
+Displacing existing ArcGIS Server and GeoServer deployments is a confirmed goal
+(Q-07), and those deployments are consumed overwhelmingly through WMS. Clients
+that speak WMS — desktop GIS, older web applications, third-party tools — do not
+speak vector tiles.
+
+Keeping WMS in the compatibility layer preserves the migration path while
+keeping the core clean. The cost is honest and should stay recorded: **migration
+is easiest for organisations that can also move their clients to vector tiles.**
+A WMS surface derived from our own vector tiles will not be pixel-identical to
+what GeoServer produced, and for some consumers that will matter.
+
+### An inversion worth noting
+
+[research/rendering-engines.md](research/rendering-engines.md) argued against
+MapLibre Native on the grounds that it is not a neutral rasteriser — it carries
+its own styling model, so adopting it would make someone else's style
+specification our cartographic architecture.
+
+**That objection is now inverted.** If we adopt the MapLibre style spec
+deliberately as our style format (Q-25, now leaning strongly yes), then for the
+narrow job of rendering *our own vector tiles* with *our own MapLibre styles*
+into WMS images, MapLibre Native stops being a liability and becomes the
+obviously correct tool — precisely because it is not neutral. It already speaks
+the language we chose.
 
 ## Why a server at all
 

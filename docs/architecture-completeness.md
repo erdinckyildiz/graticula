@@ -13,19 +13,21 @@ finished, however confident the ADR sounds.
 | Core language | — | DRAFT | — | — | — | — | — | `REQUIRES PROTOTYPE` |
 | Primary data architecture | — | DRAFT | — | — | — | — | — | not started |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
-| Rendering engine | — | DRAFT | — | — | — | — | — | not started |
+| Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | — | DRAFT | — | — | — | — | — | not started |
 | Plugin model | — | DRAFT | — | — | — | — | — | not started |
 | Service runtime | — | DRAFT | — | — | — | — | — | not started |
 | Query engine | — | DRAFT | — | — | — | — | — | not started |
-| Raster engine | — | DRAFT | — | — | — | — | — | not started |
+| Raster engine | rescoped | DRAFT | — | — | — | — | — | catalog + access control only; no pixel production. Q-27 is now the deciding question |
 | Caching | — | DRAFT | — | — | — | — | — | not started |
 | Job system | — | DRAFT | — | — | — | — | — | not started |
 | Clustering | deferred | DEFERRED | n/a | n/a | — | — | — | `DEFERRED` (§79) |
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | — | — | — | — | — | — | — | not started |
 | Feature services (§28) | — | — | — | — | — | — | — | not started |
-| Vector tiles (§33) | — | — | — | — | — | — | — | not started |
+| Vector tiles (§33) | — | — | — | — | — | — | — | not started — **elevated**: the only tile format, and the source for WMS compatibility |
+| Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
+| Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
 | Compatibility layer (§51) | — | — | — | — | — | — | — | not started — **required**, not optional (migration is a goal). Outside the core domain. |

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `DRAFT` |
+| **Status** | `DEFERRED` — rescoped to the compatibility layer |
 | **Confidence** | — |
 | **Decided** | — |
 
@@ -10,7 +10,25 @@
 
 ## 1. Context
 
-Server-side cartography (§34): symbols, labels, fonts, decluttering, layer compositing, output rasterisation. Distinct from tile generation — this produces rendered map images (WMS, OGC API Maps). The cartographic logic is Tier 1 and ours; the rasterisation backend is Tier 2.
+**Rescoped 2026-08-12 by owner decision** — see
+[product-context.md](../product-context.md), "Rendering posture".
+
+The platform is vector-first. There is no server-side raster tile generation and
+no server-side cartography in the core: the client renders, using MapLibre and
+the vector tiles we serve. Label placement, decluttering and cross-tile label
+consistency — the hard parts, and the reason this ADR looked large — are all
+client-side concerns now.
+
+**What remains of this ADR is narrow:** rendering WMS images in the
+*compatibility layer*, for migration only, low priority, most plausibly derived
+from our own vector tiles and our own MapLibre styles rather than from a
+separate cartographic pipeline.
+
+That narrowing changes the answer as well as the scope. See §2.
+
+*(Historical framing, retained for context: server-side cartography per §34 —
+symbols, labels, fonts, decluttering, compositing, rasterisation. This is what
+the ADR would have covered had the platform been render-first.)*
 
 ## 2. Alternatives to evaluate
 
@@ -32,6 +50,18 @@ model.
   Tier 2 clothing. Supporting the MapLibre style spec as *a style format* is a
   different and attractive proposition (Q-25); adopting its engine as our
   cartographic layer is not.
+
+  **This objection inverted on 2026-08-12.** Under the vector-first decision we
+  adopt the MapLibre style spec deliberately as our style format. For the only
+  remaining job — rendering *our own* vector tiles with *our own* MapLibre
+  styles into WMS images — MapLibre Native's lack of neutrality stops being a
+  liability and becomes the reason to choose it. It already speaks the language
+  we chose. A neutral rasteriser like Skia would require us to build a MapLibre
+  style interpreter to feed it, which is exactly the Tier 1 cartographic work
+  the vector-first decision just removed.
+
+  The headless-rendering and X-server caveat below still applies and is now the
+  main argument against.
 - `VERIFY` Operational warning: MapLibre Native headless rendering in Docker or
   on a remote server reportedly needs X server simulation, with a documented
   open issue on headless context management. A GPU-context dependency is a real

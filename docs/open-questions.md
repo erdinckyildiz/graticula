@@ -27,7 +27,7 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-21 | Does the Query AST target more than one SQL dialect from day one, to keep the provider abstraction honest rather than PostGIS-shaped? | Council | ADR-008 |
 | Q-22 | Is a PostgreSQL-free deployment profile a goal, or is PostGIS an acceptable hard requirement? Challenges A-009. | Council → possibly Owner | ADR-002 |
 | Q-23 | Can a PROJ `PJ` transformation object be used from more than one thread, or is it thread-affine? Decides whether prepared transformations are shared or duplicated per thread — tile and render hot path, and it changes what L1 costs. | Council | ADR-010, [research/dependency-thread-safety.md](research/dependency-thread-safety.md) §4 |
-| Q-24 | Do we require GDAL 3.10 or later for read-only raster thread safety? A hard minimum version constrains air-gapped and distro-packaged deployments. | Council | ADR-009, deployment |
+| Q-24 | ~~Do we require GDAL 3.10 or later for read-only raster thread safety?~~ **Largely moot after the vector-first decision** — GDAL leaves the request path for imagery. Retained only because file-based *vector* providers still hit GDAL per request, and RFC 101 is raster-only, so it does not help them. | Council | ADR-009, deployment |
 
 ## Open, not blocking
 
@@ -39,8 +39,7 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-12 | How is monitoring cardinality bounded at 1,000 services? | Council | Per-service × per-worker × per-endpoint labels multiply. The metrics backend can fail before the GIS server does. |
 | Q-13 | What is the upgrade and rollback story, including DB schema migrations (§80.35–37)? | Council | Frequently deferred, then discovered to constrain the data model. |
 | Q-14 | Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience? | Council | Affects caching keys and tile pipeline design. |
-| Q-25 | Do we support the MapLibre GL Style Spec as a style format? Distinct from adopting MapLibre Native as an engine — the first is interoperability, the second would make someone else's styling model our cartographic architecture. | Council | ADR-004 |
-| Q-26 | How is cross-tile label consistency achieved? A stateless per-tile renderer produces labels that collide at seams. Not addressed by any candidate backend, and it is Tier 1 work. | Council | ADR-004, tile pipeline |
+| Q-27 | With imagery delivered as COG over range requests, how is per-layer authorization enforced — signed expiring URLs, a range-request proxy, or a hybrid? Signed URLs cannot express row-level rules or immediate revocation and may not exist on an air-gapped filesystem; proxying puts terabyte-scale bandwidth back through the server. | Council | ADR-009 §1a, security |
 | Q-15 | What does "air-gapped" concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry? | Council | Currently a slogan in the master prompt; needs a concrete checklist. |
 
 ## Answered
@@ -49,4 +48,6 @@ council investigates, prototypes, benchmarks and decides on its own.
 |---|---|---|---|---|
 | Q-06a | Who is the primary user? | **The GIS administrator.** Promotes the admin API, service lifecycle observability, RBAC and good defaults to first-class requirements. | 2026-08-12 | [product-context.md](product-context.md) |
 | Q-06b | What is the day-one workload? | **Features first, then vector tiles.** Confirms the §71–§73 sequencing and the walking-skeleton target. | 2026-08-12 | [product-context.md](product-context.md) |
+| Q-25 | Do we support the MapLibre GL Style Spec as a style format? | **Effectively yes.** The vector-first decision makes the client the renderer, and MapLibre style is the format it speaks. Styles are stored and served, not evaluated. Formal confirmation belongs in ADR-004. | 2026-08-12 | [product-context.md](product-context.md) |
+| Q-26 | How is cross-tile label consistency achieved? | **Closed, not answered.** Labels are placed client-side. This is no longer a problem the platform has. | 2026-08-12 | [product-context.md](product-context.md) |
 | Q-07 | Is displacing existing ArcGIS Server / GeoServer deployments a goal? | **Yes.** The compatibility layer (§51) is therefore a product requirement, not an option — still strictly outside the core domain, still strictly clean room. Raises Q-16 and Q-17. | 2026-08-12 | [product-context.md](product-context.md) |

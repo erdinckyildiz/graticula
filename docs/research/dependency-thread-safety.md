@@ -2,8 +2,8 @@
 
 **Status:** FIRST PASS — resolves the blocking part of **A-013**. Version-specific
 claims must be re-checked against the exact versions we ship.
-**Blocks:** [ADR-007](../adr/ADR-007-service-runtime.md) — cannot be decided
-until this is settled
+**Resolved:** unblocks [ADR-007](../adr/ADR-007-service-runtime.md) — a threaded
+worker model is available
 **Also feeds:** [ADR-003](../adr/ADR-003-geometry-engine.md),
 [ADR-009](../adr/ADR-009-raster-engine.md), [ADR-001](../adr/ADR-001-core-language.md)
 
@@ -90,6 +90,16 @@ exactly the kind of expensive-to-build, cheap-to-reuse resource whose sharing
 rules determine cache design. Recorded as Q-23.
 
 ## 5. GDAL — the real constraint
+
+> **Update 2026-08-12.** The vector-first decision
+> ([product-context.md](../product-context.md), "Rendering posture") takes GDAL
+> out of the per-request path for imagery: the server catalogues and validates
+> COGs, the client fetches and renders them. This section's hazard is therefore
+> much less likely to bite — but it is not removed. GDAL still runs at
+> registration and overview generation, and **file-based vector providers**
+> (GeoPackage, FlatGeobuf, Shapefile) hit it on every request, where the
+> ownership rule in §5.1 applies in full and GDAL 3.10's raster-only relief does
+> not help at all.
 
 GDAL's rule is precise and stricter than "thread safe or not":
 

@@ -10,7 +10,51 @@
 
 ## 1. Context
 
-Raster and imagery as a first-class subsystem (§35): GDAL, COG, STAC, overviews, mosaics, range requests against object storage, reprojection, dynamic imagery and raster functions. Two properties make raster architecturally distinctive: it is native code processing untrusted files, and its working set is measured in terabytes.
+**Rescoped 2026-08-12 by owner decision** — see
+[product-context.md](../product-context.md), "Rendering posture".
+
+**The server does not produce pixels.** Raster and imagery are catalogued,
+validated and access-controlled; the client fetches COG over HTTP range requests
+and renders. This removes dynamic tiling, mosaicking on read, raster functions
+and server-side reprojection of imagery from scope.
+
+What remains:
+
+- **Catalog and metadata** — STAC, extents, CRS, band descriptions, overview
+  structure. Read once at registration, not per request.
+- **Validation at registration** — is this actually a valid COG with usable
+  overviews? This is where GDAL is still needed, and it is the natural place to
+  reject malformed input and decompression bombs (§54).
+- **Access control and delivery** — the hard part; see §1a.
+- **Possibly overview generation** as a registration-time or job-time service
+  for uploaded imagery that is not already cloud-optimised.
+
+## 1a. The delivery problem this creates
+
+If the client fetches a COG directly from object storage, **per-layer
+authorization stops working.** Our primary user is a GIS administrator (§41,
+§42) for whom controlling who sees which layer is a requirement, not a feature.
+A public bucket URL enforces nothing.
+
+Three options, and this ADR must choose:
+
+1. **Signed, expiring URLs.** Cheap, bytes never touch us. Weaknesses: expiry
+   windows are a blunt instrument, revocation is not immediate, per-feature or
+   row-level rules cannot be expressed, and it requires object storage that
+   supports signing — which an air-gapped filesystem deployment may not.
+2. **Range-request proxy.** We forward the range requests and enforce
+   authorization per request. Authorization is exact and immediate; the cost is
+   that imagery bandwidth flows through the server, which the vector-first
+   decision had just removed. Terabyte working sets make this non-trivial.
+3. **Hybrid** — proxy by default, signed URLs for layers explicitly marked
+   public.
+
+Recorded as Q-27. It is now the most consequential open question in this ADR,
+and it is a security and operations question rather than a raster one.
+
+*(Historical framing: raster as a first-class rendering subsystem per §35 —
+dynamic imagery, mosaics, raster functions. Out of scope under the vector-first
+decision.)*
 
 ## 2. Alternatives to evaluate
 
@@ -36,7 +80,14 @@ worth studying before this ADR is decided.
 Crash containment is the deciding axis here, not throughput. Malformed raster and
 decompression bombs are explicit threats (§54, §59).
 
-**Added 2026-08-12** — a second deciding axis, from
+**Largely defused by the vector-first decision (2026-08-12).** GDAL now runs at
+registration and validation time, not per request, so the concurrency pressure
+that made the following a live hazard mostly disappears. It is retained because
+registration and overview generation still touch GDAL, and file-based *vector*
+providers touch it constantly — where the same rule applies with none of the
+relief.
+
+**Original note** — a second deciding axis, from
 [research/dependency-thread-safety.md](../research/dependency-thread-safety.md)
 §5: **GDAL datasets are thread-affine resources, not shareable cache entries.**
 GDAL forbids concurrent calls on the same instance *or on instances related by
