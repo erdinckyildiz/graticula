@@ -131,11 +131,21 @@ Directly from §80, plus the ones the scale target forces:
 - How are workers supervised, health-checked, and crash-contained (§21)?
 - On what triggers are workers recycled — lifetime, request count, memory, memory
   *growth*, config change, administrator request (§22)?
-  **Concrete case added 2026-08-12:** a runtime schema change on a hosted layer
+  **Concrete cases added 2026-08-12.** Two, and they differ in who initiates:
+
+  *Hosted layer, schema changed by us* — we sequence it: validate, quiesce,
+  alter, update the definition, invalidate caches, refresh workers, resume
   ([research/runtime-schema-evolution.md](../research/runtime-schema-evolution.md)).
-  Every worker holding warm state for that service must be refreshed, or it
-  keeps serving the old field list. This is the first named, non-hypothetical
-  configuration-change trigger, and it interacts directly with the warm-state
+
+  *Registered layer, schema changed by the DBA* — it happens without our
+  involvement. We detect drift by polling a schema fingerprint and refresh
+  ourselves. ArcGIS requires a manual restart here; detecting and refreshing is
+  a concrete improvement on the incumbent
+  ([data-model.md](../data-model.md) §3).
+
+  Both cases refresh every worker holding warm state for the service, or it
+  keeps serving the old field list. These are the first named, non-hypothetical
+  configuration-change triggers, and they interact directly with the warm-state
   and affinity-routing design — the workers that must be refreshed are exactly
   the ones the router knows are warm.
 - **How does request routing find a worker able to serve a given service —
@@ -153,6 +163,42 @@ Directly from §80, plus the ones the scale target forces:
 - What happens on mass restart — thundering herd, staged startup, lazy
   initialisation (§26)?
 - What are the formal service states and how are transitions observed (§23)?
+
+## 5b. Connection discipline — we must not block the DBA
+
+Added 2026-08-12 from an owner observation. See
+[data-model.md](../data-model.md) §3.
+
+A running service holds open connections to a registered database. When the
+organisation's DBA runs DDL on that table, our connections are in the way, and
+the failure mode differs per engine:
+
+| Engine | Behaviour |
+|---|---|
+| PostgreSQL | `ALTER TABLE` needs `ACCESS EXCLUSIVE` and waits behind our open query. Every subsequent query then queues behind the waiting DDL. **One connection of ours can stall the entire table.** |
+| SQL Server | Schema-modification lock conflicts with schema-stability locks held by running queries. Blocks. |
+| Oracle | Fails fast with resource-busy, or waits for `DDL_LOCK_TIMEOUT`. |
+
+Concretely on PostgreSQL: the DBA runs `ALTER TABLE`, it does not return, and
+every subsequent query against that table queues behind the waiting DDL. From
+the DBA's side the table has stopped responding, and the cause is a connection
+of ours. This is a requirement on the runtime, not a preference.
+
+Requirements it places on the runtime:
+
+- **Short-lived connections.** Aggressive idle timeouts. Never leave a
+  connection idle in transaction — this is the specific pathology that turns a
+  brief DDL into a stalled table on PostgreSQL.
+- **Quiesce a data source on demand.** An admin operation that drains
+  connections and holds requests for a named source, so a DBA can run DDL
+  cleanly, then resumes. This is a service-state transition (§23) and it needs
+  to be in the state machine, not bolted on.
+- **Bounded query lifetime.** A long-running query is a lock held. Statement
+  timeouts are a correctness requirement here, not just a resource guard.
+
+This interacts with §25's connection budget: short-lived connections and
+aggressive timeouts change pool behaviour, and the budget must be computed
+against the actual policy rather than a nominal pool size.
 
 ## 5a. Blocking precondition — dependency thread safety
 

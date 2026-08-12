@@ -14,7 +14,9 @@ finished, however confident the ADR sounds.
 | Primary data architecture | **decided, then amended** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | Reopened and re-decided same day: platform store portable across SQLite/PostgreSQL/SQL Server/Oracle. Conditions in ADR-002 §9. State inventory delivered for ADR-012. |
 | Provider architecture — multi-dialect | — | — | — | — | — | — | — | **elevated**: three first-class spatial dialects. `ST_AsMVT` is PostGIS-only, so in-process MVT encoding is mandatory |
 | Hosted datastore (optional) | **model confirmed** | — | — | — | — | — | — | storage model in [data-model.md](data-model.md); Q-32 now only decides v1 phasing |
-| Data model — storage concepts | **decided** | n/a | — | — | — | — | — | three concepts separated; datastore modelled as a provider with write rights |
+| Data model — storage and layer modes | **decided** | n/a | — | — | — | — | — | four lifecycles separated; datastore is a provider we own, on any of three spatial engines; editing is out of our API |
+| Connection discipline / quiesce | — | — | — | — | — | — | — | new obligation: we must not block a DBA's DDL. Lands on ADR-007 §5b and the admin API |
+| Schema drift detection | — | — | — | — | — | — | — | improvement over ArcGIS, which requires manual restart. A-023 |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | — | DRAFT | — | — | — | — | — | not started |
