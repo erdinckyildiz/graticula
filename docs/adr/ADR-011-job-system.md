@@ -38,6 +38,14 @@ That is a wider remit than "geoprocessing", and it means this ADR is on the
 critical path for data registration — not just for §36. Registration is the
 first thing an administrator does, so the job system cannot be a later phase.
 
+**Tile seeding lands here too, 2026-08-12.**
+[ADR-010](ADR-010-caching.md) §6 makes seeding a job, with requirements this ADR
+must satisfy: resumable, cancellable, progress-reporting, and **rate-limited
+against the source database**. That last one is not a nicety — an unthrottled
+seed across a large estate is a denial-of-service attack on the customer's
+Oracle, delivered by us. It is the same courtesy as ADR-007 §4.8's connection
+discipline, and it must be in the first version rather than retrofitted.
+
 Option 3 is on the §82 challenge list and needs a concrete justification to
 survive, given that the baseline deployment already has PostgreSQL.
 
