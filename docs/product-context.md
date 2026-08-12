@@ -55,6 +55,12 @@ without noticing that publishing is two different acts. The extension serves the
 **administrative** path - publishing services from registered sources.
 Self-service publishing is a separate surface and does not involve QGIS.
 
+> **Note added 2026-08-12:** self-service publishing was briefly treated as our
+> differentiator. **GeoNode already provides it** — user upload, item ownership,
+> groups and sharing — so it is table stakes for a platform of this kind rather
+> than a distinguishing capability. It is still worth building; it is not a
+> reason to exist. See [competitive-position.md](competitive-position.md).
+
 **It also explains why the datastore must exist.** A publisher cannot be allowed
 to write into the corporate enterprise geodatabase, so they need somewhere else
 to land. The datastore is not primarily "for organisations without a database" -

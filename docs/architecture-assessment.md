@@ -66,6 +66,15 @@ justified by the word "governance" need re-examining under the weaker one. This
 is not a wording problem: it is the difference between owning a data lifecycle
 and observing someone else's.
 
+> **Competitive position, added 2026-08-12.** This section justifies the
+> *category*. It does not justify *this product*, which fresh-challenger review
+> G1 identified as a gap. [competitive-position.md](competitive-position.md) now
+> attempts it and concludes that after three attempts there is no strong answer —
+> GeoNode already provides self-service publishing, Honua already provides
+> multi-protocol access over PostGIS. What survives is a niche: the fully open
+> ArcGIS Server exit path. **That conclusion should be read before the rest of
+> this document.**
+
 ## 2. ArcGIS Server — strengths
 
 Written charitably, because a strawman here poisons every comparison downstream.

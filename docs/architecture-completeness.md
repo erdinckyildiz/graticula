@@ -49,7 +49,7 @@ finished, however confident the ADR sounds.
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
-| Competitive position | — | — | — | — | — | — | — | **gap.** Q-49 unanswered; a direct peer now exists ([research/honua-server.md](research/honua-server.md)) |
+| Competitive position | **analysed** | n/a | — | — | — | — | — | [competitive-position.md](competitive-position.md). Q-49 attempted three times with no strong answer. GeoNode already does self-service publishing. What survives is a niche: the fully open ArcGIS Server exit path. **Needs validation with real GIS teams, which desk research cannot supply.** |
 
 ## Adversarial reviews (§85, §67)
 
@@ -113,3 +113,8 @@ a failure reopens the relevant decisions rather than being noted and passed over
 - [ ] Fresh-challenger review complete (§67)
 - [ ] Licensing implications understood
 - [ ] No blocking open question remains
+- [ ] **Q-49 tested with real GIS teams.** [competitive-position.md](competitive-position.md)
+      concludes that desk research cannot answer why this product should exist.
+      Three conversations with organisations running ArcGIS Server would settle
+      it, and every architectural decision after this one is cheaper to make with
+      an answer than without.
