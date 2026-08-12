@@ -39,7 +39,10 @@ finished, however confident the ADR sounds.
 | AuthZ (§42) | **partial** | n/a | — | — | — | — | — | model decided in [security.md](security.md) §2–3. Multi-tenant resource isolation still open (D-04) |
 | AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
-| Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9: bounded queues, admission control, immediate rejection with retry signal |
+| Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9. Fairness still depends on N4's per-source limit and D-04's per-tenant limits, neither of which exists |
+| **Runtime supervisor (§21)** | — | **none** | — | — | — | — | — | **severe gap** — ADR-007 depends on it and it has no design (Q-54) |
+| **TLS / certificates** | — | **none** | — | — | — | — | — | **severe gap** — absent from the whole architecture (Q-55) |
+| Failure scenarios (§59) | **walked** | n/a | — | — | — | — | ✓ | [failure-scenarios.md](failure-scenarios.md) |
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
@@ -79,11 +82,13 @@ a failure reopens the relevant decisions rather than being noted and passed over
       blocked on ADR-001.
 - [ ] Critical questions (§80, all 40) answered or explicitly deferred with cause
 - [ ] Load-bearing assumptions validated — at minimum A-003, A-004, A-007
-- [ ] **Failure scenario pass complete** (§59) — adversarial review F9. At
-      minimum: platform store unavailable, data source unavailable, data source
-      slow, worker crash, disk full, job worker partition. This is the largest
-      untouched requirement in the master prompt and it constrains what a service
-      context is allowed to depend on.
+- [x] **Failure scenario pass complete** (§59) — adversarial review F9.
+      [failure-scenarios.md](failure-scenarios.md), 2026-08-12. **Found ten gaps,
+      three severe**: no runtime supervisor (N5), no cache size budget (N6), TLS
+      absent from the architecture (N8). Two constraints written back into
+      existing decisions, three additions, two decisions we had not realised we
+      needed. Network partition between nodes is not walked, since clustering is
+      deferred.
 - [ ] **Three 2 AM scenarios written end to end** — adversarial review F5. Stale
       tiles, a slow service, a failed registration. What does the administrator
       see, from which endpoint, composed from what? If it cannot be written, the

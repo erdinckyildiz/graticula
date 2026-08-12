@@ -551,6 +551,11 @@ repair this at 2 AM?
   does (Q-12).
 - **We can block a DBA's DDL** if the connection discipline is not right
   (ADR-007 §4.8, §5b).
+- **Three severe gaps found by the failure scenario pass**
+  ([failure-scenarios.md](failure-scenarios.md)): §21's runtime supervisor has no
+  design although ADR-007 depends on it; the L3 cache has no size budget and will
+  fill any disk; and TLS is absent from the architecture entirely, including the
+  air-gapped rotation story.
 
 ## 23. Licensing risks
 

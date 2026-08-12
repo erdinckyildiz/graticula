@@ -80,6 +80,33 @@ fails without it has made an optional component mandatory by accident.
 L2's only legitimate job is sharing L3 index state and invalidation signals
 across nodes, and even that must have a working degraded mode (§7).
 
+### L3 has a size budget — added after the failure scenario pass
+
+**Found by [failure-scenarios.md](../failure-scenarios.md) N6, and it was a real
+omission:** this ADR designed layers, keys, invalidation and seeding, and never
+said **how large the cache is allowed to get.**
+
+A vector tile cache across 1,000 services, seeded to a useful zoom, is unbounded
+by nature. Without a budget it fills any disk given time, and "the GIS server
+filled the disk" is a memorable first incident.
+
+Required:
+
+- a **configurable total size budget**, with LRU or cost-based eviction;
+- **per-service quotas**, so one layer cannot consume the whole cache;
+- **cache writes fail soft** — a full cache degrades to no-cache, never to an
+  error.
+
+The last one matters most. A cache is an optimisation, and an optimisation that
+can fail a request is a liability.
+
+### L3 lookup should not need the index (N2)
+
+If the storage path is derivable from the cache key, a platform store outage
+costs cache *management* but not cache *reads*. If lookup requires an index row,
+that outage turns every request into a miss at exactly the moment the source may
+also be unreachable. Cheap to design in now; painful later.
+
 ### L3 is the tile cache
 
 Filesystem by default, object store where available. `VERIFY` PMTiles and
@@ -138,6 +165,21 @@ generalisation parameters for that zoom.
 The distinction is not cosmetic. Serving stale data is a freshness compromise;
 serving wrong data is a correctness failure, and in the permissions case a
 disclosure. The cache must know which it is holding.
+
+### 5.1a Stale-while-error — serve stale during a source outage
+
+**A decision we had not made** ([failure-scenarios.md](../failure-scenarios.md)
+N10). When a data source is unreachable, the cache holds tiles for it and TTL
+says they are expired.
+
+**Serve them, with an explicit header and a metric.** This is the moment the
+cache earns its cost, and stale data with a warning beats an error for a read
+workload.
+
+**With one exception that is not negotiable:** this never applies to the
+*wrong* class in §5.1. A purged entry stays purged even if the source is down,
+because that path includes permission changes, and serving a purged tile during
+an outage would turn an availability event into a disclosure.
 
 ### 5.2 The problem we cannot fully solve
 

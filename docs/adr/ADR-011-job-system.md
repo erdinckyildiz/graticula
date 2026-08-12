@@ -117,6 +117,19 @@ by tile. Overview generation is idempotent. Validation is idempotent.
 `NEITHER` must be rare and visible. A job system that silently re-runs
 non-idempotent work is a data-corruption mechanism with a progress bar.
 
+**Added after the failure scenario pass** ([failure-scenarios.md](../failure-scenarios.md)
+N7): the lease handles the claim, but **side effects between checkpoints can
+still collide.** A partitioned worker keeps working until its next checkpoint,
+and by then another worker may have started the same job.
+
+Two workers writing the same tile is benign. Two workers running the same import
+is not.
+
+**Rule: any job with external side effects writes to a staging location and
+commits atomically.** An import writes to a staging table or temporary path and
+swaps on completion. That is the difference between a duplicated dataset and a
+clean retry.
+
 ### 3.5 Classes, not priority numbers
 
 Priority numbers get gamed. Within a year everything is priority one.

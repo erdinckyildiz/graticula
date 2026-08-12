@@ -92,8 +92,15 @@ not derived from service count**.
 There is no service startup, and therefore no thundering herd (§26).
 
 A **service context** — connection handle, compiled schema, field metadata,
-style reference, CRS transform — is bound into a worker **lazily, on first
-request**, and evicted when cold. Publishing a service writes a definition to
+style reference, CRS transform, **and effective authorization data** — is bound
+into a worker **lazily, on first request**, and evicted when cold.
+
+**Constraint added 2026-08-12** ([failure-scenarios.md](../failure-scenarios.md)
+N1): **a bound context must be self-sufficient for serving.** If answering a
+request requires consulting the platform store, a store outage takes everything
+down rather than freezing it in a degraded read-only mode. Authorization data is
+part of the context for this reason, and **anything not already resolved in the
+context fails closed** — an outage must never become an access-control bypass. Publishing a service writes a definition to
 the platform store. It does not create, start or reserve anything in a worker.
 
 This dissolves §26's problem rather than staging around it. A node restart
@@ -252,6 +259,15 @@ policy, and it should be an idle timeout rather than aggressive closing.
 - A **global connection cap per worker**, enforced across all pools, so a
   deployment with many data sources degrades by queueing rather than by
   exhausting the database.
+- **A per-source concurrency limit on the request path**, separate from the pool
+  size (N4). §49 limits per service and pools limit per source, but many
+  services share one database — so twenty slow services on one slow source can
+  saturate a worker while each respects its own limit. Pool size is sized for
+  throughput; this number is sized for blast radius, and they should not be the
+  same number.
+- **A circuit breaker per data source** (N3), with backoff. Without one, an
+  outage becomes a connection storm at exactly the moment recovery is being
+  attempted.
 - **Quiesce** is an administrative operation on a data source: drain its
   connections, hold its requests, let the DBA work, resume.
 
@@ -356,6 +372,29 @@ knob nobody has to touch is not the same as a knob that does not exist.
 deployments, and administrators will not simply pin everything. If they do, the
 budget in the paragraph above is what keeps the system standing, and the
 guidance has failed.
+
+### 4.13 The supervisor this ADR depends on does not exist yet
+
+**Found by the failure scenario pass, 2026-08-12**
+([failure-scenarios.md](../failure-scenarios.md) N5). Recorded here because it
+is this ADR's dependency and this ADR did not notice it.
+
+§21 requires a runtime supervisor: worker startup and shutdown, health
+monitoring, crash detection, restart, draining, recycling, memory monitoring,
+CPU monitoring, stuck-request detection, concurrency enforcement, resource
+governance.
+
+**It has no ADR, no design and no owner.** This ADR names worker *states* and
+assumes something drives them. Several decisions above are supervisor
+behaviours written as if the mechanism existed: recycling on memory growth
+(§4.7), draining, quiescing a data source (§4.8), and observed escalation
+(§4.5).
+
+The supervisor is not a detail of this ADR. **This ADR depends on it**, and it
+needs its own design before Phase 1.
+
+Also unresolved: does the router detect a dead worker before or after routing to
+it? The difference is a clean 503 versus a hung client.
 
 ## 5. Service explosion model (§24)
 
