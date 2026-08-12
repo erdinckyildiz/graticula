@@ -62,8 +62,11 @@ a failure reopens the relevant decisions rather than being noted and passed over
 
 ## Phase 0 exit criteria (§81)
 
-- [ ] `architecture-assessment.md` complete — all 27 required sections (§70)
-- [ ] Initial ADRs written, none still `DRAFT` without a stated reason
+- [x] `architecture-assessment.md` complete — all 27 required sections (§70).
+      **First complete draft, 2026-08-12. Not yet reviewed.**
+- [x] Initial ADRs written, none still `DRAFT` without a stated reason.
+      ADR-003 is the only remaining `DRAFT` and its reason is stated: it is
+      blocked on ADR-001.
 - [ ] Critical questions (§80, all 40) answered or explicitly deferred with cause
 - [ ] Load-bearing assumptions validated — at minimum A-003, A-004, A-007
 - [ ] High-risk decisions have prototypes

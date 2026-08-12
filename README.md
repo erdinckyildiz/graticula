@@ -35,8 +35,8 @@ decisions. Implementation begins only after this phase passes review (§70, §81
 | [CLAUDE.md](CLAUDE.md) | The working rules. Read first. |
 | [docs/product-context.md](docs/product-context.md) | What we are building and for whom. Has open items. |
 | [docs/build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md) | What we write ourselves, what we adopt, and where the seam goes. |
-| [docs/architecture-assessment.md](docs/architecture-assessment.md) | The Phase 0 deliverable. Outline only so far. |
-| [docs/adr/](docs/adr/) | Twelve architecture decisions, all still open. |
+| [docs/architecture-assessment.md](docs/architecture-assessment.md) | **The Phase 0 deliverable. First complete draft — all 27 sections written, not yet reviewed.** Start here for the whole picture. |
+| [docs/adr/](docs/adr/) | Twelve architecture decisions. Nine decided, one awaiting a prototype, two deferred. |
 | [docs/open-questions.md](docs/open-questions.md) | What we do not know yet. |
 | [docs/architecture-assumptions.md](docs/architecture-assumptions.md) | What we are betting on, and how each bet gets settled. |
 | [docs/architecture-completeness.md](docs/architecture-completeness.md) | How far each area has actually been taken. |
