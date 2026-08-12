@@ -35,7 +35,8 @@ finished, however confident the ADR sounds.
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
-| Compatibility layer (§51) | scope set | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles**. WMS out of v1 (Q-47). ArcGIS REST pending Q-17. Outside the core domain. |
+| Compatibility layer (§51) | **scope set** | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles + full ArcGIS FeatureServer including edits** (Q-17). WMS, MapServer, ImageServer out (Q-47). Outside the core domain. |
+| Feature service data model gaps | — | — | — | — | — | — | — | **opened by Q-17**: stable `objectId` (Q-57), attachments, relationships, domains, subtypes, editor tracking (Q-58) |
 | Migration tooling | **scope set** | — | — | — | — | — | — | inventory plus definition import, free (Q-16). Needs a home — probably its own component rather than part of the compatibility layer |
 | AuthZ (§42) | **partial** | n/a | — | — | — | — | — | model decided in [security.md](security.md) §2–3. Multi-tenant resource isolation still open (D-04) |
 | AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |

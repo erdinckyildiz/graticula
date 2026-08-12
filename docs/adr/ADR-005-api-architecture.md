@@ -103,6 +103,30 @@ non-standardness, and it keeps §50 honest.
 WMS, WFS and WMTS are **not core**. They are adapters over the same internal
 interface, in the compatibility layer (§51), for migration.
 
+**ArcGIS-compatible surface confirmed 2026-08-12 (Q-17): full FeatureServer,
+including edits.** Query plus `applyEdits`, `addFeatures`, `updateFeatures` and
+`deleteFeatures`. The reasoning: definition import (Q-16) moves the server
+configuration and does nothing for the clients already pointing at the old one,
+and re-pointing dozens of applications is the reason migrations stall. Q-50a
+already gave us write capability on all three engines, so the backend exists.
+
+**Not** MapServer, ImageServer, GeometryServer or GPServer. Those produce
+rendered images, which vector-first removed and Q-47 kept out of v1.
+
+This is the largest compatibility commitment made, and it reaches past the API
+into the data model. ArcGIS FeatureServer carries assumptions we do not yet
+have: a stable integer `objectId` per feature (Q-57), `globalId`, attachments,
+relationships, domains, subtypes and editor-tracking fields (Q-58), and
+`applyEdits` transaction semantics including `rollbackOnFailure`.
+
+`objectId` is the sharp one. A registered Oracle table with a composite or UUID
+key has no such thing, and synthesising one that is stable across requests and
+restarts means either a mapping table in a database we may not own, or a
+deterministic derivation that is hard for composite keys. **That lands on the
+data model rather than on this ADR.**
+
+Clean room applies with full force (§5): published protocol behaviour only.
+
 **Scope narrowed 2026-08-12 (Q-47): WMS is out of v1.** Rendering it needs a
 rasteriser, and vector-first removed that from the platform deliberately. So the
 v1 compatibility layer covers **WFS** — features, which we can serve — and
