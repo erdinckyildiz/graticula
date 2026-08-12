@@ -27,6 +27,12 @@ ls -lh "$PBF"
 # afterwards. --hstore keeps tags queryable, which matters because a realistic
 # attribute set is part of what we are measuring, not just geometry.
 echo
+echo "=== prerequisites ==="
+# osm2pgsql --hstore needs the hstore extension present before it creates
+# tables. The postgis image does not enable it by default.
+psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1   -c "CREATE EXTENSION IF NOT EXISTS hstore;"
+
+echo
 echo "=== osm2pgsql ==="
 osm2pgsql \
   --create \

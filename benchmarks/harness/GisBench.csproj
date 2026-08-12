@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GisBench</RootNamespace>
+    <!-- Benchmark harness: server GC and tiered PGO on, because that is how a
+         server would actually run and measuring anything else is measuring the
+         wrong configuration. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.2" />
+    <PackageReference Include="NetTopologySuite" Version="2.5.0" />
+    <PackageReference Include="NetTopologySuite.IO.PostGis" Version="2.1.0" />
+  </ItemGroup>
+
+</Project>
