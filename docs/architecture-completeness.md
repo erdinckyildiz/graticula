@@ -20,10 +20,10 @@ finished, however confident the ADR sounds.
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; legacy protocols in the compatibility layer; capability report generated not hand-written |
-| Plugin model | — | DRAFT | — | — | — | — | — | not started |
+| Plugin model | **decided** | `ACCEPTED WITH CONDITIONS` | n/a | n/a | — | — | — | internal extension points only; no third-party plugin system until a specific trigger fires |
 | Service runtime | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | the ArcSOC question answered. Structure decided, numbers are conditions. Affinity routing (A-014) is the unproven part. Amended with context pinning (§4.12) as the dedicated-instance equivalent |
 | Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
-| Raster engine | rescoped | DRAFT | — | — | — | — | — | catalog + access control only; no pixel production. Q-27 is now the deciding question |
+| Raster engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | serve COG only, convert at registration; GDAL on job workers; delivery proxied by default (Q-27 answered) |
 | Caching | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | tiles are the real cache; L2 optional permanently; coherence is best-effort for registered data and documented as such |
 | Job system | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | queue in the platform store, no broker; job classes with reserved capacity; every job declares its re-run behaviour |
 | Clustering | deferred | DEFERRED | n/a | n/a | — | — | — | `DEFERRED` (§79) |
