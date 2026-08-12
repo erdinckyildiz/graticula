@@ -22,5 +22,6 @@ Planned:
 | `mvt-generation/` | PostGIS `ST_AsMVT` versus server-side encoding | ADR-003, tile pipeline |
 | `geometry-hotpath/` | Cost of library overhead and FFI on tile-path primitives | ADR-003, A-004 |
 | `worker-model/` | Memory, cold start and interference across runtime models | ADR-007 |
+| `duckdb-compute-layer/` | Is an in-process compute engine worth it, and does reading PostGIS through DuckDB cost too much? | ADR-008, Q-19 |
 | `connection-budget/` | Does the connection budget hold at 1,000 services? | ADR-007, Q-04 |
 | `rendering/` | Rasterisation backend throughput | ADR-004 |

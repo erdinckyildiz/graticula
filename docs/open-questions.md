@@ -22,6 +22,10 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-16 | **[OWNER]** Is migration tooling in scope, or API compatibility only? Moving service definitions, styles, caches and client apps is a much larger commitment than serving a compatible API. | Owner | [product-context.md](product-context.md) |
 | Q-17 | **[OWNER]** Which compatibility surface — an ArcGIS-compatible REST surface, standards-based (WMS/WFS/WMTS) for GeoServer displacement, or both? Depends on which deployments are actually being displaced. | Owner | ADR-005, compatibility layer design |
 | Q-18 | What genuinely justifies a server over static cloud-native publishing, per workload class? Must be written as an argument, not assumed. | Council | [product-context.md](product-context.md), assessment §10 |
+| Q-19 | Does the platform need an in-process spatial compute engine of its own, independent of the provider — and is DuckDB it? The central question of [research/duckdb-geoparquet.md](research/duckdb-geoparquet.md) (P3). | Council | ADR-008, ADR-002 |
+| Q-20 | How many distinct GEOS builds end up evaluating our predicates (PostGIS's, ours, possibly DuckDB's), and how do we prevent behavioural divergence between them? Applies today, before any DuckDB decision. | Council | ADR-003, `experiments/geometry-oracle` |
+| Q-21 | Does the Query AST target more than one SQL dialect from day one, to keep the provider abstraction honest rather than PostGIS-shaped? | Council | ADR-008 |
+| Q-22 | Is a PostgreSQL-free deployment profile a goal, or is PostGIS an acceptable hard requirement? Challenges A-009. | Council → possibly Owner | ADR-002 |
 
 ## Open, not blocking
 
