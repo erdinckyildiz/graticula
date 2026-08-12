@@ -13,8 +13,9 @@ Planned topics, in priority order:
 | File | Topic |
 |---|---|
 | `arcgis-som-soc.md` | ArcGIS Server SOM/SOC/ArcSOC runtime model (§16) — **written, first pass** |
-| `geoserver.md` | GeoServer architecture, strengths, weaknesses |
-| `mapserver-qgis.md` | MapServer and QGIS Server |
+| `runtime-models-compared.md` | GeoServer, MapServer, QGIS Server, GeoServer Cloud runtime models — **written, first pass** |
+| `geoserver.md` | GeoServer beyond the runtime model: catalog, styling, extensions |
+| `mapserver-qgis.md` | MapServer and QGIS Server beyond the runtime model |
 | `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler |
 | `cloud-native-formats.md` | COG, STAC, PMTiles, FlatGeobuf, GeoParquet |
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |

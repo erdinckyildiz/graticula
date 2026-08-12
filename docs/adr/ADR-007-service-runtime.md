@@ -119,13 +119,32 @@ Directly from §80, plus the ones the scale target forces:
 - How are workers supervised, health-checked, and crash-contained (§21)?
 - On what triggers are workers recycled — lifetime, request count, memory, memory
   *growth*, config change, administrator request (§22)?
-- How does request routing find a worker able to serve a given service?
+- **How does request routing find a worker able to serve a given service —
+  and does it prefer one already warm for it?** Elevated after
+  [research/runtime-models-compared.md](../research/runtime-models-compared.md)
+  §3. Every prior system fragments warm state across workers and then routes
+  blindly; QGIS Server documents the resulting cache misses explicitly. Affinity
+  routing plus a bounded per-worker service-context budget is the most promising
+  specific idea from the research phase — and it must be prototyped, not
+  believed. It trades load balance against cache locality, and must degrade to
+  plain balancing under skew.
 - How is backpressure implemented, with bounded queues and predictable failure
   under saturation (§48)?
 - How are DB connections budgeted across the whole deployment (§25)?
 - What happens on mass restart — thundering herd, staged startup, lazy
   initialisation (§26)?
 - What are the formal service states and how are transitions observed (§23)?
+
+## 5a. Blocking precondition — dependency thread safety
+
+`VERIFY` QGIS Server's entire process architecture follows from one fact: its
+classes are not thread safe, so multiprocessing is mandatory. A Tier 2
+dependency dictated the runtime model.
+
+**Thread-safety guarantees for GDAL, GEOS and PROJ must be established before
+this ADR is decided**, precisely and per API rather than in general terms. This
+is a blocking precondition, not a footnote — discovering it during
+implementation would invalidate the decision.
 
 ## 6. Required modelling — service explosion (§24)
 
@@ -149,6 +168,10 @@ case painful in order to reach 10,000 is rejected under §60.
 | Process-per-service with a warm minimum does not reach 1,000 services | `VERIFY` ~100–200 MB per ArcSOC process; Esri introduced shared instances at 10.7 citing memory | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.3 |
 | A central manager process is a robustness and recovery liability | Esri removed SOM/SOC at 10.1, citing exactly this | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.1 |
 | Sharing fails for workloads holding heavy or exclusive state | Geoprocessing is excluded from ArcGIS shared instance pools | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.4 |
+| Fragmented warm state plus blind routing causes real cache misses | QGIS Server documents per-process caches with randomly assigned requests | [research/runtime-models-compared.md](../research/runtime-models-compared.md) §2.2, §3 |
+| Heavy isolation is not universally necessary | GeoServer serves all services from one JVM heap, thread per request, and is widely deployed | [research/runtime-models-compared.md](../research/runtime-models-compared.md) §2.3, §4 |
+| Warm per-service state is smaller than process-per-service models assume | GeoServer caches store connections, feature type definitions, external graphics, fonts and CRS definitions — not data | [research/runtime-models-compared.md](../research/runtime-models-compared.md) §2.3 |
+| Splitting by protocol is the wrong decomposition axis | GeoServer Cloud splits per OWS service and needs a message bus to repair catalog consistency | [research/runtime-models-compared.md](../research/runtime-models-compared.md) §2.4 |
 | Process isolation cost per worker (memory, cold start) — *our* numbers | — | `benchmarks/` — pending |
 | Shared workers do not create unacceptable cross-service interference | — | pending |
 | Connection budget holds at 1,000 services | — | pending, modelling |
@@ -162,7 +185,7 @@ Pending.
 | ID | Assumption | Status |
 |---|---|---|
 | A-003 | Most services are idle most of the time, making shared workers viable | `UNVALIDATED` |
-| A-007 | Crash containment is required in practice, not just in principle (i.e. crashes actually happen — plugins, GDAL, malformed data) | `UNVALIDATED` |
+| A-007 | Crash containment is required in practice, not just in principle (i.e. crashes actually happen — plugins, GDAL, malformed data) | `CONTESTED` — GeoServer runs every service in one JVM with no isolation and is widely deployed successfully, which is evidence *against* for managed-code paths; ArcGIS and QGIS Server run large native stacks and isolate, which is evidence *for* on native paths. Resolution is per-path, not global. |
 | A-008 | Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive | `SUPPORTED` — ArcGIS Server's own guidance asks administrators to "pare down the number of running service instances", a per-service manual task that does not scale to 1,000 services |
 
 A-003 deserves scrutiny. It is the load-bearing assumption of the shared-worker

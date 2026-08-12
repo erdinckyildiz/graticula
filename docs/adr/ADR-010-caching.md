@@ -22,6 +22,20 @@ L1 lifetime is coupled to worker lifetime (ADR-007): aggressive worker recycling
 destroys L1 value, so the two decisions must be made together rather than
 sequentially.
 
+**Updated 2026-08-12** — the coupling is tighter than that.
+[research/runtime-models-compared.md](../research/runtime-models-compared.md) §3
+shows that L1 design and *request routing* are the same problem: warm state
+fragments across workers, and if the router is blind to which worker holds what,
+L1 hit rate collapses. QGIS Server documents exactly this. L1 cannot be designed
+independently of ADR-007's routing decision.
+
+A concrete starting inventory for what L1 holds, taken from GeoServer's
+documented cache: store connections, feature type definitions, external
+graphics, font definitions, CRS definitions. Notably **not** data. If that list
+is broadly right, per-service warm state is small enough that binding and
+unbinding it may be cheap — which would change the whole shared-versus-dedicated
+calculation.
+
 ## 3. Counterarguments to the preferred option
 
 Not yet written — no option is preferred yet.
