@@ -1,0 +1,26 @@
+# Benchmarks
+
+**Status:** STUB — not written
+**Required by:** §58
+
+---
+
+Realistic, repeatable benchmarks. When agents disagree about a measurable
+question, the disagreement is settled here rather than by argument (§57).
+
+Every benchmark records: dataset, hardware, configuration, methodology, and raw
+numbers. Measure throughput, p50, p95, p99, CPU, memory, and recovery time where
+relevant (§58).
+
+A benchmark that cannot be reproduced from what is written down is not evidence.
+
+Planned:
+
+| Benchmark | Question | Settles |
+|---|---|---|
+| `feature-query/` | Feature query throughput and streaming behaviour at scale | ADR-008 |
+| `mvt-generation/` | PostGIS `ST_AsMVT` versus server-side encoding | ADR-003, tile pipeline |
+| `geometry-hotpath/` | Cost of library overhead and FFI on tile-path primitives | ADR-003, A-004 |
+| `worker-model/` | Memory, cold start and interference across runtime models | ADR-007 |
+| `connection-budget/` | Does the connection budget hold at 1,000 services? | ADR-007, Q-04 |
+| `rendering/` | Rasterisation backend throughput | ADR-004 |

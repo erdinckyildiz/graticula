@@ -1,0 +1,51 @@
+# Build output
+bin/
+obj/
+target/
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Dependencies
+node_modules/
+vendor/
+.venv/
+__pycache__/
+
+# Benchmark and experiment output — methodology and results are committed,
+# raw artefacts are not
+benchmarks/**/results/raw/
+benchmarks/**/*.log
+experiments/**/data/
+*.pprof
+*.heapsnapshot
+
+# Local data — spatial test data is large and is fetched, not committed
+data/
+*.gpkg
+*.mbtiles
+*.pmtiles
+*.tif
+*.tiff
+*.shp
+*.dbf
+*.shx
+
+# Local configuration and secrets
+.env
+.env.*
+*.local.yaml
+*.local.json
+secrets/
+
+# Editor and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
