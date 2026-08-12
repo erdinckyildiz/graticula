@@ -52,39 +52,86 @@ gRPC with h2c, and MCP over JSON-RPC for AI agents.
 **Maturity:** `VERIFY` 4 stars, 1 fork, 4,608 commits, 56 open issues, **no
 tagged releases** — nightly container builds only.
 
-## 1a. Does it use NetTopologySuite? — `INFERRED`, not established
+## 1a. Dependency manifest — established, 2026-08-12
 
-Asked 2026-08-12, after our own tile benchmark found NTS's general overlay and
-Douglas-Peucker to be 79% and 55% of a tile request respectively
-([benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md)).
-If the closest .NET peer hit the same wall, that is worth knowing.
+**Clean-room note.** The owner authorised reading `Directory.Packages.props`.
+That is central package management metadata: a list of what the project depends
+on and at which version. It is not implementation, it teaches nothing about how
+any problem was solved, and the boundary at the top of this document — *do not
+read the implementation and then write our own version of what was read* —
+remains fully in force. See §1b for the tiering this established.
 
-**The README does not say.** It names .NET 10, PostGIS 3.4-3.6 and Redis, and
-describes a Geometry Service doing "buffer, project, intersect" plus MVT output,
-without naming any geometry library. Establishing it definitively means reading
-`Directory.Packages.props` or the `.csproj` files, which is a call for the
-project owner rather than an inference: a package manifest is arguably build
-metadata rather than implementation, but the boundary at the top of this
-document was drawn deliberately strictly and it is not ours to loosen.
+Read from `trunk` (the default branch is `trunk`, not `main`). 133 packages.
 
-**`INFERRED`, high confidence:** yes, it uses NetTopologySuite. On .NET there is
-no serious alternative for buffer and intersect — NTS is the only maintained
-port of JTS, and Npgsql's spatial plugin is `Npgsql.NetTopologySuite`, so any
-.NET service reading PostGIS geometry as objects arrives at NTS almost by
-default. Labelled `INFERRED` under the CLAUDE.md rule and not to be cited as
-fact.
+### The question that was asked
 
-**What matters more than the answer, and is established:** Honua **requires**
-PostGIS, and its SQL Server, Oracle, DuckDB and warehouse sources are
-**read-only**. That means its primary path can use `ST_AsMVT` — the 62 ms path
-in our benchmark — and it may never have needed the in-process encoder at all.
+**Yes — `NetTopologySuite 2.6.0`.** One minor version ahead of the 2.5.0 our
+benchmark ran against. Also `NetTopologySuite.IO.Esri.Shapefile 1.2.0`,
+`NetTopologySuite.IO.GeoJSON 4.0.0`, `NetTopologySuite.IO.GeoPackage 2.0.0`.
 
-So the comparison does not transfer. Our A-019 exists because we promised
-first-class *write-capable* Oracle and SQL Server providers (Q-50a), which
-commits us to encoding tiles in-process on engines that cannot do it in SQL.
-Honua declined that commitment. Whichever geometry library it uses, it is
-solving a smaller problem on the hot path, and finding that it uses NTS
-happily would not be evidence that NTS is adequate for ours.
+The prior inference was correct, but see §1c: the answer matters less than the
+question of whether their hot path resembles ours, and it does not.
+
+### What else the manifest establishes
+
+| Fact | Packages | Why it matters to us |
+|---|---|---|
+| **No GDAL binding anywhere** | none present — no `MaxRev.Gdal`, no `OSGeo.*` | Confirms the README's claim beyond doubt, and goes further than we assumed: GDAL is not a managed dependency of *any* project in the solution. |
+| **File import is done with NTS IO packages, not GDAL** | `NetTopologySuite.IO.Esri.Shapefile`, `.GeoPackage`, `.GeoJSON`, `FlatGeobuf 3.26.0`, `Parquet.Net`, `ParquetSharp`, `Apache.Arrow 22.1.0` | **This challenges our reasoning on Q-28 / A-016.** We accepted "no GDAL in the serving container" as a deployment rule while still assuming GDAL does the format work in a job worker. Shapefile, GeoPackage, FlatGeobuf and GeoParquet all have managed .NET readers. The GDAL dependency may be smaller than ADR-009 assumes. |
+| **They render** | `SkiaSharp 3.119.2` + Linux native assets, `Mapsui 5.0.2` | Consistent with advertising WMS, MapServer and ImageServer. The relevant point for us is that our ADR-004 deferral is a real divergence, not a shared assumption. |
+| **MVT via generated protobuf** | `Google.Protobuf 3.34.1` | `INFERRED`: they generate the MVT writer from the `.proto` rather than hand-writing it. Ours is hand-written and costs 3.8 ms at z14. No evidence either way on their cost. |
+| **Multi-engine, and tested against real engines** | `Microsoft.Data.SqlClient`, `Oracle.ManagedDataAccess.Core`, `MySqlConnector`, `Snowflake.Data`, `DuckDB.NET.Data.Full`, plus `Testcontainers.MsSql / .Oracle / .MySql / .PostgreSql 4.11.0` | **Directly actionable — see D-05.** They do not require developers to install SQL Server or Oracle; the test suite starts them as containers on demand. That is the cheap repayment path for our own deferred measurement. |
+| **Load testing is a first-class dependency** | `NBomber 6.3.0`, `NBomber.Http 6.2.0` | Relevant to A-037. We need a concurrency harness and there is an established .NET one. |
+| **Architecture is enforced by test** | `NetArchTest.Rules 1.3.2` | Worth stealing as a practice, not a design: our build-vs-adopt tiering says "no library type in a Tier 1 signature", which is exactly the kind of rule this asserts automatically. |
+| **Operational stack** | `Yarp.ReverseProxy`, `Aspire.Hosting.*`, `StackExchange.Redis`, `Serilog`, `OpenTelemetry.*`, `Confluent.Kafka`, `NATS.Net`, `Polly` | Kafka and NATS both present. Our §6 anti-overengineering list challenges exactly this; noted without judgement, since a dependency list does not show whether they are optional. |
+| **Cloud-coupled** | 11 `AWSSDK.*` packages, 5 `Azure.*`, `Amazon.Lambda.*` | A different product shape from ours. Our baseline deployment target is `gis-server → PostgreSQL/PostGIS` on one machine. |
+
+**Caveat on all of the above.** Central package management lists what the
+solution may reference; it does not show which project references what, or
+whether a package is optional, or whether it is used at all. Every row is a fact
+about the manifest, not about the running server.
+
+## 1b. Clean-room tiering, established by this decision
+
+The owner authorised Tier B on 2026-08-12. Recording the tiers so the next
+question does not have to relitigate the boundary.
+
+| Tier | What | Status |
+|---|---|---|
+| **A** | README, published docs, protocol surface, observable behaviour of a running instance | **Permitted** since the first pass |
+| **B** | Dependency manifests, CI configuration, `LICENSE` / `NOTICE`, default branch, repository metadata | **Permitted**, 2026-08-12. Facts about *what* is depended on, not *how* anything was solved |
+| **C** | Directory layout, project boundaries, public API shape | **Not decided.** Medium risk: this is design, and design is what we are still deciding |
+| **D** | Implementation of any subsystem we intend to write — tile encoder, geometry pipeline, provider abstraction, query translation | **Forbidden.** This is the only tier where clean room genuinely bites |
+
+**Why the risk is not what it first appears.** Elastic License 2.0 prohibits
+providing the software as a managed service, circumventing licence keys, and
+removing licensing notices. It does not prohibit reading, and it explicitly
+grants the right to prepare derivative works. Reading is lawful. The exposure is
+**provenance**: ELv2 code cannot be relicensed under AGPL, so once we have read
+how a subsystem was implemented we permanently lose the ability to demonstrate
+that our version was independently created. Clean room protects the ability to
+prove independence, not the ability to avoid learning facts. Tier B carries no
+provenance risk because there is nothing to independently create.
+
+GitHub reports the licence as `NOASSERTION`, which is expected: ELv2 is
+source-available and not OSI-recognised.
+
+## 1c. Why the NTS answer does not transfer
+
+Established from the README: Honua **requires** PostGIS, and its SQL Server,
+Oracle, DuckDB and warehouse sources are **read-only**.
+
+Its primary path can therefore use `ST_AsMVT` — the 62 ms path in our benchmark
+— and it may never have needed an in-process encoder at all. Our A-019 exists
+because Q-50a committed us to *write-capable* Oracle and SQL Server providers,
+which forces in-process encoding on engines that cannot do it in SQL.
+
+So: Honua using NTS 2.6.0 without apparent difficulty is **not** evidence that
+NTS is adequate for our hot path. It is solving a smaller problem there. Our
+own measurement found NTS's general overlay at 79% and its Douglas-Peucker at
+55% of a tile request
+([benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md)),
+and nothing in their dependency list speaks to whether they hit the same thing.
 
 ## 2. The one idea we should probably take
 
