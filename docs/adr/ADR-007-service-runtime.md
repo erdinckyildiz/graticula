@@ -180,13 +180,36 @@ database, which is what makes the arithmetic survivable at all. At four workers
 and five data sources with a pool of five, that is 100 connections. At fifty
 data sources it is 1,000, which is not.
 
-**The same policy solves both:**
+**Correction, 2026-08-12.** An earlier version of this section claimed an idle
+connection is a DDL hazard. **It is not**, and the distinction matters because
+it changes the policy.
+
+`VERIFY` on PostgreSQL, `ALTER TABLE` needs `ACCESS EXCLUSIVE`, which conflicts
+with the `ACCESS SHARE` held by a *transaction that has touched the table*:
+
+| State | Blocks DDL? |
+|---|---|
+| Running query on the table | Yes |
+| Idle in transaction, having touched the table | Yes |
+| Open connection, no transaction | **No** |
+
+`VERIFY` the same principle holds on SQL Server (schema-stability locks are held
+during execution, not by idle sessions) and Oracle (DDL conflicts with active
+transactions).
+
+So **connection pooling itself is not the hazard. Long transactions and
+idle-in-transaction are.** Shrink-to-zero is a *budget* policy, not a lock
+policy, and it should be an idle timeout rather than aggressive closing.
+
+**The policy:**
 
 - Pools are **per (worker, data source)**, never per service.
-- Pools **shrink to zero when idle.** An idle connection is both a wasted budget
-  slot and a DDL hazard.
-- Never idle in transaction.
+- **Never idle in transaction.** This is the actual lock discipline, and it is
+  non-negotiable.
 - Statement timeouts are mandatory. A long query is a held lock.
+- Pools **shrink toward a floor after an idle period** — the floor is zero by
+  default and configurable upward, see §4.12. This is budget management, not
+  lock avoidance, so the timeout can be generous.
 - A **global connection cap per worker**, enforced across all pools, so a
   deployment with many data sources degrades by queueing rather than by
   exhausting the database.
@@ -231,6 +254,69 @@ A deliberate departure, stated so it is not mistaken for an oversight:
 §23's requirement that transitions be observable applies to all four. The
 administrator's question is "why is this service degraded", and the answer
 composes from the service, its data source and the workers serving it.
+
+### 4.12 Pinning — keeping a hot service permanently warm
+
+§4.3 binds contexts lazily and §4.4 evicts them LRU. A service under constant
+load must not pay either cost. This is ArcSOC's dedicated-instance problem, and
+it needs an answer.
+
+**ArcGIS's answer:** dedicated instances with a minimum above zero. `VERIFY`
+"if you set this parameter to three instances, there will always be at least
+three instances running on ArcSOC processes at any given time, even when the
+service is not being used." Recommended for services under a service-level
+agreement, under heavy use, or that are compute-intensive. Setting the minimum
+to zero saves memory at the cost of a cold first request.
+
+**Our answer: pin the context, not a process.**
+
+| | ArcGIS dedicated instance | Our pinned context |
+|---|---|---|
+| What is held | An `ArcSOC` process | A service context |
+| `VERIFY` cost | ~100–200 MB | Connections, compiled schema, style reference, CRS transform — order of megabytes |
+| Granularity | Whole process per service | One entry in a worker's context table |
+
+Same intent, roughly two orders of magnitude cheaper. That difference is what
+makes it affordable to pin the services that matter without recreating the
+arithmetic that killed process-per-service (§3).
+
+**What pinning does:**
+
+1. **Exempt from LRU eviction.** A pinned context stays bound.
+2. **Pre-bound rather than lazily bound.** Bound when a worker starts, so the
+   first request after a recycle is not cold.
+3. **Present in at least K workers**, so a single worker recycle does not leave
+   the service cold. K defaults to more than one for pinned services.
+4. **A connection floor on its data source.** The pool for that source keeps a
+   minimum warm rather than shrinking to zero — this is the "keep a resource
+   permanently open" part, and §4.8's correction is what makes it safe.
+
+**Pinning is bounded, and pins compete.** There is a global pin budget per
+worker, sized against the context budget. If everything is pinned, nothing is —
+that is the ArcSOC failure mode arriving through a different door. When the
+budget is exceeded, the administrator is told which pins are contending rather
+than having one silently dropped.
+
+**Who decides.** Both, and the order matters:
+
+- **Default: unpinned.** Lazy binding and LRU, which is right for the long tail.
+- **Observed: auto-pin.** A service consistently hot enough to be rebound
+  constantly is pinned by policy (§4.5). Recorded and visible, never silent.
+- **Administrator: explicit pin.** This is condition 4's manual override made
+  concrete, and it is the mechanism for a service under an SLA — exactly
+  ArcGIS's documented use case.
+
+**This is a per-service configuration knob, which A-008 warned against.** The
+resolution is that it is an *exception* surface, not the primary one. ArcGIS's
+mistake was making min/max instances the interface for every service, so
+administrators had to tune a thousand of them. Ours is unpinned by default,
+observed in the middle, and hand-pinned for the handful that carry an SLA. A
+knob nobody has to touch is not the same as a knob that does not exist.
+
+**Recorded as A-025**: that a small number of pinned contexts is enough for real
+deployments, and administrators will not simply pin everything. If they do, the
+budget in the paragraph above is what keeps the system standing, and the
+guidance has failed.
 
 ## 5. Service explosion model (§24)
 
