@@ -80,24 +80,39 @@ A feature's precondition is therefore **"we can write here"**, not "the data is
 hosted". An organisation that grants write access to its own database gets
 hosted-grade behaviour there without copying anything.
 
-### The datastore need not be PostgreSQL
+### The datastore is PostGIS only, and it is a managed appliance
 
-**Decision, 2026-08-12.** The datastore may be any writable spatial provider:
-PostGIS, SQL Server Spatial or Oracle Spatial.
+**Decided 2026-08-12 (Q-32). This reverses an earlier decision, and the reason
+is worth recording.**
 
-This follows from an existing decision rather than being a new one. PostgreSQL
-was made non-mandatory because an Oracle shop should not have to run it for our
-benefit ([research/multi-database-consequences.md](research/multi-database-consequences.md)).
-If the datastore were PostGIS-only, any customer wanting hosted content would be
-forced back to PostgreSQL, which would undo that decision by the side door.
+An earlier version of this section said the datastore could be any writable
+spatial provider - PostGIS, SQL Server or Oracle - reasoning that a PostGIS-only
+datastore would force an Oracle shop back to PostgreSQL and undo the
+no-mandatory-PostgreSQL decision by the side door.
 
-An Oracle organisation therefore hands us an empty Oracle schema and says *this
-is your datastore.*
+**That was an over-application, and the owner caught it.** The distinction it
+missed:
 
-**The cost is real.** Our datastore schema must be creatable on three spatial
-engines: geometry column definition, spatial index creation, and Oracle's
-`SDO_GEOMETRY` metadata registration all differ. Implementation order should be
-PostGIS first, the other two after. Recorded as A-022.
+> **Running PostgreSQL and having a managed PostgreSQL appliance are different
+> asks.**
+
+ArcGIS Data Store *is* PostgreSQL, but one that ArcGIS installs, configures,
+backs up and upgrades. The customer never operates it, needs no PostgreSQL
+expertise, no DBA time and no backup tooling of their own. The original
+objection was about **operational burden**, and a managed appliance removes most
+of it.
+
+So: **the datastore is PostGIS, shipped as a managed component**, and it is
+**optional**. An organisation that still refuses any additional database process
+runs registered-only and loads data into their own database with QGIS - the same
+workflow already endorsed for editing. The capability is not lost; it moves to a
+tool they already have.
+
+**A-022 is retired.** Three spatial DDL implementations - geometry columns,
+spatial indexes, Oracle `SDO_GEOMETRY` metadata registration - are removed for a
+capability nobody had asked for. This is the same reasoning that cut the
+platform stores from four engines to two (Q-51), applied a second time to our
+own work.
 
 ## 3. Hosted and registered — the operational difference
 
