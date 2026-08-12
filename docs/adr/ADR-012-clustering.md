@@ -20,6 +20,20 @@ What this ADR requires now, while deferred: every other ADR must state which of
 its state is node-local and which is shared. That inventory is the real
 precondition for clustering, and collecting it late is expensive.
 
+**First instalment delivered 2026-08-12** —
+[ADR-002](ADR-002-primary-data-architecture.md) §5 inventories platform state.
+Two findings matter here:
+
+- Platform durable state is in PostgreSQL, so **clustering needs no new
+  synchronisation mechanism for it.** The GeoServer Cloud problem — a message bus
+  introduced purely to keep a file-based catalog consistent across nodes — does
+  not arise for us.
+- **Cache bytes are the awkward case.** The cache index is shared; the contents
+  (tiles, glyphs, sprites) are node-local unless placed on shared storage. A
+  multi-node deployment must share storage, replicate, or accept that a tile
+  cached on one node is a miss on another. This is the main unresolved item this
+  ADR inherits, and it belongs jointly with ADR-010.
+
 ## 3. Counterarguments to the preferred option
 
 Not yet written — no option is preferred yet.

@@ -11,7 +11,7 @@ finished, however confident the ADR sounds.
 | Area | Decision | ADR | Prototype | Benchmark | Security review | Ops review | Failure review | Status |
 |---|---|---|---|---|---|---|---|---|
 | Core language | narrowed to Go vs .NET | DRAFT | specified | — | — | — | — | `REQUIRES PROTOTYPE` — paper round done, prototype spec written |
-| Primary data architecture | — | DRAFT | — | — | — | — | — | not started |
+| Primary data architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | conditions in ADR-002 §9; state inventory delivered for ADR-012 |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | — | DRAFT | — | — | — | — | — | not started |
