@@ -12,7 +12,7 @@ Planned topics, in priority order:
 
 | File | Topic |
 |---|---|
-| `arcgis-som-soc.md` | ArcGIS Server SOM/SOC/ArcSOC runtime model (§16) — highest priority |
+| `arcgis-som-soc.md` | ArcGIS Server SOM/SOC/ArcSOC runtime model (§16) — **written, first pass** |
 | `geoserver.md` | GeoServer architecture, strengths, weaknesses |
 | `mapserver-qgis.md` | MapServer and QGIS Server |
 | `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler |

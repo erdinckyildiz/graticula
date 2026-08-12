@@ -42,7 +42,16 @@ every comparison downstream.*
 ArcSOC solving; which of those problems still exist; how should they be solved
 today. Publicly documented behaviour only (§5).*
 
-> Not written. **Highest-priority research item.** Feeds
+> **Research complete (first pass):**
+> [research/arcgis-som-soc.md](research/arcgis-som-soc.md).
+>
+> Headline finding: the most useful evidence is not the model itself but Esri's
+> own trajectory away from it. SOM/SOC removed at 10.1 (robustness, recovery,
+> provisioning); shared instances added at 10.7 (memory at scale). The
+> incumbent converged on the hybrid model of §19 under production pressure, and
+> the arithmetic that forced it also answers our §24 explosion test in advance.
+>
+> This section still needs to be written as prose for the assessment. Feeds
 > [ADR-007](adr/ADR-007-service-runtime.md) and
 > [service-runtime.md](service-runtime.md).
 

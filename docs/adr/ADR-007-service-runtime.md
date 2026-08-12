@@ -53,6 +53,39 @@ must produce an actual connection budget with actual numbers, not a principle.
 5. Container per service
 6. **Hybrid** — shared by default, dedicated on demand (§19)
 
+**Updated 2026-08-12 after the ArcSOC investigation**
+([research/arcgis-som-soc.md](../research/arcgis-som-soc.md)):
+
+- **Option 4 with a warm minimum is excluded by arithmetic, not preference.**
+  `VERIFY` an ArcSOC process costs roughly 100–200 MB; at 1,000 services with a
+  minimum of one instance each, that is ~150 GB of resident memory to have
+  services merely *available*. Esri added shared instances at 10.7 for exactly
+  this reason. Our §24 explosion test has this answer in advance.
+- **Option 6 gains real support**: the incumbent converged on shared-plus-
+  dedicated under production pressure. §19 still forbids assuming it is our
+  answer, so this raises the standard of proof rather than settling the matter.
+- **The evaluation axis is wrong.** "Shared or dedicated" is a symptom. Esri's
+  own limits on shared instances — map and image services only, geoprocessing
+  excluded, `VERIFY` ~50 cached service contexts per instance — reveal the real
+  axis:
+
+  > How much per-service state must a worker hold, how expensive is it to bind
+  > and unbind, and does the workload tolerate a neighbour?
+
+  That question has a different answer per workload class, which is the §20
+  specialised-worker hypothesis with evidence behind it. §4 below is the section
+  that matters.
+- **No distinguished central manager process.** Esri removed the SOM at 10.1 and
+  named robustness, failure reduction and simpler provisioning and recovery as
+  the reasons. Placement and routing state must be recoverable without a special
+  node — a constraint on the single-node design too, not only on ADR-012.
+- **Per-service min/max instances is rejected as the primary control surface.**
+  It does not survive 1,000 services or a GIS-administrator user. Policy plus
+  observation, with per-service override as an escape hatch.
+- **Session-pinned workers (Esri's non-pooled services) are not reproduced.**
+  Stateful editing belongs to database transactions and optimistic concurrency
+  (§28), not to process affinity. That problem has dissolved rather than moved.
+
 §19 says to investigate the hybrid model strongly *and not to assume it is the
 answer*. That instruction is taken literally: the hybrid model is the current
 lean, and it is the model this ADR must try hardest to break.
@@ -113,7 +146,10 @@ case painful in order to reach 10,000 is rejected under §60.
 
 | Claim | Evidence | Source |
 |---|---|---|
-| Process isolation cost per worker (memory, cold start) | — | `benchmarks/` — pending |
+| Process-per-service with a warm minimum does not reach 1,000 services | `VERIFY` ~100–200 MB per ArcSOC process; Esri introduced shared instances at 10.7 citing memory | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.3 |
+| A central manager process is a robustness and recovery liability | Esri removed SOM/SOC at 10.1, citing exactly this | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.1 |
+| Sharing fails for workloads holding heavy or exclusive state | Geoprocessing is excluded from ArcGIS shared instance pools | [research/arcgis-som-soc.md](../research/arcgis-som-soc.md) §3.4 |
+| Process isolation cost per worker (memory, cold start) — *our* numbers | — | `benchmarks/` — pending |
 | Shared workers do not create unacceptable cross-service interference | — | pending |
 | Connection budget holds at 1,000 services | — | pending, modelling |
 
@@ -127,7 +163,7 @@ Pending.
 |---|---|---|
 | A-003 | Most services are idle most of the time, making shared workers viable | `UNVALIDATED` |
 | A-007 | Crash containment is required in practice, not just in principle (i.e. crashes actually happen — plugins, GDAL, malformed data) | `UNVALIDATED` |
-| A-008 | Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive | `UNVALIDATED` |
+| A-008 | Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive | `SUPPORTED` — ArcGIS Server's own guidance asks administrators to "pare down the number of running service instances", a per-service manual task that does not scale to 1,000 services |
 
 A-003 deserves scrutiny. It is the load-bearing assumption of the shared-worker
 model, and if it is wrong the hybrid design changes shape.
