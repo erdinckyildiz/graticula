@@ -2,7 +2,11 @@
 
 Every assumption an architectural decision rests on is recorded here (§11).
 
-**Statuses:** `UNVALIDATED` · `VALIDATING` · `VALIDATED` · `INVALIDATED` · `SUPERSEDED`
+**Statuses:** `UNVALIDATED` · `VALIDATING` · `VALIDATED` · `CONTESTED` · `INVALIDATED` · `SUPERSEDED`
+
+`CONTESTED` means evidence points both ways and the assumption is probably
+stated at the wrong granularity. It is a signal to split the assumption, not to
+pick a side.
 
 **The rule that gives this register teeth:** invalidating an assumption triggers
 review of every ADR listed in its *Depended on by* column. An assumption that no
@@ -20,7 +24,7 @@ ADR depends on is either mislabelled or unnecessary.
 | A-004 | Hot-path geometry overhead (allocation and/or FFI) is material enough to justify our own primitives | `UNVALIDATED` | `benchmarks/geometry-hotpath` | ADR-003, tile pipeline |
 | A-005 | Geometry running in the same runtime meaningfully reduces defect resolution time versus FFI | `UNVALIDATED` | Judgement plus prototype experience; record honestly in `experiments/lang-slice` | ADR-001, build-vs-adopt policy |
 | A-006 | One internal geometry representation can serve both the feature path and the tile path without a second conversion | `UNVALIDATED` | Prototype | ADR-003 |
-| A-007 | Crash containment is required in practice, not merely in principle — workers really do die (GDAL on malformed input, plugins, OOM) | `UNVALIDATED` | Failure scenario review (§59); fault injection | ADR-007, ADR-009, ADR-006 |
+| A-007 | Crash containment is required in practice, not merely in principle — workers really do die (GDAL on malformed input, plugins, OOM) | `CONTESTED` | GeoServer runs every service in one JVM with no isolation and is widely deployed successfully — evidence *against*, for managed-code paths. ArcGIS and QGIS Server run large native stacks and isolate — evidence *for*, on native paths. Resolve per-path via failure scenario review (§59) and fault injection, not globally. See [research/runtime-models-compared.md](research/runtime-models-compared.md) §4 | ADR-007, ADR-009, ADR-006 |
 | A-008 | Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive | `VALIDATING` — supported by prior art | ArcGIS Server's documented guidance asks administrators to "pare down the number of running service instances to as many as are needed", a per-service manual task at a scale where it will not happen. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §4 (P8). Still needs a real operator's view to move to `VALIDATED`. | ADR-007 |
 | A-011 | A distinguished central manager process is a robustness and recovery liability, so placement and routing state must be recoverable without one | `VALIDATING` — supported by prior art | Esri removed the SOM/SOC split at 10.1 citing robustness, reduced failure and simpler provisioning and recovery. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §3.1 | ADR-007, ADR-012 |
 | A-012 | The sharing question is really about per-service state size, binding cost and neighbour tolerance — not about "shared versus dedicated" | `VALIDATING` — supported by prior art | ArcGIS shared instances are restricted to map and image services with limited capabilities, and exclude geoprocessing; `VERIFY` ~50 cached service contexts per instance. See [research/arcgis-som-soc.md](research/arcgis-som-soc.md) §3.4 | ADR-007, §20 worker classes |
@@ -30,10 +34,11 @@ ADR depends on is either mislabelled or unnecessary.
 | A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment | `UNVALIDATED` | Owner decision plus deployment review | ADR-002, ADR-011 |
 | A-010 | The 100–1,000 service target will not shift upward by an order of magnitude after launch | `UNVALIDATED` | Owner confirmation; revisit at each phase gate | ADR-007, ADR-012 |
 
-A-003 and A-007 carry the most weight. A-003 is the load-bearing assumption
-under the entire shared-worker model. A-007 decides whether process isolation is
-a real requirement or a reflex inherited from ArcSOC-era thinking — and getting
-that wrong in either direction is expensive.
+**Priority.** A-013 is **blocking** — dependency thread safety constrains the
+whole runtime model and must be settled before ADR-007 is decided. A-003 is the
+load-bearing assumption under the shared-worker model. A-007 is now `CONTESTED`
+and needs splitting into a managed-code path and a native-code path rather than
+being answered once.
 
 ## Validated
 
