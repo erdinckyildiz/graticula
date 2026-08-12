@@ -104,6 +104,29 @@ PostGIS first, the other two after. Recorded as A-022.
 This is the distinction that matters, and it is not about capability. It is
 about **who controls the schema, and what happens when it changes.**
 
+### Choosing between them — the lifecycle test
+
+**Decided 2026-08-12 (Q-08). Neither mode is the default.** The choice is made
+per layer, using a test taken from Esri's published guidance, which framed this
+better than our original question did:
+
+> **Does this layer's data have a life outside the service?**
+
+| Answer | Mode | Why |
+|---|---|---|
+| Yes — other applications use it, ETL updates it, it existed before the service and will outlive it | **Registered** | `VERIFY` "If the data in the registered data source changes, you will see those changes in the web layer." |
+| No — the service essentially *is* the data | **Hosted** | `VERIFY` Esri: hosted data "is automatically deleted by the system when the service or item associated with the data is deleted." Hosting is not merely a location; **it is taking ownership of a lifecycle, including deletion.** |
+
+**A caveat stated rather than hidden: the two modes are not symmetric in
+difficulty.** Everything hard sits on the registered side — schema drift
+detection, the DDL-lock discipline, capability negotiation across three
+dialects, `objectId` synthesis (Q-57), and transaction semantics we do not
+control. Hosted is comparatively easy because we own the schema.
+
+So engineering effort concentrates on registered whichever mode proves more
+common, and documentation should not imply a parity of difficulty that does not
+exist.
+
 ### Registered: the schema changes under us
 
 When a DBA alters a registered table:
