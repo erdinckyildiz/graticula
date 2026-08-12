@@ -21,6 +21,17 @@ How OGC API Features/Tiles/Maps/Processes, WMS/WMTS/WFS and any compatibility su
 Also to decide: versioning strategy, content negotiation, error model, and where
 the compatibility layer (§51) sits relative to the core.
 
+**Inherited obligation, added 2026-08-12.** [ADR-008](ADR-008-query-engine.md)
+§2 chose to refuse unsupported queries rather than answer them slowly, and made
+that conditional on **a capability report published per layer** so a client
+knows what will be refused before it asks. That report is an API surface and it
+belongs to this ADR. Without it, ADR-008's choice is user-hostile rather than
+honest.
+
+The error model matters more than usual for the same reason. A refusal must name
+the provider, the unsupported operation and any alternative — a generic 400 is
+not sufficient.
+
 **Updated 2026-08-12 — the compatibility layer is now a requirement.** Displacing
 existing ArcGIS Server and GeoServer deployments is a confirmed product goal
 (see [product-context.md](../product-context.md)), which promotes §51 from

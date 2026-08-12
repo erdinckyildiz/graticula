@@ -21,7 +21,7 @@ Planned topics, in priority order:
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |
 | `dependency-thread-safety.md` | GDAL, GEOS, PROJ threading rules — **written, resolves A-013** |
 | `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, binding quality — **written, first pass** |
-| `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written, first pass** |
+| `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written**; the compute-layer proposal is deferred by ADR-008 §4.3, not rejected |
 | `multi-database-consequences.md` | PostgreSQL, SQL Server, Oracle as first-class — **written**, analysis of an owner decision |
 | `hosted-datastore-and-tiles.md` | Own MVT encoder, cache as the equaliser, optional managed datastore — **written**, proposal |
 | `runtime-schema-evolution.md` | How ArcGIS changes a live layer's schema, and what it costs — **written**, first pass |

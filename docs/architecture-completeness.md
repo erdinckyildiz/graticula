@@ -22,7 +22,7 @@ finished, however confident the ADR sounds.
 | API architecture | — | DRAFT | — | — | — | — | — | not started |
 | Plugin model | — | DRAFT | — | — | — | — | — | not started |
 | Service runtime | — | DRAFT | — | — | — | — | — | not started |
-| Query engine | — | DRAFT | — | — | — | — | — | not started |
+| Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
 | Raster engine | rescoped | DRAFT | — | — | — | — | — | catalog + access control only; no pixel production. Q-27 is now the deciding question |
 | Caching | — | DRAFT | — | — | — | — | — | not started |
 | Job system | — | DRAFT | — | — | — | — | — | not started |

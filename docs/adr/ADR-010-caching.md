@@ -54,6 +54,12 @@ is "seeding 1,000 services takes how long, and what happens when the data
 changes underneath". Invalidation was already the harder half; it is now the
 harder half of a more important ADR.
 
+**Cache key identity, added 2026-08-12.** [ADR-008](ADR-008-query-engine.md)
+gives us a natural cache key: the compiled plan's identity plus the layer's
+schema fingerprint. Using the plan rather than the request URL means
+semantically identical requests share a cache entry, and it makes schema drift
+invalidate keys structurally rather than by a separate sweep.
+
 **A second invalidation trigger, added 2026-08-12: schema change.**
 ([research/runtime-schema-evolution.md](../research/runtime-schema-evolution.md))
 Removing a field makes every cached feature response and every tile carrying
