@@ -18,6 +18,19 @@ Three candidate layers (§44): L1 process memory, L2 distributed cache, L3 disk 
 2. L1 plus L2 mandatory
 3. No L1; a single shared cache tier
 
+**Added 2026-08-12** — the thin servers show this trade-off live
+([research/postgis-thin-servers.md](../research/postgis-thin-servers.md) §3.2).
+`VERIFY` Martin and pg_tileserv generate tiles on the fly with `ST_AsMVT` and
+are reported fastest; Tegola encodes server-side, is slower, and in exchange
+offers filesystem caching with pluggable backends **and cache seeding**. Each
+picks one strategy.
+
+We cannot pick one. A managed platform with an administrator, editable data and
+1,000 services needs fast dynamic generation *and* seeding, invalidation and
+cache lifecycle. That combination is one of the few defensible answers to Q-18 —
+it is something neither a thin server nor static publishing provides — which
+also means it has to actually work, not merely be listed.
+
 L1 lifetime is coupled to worker lifetime (ADR-007): aggressive worker recycling
 destroys L1 value, so the two decisions must be made together rather than
 sequentially.

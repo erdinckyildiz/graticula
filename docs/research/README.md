@@ -16,7 +16,7 @@ Planned topics, in priority order:
 | `runtime-models-compared.md` | GeoServer, MapServer, QGIS Server, GeoServer Cloud runtime models — **written, first pass** |
 | `geoserver.md` | GeoServer beyond the runtime model: catalog, styling, extensions |
 | `mapserver-qgis.md` | MapServer and QGIS Server beyond the runtime model |
-| `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler |
+| `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler — **written, first pass** |
 | `cloud-native-formats.md` | COG, STAC, PMTiles, FlatGeobuf, GeoParquet |
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |
 | `dependency-thread-safety.md` | GDAL, GEOS, PROJ threading rules — **written, resolves A-013** |

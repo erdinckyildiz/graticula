@@ -18,6 +18,21 @@ Raster and imagery as a first-class subsystem (§35): GDAL, COG, STAC, overviews
 2. GDAL in a dedicated worker class, isolated by process
 3. Mixed — in-process for trusted registered sources, isolated for user-supplied files
 
+**Added 2026-08-12** — a default to argue against rather than toward
+([research/postgis-thin-servers.md](../research/postgis-thin-servers.md) §3.4).
+`VERIFY` TiTiler does dynamic raster tiling straight from COGs over HTTP range
+requests — reading a few hundred kilobytes from a 50 GB file rather than the
+file. **Dynamic tiling should therefore be the default and pre-generated raster
+caches the exception needing justification**, which reverses the historical
+assumption.
+
+Note what TiTiler's model is, in our terms: GDAL in-process against
+range-requested remote files. That is precisely the thread-affinity and
+crash-containment problem of §5 in
+[research/dependency-thread-safety.md](../research/dependency-thread-safety.md),
+running in production at scale. How they handle worker isolation and failure is
+worth studying before this ADR is decided.
+
 Crash containment is the deciding axis here, not throughput. Malformed raster and
 decompression bombs are explicit threats (§54, §59).
 

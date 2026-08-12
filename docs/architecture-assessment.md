@@ -72,7 +72,21 @@ today. Publicly documented behaviour only (§5).*
 *The thin-server model: pg_tileserv, pg_featureserv, Martin, Tegola. What do
 they prove is unnecessary in a GIS server, and where do they stop being enough?*
 
-> Not written.
+> **Research complete (first pass):**
+> [research/postgis-thin-servers.md](research/postgis-thin-servers.md).
+>
+> Headline: by restricting itself to PostGIS alone, pg_tileserv deletes four
+> subsystems we plan to build — publishing, authorization, geoprocessing and MVT
+> encoding — because the database already provides each one. That is the most
+> serious challenge to our scope in the research so far.
+>
+> Where it stops: the moment a second data source exists, all four return. Our
+> provider abstraction (§27) is what forfeits the dividend, and the migration
+> goal is what pays for it. Also missing: cache lifecycle, and any notion of an
+> administrator — the thin-server model has no administrator in it, which is
+> exactly our stated primary user.
+>
+> This section still needs writing as prose.
 
 ## 9. Modern geospatial server patterns
 
