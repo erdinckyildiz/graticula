@@ -30,6 +30,8 @@ for every review gate.
 | **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
 | **Databases** | **PostgreSQL is not mandatory. Oracle Spatial and SQL Server Spatial are first-class, for both spatial data and the platform store.** | Answered 2026-08-12 — see below |
 | **Storage model** | **Hosted data in a managed datastore; referenced data in registered PostGIS / Oracle / SQL Server sources.** | Answered 2026-08-12 — see [data-model.md](data-model.md) |
+| **Native API** | **OGC API Features, Parts 1 + 2 + 3. WFS, WMS and WMTS move to the compatibility layer.** | Answered 2026-08-12 — see [ADR-005](adr/ADR-005-api-architecture.md) |
+| **Editing** | **In scope.** Through our API *and* directly against the database with QGIS. Both paths coexist. | Answered 2026-08-12 |
 
 ## The primary user is the GIS administrator
 

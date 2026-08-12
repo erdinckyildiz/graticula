@@ -24,9 +24,22 @@ day-one engine. It must serve:
 It must never concatenate untrusted input into SQL (§29), and it must push
 computation down *intelligently* rather than blindly (§30).
 
-**Editing is out of scope** for this engine. Feature writes do not go through
-our API (Q-42); editing is done against the database with QGIS. This ADR covers
-the read path only, which is a substantial simplification.
+**Correction, 2026-08-12.** An earlier version of this ADR said editing was out
+of scope. That was a wrong inference — the owner's statement about editing
+happening in the database concerned **table structure**, not feature data.
+
+**Feature data editing is in scope** (Q-42). This ADR is written around the read
+path, which is right for the day-one workload, but the write path belongs to the
+same engine and brings back what the earlier version dismissed:
+provider-dependent transaction semantics, isolation levels, locking behaviour
+and what a conflict looks like across PostGIS, SQL Server and Oracle.
+
+Those differences produce provider-dependent *bugs* rather than
+provider-dependent features, so they must be designed against explicitly rather
+than discovered. **The write path is a gap in this ADR and needs its own pass**
+before implementation, covering transactions, batch edits, and the concurrency
+rule in [ADR-005](ADR-005-api-architecture.md) §3.8 — that optimistic
+concurrency is built on database-maintained state, never on our own record.
 
 ## 2. The organising principle
 

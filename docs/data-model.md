@@ -161,25 +161,46 @@ to be useful without loading the source database.
 | Schema change | Coordinated by us; no restart | Happens under us; drift detection and refresh |
 | Lock risk to the DBA | None | Real; mitigated by quiescing |
 | Data currency | Authoritative | Authoritative |
-| Editing | In the datastore, with QGIS (§5) | In the source, with QGIS |
+| Data editing | Through our API | Through our API where we have write rights |
+| Schema editing | Through our admin API; we sequence it | In the source database; we detect drift and refresh |
 | Who backs it up | Us | Them |
 
 Both modes are first-class. An organisation may run entirely hosted, entirely
 registered, or a mixture. **An organisation need not have a GIS database at
 all** — datastore-only is a supported and probably common deployment.
 
-## 5. Editing is done at the source, with QGIS
+## 5. Schema editing and data editing
 
-**Owner decision.** Editing is not performed through our API. It is done against
-the database, using QGIS, for which we will provide an extension.
+**Clarified by the owner, 2026-08-12.** These are separate questions and an
+earlier version of this section conflated them, producing the wrong conclusion
+that editing was out of scope entirely.
 
-This resolves cleanly because **the datastore is an ordinary spatial database**.
-QGIS connects to it directly, exactly as it connects to a registered source. One
-editing story, not two.
+### Schema — table structure
 
-The consequence is that we do not see edits — in either mode, including our own
-datastore. So the QGIS extension has a genuine architectural role rather than
-being a convenience:
+| Layer mode | Where schema changes happen |
+|---|---|
+| Registered | **In the source database**, by whoever administers it. We detect drift and refresh (§3). We do not offer DDL over the feature API. |
+| Hosted | Through our administrative API, because we own the schema and can sequence the change ([research/runtime-schema-evolution.md](research/runtime-schema-evolution.md)). |
+
+### Data — features, attributes, geometry
+
+**In scope, through our API.** Feature write endpoints exist. The surface is
+Q-44, since OGC API Features Part 4 is still a draft.
+
+### The complication
+
+Data writes can also bypass us. Anyone with database credentials — QGIS, a
+script, a DBA — can write rows directly. That is not the designated path, but it
+is physically possible and it will happen.
+
+**So our bookkeeping cannot assume it sees every change.** Editor tracking,
+change history and any concurrency scheme built on our own record of events will
+miss direct writes. The rule that follows, from
+[ADR-005](adr/ADR-005-api-architecture.md) §3.8: **optimistic concurrency must
+be built on database-maintained state, never on what we remember seeing.**
+
+The QGIS extension therefore has a genuine architectural role rather than being
+a convenience, covering both the schema path and the direct-write path:
 
 | Extension role | Why it matters |
 |---|---|
@@ -192,9 +213,12 @@ Where the extension is not used, we fall back to schema-drift polling and
 TTL-based expiry. That must work, because we cannot require a specific desktop
 client.
 
-**Q-42 is recorded as resolved on this reading**: no feature write endpoints in
-our API. If that reading is wrong, §28's CRUD, batch editing, editor tracking
-and optimistic concurrency all return, and this section is rewritten.
+Section 28's CRUD, batch editing, editor tracking and optimistic concurrency
+are therefore all in scope. The provider-dependent transaction semantics noted
+in [ADR-008](adr/ADR-008-query-engine.md) return with them: isolation levels,
+locking behaviour and what a conflict looks like differ across PostGIS, SQL
+Server and Oracle, and those differences produce provider-dependent bugs rather
+than provider-dependent features.
 
 ## 6. What the datastore is not
 

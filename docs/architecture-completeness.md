@@ -19,7 +19,7 @@ finished, however confident the ADR sounds.
 | Schema drift detection | — | — | — | — | — | — | — | improvement over ArcGIS, which requires manual restart. A-023 |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
-| API architecture | — | DRAFT | — | — | — | — | — | not started |
+| API architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; legacy protocols in the compatibility layer; capability report generated not hand-written |
 | Plugin model | — | DRAFT | — | — | — | — | — | not started |
 | Service runtime | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | the ArcSOC question answered. Structure decided, numbers are conditions. Affinity routing (A-014) is the unproven part. Amended with context pinning (§4.12) as the dedicated-instance equivalent |
 | Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
@@ -29,7 +29,7 @@ finished, however confident the ADR sounds.
 | Clustering | deferred | DEFERRED | n/a | n/a | — | — | — | `DEFERRED` (§79) |
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | — | — | — | — | — | — | — | not started |
-| Feature services (§28) | — | — | — | — | — | — | — | not started |
+| Feature services (§28) | — | — | — | — | — | — | — | read **and write**. A-026 asks whether OGC API Features plus additive extensions covers §28; A-027 covers concurrency against writes that bypass us |
 | Vector tiles (§33) | — | — | — | — | — | — | — | not started — **elevated**: the only tile format, and the source for WMS compatibility |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
