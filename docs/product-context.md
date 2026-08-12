@@ -38,6 +38,48 @@ for every review gate.
 | **Data ownership** | **No default.** Hosted and registered are both first class, chosen per layer by a lifecycle test: does the data have a life outside the service? | Answered 2026-08-12 |
 | **Compatibility surface** | **WFS, WMTS-for-vector-tiles, and full ArcGIS FeatureServer including edits** (Q-17). Not MapServer, ImageServer, GeometryServer or GPServer. | Answered 2026-08-12 |
 
+## Two users, two publishing paths
+
+**Decided 2026-08-12.** The GIS administrator is the primary user, but not the
+only one, and the second changes the shape of publishing.
+
+| | Publisher | GIS administrator |
+|---|---|---|
+| Publishes | Their own hosted data | Services from registered sources |
+| Surface | Web and API, **self-service** | **Desktop - the QGIS extension** |
+| Owns the result | **Yes** | No, it is a corporate service |
+| Needs an administrator | No | They are one |
+
+This resolves an ambiguity. The QGIS extension was given a "publishing" role
+without noticing that publishing is two different acts. The extension serves the
+**administrative** path - publishing services from registered sources.
+Self-service publishing is a separate surface and does not involve QGIS.
+
+**It also explains why the datastore must exist.** A publisher cannot be allowed
+to write into the corporate enterprise geodatabase, so they need somewhere else
+to land. The datastore is not primarily "for organisations without a database" -
+it is **where self-service content lives**.
+
+It fits the Q-08 lifecycle test exactly: self-service content is the canonical
+case of *the service essentially is the data*, so hosting it and deleting it
+with the service is correct.
+
+### What this requires that we had not designed
+
+- **Item ownership.** A hosted item belongs to its creator. They share it, they
+  delete it. An administrator can override but need not be involved.
+- **Sharing scopes, distinct from roles** - private, group, organisation,
+  public. Composes *with* RBAC rather than replacing it.
+- **Capability by role**, above permission by role. "May publish hosted content"
+  and "may register a data source" are different capabilities, and a publisher
+  has the first without the second.
+- **Per-user datastore quotas.** Without them one publisher fills the store.
+  This makes the L3 size budget a policy question rather than a disk question.
+- **A user-facing publishing surface**, not only the admin API (§39).
+
+Open: the exact role set, whether groups are needed in v1, and how quotas are
+enforced. See Q-59 to Q-61.
+
 ## The primary user is the GIS administrator
 
 Not a developer self-hosting one application, and not an end user. Someone who

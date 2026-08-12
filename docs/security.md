@@ -23,6 +23,30 @@ Both are resolved below. The rest of §54's threat list is not yet written.
 
 ## 2. The authorization model
 
+### 2.0 Two axes: roles and ownership
+
+**Added 2026-08-12.** The model below was written as pure RBAC - permissions
+assigned by an administrator. Self-service publishing adds a second axis that
+composes with it rather than replacing it.
+
+| Axis | Question it answers | Assigned by |
+|---|---|---|
+| **Role** | What may this person *do*? Publish hosted content, register a data source, administer the platform. | An administrator |
+| **Ownership and sharing** | Who may see *this item*? Its owner decides: private, a group, the organisation, public. | **The item's creator** |
+
+A publisher creates a hosted layer and owns it. They choose its sharing scope
+without an administrator. An administrator may override, and must be able to,
+but is not in the path.
+
+This is the ArcGIS model and both open-source alternatives lack it. It means
+authorization is not a single administrator-assigned matrix, and the design in
+§2.1 onward must accommodate an owner-set scope alongside an admin-set role.
+
+**Not yet designed**, and it must be before publishing ships: how an owner-set
+sharing scope and an admin-set role compose when they disagree. The safe default
+is that the more restrictive wins, but "safe" and "expected" are not the same
+thing, and an owner who shares publicly and finds it invisible will file a bug.
+
 ### 2.1 Our authorization is the baseline, not a fallback
 
 This resolves D-01, and the resolution turns out to be a reframing rather than a

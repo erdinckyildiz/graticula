@@ -263,6 +263,23 @@ locking behaviour and what a conflict looks like differ across PostGIS, SQL
 Server and Oracle, and those differences produce provider-dependent bugs rather
 than provider-dependent features.
 
+## 5a. Hosted items have owners
+
+**Added 2026-08-12.** Self-service publishing means a hosted layer is not only
+data in a store - it is an **item with an owner**.
+
+- The creator owns it, shares it and may delete it.
+- Sharing scope is the owner's decision, not an administrator's.
+- An administrator may override; they are not in the normal path.
+- **Deleting the item deletes the data**, which is what makes the Q-08 lifecycle
+  test correct for this case.
+
+Registered services have no owner in this sense. They are corporate services
+published by an administrator from a source the organisation already owns.
+
+The entity model must therefore carry ownership and sharing on hosted items, and
+that is a distinction the §37 identity model has not yet been designed around.
+
 ## 6. What the datastore is not
 
 - **Not mandatory.** Registered-only deployments are supported.

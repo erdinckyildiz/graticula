@@ -38,6 +38,7 @@ finished, however confident the ADR sounds.
 | Compatibility layer (§51) | **scope set** | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles + full ArcGIS FeatureServer including edits** (Q-17). WMS, MapServer, ImageServer out (Q-47). Outside the core domain. |
 | Feature service data model gaps | — | — | — | — | — | — | — | **opened by Q-17**: stable `objectId` (Q-57), attachments, relationships, domains, subtypes, editor tracking (Q-58) |
 | Migration tooling | **scope set** | — | — | — | — | — | — | inventory plus definition import, free (Q-16). Needs a home — probably its own component rather than part of the compatibility layer |
+| Self-service publishing | **scope confirmed** | — | — | — | — | — | — | second user type and second publishing path. Neither GeoServer nor Honua has this. Q-59 to Q-62 open |
 | AuthZ (§42) | **partial** | n/a | — | — | — | — | — | model decided in [security.md](security.md) §2–3. Multi-tenant resource isolation still open (D-04) |
 | AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
