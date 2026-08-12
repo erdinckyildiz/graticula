@@ -52,5 +52,25 @@ services:
       postgis:
         condition: service_healthy
 
+  # osm2pgsql, in its own image so the database container stays exactly the
+  # published one. Usage:
+  #   docker compose run --rm osm2pgsql /work/load-osm.sh
+  osm2pgsql:
+    build:
+      context: .
+      dockerfile: osm2pgsql.Dockerfile
+    container_name: gis-experiment-osm2pgsql
+    environment:
+      PGHOST: postgis
+      PGUSER: gis
+      PGPASSWORD: gis
+      PGDATABASE: gis
+    volumes:
+      - ./data:/data
+      - ./:/work
+    depends_on:
+      postgis:
+        condition: service_healthy
+
 volumes:
   pgdata:
