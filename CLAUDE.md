@@ -38,6 +38,12 @@ ADRs exist, and the criteria in §81 are met.
   [architecture-debt.md](docs/architecture-debt.md) (§62). Temporary architecture
   must not silently become permanent.
 - Disagreement is recorded, not smoothed over. Do not manufacture consensus (§8).
+- **Inference is labelled.** Where a decision is derived by interpreting
+  something the project owner said, rather than stated by them directly, record
+  it as `INFERRED` and list it for confirmation. Do not write it as decided.
+  Added after adversarial review F12: editing scope inverted twice in one
+  session because an inference was recorded as fact, and nothing in the process
+  distinguished the two.
 
 ## 3. Evidence over taste
 

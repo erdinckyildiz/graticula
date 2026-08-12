@@ -111,9 +111,14 @@ state fragments across workers and the router does not know.
 
 - The router tracks **which worker holds which service contexts.**
 - A request prefers a worker already warm for its service.
-- Each worker has an explicit **service context budget** — a number, not an
-  emergent property. ArcSOC's `VERIFY` ~50 cached service contexts per shared
-  instance is the same parameter, without routing that respects it.
+- Each worker has an explicit **context budget**. **Amended after adversarial
+  review (F6): the budget is a resource budget — retained bytes, or a weighted
+  count — not a count of services.** A service over a 500-million-row table with
+  three CRS transforms and a large style is not one unit of anything, and a
+  worker holding fifty of those behaves nothing like one holding fifty point
+  layers. Counting services is the same category error we criticised ArcSOC for
+  in §3, in a different currency. `benchmarks/worker-model` must measure context
+  weight distribution; if it is wide, count-based budgeting is invalid.
 - Contexts evict LRU when the budget is exceeded. Eviction is cheap if A-015
   holds; if warm state turns out to be expensive, this design weakens
   considerably.
@@ -122,6 +127,29 @@ state fragments across workers and the router does not know.
 
 **This is a hypothesis, and it is the least proven part of this ADR.**
 `experiments/affinity-routing/` must run before it is relied on (A-014).
+
+**Amended after adversarial review (F2): it is also a control system, and
+control systems oscillate.** Lazy binding, LRU eviction, affinity preference,
+skew degradation and auto-pinning are five interacting feedback mechanisms with
+no damping specified — no hysteresis on pinning, no minimum residency, no cost
+accounting for a rebind, no stability criterion.
+
+The failure path is not hypothetical:
+
+```text
+A gets busy → auto-pinned → pin budget pressure evicts B's pin
+→ B's contexts evict under LRU → B rebinds constantly, slows
+→ B looks hot → B auto-pins, evicting C → …
+```
+
+And "degrades to plain balancing under skew" is an unspecified switching rule
+between two control regimes, which is exactly where systems flap. At what
+threshold, measured how, over what window, with what transition behaviour?
+
+**The experiment's success criterion is convergence, not hit rate.** It must
+test sustained skew, oscillating skew, and a slow ramp across the budget
+boundary. If stability cannot be demonstrated, the correct answer is plain
+balancing with pinning as the only affinity — simpler, and provably stable.
 
 ### 4.5 Escalation is observed, not configured
 
@@ -396,9 +424,12 @@ ADR-006 (plugins are job workers if they exist at all), admin API (§39).
 
 ## 10. Conditions
 
-1. **A-014 must be prototyped before affinity routing is implemented.** If it
-   fails, §4.4 is replaced by plain balancing and this ADR is amended, not
-   quietly ignored.
+1. **A-014 must be prototyped before affinity routing is implemented, and the
+   prototype must demonstrate stability under adversarial load, not merely a
+   better hit rate** (adversarial review F2). If it fails, §4.4 is replaced by
+   plain balancing and this ADR is amended, not quietly ignored.
+1a. **The context budget is validated as a resource budget** (F6) before it is
+   implemented as a count.
 2. **A-015 must be measured before §4.3's lazy binding is relied upon.**
 3. **The connection budget must be produced with real numbers, per provider**,
    before any deployment guidance is published.

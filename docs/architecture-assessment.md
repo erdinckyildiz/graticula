@@ -598,7 +598,7 @@ Phases from §71–§79, with the evidence required to enter each.
 | Phase | Content | Entry requirement |
 |---|---|---|
 | **0** | This document, ADRs, experiments | Adversarial review (§85), fresh-challenger review (§67) |
-| **1** | Walking skeleton: PostGIS → provider → query engine → OGC API Features | ADR-001 decided by prototype. ADR-003 decided. |
+| **1** | Walking skeleton: PostGIS → provider → query engine → OGC API Features, **plus a minimal second dialect compiler in CI** (F1) | ADR-001 decided by prototype. ADR-003 decided. |
 | **2** | Standards: Parts 1+2+3 properly, capability report, admin API foundations | Phase 1 stable |
 | **3** | Vector tiles: in-process encoder, cache, seeding | A-019 and A-021 measured |
 | **4** | ~~Rendering~~ → **Second provider.** Bring SQL Server or Oracle online | The abstraction is only real when a second implementation exercises it |
@@ -611,11 +611,18 @@ Phases from §71–§79, with the evidence required to enter each.
 **Two deliberate departures from §71–§79.**
 
 **Phase 4 is not rendering.** Vector-first removed it, and the slot is better
-spent bringing a second spatial provider online. Our provider abstraction is the
-riskiest thing in the architecture and it is currently exercised by one
-implementation, which means it is a wrapper rather than an abstraction. Every
-month it stays that way it becomes more PostGIS-shaped. **This should happen as
-early as it can.**
+spent bringing a second spatial provider online as a *supported* provider.
+
+**Amended after adversarial review (F1).** "As early as it can" was not a
+commitment, and the whole multi-database decision rests on it. So a **minimal
+second dialect compiler exists in Phase 1** — not a supported provider, a
+forcing function: enough to compile the walking skeleton's queries against SQL
+Server and run them in CI.
+
+The rule adopted: **no query engine feature is complete until it compiles on two
+dialects.** Without it, everything written about capability negotiation is
+unfalsifiable until Phase 4, by which time the engine has a year of
+PostGIS-shaped assumptions and nothing pushing back.
 
 **Editing is not a phase.** It appears in §28's requirements and is in scope, but
 it has no phase of its own in §71–§79. It should land with Phase 2 or Phase 4,

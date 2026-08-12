@@ -43,6 +43,13 @@ finished, however confident the ADR sounds.
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
 
+## Adversarial reviews (§85, §67)
+
+| Round | Date | Findings | Status |
+|---|---|---|---|
+| 1 — adversarial | 2026-08-12 | 12 (3 severe) | [adversarial-review-1.md](reviews/adversarial-review-1.md) — all dispositions applied |
+| 2 — fresh challenger (§67) | — | — | Not run. Must be someone uninvolved in the above. |
+
 ## Review gates (§66)
 
 None run yet. Each gate is run against the whole architecture, not per-ADR, and
@@ -69,6 +76,19 @@ a failure reopens the relevant decisions rather than being noted and passed over
       blocked on ADR-001.
 - [ ] Critical questions (§80, all 40) answered or explicitly deferred with cause
 - [ ] Load-bearing assumptions validated — at minimum A-003, A-004, A-007
+- [ ] **Failure scenario pass complete** (§59) — adversarial review F9. At
+      minimum: platform store unavailable, data source unavailable, data source
+      slow, worker crash, disk full, job worker partition. This is the largest
+      untouched requirement in the master prompt and it constrains what a service
+      context is allowed to depend on.
+- [ ] **Three 2 AM scenarios written end to end** — adversarial review F5. Stale
+      tiles, a slow service, a failed registration. What does the administrator
+      see, from which endpoint, composed from what? If it cannot be written, the
+      observability model is missing rather than deferred.
+- [ ] **Air-gapped checklist written and tested** — adversarial review F11.
+      Q-15. Offline PROJ grids, GDAL driver data, fonts, MapLibre glyph packs and
+      sprites, COG-capable clients, and any rasteriser's display requirements.
+      Tested by attempting an install with no network.
 - [ ] High-risk decisions have prototypes
 - [ ] Performance-sensitive decisions have benchmarks
 - [ ] Contradiction sweep clean (§63)

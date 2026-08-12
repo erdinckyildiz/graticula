@@ -62,6 +62,35 @@ answer to Q-31, which asked whether we expose provider capability differences:
 we expose them, by publishing a capability report per layer and by failing
 loudly rather than degrading quietly.
 
+### 2a. Amended after adversarial review (F3) — the default is per surface
+
+The principle above is a good greenfield policy and **a hostile migration
+policy**, and displacing GeoServer and ArcGIS Server is a confirmed goal.
+
+The capability report is no help to a migration. The client was written three
+years ago against a server that answered the query. It migrates, it breaks, and
+the error explains — correctly and uselessly — that the report was available.
+
+So the principle survives and the default changes:
+
+| Surface | Default | Reasoning |
+|---|---|---|
+| **Native API** | **Refuse** | The client is being written now. Honest limits produce better software. |
+| **Compatibility layer** | **Best effort** | The client cannot be changed. Slow-but-working beats broken. |
+
+Under best effort the residual executes in-process where it can, and **every
+degradation is logged, counted as a metric, and surfaced in a warning header.**
+The cost stays visible to the operator even though it is paid rather than
+refused — which preserves what §2 was actually protecting.
+
+The mode is a per-service policy with a documented default per surface, so an
+administrator can force refusal on a compatibility service that is being abused,
+or force best-effort on a native service during a transition.
+
+**This is a genuine weakening of §2, recorded as such.** The principle was
+written before the migration requirement was fully absorbed, and it was too pure
+to survive it.
+
 ## 3. Alternatives considered
 
 ### Alternative A — Query AST compiled per provider, with capability negotiation
@@ -271,6 +300,11 @@ identity), ADR-011 (long queries become jobs), tile pipeline, feature services
 1. **The capability report must ship with the first refusal.** Refusing without
    telling clients in advance what will be refused makes §2's choice
    indefensible.
+1a. **A second dialect compiler exists from Phase 1** and runs in CI (adversarial
+   review F1). No query engine feature is complete until it compiles on two
+   dialects. An abstraction with one implementation is a wrapper, and this ADR
+   says so itself — the condition makes that statement testable rather than
+   aspirational.
 2. **The residual boundary is written down** — an explicit list of what executes
    in-process — and changes to it are ADR amendments, not implementation
    choices.

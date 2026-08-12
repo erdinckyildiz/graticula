@@ -34,6 +34,7 @@ ADR depends on is either mislabelled or unnecessary.
 | A-018 | A deliberately boring platform schema can be supported across SQLite, PostgreSQL, SQL Server and Oracle at acceptable cost | `UNVALIDATED` | Design the schema and port surface, then check it against all four dialects on paper before implementing. Cost is a test matrix, not an architecture — but the matrix must actually run (Q-29) | ADR-002, ADR-011 |
 | A-019 | In-process MVT encoding can meet our latency targets, since `ST_AsMVT` is unavailable on SQL Server and Oracle | `UNVALIDATED` — critical | `experiments/lang-slice` endpoint C, and `benchmarks/mvt-generation`. If this fails, the non-PostGIS providers cannot serve tiles at acceptable latency and the multi-database promise is hollow | ADR-001, ADR-008, tile pipeline |
 | A-020 | Cache seeding absorbs the provider performance gap, so an expensive Oracle tile path is acceptable when paid once rather than per request | `UNVALIDATED` | Measure seed time for a realistic service set, and invalidation behaviour when data changes. See [research/hosted-datastore-and-tiles.md](research/hosted-datastore-and-tiles.md) §3 | ADR-010, ADR-008 |
+| A-035 | Data source count stays low relative to service count — many services share one registered database | `UNVALIDATED` — **unbounded** | [ADR-007](adr/ADR-007-service-runtime.md) §4.8's connection budget survives only because pools are per data source rather than per service. But nothing bounds source count, and a large enterprise plausibly registers a departmental database per team. Fifty sources at four workers and a pool of three is 600 connections — the same shape of number §4.8 was supposed to have eliminated. Auto-discovery as a first-class publishing mode makes high counts *more* likely. Raised by adversarial review F8 | ADR-007, Q-04 |
 | A-032 | COG range-request traffic is view-proportional, so proxying it costs about what serving tiles costs | `UNVALIDATED` | [ADR-009](adr/ADR-009-raster-engine.md) §2.4 rests on it. A client fetches overview blocks for what is on screen, not the dataset — but this is a reasoned estimate, not a measurement. If imagery traffic dwarfs tile traffic the default flips to signed URLs | ADR-009 |
 | A-033 | Target clients can render COG directly, so serving one format suffices | `UNVALIDATED` | True of modern web mapping stacks, false of simple WMTS consumers and older desktop tools — some of which are exactly what we are displacing. See [ADR-009](adr/ADR-009-raster-engine.md) §10 | ADR-009, compatibility layer |
 | A-034 | Internal ports designed for our own use will be good enough to become a plugin contract later, without a redesign | `UNVALIDATED` | The risk is that internals grow assumptions no clean boundary can be drawn around, so the answer becomes "we cannot" rather than "we chose not to". Check at each phase gate | ADR-006 |
@@ -56,6 +57,20 @@ ADR depends on is either mislabelled or unnecessary.
 load-bearing assumption under the shared-worker model. A-007 is now `CONTESTED`
 and needs splitting into a managed-code path and a native-code path rather than
 being answered once.
+
+## Failure impact — the load-bearing five
+
+Added after adversarial review F4. The register's "depended on by" column is a
+link, not an impact analysis, and one assumption failing can partially reverse a
+flagship decision without that being written anywhere.
+
+| ID | If it is false | What actually changes |
+|---|---|---|
+| **A-015** warm state is small | Context bind/unbind is expensive | ADR-007 §4.3 lazy binding becomes a cold-start latency problem; §4.4 eviction becomes costly so the budget shrinks; §4.12 pinning becomes the norm rather than the exception — **which recreates per-service resource allocation, the thing §3 said killed ArcSOC.** ADR-010's L1 model changes shape. This single assumption partially reverses ADR-007. |
+| **A-019** in-process MVT meets latency targets | Tiles from SQL Server and Oracle are too slow | The multi-database promise is hollow for tiles. ADR-008 §4.8's tile path needs a different answer, ADR-010's seeding becomes mandatory rather than an optimisation, and ADR-001's weighting shifts again. |
+| **A-014** affinity routing works and is stable | Blind routing | ADR-007 §4.4 is deleted; we become GeoServer with extra steps. Acceptable, but L1 hit rates and therefore ADR-010's value both fall, and the pinning budget becomes the only affinity mechanism. |
+| **A-024** refusal plus a capability report is acceptable | Users reject it | ADR-008 §2's central choice fails. Combined with F3's amendment the fallback exists, but the native API would have to adopt best-effort too, which removes the principle entirely. |
+| **A-027** concurrency correct against unseen writes | Silent lost updates | The worst defect class an editing API can have. Editing cannot ship. Q-41's companion schema stops being optional. |
 
 ## Validated
 
