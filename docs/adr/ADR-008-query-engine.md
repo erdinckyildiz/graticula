@@ -308,10 +308,40 @@ Two consequences for this ADR:
   mangling geometry*. `.STIntersection()` and `SDO_GEOM.SDO_INTERSECTION` are
   the candidates and neither has been measured. Recorded as **A-039**.
 
-Still open: the same measurement on SQL Server and Oracle, which are the
-providers this path exists for. Deferred as
-[D-05](../architecture-debt.md) — and run 3 makes that the most consequential
-gap in the evidence, not a detail.
+### Amendment, 2026-08-12 — Q-67: tiles come only from hosted data
+
+**Owner decision, taken after run 3 rather than before it.** Vector tiles are
+served only from data hosted in the datastore. Registered Oracle, SQL Server and
+foreign PostGIS layers serve features — including full ArcGIS FeatureServer
+edits — and never tiles.
+
+Since the datastore is PostGIS-only (Q-32), **every tile source now has
+`ST_AsMVT`, `ST_AsMVTGeom` and `ST_ClipByBox2D` available**. That collapses most
+of this section:
+
+- The three-dialect tile path is gone. A-039 is `SUPERSEDED`; the tile half of
+  A-021 is closed.
+- A-019 stays true and stops being load-bearing. Whether we keep our own encoder
+  at all is now **Q-68**, to be settled by measuring read-once-encode-many
+  against repeated `ST_AsMVT` calls — the seeding case — rather than by citing
+  the Tier 1 rule.
+- The measured cost of the decision is the difference between the two paths
+  under load: 96.3 req/s at 0.1 MB per request, against 28.3 req/s at 20 MB and
+  80.9% GC pause.
+
+**What does not collapse.** Filter and predicate pushdown on all three dialects
+is untouched and remains this ADR's core problem — it belongs to the feature
+path, which Q-06b makes the day-one workload. And finding 11's giant-geometry
+floor still applies to bbox feature queries on every engine, where it is
+semantically correct rather than waste: the user asked for features intersecting
+the box, and Turkiye does intersect it. That case is governed by
+[geometry-crs-policy.md](../geometry-crs-policy.md) §6's three tiers, not by
+clipping.
+
+**The capability report carries this.** ADR-008 §2's principle — never degrade
+silently — already provides the mechanism: a registered layer's capability
+report states that tiles are unavailable and why, rather than a tile endpoint
+existing and failing.
 
 ## 5. Counterarguments to this decision
 

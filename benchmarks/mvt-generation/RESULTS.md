@@ -481,6 +481,15 @@ paths, measured on the same machine in the same session.
 
 Stated plainly, because the temptation with a first good result is to over-claim.
 
+- **The premise of runs 1 and 2 was retired by the owner on the day run 3
+  landed.** Q-67 decided that vector tiles come only from hosted data, which is
+  PostGIS. In-process MVT encoding was justified by `ST_AsMVT` being absent from
+  SQL Server and Oracle; there are now no tile sources that lack it. Runs 1 and
+  2 remain sound measurements and their findings about allocation, general
+  overlay and object churn all transfer to the feature path — but **A-019 is no
+  longer load-bearing, and whether the encoder measured here survives at all is
+  Q-68**. Recorded rather than quietly deleted: the decision was made *because*
+  of run 3, which is the register working as intended.
 - **Only PostGIS was measured, and that is now deliberate.** Endpoint C exists
   *because* SQL Server and Oracle lack `ST_AsMVT`, and neither has been tested.
   The numbers here are the in-process path running against the one database

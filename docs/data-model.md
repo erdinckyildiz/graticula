@@ -207,9 +207,19 @@ to be useful without loading the source database.
 | Data editing | Through our API | Through our API where we have write rights |
 | Schema editing | Through our admin API; we sequence it | In the source database; we detect drift and refresh |
 | Who backs it up | Us | Them |
+| **Vector tiles** | **Yes** | **No — never** (Q-67) |
 
-Both modes are first-class. An organisation may run entirely hosted, entirely
-registered, or a mixture. **An organisation need not have a GIS database at
+**The one asymmetry that is a hard rule (Q-67, 2026-08-12):** tiles come only
+from hosted data. This is not a capability gap to be closed later — it is the
+decision that removed the three-dialect tile path from the architecture. A
+registered layer's capability report says tiles are unavailable and why, per
+ADR-008 §2's never-degrade-silently principle; a tile endpoint does not exist
+and fail. Consequence for the lifecycle test in §1: *does this data have a life
+outside the service?* now has a second input — if the answer is yes but the
+layer needs tiles, those two facts conflict and the organisation must choose.
+
+Both modes are otherwise first-class. An organisation may run entirely hosted,
+entirely registered, or a mixture. **An organisation need not have a GIS database at
 all** — datastore-only is a supported and probably common deployment.
 
 ## 5. Schema editing and data editing

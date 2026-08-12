@@ -263,6 +263,11 @@ Two things this changes in §6:
 - **Cheapest-first is the wrong seed order if the goal is bounded memory.** Low
   zooms are both the most expensive and the most valuable to have cached.
 
+**Q-67 narrows this further:** every seedable layer is hosted PostGIS, so
+seeding always has the fast path available and never has to plan for an engine
+that cannot clip. What is left to decide is Q-68 — whether a seed reads once and
+encodes many tiles in process, or issues one `ST_AsMVT` per tile.
+
 **Run 3 adds one thing that is a decision.** Seeding must use provider pushdown
 unconditionally. A seed walks tiles back to back with no idle time to amortise
 GC pauses, which is precisely the workload measured at **80.9% GC pause and 18%

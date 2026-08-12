@@ -37,6 +37,7 @@ for every review gate.
 | **Datastore** | **v1, PostGIS only, optional, shipped as a managed appliance** we install and operate (Q-32). Not three engines - that was an over-application of the no-mandatory-PostgreSQL decision. | Answered 2026-08-12 |
 | **Data ownership** | **No default.** Hosted and registered are both first class, chosen per layer by a lifecycle test: does the data have a life outside the service? | Answered 2026-08-12 |
 | **Compatibility surface** | **WFS, WMTS-for-vector-tiles, and full ArcGIS FeatureServer including edits** (Q-17). Not MapServer, ImageServer, GeometryServer or GPServer. | Answered 2026-08-12 |
+| **Vector tile sources** | **Hosted data only, strictly** (Q-67). Registered Oracle, SQL Server and foreign PostGIS layers serve features and never tiles. | Answered 2026-08-12, against measured evidence rather than in advance of it — see below |
 
 ## Two users, two publishing paths
 
@@ -124,6 +125,46 @@ Priority consequence: [ADR-008](adr/ADR-008-query-engine.md) (query engine) and
 ([ADR-009](adr/ADR-009-raster-engine.md)) can be decided later — but not so late
 that the runtime model is fixed without accounting for their worker classes.
 Deciding ADR-007 as if only feature workloads existed would be a mistake.
+
+## Tiles come only from hosted data (Q-67)
+
+**Decided 2026-08-12, after the measurement rather than before it.**
+
+Vector tiles are served only from data that lives in the datastore as system of
+record. A registered Oracle, SQL Server or foreign PostGIS layer gets feature
+services, full ArcGIS FeatureServer compatibility including edits, and no tiles
+at all — not a slower tile path, none.
+
+**Why, in numbers.**
+[benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md)
+run 3 measured both. Serving tiles from a source we must read whole geometries
+out of: 28.3 req/s, 20 MB allocated per request, **80.9% of wall-clock spent
+suspended for garbage collection while using 18% of the CPU**. Serving them
+where the database can clip and encode: 96.3 req/s, 0.1 MB per request, 0.3% GC.
+The gap is not tuning.
+
+**What it costs, stated plainly.** An organisation running ArcGIS Server on
+Oracle with five hundred layers must copy data into our datastore to get tiles,
+not merely point at it. That is the ETL our competitors advertise avoiding, and
+it was accepted deliberately. The mitigation is that tiles are the *second*
+workload (Q-06b): such an organisation gets its feature services on day one
+against data that never moves.
+
+**Precedent, marked `VERIFY`.** This matches ArcGIS rather than diverging from
+it: Esri's vector tile layers are published from tile packages or hosted layers,
+and there is no dynamic vector tile service over a registered enterprise
+geodatabase. GeoServer does serve tiles from any store; we are choosing the
+Esri shape.
+
+**What it aligns.** The two user types now map onto the two paths without
+overlap. Publishers host their own data and get tiles. GIS administrators
+register authoritative sources from the desktop and get features. That was not
+the reason for the decision, but it is the reason to be comfortable with it.
+
+**What it opens.** Q-68 — whether our own MVT encoder still has a purpose now
+that every tile source is PostGIS, which our own Tier 1 rule says it must.
+Q-69 — whether the datastore is still *optional*, given that any deployment
+wanting tiles must now run it.
 
 ## Migration is a goal — the compatibility layer is a requirement
 
