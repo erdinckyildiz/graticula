@@ -103,6 +103,15 @@ non-standardness, and it keeps §50 honest.
 WMS, WFS and WMTS are **not core**. They are adapters over the same internal
 interface, in the compatibility layer (§51), for migration.
 
+**Scope narrowed 2026-08-12 (Q-47): WMS is out of v1.** Rendering it needs a
+rasteriser, and vector-first removed that from the platform deliberately. So the
+v1 compatibility layer covers **WFS** — features, which we can serve — and
+**WMTS only where it carries vector tiles**, which we already produce. Raster
+map images are not offered.
+
+That is a real reduction in migration reach and it is documented in
+[product-context.md](../product-context.md) rather than left to be discovered.
+
 The reasoning is the same one applied to WMS under vector-first: dropping them
 would restrict migration to organisations that can also replace their clients,
 and desktop GIS, older web applications and third-party tools speak WFS.

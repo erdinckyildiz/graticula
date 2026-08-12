@@ -603,6 +603,7 @@ Phases from §71–§79, with the evidence required to enter each.
 | **3** | Vector tiles: in-process encoder, cache, seeding | A-019 and A-021 measured |
 | **4** | ~~Rendering~~ → **Second provider.** Bring SQL Server or Oracle online | The abstraction is only real when a second implementation exercises it |
 | **5** | Raster: STAC catalog, registration, COG proxy | Q-27 implemented; A-032 measured |
+| — | **Not in v1: WMS.** Rendering raster map images stays out (Q-47). The compatibility layer is WFS, plus WMTS carrying vector tiles. | Reopens only as a product capability, not a legacy adapter |
 | **6** | Administration: full admin API, service lifecycle, observability | — |
 | **7** | Security: authentication, authorization, RBAC | — |
 | **8** | Processing: geoprocessing jobs over the existing job engine | — |

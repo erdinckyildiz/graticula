@@ -172,6 +172,34 @@ GDAL is still needed — for metadata and validation when registering a COG, and
 for file-based vector providers — but not thousands of times per second on the
 tile path.
 
+### v1 migration reach — stated plainly
+
+**WMS is not supported at v1** (Q-47). Rendering raster map images needs a
+rasteriser, and vector-first removed that deliberately; reinstating it for a
+compatibility surface would cost either a headless GPU context problem that
+collides with air-gapped deployment, or the Tier 1 cartographic work the decision
+just deleted.
+
+So the v1 compatibility layer is **WFS**, plus **WMTS where it carries vector
+tiles**. What that means for migration:
+
+| Consumer speaks | Can migrate at v1 |
+|---|---|
+| OGC API Features | Yes, natively |
+| Vector tiles / MapLibre | Yes, natively |
+| WFS | Yes, via the compatibility layer |
+| **WMS** | **No** |
+| ArcGIS REST | Depends on Q-17 |
+
+Much of a GeoServer estate is consumed through WMS, so this is a material limit
+on who can move to us initially. It is a deliberate trade, not an oversight, and
+it must appear in migration documentation rather than being discovered during a
+pilot.
+
+A rendered map service — closer to an ArcGIS MapService than to a WMS adapter —
+remains a possible future capability. If it is built, it should be built as a
+product capability with its own justification, not as a legacy adapter.
+
 ### The tension the owner accepted
 
 Displacing existing ArcGIS Server and GeoServer deployments is a confirmed goal

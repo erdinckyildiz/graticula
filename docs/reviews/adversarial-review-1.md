@@ -26,7 +26,7 @@ than merely annotate them.
 | F4 | Every ADR is conditional and no condition is discharged | High | Add failure-impact tracking |
 | F5 | The 2 AM test is invoked constantly and never applied | High | New required exercise |
 | F6 | Context budget counts services, not weight | High | Amend ADR-007 |
-| F7 | Deleted rendering returns through the compatibility door, uncosted | High | Contradiction, must resolve |
+| F7 | Deleted rendering returns through the compatibility door, uncosted | High | **RESOLVED 2026-08-12** — owner removed the requirement; WMS is out of v1 |
 | F8 | Data source cardinality is assumed, not bounded | Medium-high | New assumption |
 | F9 | No behaviour defined for platform store unavailability | Medium-high | New failure analysis |
 | F10 | Hosted data is authoritative and has no backup story | Medium | New question |
@@ -261,6 +261,13 @@ the core and left it in a required deliverable, and nobody costed the remainder.
    headless and air-gapped constraints as first-class requirements.
 
 Currently we have neither. That is the worst of the three states.
+
+**Resolved 2026-08-12 (Q-47): option 1.** The owner removed the requirement
+rather than un-deferring the ADR. WMS is out of v1, WMS-client migration is
+unsupported initially, and the limit is documented in
+[../product-context.md](../product-context.md) rather than left to be
+discovered. A rendered map service may return later as a product capability with
+its own justification.
 
 ---
 

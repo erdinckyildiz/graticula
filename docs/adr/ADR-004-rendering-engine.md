@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `DEFERRED` — rescoped to the compatibility layer |
+| **Status** | `DEFERRED` — confirmed 2026-08-12, WMS is out of v1 |
 | **Confidence** | — |
 | **Decided** | — |
 
@@ -19,12 +19,32 @@ the vector tiles we serve. Label placement, decluttering and cross-tile label
 consistency — the hard parts, and the reason this ADR looked large — are all
 client-side concerns now.
 
-**What remains of this ADR is narrow:** rendering WMS images in the
-*compatibility layer*, for migration only, low priority, most plausibly derived
-from our own vector tiles and our own MapLibre styles rather than from a
-separate cartographic pipeline.
+**Confirmed deferred, 2026-08-12 (Q-47).** Adversarial review F7 found a
+contradiction: this ADR was deferred while the compatibility layer — a product
+requirement — needed WMS, which needs a rasteriser. A deferred ADR was a
+precondition for a required deliverable.
 
-That narrowing changes the answer as well as the scope. See §2.
+**The owner resolved it by removing the requirement, not by un-deferring this
+ADR. WMS is out of v1.**
+
+The reasoning that makes this affordable: WMS costs either MapLibre Native with
+its headless GPU-context problem in containers — which collides directly with
+air-gapped deployment — or writing our own style interpreter and rasteriser,
+which is exactly the Tier 1 cartographic work vector-first removed. Neither is
+small, and neither is worth it for a compatibility surface.
+
+**The cost is real and must be documented rather than discovered:** WMS-client
+migration is unsupported at v1. Desktop GIS, older web applications and
+third-party tools that speak only WMS cannot move to us initially, and much of
+the GeoServer estate is consumed that way.
+
+The owner noted that a rendered map service in the style of an ArcGIS MapService
+may be worth building one day. That would reopen this ADR as a **product
+capability** rather than as a compatibility adapter — a different and more
+honest framing than rendering purely to support legacy clients.
+
+*What follows is the narrow compatibility-rendering analysis, retained because it
+is the shape the reopening would take.* See §2.
 
 *(Historical framing, retained for context: server-side cartography per §34 —
 symbols, labels, fonts, decluttering, compositing, rasterisation. This is what

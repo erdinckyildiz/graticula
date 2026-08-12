@@ -35,7 +35,7 @@ finished, however confident the ADR sounds.
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
-| Compatibility layer (§51) | — | — | — | — | — | — | — | not started — **required**, not optional (migration is a goal). Outside the core domain. |
+| Compatibility layer (§51) | scope set | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles**. WMS out of v1 (Q-47). ArcGIS REST pending Q-17. Outside the core domain. |
 | AuthN / AuthZ (§41, §42) | — | — | — | — | — | — | — | not started |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
 | Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9: bounded queues, admission control, immediate rejection with retry signal |
