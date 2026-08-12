@@ -41,6 +41,13 @@ before implementation, covering transactions, batch edits, and the concurrency
 rule in [ADR-005](ADR-005-api-architecture.md) §3.8 — that optimistic
 concurrency is built on database-maintained state, never on our own record.
 
+**Confirmed unavoidable 2026-08-12 (Q-50a).** The owner chose full read/write
+providers over read-only providers, which was the option that would have deleted
+this gap entirely. So three transaction semantics, three isolation models and
+three definitions of a conflict are now committed work rather than a risk to be
+avoided, and this pass is a precondition for implementation rather than a
+nice-to-have.
+
 ## 2. The organising principle
 
 > **Never degrade silently.**

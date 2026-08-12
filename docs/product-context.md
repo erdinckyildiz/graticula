@@ -32,6 +32,7 @@ for every review gate.
 | **Storage model** | **Hosted data in a managed datastore; referenced data in registered PostGIS / Oracle / SQL Server sources.** | Answered 2026-08-12 — see [data-model.md](data-model.md) |
 | **Native API** | **OGC API Features, Parts 1 + 2 + 3. WFS, WMS and WMTS move to the compatibility layer.** | Answered 2026-08-12 — see [ADR-005](adr/ADR-005-api-architecture.md) |
 | **Editing** | **In scope.** Through our API *and* directly against the database with QGIS. Both paths coexist. | Answered 2026-08-12 |
+| **Provider write capability** | **Full read/write on all three spatial engines** (Q-50a). Not read-only, not migrate-then-serve. Registered Oracle and SQL Server layers are editable through our API, subject to granted rights. | Answered 2026-08-12 |
 
 ## The primary user is the GIS administrator
 
