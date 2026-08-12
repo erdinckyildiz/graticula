@@ -24,8 +24,8 @@ bundled components frequently differ from the parent project.
 |---|---|---|---|---|---|
 | PostgreSQL | Baseline database | external | PostgreSQL Licence | `UNVERIFIED` | Separate process; not linked. |
 | PostGIS | Spatial extension | external | GPL-2.0-or-later | `UNVERIFIED` | Separate process; not linked. Distribution posture differs from linking. |
-| SQL Server driver | Data provider + platform store | 2 | varies by language | `UNVERIFIED` | Check the specific driver for the chosen language. |
-| Oracle client / driver | Data provider + platform store | 2 | proprietary, restrictions likely | `UNVERIFIED` | **Highest-risk row in this file.** Oracle client libraries have historically carried redistribution restrictions. We are a client, so the customer's database licence is theirs — but our right to *ship a driver* is ours to verify. Thin/managed drivers may avoid the native client entirely; check before implementing. |
+| SQL Server driver | Data provider and datastore | 2 | varies by language | `UNVERIFIED` | Check the specific driver for the chosen language. No longer needed for the platform store (Q-51). |
+| Oracle client / driver | Data provider and datastore | 2 | proprietary, restrictions likely | `UNVERIFIED` | **Highest-risk row in this file.** Oracle client libraries have historically carried redistribution restrictions. We are a client, so the customer's database licence is theirs — but our right to *ship a driver* is ours to verify. Thin/managed drivers may avoid the native client entirely; check before implementing. |
 | SQLite | Embedded platform store | 2 | public domain | `UNVERIFIED` | |
 | GEOS | Geometry topology | 2 | LGPL-2.1 | `UNVERIFIED` | LGPL: dynamic linking and replaceability obligations. Our port layer already satisfies the replaceability intent. |
 | PROJ | Coordinate transformation | 2 | MIT-style | `UNVERIFIED` | Grid data files carry **separate** licences and must be checked individually. |

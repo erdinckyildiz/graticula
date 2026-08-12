@@ -101,5 +101,5 @@ These came from the project owner and are inputs, not open questions. See
 
 ## 8. Documentation language
 
-Repository documentation is written in English. Conversation with the project
-owner is in Turkish.
+Repository documentation is written in English. **Conversation with the project
+owner is also in English**, from 2026-08-12 at the owner's request.

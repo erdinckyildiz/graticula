@@ -449,9 +449,9 @@ The synthesis.
    ┌───────────────┬───────────────┼───────────────┬──────────────────┐
    │ PLATFORM      │ DATASTORE     │ REGISTERED    │ DERIVED          │
    │ STORE         │ hosted data   │ SOURCES       │ ARTEFACTS        │
-   │ SQLite / PG / │ PostGIS /     │ PostGIS /     │ tiles, caches,   │
-   │ MSSQL / Oracle│ MSSQL /Oracle │ MSSQL /Oracle │ generalisation   │
-   │ metadata only │ we own schema │ / files       │ regenerable      │
+   │ SQLite | PG   │ PostGIS /     │ PostGIS /     │ tiles, caches,   │
+   │ metadata only │ MSSQL /Oracle │ MSSQL /Oracle │ generalisation   │
+   │               │ we own schema │ / files       │ regenerable      │
    └───────────────┴───────────────┴───────────────┴──────────────────┘
 ```
 

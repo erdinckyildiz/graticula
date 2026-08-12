@@ -69,13 +69,18 @@ not one statement:
 | Store | Claim |
 |---|---|
 | PostgreSQL | `SELECT … FOR UPDATE SKIP LOCKED` |
-| Oracle | `SELECT … FOR UPDATE SKIP LOCKED` |
-| SQL Server | `WITH (UPDLOCK, READPAST)` |
 | SQLite | Single writer; no contention to skip, so a plain guarded update suffices |
 
-`VERIFY` each of these against the exact versions we support. The *pattern* is
-portable; the syntax is not, and that is the store module's problem rather than
-the job engine's.
+`VERIFY` both against the exact versions we support.
+
+**Narrowed 2026-08-12 (Q-51).** This table originally had four rows, including
+`WITH (UPDLOCK, READPAST)` for SQL Server and skip-locked for Oracle. §4 of this
+ADR called four claim implementations "the strongest argument against the
+portable platform store", since locking bugs surface rarely and under load.
+**Cutting the platform store set to two removes that argument almost entirely** —
+two implementations, one of which has no contention to handle.
+
+This is the clearest direct benefit of the Q-51 simplification.
 
 ### 3.3 Wake-up is polling, and the interval is a documented number
 
@@ -188,10 +193,10 @@ checkpoint machinery §3.4 already requires. Recorded as A-030.
 - **Polling adds latency to every job.** §3.3 mitigates it for the interactive
   case and documents it otherwise. The honest position is that this design
   optimises for having no broker over having minimum latency.
-- **Four claim implementations is four places to get locking wrong**, and
-  locking bugs surface under load, in production, rarely. This is the strongest
-  argument against the portable platform store, and it lands here rather than in
-  ADR-002.
+- ~~Four claim implementations is four places to get locking wrong.~~
+  **Largely retired by Q-51**, which cut the platform store set to SQLite and
+  PostgreSQL. Two implementations remain, one of them trivial. The residual risk
+  is ordinary rather than structural.
 - **Reserved capacity per class wastes capacity** when a class is idle. Accepted
   deliberately: an idle reserved slot is cheaper than a registration queued
   behind a six-hour seed.

@@ -11,7 +11,7 @@ finished, however confident the ADR sounds.
 | Area | Decision | ADR | Prototype | Benchmark | Security review | Ops review | Failure review | Status |
 |---|---|---|---|---|---|---|---|---|
 | Core language | narrowed to Go vs .NET | DRAFT | specified | — | — | — | — | `REQUIRES PROTOTYPE` — paper round done, prototype spec written |
-| Primary data architecture | **decided, then amended** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | Reopened and re-decided same day: platform store portable across SQLite/PostgreSQL/SQL Server/Oracle. Conditions in ADR-002 §9. State inventory delivered for ADR-012. |
+| Primary data architecture | **decided, amended twice** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | Platform store is SQLite and PostgreSQL only (Q-51 narrowed it from four engines). SQL Server and Oracle remain providers and datastores. Conditions in ADR-002 §9. State inventory delivered for ADR-012. |
 | Provider architecture — multi-dialect | — | — | — | — | — | — | — | **elevated**: three first-class spatial dialects. `ST_AsMVT` is PostGIS-only, so in-process MVT encoding is mandatory |
 | Hosted datastore (optional) | **model confirmed** | — | — | — | — | — | — | storage model in [data-model.md](data-model.md); Q-32 now only decides v1 phasing |
 | Data model — storage and layer modes | **decided** | n/a | — | — | — | — | — | four lifecycles separated; datastore is a provider we own, on any of three spatial engines; editing is out of our API |

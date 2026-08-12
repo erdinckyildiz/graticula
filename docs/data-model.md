@@ -16,7 +16,7 @@ one place.
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ PLATFORM STORE          our metadata, no spatial data        │
-│ SQLite | PostgreSQL | SQL Server | Oracle                    │
+│ SQLite (single-node) | PostgreSQL (multi-node)               │
 │ services, catalog, roles, jobs, styles, cache index          │
 │ small, precious, backed up carefully                         │
 └──────────────────────────────────────────────────────────────┘

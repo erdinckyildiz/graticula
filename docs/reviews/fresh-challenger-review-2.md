@@ -34,7 +34,7 @@ Treat its findings as real and its coverage as suspect.
 | G3 | Multi-database was never costed against migrating the data instead | **Severe** | Unexamined alternative |
 | G4 | The design never meets real spatial data | **High** | GIS omission |
 | G5 | Multi-tenant isolation inside shared workers is unexamined | **High** | Security |
-| G6 | Four platform stores buys a benefit nobody has evidenced | **High** | Unnecessary complexity |
+| G6 | Four platform stores buys a benefit nobody has evidenced | **High** | **RESOLVED 2026-08-12** — owner cut them (Q-51) |
 | G7 | Our error messages and capability reports leak internal topology | Medium | Security |
 | G8 | Upgrade and rollback are named in six places and designed nowhere | Medium | Operational |
 
@@ -283,6 +283,15 @@ This removes two dialect implementations, two migration paths, two claim
 implementations and half the test matrix, at the cost of a capability whose
 demand is hypothetical. It is the cleanest available application of §82 to our
 own work.
+
+**Accepted by the owner, 2026-08-12 (Q-51).** Platform stores are SQLite and
+PostgreSQL. SQL Server and Oracle remain first-class providers and datastores.
+ADR-011's "strongest argument against the portable platform store" — four
+locking implementations — is retired with it.
+
+Residual, stated honestly: SQLite cannot hold shared state across nodes, so a
+multi-node Oracle shop runs a small PostgreSQL for metadata. Much smaller than
+running PostGIS for their data, and clustering is deferred regardless.
 
 ---
 

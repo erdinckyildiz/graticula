@@ -242,12 +242,13 @@ directly in front of our stated migration target.
 
 Two distinct consequences, which must not be conflated:
 
-**The platform store becomes portable.** SQLite as the embedded default for
-developer and small single-node installs, plus PostgreSQL, SQL Server and
-Oracle. This is affordable because platform metadata is not spatial and not
-high-volume — a few thousand rows of ordinary relational data. What is needed is
-a dialect abstraction, not a capability abstraction. The cost is a test matrix
-and migration scripts, and it is real: an untested backend is a broken backend.
+**The platform store becomes portable.** `VERIFY` **Narrowed 2026-08-12 (Q-51)
+to SQLite and PostgreSQL only.** SQLite is the embedded default and already meets
+the no-PostgreSQL requirement completely, since platform metadata is a few
+thousand rows of non-spatial data. SQL Server and Oracle were cut as platform
+stores because the remaining justification was an unevidenced policy requirement
+costing four dialect implementations and a four-way CI matrix. **They remain
+first-class providers and datastores**, where the requirement is real.
 
 **Three first-class spatial dialects.** This is the larger change, and the
 single most consequential fact is that **`ST_AsMVT` exists only in PostGIS.** For

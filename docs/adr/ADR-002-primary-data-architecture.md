@@ -155,9 +155,26 @@ following shape:
 Replaces §4.1 and §4.4.
 
 1. **The platform store is a port with a deliberately boring surface.**
-   Supported implementations: **SQLite** (embedded default for developer and
-   single-node small installs), **PostgreSQL**, **SQL Server**, **Oracle**. No
-   spatial types, no exotic SQL, nothing that only one engine can do.
+   Supported implementations: **SQLite** (embedded default, single-node) and
+   **PostgreSQL** (multi-node, and for shops that already run it). No spatial
+   types, no exotic SQL, nothing that only one engine can do.
+
+   **Narrowed 2026-08-12 (Q-51), after fresh-challenger review G6.** SQL Server
+   and Oracle were originally included as platform stores so an Oracle shop would
+   not have to run PostgreSQL. **SQLite already solves that completely** — it is
+   embedded, needs no install, and the platform store is a few thousand rows of
+   non-spatial data. The remaining justification was a policy requirement nobody
+   had evidenced, at a cost of four dialect implementations, four migration
+   paths, four job-claim implementations and a four-way CI matrix.
+
+   They remain **first-class data providers and first-class datastores**, where
+   the requirement is real and owner-stated. Only the platform store narrows.
+
+   **The residual constraint, stated honestly:** SQLite cannot hold shared state
+   across nodes, so a multi-node deployment needs a PostgreSQL platform store.
+   An Oracle organisation wanting high availability therefore runs a small
+   PostgreSQL holding metadata only — a far smaller imposition than running
+   PostGIS for their spatial data, and clustering is deferred anyway (ADR-012).
 2. **The platform store is independent of the data source engines.** A customer
    may run Oracle Spatial for data and SQLite for the platform, or SQL Server
    for both. Co-location is a deployment convenience, never an assumption. This
@@ -173,10 +190,9 @@ Replaces §4.1 and §4.4.
    must be portable, so polling a change-sequence column is the assumed
    mechanism. This affects the event architecture (§45) and cache invalidation.
    Recorded as Q-30.
-5. **Phasing is permitted; unvalidated design is not.** SQLite and PostgreSQL
-   may ship first with SQL Server and Oracle following, **provided the port
-   design is checked against all four dialects on paper now.** Designing against
-   two and discovering the third does not fit is the standard failure here.
+5. ~~Phasing is permitted; unvalidated design is not.~~ **Moot after Q-51.**
+   Both supported stores ship together; there is no third dialect to design
+   against on paper.
 6. **An untested backend is a broken backend.** Any store claimed as supported
    runs in CI against the full migration and integration suite, or it is
    documented as unsupported. Q-29 decides which ship in v1.
@@ -266,7 +282,7 @@ barrier in front of our primary migration target.
 | ID | Assumption | Status |
 |---|---|---|
 | A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline | `INVALIDATED` 2026-08-12 — superseded by A-018 |
-| A-018 | A deliberately boring platform schema can be supported across SQLite, PostgreSQL, SQL Server and Oracle at acceptable cost | `UNVALIDATED` — **this decision now depends on it** |
+| A-018 | A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost | `UNVALIDATED` — much weaker after Q-51 narrowed the set from four engines to two |
 | A-017 | Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them | `VALIDATING` — follows from the confirmed migration goal; confirm with Q-08 |
 
 ## 8. Dependencies
