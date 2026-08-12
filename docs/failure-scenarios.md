@@ -15,7 +15,7 @@ reading decisions did not.
 
 | # | Gap | Severity |
 |---|---|---|
-| **N5** | **§21's runtime supervisor was never designed.** Nothing restarts a worker. | **Severe** |
+| **N5** | ~~§21's runtime supervisor was never designed.~~ **CLOSED 2026-08-12** - [runtime-supervisor.md](runtime-supervisor.md) | **Severe** |
 | **N6** | **The L3 cache has no size budget and no eviction.** It will fill any disk. | **Severe** |
 | **N8** | **TLS is not mentioned anywhere** — not in security, deployment or air-gapped planning. | **Severe** |
 | N1 | A service context must be self-sufficient for serving, and that was never stated | High |

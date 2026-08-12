@@ -384,17 +384,33 @@ monitoring, crash detection, restart, draining, recycling, memory monitoring,
 CPU monitoring, stuck-request detection, concurrency enforcement, resource
 governance.
 
-**It has no ADR, no design and no owner.** This ADR names worker *states* and
-assumes something drives them. Several decisions above are supervisor
-behaviours written as if the mechanism existed: recycling on memory growth
-(§4.7), draining, quiescing a data source (§4.8), and observed escalation
-(§4.5).
+**Designed 2026-08-12** - [runtime-supervisor.md](../runtime-supervisor.md).
+The gap was real: this ADR named worker *states* and assumed something drove
+them, with recycling (§4.7), draining, quiescing (§4.8) and observed escalation
+(§4.5) all written as supervisor behaviours before the supervisor existed.
 
-The supervisor is not a detail of this ADR. **This ADR depends on it**, and it
-needs its own design before Phase 1.
+The design in one line: **a management-plane failure must not become a
+data-plane failure.** A per-node supervisor process, tiny and serving no
+requests, with the platform (systemd, Kubernetes, a Windows service) keeping
+*it* alive. Workers survive its death and a restarted supervisor re-adopts them.
 
-Also unresolved: does the router detect a dead worker before or after routing to
-it? The difference is a clean 503 versus a hung client.
+Three things worth carrying back here:
+
+- **It is not the distinguished node §4.10 forbids.** ArcSOC's SOM was a
+  *site-wide* manager other machines depended on. This is per node and local; a
+  node with an unhealthy supervisor is one degraded node, not a degraded site.
+- **Heartbeats detect death, not stuckness.** A heartbeat thread beats happily
+  while every request thread is deadlocked. Workers therefore report the **age
+  of their oldest in-flight request**, and that is what stuck detection watches.
+- **The supervisor is not the router.** Combining them would make the component
+  that must not crash into the component handling every request. Where the
+  routing decision lives is now Q-63, and it should be settled by
+  `experiments/affinity-routing` rather than assumed.
+
+The loose end is answered: the supervisor marks a worker unavailable on crash
+detection and whatever routes reads that state, so detection happens **before**
+routing - provided the routing component observes supervisor state, which is a
+constraint on Q-63's answer.
 
 ## 5. Service explosion model (§24)
 

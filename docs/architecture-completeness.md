@@ -43,7 +43,7 @@ finished, however confident the ADR sounds.
 | AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
 | Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9. Fairness still depends on N4's per-source limit and D-04's per-tenant limits, neither of which exists |
-| **Runtime supervisor (§21)** | — | **none** | — | — | — | — | — | **severe gap** — ADR-007 depends on it and it has no design (Q-54) |
+| Runtime supervisor (§21) | **designed** | feeds ADR-007 | — | — | — | — | — | [runtime-supervisor.md](runtime-supervisor.md). Severe gap closed. Q-63 to Q-65 remain: routing placement, memory-growth detection, adoption protocol |
 | **TLS / certificates** | — | **none** | — | — | — | — | — | **severe gap** — absent from the whole architecture (Q-55) |
 | Failure scenarios (§59) | **walked** | n/a | — | — | — | — | ✓ | [failure-scenarios.md](failure-scenarios.md) |
 | Geometry & CRS policy | **written** | n/a | — | — | — | — | — | [geometry-crs-policy.md](geometry-crs-policy.md). Per-engine claims need `VERIFY` |
