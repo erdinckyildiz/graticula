@@ -19,6 +19,7 @@ Planned topics, in priority order:
 | `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler — **written, first pass** |
 | `cloud-native-formats.md` | COG, STAC, PMTiles, FlatGeobuf, GeoParquet |
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |
+| `honua-server.md` | The closest direct peer found — **written, first pass.** Read the clean-room boundary at the top before going further |
 | `dependency-thread-safety.md` | GDAL, GEOS, PROJ threading rules — **written, resolves A-013** |
 | `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, binding quality — **written, first pass** |
 | `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written**; the compute-layer proposal is deferred by ADR-008 §4.3, not rejected |

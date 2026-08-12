@@ -42,6 +42,7 @@ finished, however confident the ADR sounds.
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
 | Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
+| Competitive position | — | — | — | — | — | — | — | **gap.** Q-49 unanswered; a direct peer now exists ([research/honua-server.md](research/honua-server.md)) |
 
 ## Adversarial reviews (§85, §67)
 
