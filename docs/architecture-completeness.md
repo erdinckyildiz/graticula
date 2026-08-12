@@ -21,7 +21,7 @@ finished, however confident the ADR sounds.
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; legacy protocols in the compatibility layer; capability report generated not hand-written |
 | Plugin model | **decided** | `ACCEPTED WITH CONDITIONS` | n/a | n/a | — | — | — | internal extension points only; no third-party plugin system until a specific trigger fires |
-| Service runtime | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | the ArcSOC question answered. Structure decided, numbers are conditions. Affinity routing (A-014) is the unproven part. Amended with context pinning (§4.12) as the dedicated-instance equivalent |
+| Service runtime | **decided** | `ACCEPTED WITH CONDITIONS` | — | **partly measured** | — | — | — | **§4.1's worker sizing has no allocation term and needs one** — A-037 validated, ADR-007 §4.14. The ArcSOC question answered. Structure decided, numbers are conditions. Affinity routing (A-014) is the unproven part. Amended with context pinning (§4.12) as the dedicated-instance equivalent |
 | Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
 | Raster engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | serve COG only, convert at registration; GDAL on job workers; delivery proxied by default (Q-27 answered) |
 | Caching | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | tiles are the real cache; L2 optional permanently; coherence is best-effort for registered data and documented as such |
@@ -30,7 +30,7 @@ finished, however confident the ADR sounds.
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | scope under revision | — | — | — | — | — | — | Q-52 splits serving providers from import sources; §27's list wrongly includes interchange formats as providers. Q-53 recommends against warehouses. |
 | Feature services (§28) | — | — | — | — | — | — | — | read **and write**. A-026 asks whether OGC API Features plus additive extensions covers §28; A-027 covers concurrency against writes that bypass us |
-| Vector tiles (§33) | — | — | prototype | **measured x2, PostGIS only (D-05)** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes; own clipper 63x and own simplifier 47x faster than the adopted equivalents, at equal output. Geometry is no longer the cost — allocation is (204 MB per z12 tile, A-037). PostGIS only so far, which is the largest hole in the evidence |
+| Vector tiles (§33) | — | — | prototype | **measured x3, PostGIS only (D-05)** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes; own clipper 63x and own simplifier 47x faster than the adopted equivalents, at equal output. Geometry is no longer the cost — allocation is: **80.9% GC pause at 18% CPU utilisation** under load (A-037, validated). Database pushdown of clip is structural not optional (A-021, finding 11: a z16 tile read 201,580 vertices to emit 2,080). PostGIS only, which run 3 makes the most consequential hole in the evidence, not a detail |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
@@ -108,7 +108,7 @@ a failure reopens the relevant decisions rather than being noted and passed over
       sprites, COG-capable clients, and any rasteriser's display requirements.
       Tested by attempting an install with no network.
 - [ ] High-risk decisions have prototypes
-- [ ] Performance-sensitive decisions have benchmarks — **tile path done twice**: [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) settles A-019, A-004 and A-001, and opened A-037. Remaining: concurrency and allocation rate (A-037, the most load-bearing), connection budget, worker model, affinity routing, seeding, feature-query streaming. **The same tile path on SQL Server and Oracle is deferred as [D-05](architecture-debt.md)** — accepted debt, not an oversight
+- [ ] Performance-sensitive decisions have benchmarks — **tile path done three times**: [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) settles A-019, A-004, A-001, A-037 and A-021-on-PostGIS, and opened A-039. Remaining: connection budget, worker model, affinity routing, seeding, feature-query streaming, and a capacity number on hardware that is not capped and contended. **The same tile path on SQL Server and Oracle is deferred as [D-05](architecture-debt.md)** — accepted debt, not an oversight
 - [ ] Contradiction sweep clean (§63)
 - [ ] Adversarial review complete, every material criticism resolved or recorded
 - [ ] Fresh-challenger review complete (§67)

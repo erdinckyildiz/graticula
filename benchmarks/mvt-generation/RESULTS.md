@@ -1,7 +1,7 @@
 # MVT Generation — Results
 
-**Run 1:** 2026-08-12 — clipping. **Run 2:** 2026-08-12 — simplification.
-**Settles:** A-019 (load-bearing), A-004, A-001; ADR-003 Alternative B
+**Run 1:** clipping. **Run 2:** simplification. **Run 3:** concurrency. All 2026-08-12.
+**Settles:** A-019, A-004, A-001, **A-037**, **A-021** (PostGIS only); ADR-003 Alternative B
 **Harness:** [`../harness`](../harness) · **Runner:** [`../run-tile-bench.ps1`](../run-tile-bench.ps1)
 
 **These are the first measurements in this project.** Everything before them was
@@ -307,6 +307,176 @@ primitive written so far.
 
 ---
 
+---
+
+# Run 3 — concurrency, and the thing both earlier runs missed
+
+Written against A-037, which run 2 opened: *allocation rate, not CPU, sets the
+tile-serving ceiling per worker.* Single-request latency cannot answer it — a GC
+pause lands on whichever request is unlucky, so at concurrency 1 it reads as
+variance. The question is whether throughput stops scaling **while CPU is still
+available**.
+
+Driver is `GisBench.exe load`, a separate process so its own allocations are not
+charged to the server. Server counters (`GC.GetTotalAllocatedBytes`, collection
+counts, `GetTotalPauseDuration`, process CPU) are sampled either side of each
+level, giving a delta over a known wall-clock window. Four adjacent tiles are
+rotated so the result is not one Postgres buffer-cache entry. Machine: 8 cores,
+16 threads; PostGIS in WSL capped at 6 processors; 25–30% background load.
+
+## A-037 is validated, and it is not close
+
+z14 dense, in-process path, no pushdown:
+
+| conc | req/s | p50 | p99 | alloc MB/req | gen2 | **GC pause %** | **server CPU** |
+|---|---|---|---|---|---|---|---|
+| 1 | 17.8 | 43 | 204 | 20.0 | 86 | **28.0%** | 1.38 of 16 |
+| 2 | 19.4 | 105 | 259 | 19.9 | 62 | 54.8% | 1.88 |
+| 4 | 23.7 | 153 | 371 | 19.9 | 67 | 71.5% | 2.50 |
+| 8 | 25.3 | 285 | 634 | 19.9 | 53 | 80.7% | 2.70 |
+| 16 | 28.3 | 509 | 1129 | 20.0 | 37 | **80.9%** | **2.92 of 16** |
+
+**Sixteen times the concurrency buys 1.6x the throughput.** At the top the
+process is suspended for garbage collection **81% of wall-clock time** while
+using **2.92 of 16 cores** — 18% CPU utilisation. It is not CPU-bound, it is not
+database-bound, it is stopped.
+
+The control rules out the framework: `/health`, one scalar query, sustains
+**1,984 req/s at 0.0 MB per request and 0.8% GC pause**. Kestrel and Npgsql are
+not the problem.
+
+## Finding 11: a tile's cost floor is set by the largest geometry overlapping it
+
+The z16 sweep is what gave this away. A sparse tile — 327 features, 12 KB of
+output — still allocated **15.4 MB per request** and still hit 80% GC pause. A
+near-empty tile cannot cost that. So the fixed floor was measured directly:
+
+| Tile | Features out | **Vertices read** | **Vertices emitted** | Ratio |
+|---|---|---|---|---|
+| z16 sparse | 327 | **201,580** | 2,080 | **97x** |
+| z14 dense | 4,853 | 240,699 | 32,981 | 7.3x |
+| z12 wide | 50,579 | 556,212 | 292,716 | 1.9x |
+
+And the culprits, from the database:
+
+| Vertices | Feature |
+|---|---|
+| 72,919 | Türkiye |
+| 52,455 | Marmara Denizi |
+| 44,735 | Marmara Denizi ve Adalar Özel Çevre Koruma Bölgesi |
+| 11,431 | Marmara Bölgesi |
+
+Four administrative and sea polygons are **90% of everything read** for a tile
+showing one city block. They overlap every tile in the city, so **every tile in
+Istanbul pays for the outline of Turkey**, and the smaller the tile the worse the
+ratio.
+
+This is not a .NET fact or an NTS fact. Any client that selects whole geometries
+by bounding box pays it, on any engine. It is also the real reason `ST_AsMVT`
+wins: `ST_AsMVTGeom` clips inside the database and the full geometry never
+crosses the wire.
+
+It is the same problem [geometry-crs-policy.md](../../docs/geometry-crs-policy.md)
+§6 anticipated for *serving* one huge feature — arrived at from the opposite
+direction, and worse, because here the huge feature is not even wanted.
+
+## Finding 12: A-021 validated — pushdown is not an optimisation
+
+Two pushdown modes added, both single-request medians:
+
+| Tile | Mode | Total ms | Alloc MB | Vertices read | Bytes |
+|---|---|---|---|---|---|
+| z16 | none | 303 | 19.3 | 201,580 | 12,361 |
+| z16 | **clip** | **23** | **1.3** | **2,208** | 12,382 |
+| z16 | simpclip | 45 | 1.3 | 2,085 | 12,371 |
+| z14 | none | 164 | 35.3 | 240,699 | 170,548 |
+| z14 | clip | 219 | 20.2 | 36,895 | 170,546 |
+| z14 | **simpclip** | **131** | **19.7** | **32,981** | 170,035 |
+| z12 | none | 873 | 214.0 | 556,212 | 1,600,461 |
+| z12 | clip | 411 | 188.4 | 351,002 | 1,600,520 |
+| z12 | **simpclip** | **249** | **181.9** | **293,220** | 1,590,428 |
+
+`clip` is `ST_ClipByBox2D`; `simpclip` is `ST_Simplify` then `ST_ClipByBox2D`.
+At z16 that is **13x on latency and 15x on allocation**. At z12, 249 ms against
+`ST_AsMVT`'s 254 ms in the same session — parity.
+
+Output stays sound: same 4,853 features at z14, `moveto` 4,895 = `closepath`
+4,895, zero malformed.
+
+`ST_ClipByBox2D` can return invalid geometry, which PostGIS documents. For a
+tile that is the same trade our own clipper makes and the same trade
+`ST_AsMVTGeom` makes. It would be unacceptable on the analytical path.
+
+**A-021 was written as "does pushdown work usefully?" — a tuning question.** It
+is not. Without it, the in-process path reads two orders of magnitude more
+geometry than it emits.
+
+## Does pushdown lift the ceiling? Partly.
+
+z14, all three paths, at each concurrency level:
+
+| conc | ours req/s | **+pushdown req/s** | ST_AsMVT req/s | ours GC% | **+pushdown GC%** | ST_AsMVT GC% |
+|---|---|---|---|---|---|---|
+| 1 | 17.8 | 28.0 | 35.8 | 28.0 | **1.5** | 0.0 |
+| 2 | 19.4 | 45.0 | 51.2 | 54.8 | **2.9** | 0.1 |
+| 4 | 23.7 | 61.0 | 60.4 | 71.5 | **5.6** | 0.2 |
+| 8 | 25.3 | 61.6 | 81.0 | 80.7 | 39.9 | 0.1 |
+| 16 | **28.3** | **69.9** | **96.3** | 80.9 | **65.6** | 0.3 |
+
+| | ours | +pushdown | ST_AsMVT |
+|---|---|---|---|
+| alloc per request | 20.0 MB | **4.9 MB** | **0.1 MB** |
+| p99 at conc 16 | 1,129 ms | **736 ms** | 835 ms |
+| server CPU at conc 16 | 2.92 cores | 1.18 | 0.11 |
+
+**2.5x the throughput at concurrency 16, 4x less allocation, and it closes most
+of the gap** — from 29% of `ST_AsMVT`'s throughput to 73%. At concurrency 4 it
+is *ahead* of `ST_AsMVT`.
+
+**But the ceiling is raised, not removed.** GC pause is still 65.6% at
+concurrency 16 and throughput still flattens between 4 and 8. 4.9 MB per request
+for 36,895 vertices read is about 139 bytes per vertex — roughly three to four
+copies of every coordinate: WKB bytes, then `Coordinate` objects, then a clipped
+copy, then a transformed copy. **A-037 stands.**
+
+## Finding 13: the concurrency gap is much wider than the latency gap
+
+Run 1 reported the in-process path at 94 ms against `ST_AsMVT`'s 62 ms and
+called it 1.5x. Under load that framing is too kind:
+
+| | single request | at concurrency 16 |
+|---|---|---|
+| ours vs `ST_AsMVT` | 1.5x | **3.4x** |
+| ours + pushdown vs `ST_AsMVT` | — | **1.4x** |
+
+A single-request benchmark cannot see a GC ceiling, because at concurrency 1 the
+pause is amortised across idle time. **A-019 was validated on a measurement that
+structurally could not detect its own most important failure mode.** It survives
+— with pushdown, the in-process path reaches 73% of the PostGIS fast path — but
+the margin came from a change made *after* the assumption was marked validated.
+
+Honest caveat in the other direction: `ST_AsMVT` only scales 2.7x for 16x
+concurrency itself, and its server CPU stays at 0.11 cores. **Its** ceiling is
+PostgreSQL, which is capped at 6 processors in WSL here. Neither number is a
+capacity figure for real hardware. What is sound is the comparison between
+paths, measured on the same machine in the same session.
+
+## What run 3 changes
+
+- **A-037 `VALIDATED`.** ADR-007 sizes workers against CPU and a context budget.
+  Neither is the binding constraint on this workload.
+- **A-021 `VALIDATED` on PostGIS**, and promoted from tuning to structural.
+  ADR-008's per-dialect pushdown table is now load-bearing: the question for
+  SQL Server and Oracle is no longer *is in-process encoding fast enough* but
+  *can clip be pushed down at all*. That sharpens D-05 considerably.
+- **Q-66 becomes the main line of work**, not a curiosity. Three to four copies
+  per coordinate is what 4.9 MB per request buys, and flat coordinates end to
+  end is the only thing that removes them.
+- **Seeding (ADR-010 §6) should use pushdown unconditionally**, and a seeding
+  job is exactly the workload that would otherwise sit at 80% GC pause.
+
+---
+
 ## What this does not show
 
 Stated plainly, because the temptation with a first good result is to over-claim.
@@ -337,9 +507,17 @@ Stated plainly, because the temptation with a first good result is to over-claim
 - **Absolute latencies on this machine are unstable to ±40%**, from load outside
   the experiment. Ratios between variants measured in the same interleaved run
   are sound; a single number quoted alone from run 1 is not.
-- **Allocation was measured, concurrency was not.** 204 MB per tile is a
-  single-request figure. What it does to a worker serving many at once is
-  finding 10's open question, not its answer.
+- **Concurrency was measured on a capped and contended machine.** PostGIS runs
+  in WSL with 6 of 16 processors; 25–30% of the host is unrelated background
+  load. Absolute req/s figures are not capacity numbers for real hardware. The
+  comparison between paths, measured in one session on one machine, is sound.
+- **One workload shape.** Four adjacent dense tiles, rotated, no cache in front,
+  no mix of zoom levels, no feature queries competing for the same worker. A
+  real server does all of those at once.
+- **No `ST_AsMVT`-equivalent pushdown was tested off PostGIS.** `ST_ClipByBox2D`
+  has counterparts on the other engines with different names, semantics and
+  costs. Finding 12 makes that the most important unmeasured thing in the
+  project — see D-05.
 - **Sutherland–Hodgman has a known limitation** — it can emit degenerate
   connecting edges along the boundary for concave polygons. Tile renderers
   tolerate this. It would be unacceptable for analytical overlay, which is
@@ -359,15 +537,17 @@ Stated plainly, because the temptation with a first good result is to over-claim
 ## Next
 
 1. ~~**Simplify**~~ — done, run 2.
-2. **WKB straight into tile space**, skipping the NTS geometry graph. Finding 10
-   says allocation is what is left, and this is the only change that addresses
-   it. Larger than either primitive so far, and it changes the provider
-   interface, so it is a decision rather than an optimisation.
+2. **WKB straight into tile space** (Q-66), skipping the NTS geometry graph.
+   Findings 10 and 12 agree this is what is left: ~139 bytes per vertex read,
+   three to four copies of every coordinate. Larger than either primitive so
+   far, and it changes the provider interface, so it is a decision rather than
+   an optimisation.
 3. ~~**SQL Server and Oracle**~~ — **deferred, not dropped.** Not installed and
    not being installed; recorded as
    [D-05](../../docs/architecture-debt.md) with an explicit repayment trigger.
    Still the largest hole in the evidence.
-4. **Concurrency and p99.** What ADR-007's worker model actually needs, what
-   turns finding 10 from an observation into a capacity number, and the only way
-   to get a stable measurement on a contended machine.
-5. **Visual verification** of a rendered tile.
+4. ~~**Concurrency and p99**~~ — done, run 3. What remains is a capacity number
+   on hardware that is not capped and contended.
+5. **Visual verification** of a rendered tile. Still not done, and now the
+   longest-standing gap: three rounds of optimisation and nobody has looked at
+   one.

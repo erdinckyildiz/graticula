@@ -19,6 +19,15 @@ using Npgsql;
 // Three endpoints deliberately do the same job three ways so the differences
 // are attributable.
 
+// Load-driver mode. Same executable, separate process: the driver's own
+// allocations must not be counted against the server's, which is the entire
+// point of the A-037 measurement.
+if (args.Length > 0 && args[0] == "load")
+{
+    await LoadGen.RunAsync(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 
@@ -35,6 +44,28 @@ const string Table = "planet_osm_polygon";
 const string GeomCol = "way";
 var geomFactory = new GeometryFactory(new PrecisionModel(PrecisionModels.Floating), 3857);
 var wkbReader = new PostGisReader(geomFactory.CoordinateSequenceFactory, geomFactory.PrecisionModel);
+
+// Server-side counters for A-037. Sampled by the load driver either side of a
+// run, so what is reported is a delta over a known wall-clock window rather
+// than an instantaneous reading.
+app.MapGet("/metrics", () =>
+{
+    var p = Process.GetCurrentProcess();
+    var mi = GC.GetGCMemoryInfo();
+    return Results.Text(string.Join('\n', [
+        $"alloc_mb={GC.GetTotalAllocatedBytes(precise: false) / 1048576.0:F3}",
+        $"gen0={GC.CollectionCount(0)}",
+        $"gen1={GC.CollectionCount(1)}",
+        $"gen2={GC.CollectionCount(2)}",
+        $"gc_pause_ms={GC.GetTotalPauseDuration().TotalMilliseconds:F3}",
+        $"cpu_ms={p.TotalProcessorTime.TotalMilliseconds:F3}",
+        $"heap_mb={mi.HeapSizeBytes / 1048576.0:F3}",
+        $"workingset_mb={p.WorkingSet64 / 1048576.0:F3}",
+        $"uptime_ms={Environment.TickCount64}",
+        $"cores={Environment.ProcessorCount}",
+        $"server_gc={System.Runtime.GCSettings.IsServerGC}",
+    ]));
+});
 
 app.MapGet("/health", async (NpgsqlDataSource ds) =>
 {
@@ -127,7 +158,7 @@ app.MapGet("/tiles/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlD
 // the cost is, and ADR-003's open question is precisely whether our own
 // hot-path primitives are worth writing.
 app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlDataSource ds,
-    int z, int x, int y, string? clip, string? simplify) =>
+    int z, int x, int y, string? clip, string? simplify, string? push) =>
 {
     bool fastClip = clip is "fast";
     // nts    — DouglasPeuckerSimplifier, the default, topology repair on
@@ -135,6 +166,14 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     //          IsValid/Buffer(0) repair actually costs on tile geometry
     // ours   — TileSimplify, after the transform, on the integer grid
     string simpMode = simplify is "ours" or "ntsraw" ? simplify : "nts";
+    // Pushdown (A-021). Added after the concurrency run found that a z16 tile
+    // reads 201,580 vertices to emit 2,080: four administrative polygons —
+    // Turkiye, Marmara Denizi and two protection zones — overlap every tile in
+    // the city and are shipped whole across the wire every time.
+    //   none      what we measured so far: whole geometries, clip in process
+    //   clip      ST_ClipByBox2D in the database
+    //   simpclip  simplify first, then clip, both in the database
+    string pushMode = push is "clip" or "simpclip" ? push : "none";
     var total = Stopwatch.StartNew();
     long tQuery = 0, tFetch = 0, tParse = 0, tPrepare = 0, tEncode = 0;
     long tClip = 0, tSimplify = 0, tTransform = 0;
@@ -158,13 +197,24 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
     var pause0 = GC.GetTotalPauseDuration();
 
+    // ST_ClipByBox2D can return invalid geometry, which PostGIS documents. For a
+    // tile that is the same trade our own clipper makes and the same trade
+    // ST_AsMVTGeom makes. It would be unacceptable on the analytical path.
+    string geomExpr = pushMode switch
+    {
+        "clip"     => $"ST_ClipByBox2D({GeomCol}, ST_MakeEnvelope(@minx,@miny,@maxx,@maxy,3857))",
+        "simpclip" => $"ST_ClipByBox2D(ST_Simplify({GeomCol}, @tol, true), ST_MakeEnvelope(@minx,@miny,@maxx,@maxy,3857))",
+        _          => GeomCol,
+    };
+
     var sql = $"""
-        SELECT osm_id, COALESCE(name,'') AS name, ST_AsBinary({GeomCol}) AS g
+        SELECT osm_id, COALESCE(name,'') AS name, ST_AsBinary({geomExpr}) AS g
         FROM {Table}
         WHERE {GeomCol} && ST_MakeEnvelope(@minx,@miny,@maxx,@maxy,3857)
         """;
 
     await using var cmd = ds.CreateCommand(sql);
+    if (pushMode == "simpclip") cmd.Parameters.AddWithValue("tol", tolerance);
     cmd.Parameters.AddWithValue("minx", buf.MinX);
     cmd.Parameters.AddWithValue("miny", buf.MinY);
     cmd.Parameters.AddWithValue("maxx", buf.MaxX);
@@ -177,7 +227,10 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     var raw = new List<(long Id, string Name, byte[] Wkb)>(512);
     sw.Restart();
     while (await rdr.ReadAsync())
+    {
+        if (rdr.IsDBNull(2)) continue;   // ST_ClipByBox2D can return NULL
         raw.Add((rdr.GetInt64(0), rdr.GetString(1), (byte[])rdr[2]));
+    }
     tFetch = sw.ElapsedMicroseconds();
     fetched = raw.Count;
 
@@ -289,6 +342,7 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     h["X-Trivial-Inside"] = trivialInside.ToString();
     h["X-Us-Simplify"] = tSimplify.ToString();
     h["X-Simplify-Mode"] = simpMode;
+    h["X-Push-Mode"] = pushMode;
     h["X-Vertices-In"] = vIn.ToString();
     h["X-Vertices-Out"] = vOut.ToString();
     h["X-Rings-Dropped"] = simpStats.RingsDropped.ToString();

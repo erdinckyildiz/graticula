@@ -263,8 +263,14 @@ Two things this changes in §6:
 - **Cheapest-first is the wrong seed order if the goal is bounded memory.** Low
   zooms are both the most expensive and the most valuable to have cached.
 
-No decision changes here. The number is recorded because §6 currently reasons
-about seeding without one.
+**Run 3 adds one thing that is a decision.** Seeding must use provider pushdown
+unconditionally. A seed walks tiles back to back with no idle time to amortise
+GC pauses, which is precisely the workload measured at **80.9% GC pause and 18%
+CPU utilisation** without pushdown, and 2.5x faster with it. A seeding job that
+does not push clip into the provider will spend most of its wall-clock stopped.
+
+Otherwise no decision changes here. The numbers are recorded because §6
+currently reasons about seeding without any.
 
 ## 7. Multi-node
 

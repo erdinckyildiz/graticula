@@ -414,7 +414,19 @@ constraint on Q-63's answer.
 
 ### 4.14 Allocation rate, which this ADR sizes nothing against
 
-**Added 2026-08-12 from measurement**, [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) finding 10.
+**Added 2026-08-12 from measurement**, [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) findings 10 and run 3.
+
+**Measured under concurrency the same day.** At concurrency 16 on the tile path
+the process was suspended for garbage collection **80.9% of wall-clock time
+while using 2.92 of 16 cores**. Sixteen times the concurrency bought 1.6x the
+throughput. Pushing clip and simplify into the database (A-021) raises the
+ceiling to 69.9 req/s and 4.9 MB per request, but 65.6% GC pause remains. A
+control endpoint doing one scalar query sustained 1,984 req/s at 0.0 MB per
+request, so this is the workload, not the framework.
+
+**A-037 is `VALIDATED`.** §4.1 sizes workers against cores. On this workload a
+worker saturates at under one fifth of its cores. Everything below stands as
+written; what follows is what it costs.
 
 A single z12 vector tile request allocates **204 MB**, after the optimisation
 that halved it from 404 MB. That is one request, on one tile, single-threaded.

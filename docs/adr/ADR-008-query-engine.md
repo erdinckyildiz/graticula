@@ -289,8 +289,29 @@ promise holds. Two things the measurement changed:
   two paths produced output 18 bytes apart across 4,854 features, both decoding
   with zero malformed geometries.
 
+**Run 3, 2026-08-12 — pushdown is structural, not tuning.** A z16 tile with 327
+features and 12 KB of output was reading **201,580 vertices to emit 2,080**. Four
+administrative polygons — Türkiye at 72,919 points, Marmara Denizi at 52,455,
+and two protection zones — overlap every tile in the city, so every tile in
+Istanbul was paying for the outline of Turkey. `ST_Simplify` + `ST_ClipByBox2D`
+in the database: **13x on latency and 15x on allocation** at z16, and parity with
+`ST_AsMVT` at z12.
+
+Two consequences for this ADR:
+
+- **§4.8's tile path requires pushdown of clip; it is not an optimisation.**
+  Without it the fallback path reads two orders of magnitude more geometry than
+  it emits, and no amount of in-process work recovers that.
+- **The per-dialect pushdown table is now load-bearing.** The question for SQL
+  Server and Oracle is no longer *is in-process encoding fast enough* — run 1
+  answered that — but *can clip be pushed down at all, cheaply, without
+  mangling geometry*. `.STIntersection()` and `SDO_GEOM.SDO_INTERSECTION` are
+  the candidates and neither has been measured. Recorded as **A-039**.
+
 Still open: the same measurement on SQL Server and Oracle, which are the
-providers this path exists for.
+providers this path exists for. Deferred as
+[D-05](../architecture-debt.md) — and run 3 makes that the most consequential
+gap in the evidence, not a detail.
 
 ## 5. Counterarguments to this decision
 
