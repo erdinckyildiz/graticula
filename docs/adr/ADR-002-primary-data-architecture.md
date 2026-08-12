@@ -202,13 +202,15 @@ Each has an identity row in the platform database. **The bytes are node-local
 unless placed on shared storage**, and that is the main thing clustering will
 have to confront.
 
-> **2026-08-12 — a possible home for these.** An optional managed datastore is
-> proposed in
-> [research/hosted-datastore-and-tiles.md](../research/hosted-datastore-and-tiles.md)
-> §4. If deployed, it gives cache bytes, generalised geometry and uploaded data
-> somewhere shared to live, which closes the ambiguity below rather than merely
-> recording it. Where no datastore is deployed the ambiguity stands. Q-32
-> decides whether it is in scope for v1.
+> **2026-08-12 — a home for these, now confirmed.** The owner adopted the
+> storage model: hosted data in a managed datastore, referenced data in
+> registered sources. See [data-model.md](../data-model.md).
+>
+> If a datastore is deployed it gives cache bytes, generalised geometry and
+> uploaded data somewhere shared to live, closing the ambiguity below rather
+> than merely recording it. Where no datastore is deployed the ambiguity stands,
+> so both cases must be designed. The datastore remains **optional**: making it
+> mandatory would reinstate the PostgreSQL requirement this ADR just removed.
 
 ### Ephemeral and node-local
 

@@ -70,6 +70,26 @@ The proposed shape, to be confirmed by benchmark:
 engine's `simplify` does to topology, and whether its `intersection` is
 affordable at tile rates, is what actually determines the design.
 
+**The capability model gains a write dimension, added 2026-08-12** — see
+[data-model.md](../data-model.md) §2.
+
+The owner confirmed the storage model: hosted data in a managed datastore,
+referenced data in registered sources. The design rule that follows is that
+**the datastore is a provider we have write and DDL rights on, not a parallel
+subsystem.** Building it as a separate concept would give us two publishing
+paths, two query paths and two authorization models, when the only real
+difference is permission — and permission is what this capability model already
+exists to describe.
+
+So capability negotiation answers write questions alongside query questions: can
+I write rows, create tables, create indexes, alter a schema, materialise
+generalised geometry?
+
+The useful consequence: a feature's precondition stops being *"the data must be
+hosted"* and becomes *"we must be able to write here"*. An organisation that
+grants write access to its own PostGIS gets hosted-grade capability there
+without copying anything.
+
 Must also cover: CQL2 and OGC filter mapping, result streaming for millions of
 features (§47), pagination and cursor stability, statistics and aggregation, and
 result-size governance (§49).

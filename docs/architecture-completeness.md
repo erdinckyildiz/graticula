@@ -13,7 +13,8 @@ finished, however confident the ADR sounds.
 | Core language | narrowed to Go vs .NET | DRAFT | specified | — | — | — | — | `REQUIRES PROTOTYPE` — paper round done, prototype spec written |
 | Primary data architecture | **decided, then amended** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | Reopened and re-decided same day: platform store portable across SQLite/PostgreSQL/SQL Server/Oracle. Conditions in ADR-002 §9. State inventory delivered for ADR-012. |
 | Provider architecture — multi-dialect | — | — | — | — | — | — | — | **elevated**: three first-class spatial dialects. `ST_AsMVT` is PostGIS-only, so in-process MVT encoding is mandatory |
-| Hosted datastore (optional) | proposed | — | — | — | — | — | — | proposal written; Q-32 decides v1 scope |
+| Hosted datastore (optional) | **model confirmed** | — | — | — | — | — | — | storage model in [data-model.md](data-model.md); Q-32 now only decides v1 phasing |
+| Data model — storage concepts | **decided** | n/a | — | — | — | — | — | three concepts separated; datastore modelled as a provider with write rights |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | — | DRAFT | — | — | — | — | — | not started |

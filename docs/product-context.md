@@ -29,6 +29,7 @@ for every review gate.
 | **Migration posture** | **Displacing existing ArcGIS Server / GeoServer deployments is a goal** | Answered 2026-08-12 — see below |
 | **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
 | **Databases** | **PostgreSQL is not mandatory. Oracle Spatial and SQL Server Spatial are first-class, for both spatial data and the platform store.** | Answered 2026-08-12 — see below |
+| **Storage model** | **Hosted data in a managed datastore; referenced data in registered PostGIS / Oracle / SQL Server sources.** | Answered 2026-08-12 — see [data-model.md](data-model.md) |
 
 ## The primary user is the GIS administrator
 
