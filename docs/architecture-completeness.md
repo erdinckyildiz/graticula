@@ -10,7 +10,7 @@ finished, however confident the ADR sounds.
 
 | Area | Decision | ADR | Prototype | Benchmark | Security review | Ops review | Failure review | Status |
 |---|---|---|---|---|---|---|---|---|
-| Core language | — | DRAFT | — | — | — | — | — | `REQUIRES PROTOTYPE` |
+| Core language | narrowed to Go vs .NET | DRAFT | specified | — | — | — | — | `REQUIRES PROTOTYPE` — paper round done, prototype spec written |
 | Primary data architecture | — | DRAFT | — | — | — | — | — | not started |
 | Geometry engine | — | DRAFT | — | — | — | — | — | blocked on ADR-001 |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |

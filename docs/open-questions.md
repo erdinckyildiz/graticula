@@ -39,6 +39,7 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-12 | How is monitoring cardinality bounded at 1,000 services? | Council | Per-service × per-worker × per-endpoint labels multiply. The metrics backend can fail before the GIS server does. |
 | Q-13 | What is the upgrade and rollback story, including DB schema migrations (§80.35–37)? | Council | Frequently deferred, then discovered to constrain the data model. |
 | Q-14 | Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience? | Council | Affects caching keys and tile pipeline design. |
+| Q-28 | Can GDAL-backed providers be made optional, so that a PostGIS-only deployment is genuinely one artefact? If not, the single-binary criterion (ADR-001 C7) is largely neutralised for every candidate, since GDAL is native everywhere. | Council | ADR-001 §3.1, ADR-006, deployment |
 | Q-27 | With imagery delivered as COG over range requests, how is per-layer authorization enforced — signed expiring URLs, a range-request proxy, or a hybrid? Signed URLs cannot express row-level rules or immediate revocation and may not exist on an air-gapped filesystem; proxying puts terabyte-scale bandwidth back through the server. | Council | ADR-009 §1a, security |
 | Q-15 | What does "air-gapped" concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry? | Council | Currently a slogan in the master prompt; needs a concrete checklist. |
 

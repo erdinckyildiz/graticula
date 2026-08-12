@@ -36,110 +36,223 @@ Initial reading — to be argued properly, not asserted:
   native-geometry options.
 - **Go, Rust, C#/.NET, Java** are the serious candidates.
 
-## 3. Evaluation criteria
+## 3. What the platform actually does — reweighted after vector-first
 
-Weighting to be argued before scoring, so that weights are not chosen to fit a
-preferred outcome.
+The criteria below were drafted before two decisions landed: **features first,
+then vector tiles**, and **vector-first rendering**
+([product-context.md](../product-context.md)). Together they change what this
+language has to be good at, and the change is large enough that scoring against
+the original weights would answer the wrong question.
 
-| # | Criterion | Why it matters here |
+Trace the day-one hot path honestly:
+
+```text
+HTTP request
+  → authorize
+  → plan query, generate parameterised SQL
+  → execute against PostgreSQL, stream rows
+  → serialise: GeoJSON, or MVT (often ST_AsMVT bytes passed through)
+  → cache
+```
+
+That is **an HTTP server, a PostgreSQL client and a serialiser.** With pushdown
+working, very little heavy computation happens in our process at all.
+
+### The uncomfortable consequence for C1
+
+**The geometry engine is largely not on the hot path.**
+
+- Feature serving: PostGIS does the spatial work; we serialise.
+- MVT: either `ST_AsMVT` (PostGIS does everything) or our own lightweight
+  primitives — clip, quantise, simplify — which are Tier 1 code we write
+  ourselves, not GEOS topology calls.
+- Heavy topology (overlay, buffer, validity) is needed for editing validation,
+  geoprocessing, and providers that cannot push down. Real, but not the hot
+  path.
+
+This **demotes C1 substantially**, and it partially undermines the case built
+against Go over the last two notes. If geometry calls are rare, per-call cgo
+overhead stops being decisive. That correction has to be made explicitly, or the
+weighting will have been chosen to protect an earlier lean rather than to answer
+the question.
+
+C1 does not disappear. In-runtime geometry still serves the owner's
+defect-resolution requirement and still matters for the editing and
+geoprocessing paths. It is simply no longer a throughput argument.
+
+### Revised weighting
+
+| # | Criterion | Weight | Change and why |
+|---|---|---|---|
+| C8 | **PostgreSQL driver quality** | **Critical** | Raised. Binary protocol, `COPY`, server-side cursors, cancellation, pooling. The platform is largely a very good PostgreSQL client. |
+| C6 | **Streaming large result sets** | **Critical** | Raised. Features first means millions of rows streamed, never materialised (§47). |
+| C5 | Memory behaviour under sustained load | High | Unchanged. Tile bursts, streaming buffers, p99 predictability. |
+| C4 | Concurrency and worker model | High | Unchanged. Shapes ADR-007. |
+| C9 | Operational diagnosability | High | Raised. GIS-administrator user, 2 AM test (§7). |
+| C7 | Single-binary / air-gapped distribution | High | Unchanged, but see §3.1 — the story is weaker than it looks for every candidate. |
+| C11 | Build and cross-compilation complexity | Medium-high | Unchanged. |
+| C1 | Geometry engine access and debuggability | **Medium** | **Lowered** from the owner-driven high. Off the hot path; still matters for editing, geoprocessing and defect resolution. |
+| C10 | Ecosystem and contributor pool | Medium | Unchanged. Open-source project. |
+| C2 | GDAL integration quality | **Low-medium** | **Lowered.** GDAL leaves the request path for imagery; it remains for registration and file-based *vector* providers. |
+| C12 | Licence compatibility | Low | Copyleft acceptable; verify, do not agonise. |
+| C3 | ~~Rasterisation backend availability~~ | **Dropped** | Vector-first. There is no rasterisation backend in the core. |
+
+### 3.1 The single-binary story is weaker than it looks — for everyone
+
+`./gis-server` (§2) is attractive, and C7 is weighted for it. But **GDAL is a
+native library in every candidate language**, so any build that includes
+file-based vector providers is not a lone static binary regardless of what we
+choose.
+
+There is a real architectural option here that belongs in ADR-006 rather than
+this ADR: **make GDAL-backed providers optional**, so that a PostGIS-only
+deployment genuinely is one artefact and file providers are an add-on. If that
+holds, C7 discriminates properly. If it does not, C7 is largely neutralised and
+should be reweighted downward. Recorded as Q-28.
+
+Do not let an aspirational single-binary story decide this ADR before that
+question is answered.
+
+## 4. Candidates assessed
+
+Python and TypeScript/Node remain excluded per §2. Four candidates, assessed
+against the revised weighting. Each stated at its strongest.
+
+### Go
+
+**For.** Outstanding at exactly the revised profile — HTTP concurrency,
+low-overhead I/O, fast startup, small footprint. `pgx` is a first-rate
+PostgreSQL driver with binary protocol and `COPY` support (C8). Genuinely static
+binaries and trivial cross-compilation (C7, C11). Fast startup helps worker
+recycling and cold start (ADR-007). And the strongest evidence of all: **the
+modern thin-server ecosystem is Go** — pg_tileserv and Tegola do a subset of our
+job, in production, which is direct proof the workload fits the language.
+
+**Against.** Geometry via cgo (C1), and cgo also undermines the static-binary
+advantage it otherwise has (C7, C11). `go-geos`'s own documentation steers
+long-running servers elsewhere. Weakest of the four on the diagnostics richness
+of C9. Least expressive type system for a large domain model.
+
+### Rust
+
+**For.** No GC, so p99 latency and memory are the most predictable of the four
+(C5) — and at 1,000 services with warm per-worker state, memory efficiency
+compounds. Single binary (C7). `VERIFY` Martin, in Rust, is reported the fastest
+of the PostGIS tile servers, which is the same "proof the workload fits"
+argument Go has. Native geometry (C1) via an independent lineage.
+
+**Against.** Slowest to build, and Phase 0 is already long. Smallest contributor
+pool for an open-source GIS project (C10) — real, given that GIS developers
+cluster around Java, Python and C++. Geometry via an independent lineage rather
+than a JTS port, which is a correctness risk requiring the oracle suite to
+discharge.
+
+### C# / .NET
+
+**For.** NetTopologySuite runs in-runtime — the best position on the owner's
+defect-resolution requirement, with one debugger and no marshalling layer (C1).
+Npgsql is an excellent PostgreSQL driver (C8). Diagnostics are a genuine
+strength: counters, dumps, live tracing (C9). Single-file publish and AOT make
+C7 credible. Performance is competitive with Go for this profile.
+
+**Against.** Smaller open-source *GIS* contributor pool than Java (C10), and a
+lingering Windows association that matters for perception in an open-source
+Linux-first geospatial project even where it is technically obsolete. AOT
+interacts badly with reflection-heavy libraries, which needs checking before C7
+is credited.
+
+### Java
+
+**For.** JTS is *the* reference implementation — the strongest possible C1
+position, with fixes landing there first. The largest GIS contributor pool of
+any candidate by a wide margin (C10): GeoServer, GeoTools and much of the
+enterprise GIS world. Best-in-class observability with JFR and heap dumps (C9).
+Mature streaming and driver ecosystem.
+
+**Against.** Distribution is the weakest (C7) — a JVM, or jlink/GraalVM work.
+Startup cost hurts worker recycling and cold start. And a soft but real risk:
+being "the Java GIS server" invites comparison with GeoServer, which is the
+architecture we exist to reconsider.
+
+**One objection I had prepared and am withdrawing.** JVM memory footprint was
+going to count against Java at 1,000 services — but under ADR-007 services are
+not processes. We will run a small number of workers, so per-runtime overhead
+multiplies by worker count, not service count. The objection does not survive
+its own arithmetic.
+
+## 5. Narrowing for the prototype
+
+The four split cleanly along one axis:
+
+| Camp | Candidates | Bets on |
 |---|---|---|
-| C1 | Geometry stack runtime affinity | See §4 below. Added at the project owner's request. |
-| C2 | Raster/GDAL integration quality | GDAL is native in every language; what differs is binding maturity, memory-model friction and crash containment. |
-| C3 | Rasterization backend availability | Skia / Cairo / equivalent, with maintained bindings. |
-| C4 | Concurrency and worker-isolation model | Directly shapes ADR-007. Green threads, async, OS threads, process supervision ergonomics. |
-| C5 | Memory behaviour under sustained load | GC pause profile, allocation pressure on the tile path, predictability with large geometry batches. Relates to worker recycling (§22). |
-| C6 | Streaming large result sets | Millions of features must stream, never materialise (§47). |
-| C7 | Single-binary / air-gapped distribution | §2 requires `./gis-server` to be credible and air-gapped installs to work. |
-| C8 | Database driver quality | PostgreSQL binary protocol, COPY, cursors, connection pooling, timeout and cancellation semantics. |
-| C9 | Operational diagnosability | Profiling, heap dumps, live stack inspection at 2 AM. |
-| C10 | Ecosystem and contributor pool | Open-source project; who can realistically contribute. |
-| C11 | Build and cross-compilation complexity | With native dependencies in the mix, this is not a footnote. |
-| C12 | Licence compatibility of the runtime and its ecosystem | Copyleft is acceptable, so this is low-friction — but must be checked, not assumed. |
+| **Native** | Go, Rust | Distribution, footprint, latency predictability, proven in this exact workload |
+| **Managed** | .NET, Java | Geometry in-runtime, diagnosability, contributor pool, development speed |
 
-## 4. Criterion C1 — geometry stack runtime affinity
+**The question the prototype must answer is whether the managed-runtime cost is
+real at our scale, or a reflex.** Everything else is secondary and can be argued
+on paper.
 
-Recorded explicitly because it originates from a product requirement, not from
-technical preference.
+**Prototype Go and C# / .NET.**
 
-The project owner requires that defects be diagnosable and fixable in-house
-(see [build-vs-adopt-policy.md](../build-vs-adopt-policy.md) §2). A geometry
-stack running inside the same runtime is materially easier to diagnose than one
-reached across a C++ FFI boundary: single debugger, single stack trace, no
-marshalling layer to suspect, no separate native toolchain to build and ship.
+Reasoning, stated so it can be attacked:
 
-| Language | Common geometry path | Affinity |
-|---|---|---|
-| Java | JTS — native Java, the reference implementation of this algorithm family | In-runtime |
-| C# / .NET | NetTopologySuite — managed port of JTS | In-runtime |
-| Rust | `geo` / `i_overlay` — native, independent lineage rather than a JTS port | In-runtime, different risk profile |
-| Go | Typically cgo → GEOS; native options (`orb`, `go-geom`) are thinner on topology | Across FFI |
+- **Go over Rust as the native representative.** Faster to build, and Phase 0 is
+  already long. Rust's advantages over Go — memory and p99 — are precisely what
+  the prototype will measure in Go; if Go loses to .NET on those axes, Rust is
+  not the answer either, and if Go wins narrowly on them, Rust is the obvious
+  escalation. Prototyping Rust first would cost more and decide less.
+- **.NET over Java as the managed representative.** NTS is close enough to JTS
+  that C1 barely separates them, while .NET is clearly ahead on C7 distribution
+  — the criterion where the managed camp is weakest. Testing the managed camp at
+  its strongest on its weakest criterion is the more informative experiment.
+  Java's real advantage is C10 contributor pool, which is a judgement call no
+  benchmark settles.
 
-**Restated 2026-08-12 after
-[research/geometry-projection-libs.md](../research/geometry-projection-libs.md).**
-The original phrasing — "is the geometry stack in the same runtime" — is too
-crude. `VERIFY` `go-geos` is concurrency-safe, using GEOS's `*_r` functions with
-locking, and exposes the full GEOS surface. FFI is not inherently unsafe or
-incomplete.
+**Explicit escalation triggers** — these are commitments, not caveats:
 
-The accurate criterion is narrower and measurable:
+- If Go wins on memory or p99 by a **narrow** margin, prototype Rust before
+  deciding: Rust would likely widen a narrow native-camp win into a decisive one.
+- If .NET wins and C1 proves more load-bearing than §3 predicts, reconsider Java
+  on the strength of JTS being the reference implementation.
+- If the two are close on **all** measured criteria, the decision falls to C10
+  and C9 — where Java leads on contributor pool and .NET on tooling — and the
+  ADR should say so rather than pretending the benchmark decided it.
 
-> Can we reach a mature, complete geometry engine **without paying per-call FFI
-> overhead on the tile hot path**, and can we debug it in the same process and
-> debugger as our own code?
+### The tension, recorded rather than resolved
 
-Against that, Go's position is still weakest, but for specific documented
-reasons rather than a general objection: `go-geos`'s own documentation cites
-"expensive function call overhead, more complex memory management and trickier
-cross-compilation", and states it suits short-lived programs, recommending
-`go-geom` "for long-running processes with less stringent geometry function
-requirements". We are a long-running server with stringent requirements — the
-combination its documentation steers away from.
+The owner's stated requirement (fix defects in-house, geometry debuggable in our
+own debugger) points at **.NET or Java**. The deployment model (`./gis-server`,
+air-gapped, small footprint, fast worker startup) points at **Go or Rust**.
 
-Also note the family tree: JTS is the reference implementation, GEOS and NTS are
-ports of it, and Rust's `geo`/`i_overlay` is an independent lineage. Choosing
-among Java, .NET and Go is largely choosing a port of the same algorithms;
-choosing Rust is choosing a different implementation family, with the
-correctness upside and risk that implies.
-
-**Do not over-weight C1.** It is one criterion of twelve, and its weight depends
-entirely on A-004 — whether the tile hot path is geometry-call-bound at all. If
-the path turns out to be dominated by database time or serialisation, C1's
-weight collapses. `benchmarks/geometry-hotpath/` must run before the weighting
-is fixed, or we will have picked weights to fit a preferred answer.
-
-Raster does not discriminate: GDAL is a native dependency everywhere. Whatever
-we pick, the raster subsystem crosses a native boundary, which is an argument
-for isolating raster work in its own worker class regardless of language
-(feeds ADR-007, ADR-009).
-
-## 5. Required prototype
-
-A paper comparison cannot settle this. Build the same vertical slice in the two
-strongest candidates after the paper round and measure it.
-
-**Slice:** PostGIS table → feature query → (a) GeoJSON response, (b) MVT tile
-response, over HTTP.
-
-**Measure:** p50/p95/p99 latency, throughput, allocation and peak RSS under
-sustained load, cold start, binary/image size, and — recorded honestly —
-implementation effort and friction.
-
-**Location:** `experiments/lang-slice/`. Same dataset, same queries, same
-hardware, same tile set. Anything less is not a comparison.
-
-Prototype code is disposable and is never promoted to production.
+Vector-first weakened the first pull by taking geometry off the hot path. Q-28
+may weaken the second by revealing that no candidate ships a single binary once
+GDAL is involved. **Both pulls could turn out to be softer than they look**,
+which would leave the decision to C8, C6, C9 and C10 — a much less romantic set
+of criteria, and the honest one.
 
 ## 6. Decision
 
-Pending.
+**Pending — narrowed, not decided.** Go and C#/.NET proceed to the prototype at
+`experiments/lang-slice/`. Rust and Java remain live under the escalation
+triggers in §5. Status stays `REQUIRES PROTOTYPE`.
+
+Recording what would make this ADR wrong, before the numbers arrive: if the
+prototype shows both candidates comfortably within our latency and memory
+targets — which §3 suggests is plausible, since the hot path may be
+database-bound — then **this ADR should not pretend the benchmark decided it.**
+It should say the performance criteria did not discriminate, and decide on C9,
+C10 and C11 instead. An ADR that manufactures a performance justification for a
+preference is worse than one that admits the preference.
 
 ## 7. Assumptions
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-001 | The tile and render paths are CPU-bound enough for language performance to matter materially | `UNVALIDATED` |
+| A-001 | The tile path is CPU-bound enough for language performance to matter materially. **Now doubtful** — with `ST_AsMVT` pushdown the hot path may be dominated by database and network time, in which case all four candidates are adequate and this ADR turns on secondary criteria | `UNVALIDATED` |
 | A-002 | A single-binary distribution is genuinely valuable for air-gapped installs | `UNVALIDATED` |
 | A-005 | In-runtime geometry meaningfully reduces defect resolution time versus FFI | `UNVALIDATED` |
+| A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment is genuinely one artefact (Q-28) | `UNVALIDATED` — if false, C7 is largely neutralised | 
 
 ## 8. Dependencies
 

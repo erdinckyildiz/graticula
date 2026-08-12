@@ -18,7 +18,7 @@ ADR depends on is either mislabelled or unnecessary.
 
 | ID | Assumption | Status | How it gets validated | Depended on by |
 |---|---|---|---|---|
-| A-001 | The tile and render paths are CPU-bound enough that language performance materially affects capacity | `UNVALIDATED` | `experiments/lang-slice` benchmark | ADR-001 |
+| A-001 | The tile path is CPU-bound enough that language performance materially affects capacity | `UNVALIDATED`, **now doubtful** | With `ST_AsMVT` pushdown the hot path may be database- and network-bound, in which case all candidates are adequate and ADR-001 turns on secondary criteria. `experiments/lang-slice` endpoints B vs C are designed to settle exactly this | ADR-001, ADR-003 |
 | A-002 | Single-binary distribution is genuinely valuable for air-gapped installs, not just aesthetically pleasing | `UNVALIDATED` | Ask the owner; check real air-gapped install constraints | ADR-001 |
 | A-003 | Most published services are idle most of the time, making shared workers viable | `UNVALIDATED` | Workload modelling; any real deployment telemetry we can obtain | ADR-007, ADR-010 |
 | A-004 | Hot-path geometry overhead (allocation and/or FFI) is material enough to justify our own primitives | `UNVALIDATED` | `benchmarks/geometry-hotpath` | ADR-003, tile pipeline |
@@ -31,6 +31,7 @@ ADR depends on is either mislabelled or unnecessary.
 | A-013 | Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model | `VALIDATED` (2026-08-12) | Confirmed against upstream documentation: GEOS reentrant C API with one context per thread; PROJ one `PJ_CONTEXT` per thread; GDAL re-entrant with one dataset instance per thread. None forces process-per-worker. Three derived constraints remain live — see [research/dependency-thread-safety.md](research/dependency-thread-safety.md) §6 | ADR-007, ADR-003, ADR-009 |
 | A-014 | Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance | `UNVALIDATED` | Prototype and benchmark under both uniform and skewed load. See [research/runtime-models-compared.md](research/runtime-models-compared.md) §3 | ADR-007, ADR-010 |
 | A-015 | Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap | `UNVALIDATED` | Measure. GeoServer's documented cache inventory supports it; if true it changes the shared-vs-dedicated calculation substantially | ADR-007, ADR-010 |
+| A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment ships as one artefact | `UNVALIDATED` | Design spike. If false, ADR-001's C7 single-binary criterion is largely neutralised for all candidates (Q-28) | ADR-001, ADR-006, deployment |
 | A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment | `UNVALIDATED` | Owner decision plus deployment review | ADR-002, ADR-011 |
 | A-010 | The 100–1,000 service target will not shift upward by an order of magnitude after launch | `UNVALIDATED` | Owner confirmation; revisit at each phase gate | ADR-007, ADR-012 |
 
