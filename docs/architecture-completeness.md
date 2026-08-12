@@ -30,7 +30,7 @@ finished, however confident the ADR sounds.
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | scope under revision | — | — | — | — | — | — | Q-52 splits serving providers from import sources; §27's list wrongly includes interchange formats as providers. Q-53 recommends against warehouses. |
 | Feature services (§28) | — | — | — | — | — | — | — | read **and write**. A-026 asks whether OGC API Features plus additive extensions covers §28; A-027 covers concurrency against writes that bypass us |
-| Vector tiles (§33) | — | — | prototype | **measured x2** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes; own clipper 63x and own simplifier 47x faster than the adopted equivalents, at equal output. Geometry is no longer the cost — allocation is (204 MB per z12 tile, A-037). PostGIS only so far, which is the largest hole in the evidence |
+| Vector tiles (§33) | — | — | prototype | **measured x2, PostGIS only (D-05)** | — | — | — | [benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md). A-019 passes; own clipper 63x and own simplifier 47x faster than the adopted equivalents, at equal output. Geometry is no longer the cost — allocation is (204 MB per z12 tile, A-037). PostGIS only so far, which is the largest hole in the evidence |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
@@ -108,7 +108,7 @@ a failure reopens the relevant decisions rather than being noted and passed over
       sprites, COG-capable clients, and any rasteriser's display requirements.
       Tested by attempting an install with no network.
 - [ ] High-risk decisions have prototypes
-- [ ] Performance-sensitive decisions have benchmarks — **first one done**: [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) settles A-019, A-004 and A-001. Remaining: connection budget, worker model, affinity routing, seeding, feature-query streaming, and the same tile path on SQL Server and Oracle
+- [ ] Performance-sensitive decisions have benchmarks — **tile path done twice**: [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) settles A-019, A-004 and A-001, and opened A-037. Remaining: concurrency and allocation rate (A-037, the most load-bearing), connection budget, worker model, affinity routing, seeding, feature-query streaming. **The same tile path on SQL Server and Oracle is deferred as [D-05](architecture-debt.md)** — accepted debt, not an oversight
 - [ ] Contradiction sweep clean (§63)
 - [ ] Adversarial review complete, every material criticism resolved or recorded
 - [ ] Fresh-challenger review complete (§67)

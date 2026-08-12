@@ -52,6 +52,40 @@ gRPC with h2c, and MCP over JSON-RPC for AI agents.
 **Maturity:** `VERIFY` 4 stars, 1 fork, 4,608 commits, 56 open issues, **no
 tagged releases** — nightly container builds only.
 
+## 1a. Does it use NetTopologySuite? — `INFERRED`, not established
+
+Asked 2026-08-12, after our own tile benchmark found NTS's general overlay and
+Douglas-Peucker to be 79% and 55% of a tile request respectively
+([benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md)).
+If the closest .NET peer hit the same wall, that is worth knowing.
+
+**The README does not say.** It names .NET 10, PostGIS 3.4-3.6 and Redis, and
+describes a Geometry Service doing "buffer, project, intersect" plus MVT output,
+without naming any geometry library. Establishing it definitively means reading
+`Directory.Packages.props` or the `.csproj` files, which is a call for the
+project owner rather than an inference: a package manifest is arguably build
+metadata rather than implementation, but the boundary at the top of this
+document was drawn deliberately strictly and it is not ours to loosen.
+
+**`INFERRED`, high confidence:** yes, it uses NetTopologySuite. On .NET there is
+no serious alternative for buffer and intersect — NTS is the only maintained
+port of JTS, and Npgsql's spatial plugin is `Npgsql.NetTopologySuite`, so any
+.NET service reading PostGIS geometry as objects arrives at NTS almost by
+default. Labelled `INFERRED` under the CLAUDE.md rule and not to be cited as
+fact.
+
+**What matters more than the answer, and is established:** Honua **requires**
+PostGIS, and its SQL Server, Oracle, DuckDB and warehouse sources are
+**read-only**. That means its primary path can use `ST_AsMVT` — the 62 ms path
+in our benchmark — and it may never have needed the in-process encoder at all.
+
+So the comparison does not transfer. Our A-019 exists because we promised
+first-class *write-capable* Oracle and SQL Server providers (Q-50a), which
+commits us to encoding tiles in-process on engines that cannot do it in SQL.
+Honua declined that commitment. Whichever geometry library it uses, it is
+solving a smaller problem on the hot path, and finding that it uses NTS
+happily would not be evidence that NTS is adequate for ours.
+
 ## 2. The one idea we should probably take
 
 **PostGIS is read/write; every other source is read-only.**

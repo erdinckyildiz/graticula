@@ -311,9 +311,20 @@ primitive written so far.
 
 Stated plainly, because the temptation with a first good result is to over-claim.
 
-- **Only PostGIS was measured.** Endpoint C exists *because* SQL Server and
-  Oracle lack `ST_AsMVT`, and neither has been tested. The numbers here are the
-  in-process path running against the one database that does not need it.
+- **Only PostGIS was measured, and that is now deliberate.** Endpoint C exists
+  *because* SQL Server and Oracle lack `ST_AsMVT`, and neither has been tested.
+  The numbers here are the in-process path running against the one database
+  that does not need it. Neither engine is available on this machine, so the
+  gap is recorded as **[D-05](../../docs/architecture-debt.md)** — accepted
+  debt with a repayment trigger — rather than left as a benchmark permanently
+  listed as "next".
+
+  What survives the gap: the CPU and allocation costs measured here are ours,
+  in our process, and do not depend on which engine supplied the WKB. What does
+  not: those engines' WKB output, driver materialisation cost, and index
+  selectivity. Note that **fetch is already the largest single stage at z12**
+  (73.2 ms of 132.1 ms of measured work), and fetch is exactly the part that
+  changes with the driver.
 - **One machine, one dataset, one city.** Turkish OSM data at three zooms.
 - **Warm only.** No cold start, no cache-miss storm, no concurrency, no p99
   under load — this is single-request latency.
@@ -352,9 +363,10 @@ Stated plainly, because the temptation with a first good result is to over-claim
    says allocation is what is left, and this is the only change that addresses
    it. Larger than either primitive so far, and it changes the provider
    interface, so it is a decision rather than an optimisation.
-3. **SQL Server and Oracle** — the providers this path exists for. Still the
-   largest hole in the evidence: A-019 is validated on the one engine that does
-   not need the path at all.
+3. ~~**SQL Server and Oracle**~~ — **deferred, not dropped.** Not installed and
+   not being installed; recorded as
+   [D-05](../../docs/architecture-debt.md) with an explicit repayment trigger.
+   Still the largest hole in the evidence.
 4. **Concurrency and p99.** What ADR-007's worker model actually needs, what
    turns finding 10 from an observation into a capacity number, and the only way
    to get a stable measurement on a contended machine.
