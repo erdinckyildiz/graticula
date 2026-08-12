@@ -39,6 +39,8 @@ council investigates, prototypes, benchmarks and decides on its own.
 | Q-12 | How is monitoring cardinality bounded at 1,000 services? | Council | Per-service × per-worker × per-endpoint labels multiply. The metrics backend can fail before the GIS server does. |
 | Q-13 | What is the upgrade and rollback story, including DB schema migrations (§80.35–37)? | Council | Frequently deferred, then discovered to constrain the data model. |
 | Q-14 | Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience? | Council | Affects caching keys and tile pipeline design. |
+| Q-25 | Do we support the MapLibre GL Style Spec as a style format? Distinct from adopting MapLibre Native as an engine — the first is interoperability, the second would make someone else's styling model our cartographic architecture. | Council | ADR-004 |
+| Q-26 | How is cross-tile label consistency achieved? A stateless per-tile renderer produces labels that collide at seams. Not addressed by any candidate backend, and it is Tier 1 work. | Council | ADR-004, tile pipeline |
 | Q-15 | What does "air-gapped" concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry? | Council | Currently a slogan in the master prompt; needs a concrete checklist. |
 
 ## Answered

@@ -71,11 +71,41 @@ marshalling layer to suspect, no separate native toolchain to build and ship.
 |---|---|---|
 | Java | JTS — native Java, the reference implementation of this algorithm family | In-runtime |
 | C# / .NET | NetTopologySuite — managed port of JTS | In-runtime |
-| Rust | `geo` / `geo-types` — native, but less mature than JTS/GEOS for overlay and validity | In-runtime, maturity gap |
+| Rust | `geo` / `i_overlay` — native, independent lineage rather than a JTS port | In-runtime, different risk profile |
 | Go | Typically cgo → GEOS; native options (`orb`, `go-geom`) are thinner on topology | Across FFI |
 
-This is a real input and it cuts against Go. It is **one criterion among
-twelve**, not a verdict — it must not be allowed to decide the ADR on its own.
+**Restated 2026-08-12 after
+[research/geometry-projection-libs.md](../research/geometry-projection-libs.md).**
+The original phrasing — "is the geometry stack in the same runtime" — is too
+crude. `VERIFY` `go-geos` is concurrency-safe, using GEOS's `*_r` functions with
+locking, and exposes the full GEOS surface. FFI is not inherently unsafe or
+incomplete.
+
+The accurate criterion is narrower and measurable:
+
+> Can we reach a mature, complete geometry engine **without paying per-call FFI
+> overhead on the tile hot path**, and can we debug it in the same process and
+> debugger as our own code?
+
+Against that, Go's position is still weakest, but for specific documented
+reasons rather than a general objection: `go-geos`'s own documentation cites
+"expensive function call overhead, more complex memory management and trickier
+cross-compilation", and states it suits short-lived programs, recommending
+`go-geom` "for long-running processes with less stringent geometry function
+requirements". We are a long-running server with stringent requirements — the
+combination its documentation steers away from.
+
+Also note the family tree: JTS is the reference implementation, GEOS and NTS are
+ports of it, and Rust's `geo`/`i_overlay` is an independent lineage. Choosing
+among Java, .NET and Go is largely choosing a port of the same algorithms;
+choosing Rust is choosing a different implementation family, with the
+correctness upside and risk that implies.
+
+**Do not over-weight C1.** It is one criterion of twelve, and its weight depends
+entirely on A-004 — whether the tile hot path is geometry-call-bound at all. If
+the path turns out to be dominated by database time or serialisation, C1's
+weight collapses. `benchmarks/geometry-hotpath/` must run before the weighting
+is fixed, or we will have picked weights to fit a preferred answer.
 
 Raster does not discriminate: GDAL is a native dependency everywhere. Whatever
 we pick, the raster subsystem crosses a native boundary, which is an argument

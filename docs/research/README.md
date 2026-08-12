@@ -20,9 +20,9 @@ Planned topics, in priority order:
 | `cloud-native-formats.md` | COG, STAC, PMTiles, FlatGeobuf, GeoParquet |
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |
 | `dependency-thread-safety.md` | GDAL, GEOS, PROJ threading rules — **written, resolves A-013** |
-| `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, licence, binding quality |
+| `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, binding quality — **written, first pass** |
 | `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written, first pass** |
-| `rendering-engines.md` | Skia, Cairo, MapLibre Native |
+| `rendering-engines.md` | Skia, Cairo, MapLibre Native — **written, first pass, deliberately thin** |
 
 Every topic answers the three questions from §4:
 
