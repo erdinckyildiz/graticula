@@ -115,11 +115,37 @@ seriously at any future point.
 
 | Claim | Evidence | Source |
 |---|---|---|
-| Hot-path library overhead is material | — | `benchmarks/` — pending |
-| Conversion boundary cost is lower than the overhead it avoids | — | pending |
-| Own primitives match the oracle on the hot-path operation set | — | `experiments/geometry-oracle` — pending |
+| Hot-path library overhead is material | **Yes, overwhelmingly.** `NTS.Intersection` was 79% of a tile request; our rectangle clipper reduced that stage 63x, from 438.6 ms to 7.0 ms | [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) |
+| Our own primitives are cheap | Tile-space transform 1.4 ms, MVT encoder 3.8 ms, rectangle clip 7.0 ms — against 438.6 ms for the adopted general overlay | ibid. |
+| Own clipper agrees with the adopted engine | Output 170,539 vs 170,557 bytes across 4,854 features; both decode with zero malformed geometries | ibid. §5 |
+| Conversion boundary cost is lower than the overhead it avoids | — | still pending |
+| Own primitives match the oracle across the full operation set | — | `experiments/geometry-oracle` — pending |
 
-Status stays `DRAFT` until these rows are filled.
+## 5a. Alternative B is validated by measurement
+
+**2026-08-12.** The lean recorded in §3 now has evidence behind it, and the
+boundary between own primitives and adopted topology is empirically placed
+rather than argued.
+
+`NTS.Intersection` runs general polygon-polygon overlay — robust predicates,
+snap-rounding, the whole OverlayNG machinery — to clip against an axis-aligned
+rectangle. It does not need any of that, and in a dense urban tile most features
+are entirely *inside* the tile, where the correct answer is a bounding-box
+comparison and no clipping at all.
+
+**What is ours:** bbox accept/reject, rectangle clip, simplification for tiles,
+tile-space transform and quantisation, MVT encoding.
+
+**What stays adopted:** genuine topology — overlay, buffer, validity, precise
+predicates. The Sutherland–Hodgman clipper can emit degenerate connecting edges
+on concave polygons, which tile renderers tolerate and analytical overlay would
+not. That is exactly the line
+[build-vs-adopt-policy.md](../build-vs-adopt-policy.md) §4 drew, and the
+measurement confirms where it belongs.
+
+**The bottleneck has moved.** With the clip fixed, `DouglasPeuckerSimplifier` is
+55% of a z12 tile. The same argument applies again and simplification is the
+next candidate to own.
 
 ## 6. Decision
 

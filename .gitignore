@@ -49,3 +49,4 @@ secrets/
 .DS_Store
 Thumbs.db
 desktop.ini
+benchmarks/_tmp/

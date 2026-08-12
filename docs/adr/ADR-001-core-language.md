@@ -313,7 +313,7 @@ necessary and is run then — with a reason, rather than as a ritual.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-001 | The tile path is CPU-bound enough for language performance to matter materially. **Now doubtful** — with `ST_AsMVT` pushdown the hot path may be dominated by database and network time, in which case all four candidates are adequate and this ADR turns on secondary criteria | `UNVALIDATED` |
+| A-001 | **`VALIDATED` 2026-08-12** — the tile path IS CPU-bound in our process, because `ST_AsMVT` is unavailable on two of three providers. 94 ms for a dense tile, 23 ms of it database. Earlier note, now superseded: **Now doubtful** — with `ST_AsMVT` pushdown the hot path may be dominated by database and network time, in which case all four candidates are adequate and this ADR turns on secondary criteria | `UNVALIDATED` |
 | A-002 | A single-binary distribution is genuinely valuable for air-gapped installs | `UNVALIDATED` |
 | A-005 | In-runtime geometry meaningfully reduces defect resolution time versus FFI | `UNVALIDATED` |
 | A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment is genuinely one artefact (Q-28) | `UNVALIDATED` — if false, C7 is largely neutralised | 

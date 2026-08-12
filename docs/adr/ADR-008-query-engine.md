@@ -273,6 +273,25 @@ transform to tile space, encode.
   `benchmarks/mvt-generation/` shows the gain justifies a second code path, and
   only behind a conformance test proving the two produce equivalent tiles.
 
+
+**Measured 2026-08-12** —
+[benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md).
+In-process encoding costs **94 ms against `ST_AsMVT`'s 62 ms** on a dense z14
+tile of 4,863 features, so the fallback path is viable and the multi-database
+promise holds. Two things the measurement changed:
+
+- **Clipping must be ours, not the geometry engine's.** `NTS.Intersection` was
+  79% of the whole request; a rectangle clipper made it 1.6%, a 63x reduction on
+  that stage. Point 2 above therefore understates the split: it is not only
+  filter/clip/simplify pushdown that matters, it is that where we *cannot* push
+  down, the clip must still not be a general overlay.
+- **The equivalence requirement in point 4 is met for polygons on PostGIS.** The
+  two paths produced output 18 bytes apart across 4,854 features, both decoding
+  with zero malformed geometries.
+
+Still open: the same measurement on SQL Server and Oracle, which are the
+providers this path exists for.
+
 ## 5. Counterarguments to this decision
 
 - **Refusing queries is a worse user experience than answering them slowly.**

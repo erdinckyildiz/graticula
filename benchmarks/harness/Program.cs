@@ -127,11 +127,13 @@ app.MapGet("/tiles/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlD
 // the cost is, and ADR-003's open question is precisely whether our own
 // hot-path primitives are worth writing.
 app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, NpgsqlDataSource ds,
-    int z, int x, int y) =>
+    int z, int x, int y, string? clip) =>
 {
+    bool fastClip = clip is "fast";
     var total = Stopwatch.StartNew();
     long tQuery = 0, tFetch = 0, tParse = 0, tPrepare = 0, tEncode = 0;
-    int fetched = 0, emitted = 0;
+    long tClip = 0, tSimplify = 0, tTransform = 0;
+    int fetched = 0, emitted = 0, trivialInside = 0;
 
     var env = TileMath.TileEnvelope(z, x, y);
     var buf = TileMath.BufferedEnvelope(env);
@@ -160,7 +162,8 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     tFetch = sw.ElapsedMicroseconds();
     fetched = raw.Count;
 
-    var clipBox = geomFactory.ToGeometry(new Envelope(buf.MinX, buf.MaxX, buf.MinY, buf.MaxY));
+    var clipEnv = new Envelope(buf.MinX, buf.MaxX, buf.MinY, buf.MaxY);
+    var clipBox = geomFactory.ToGeometry(clipEnv);
     var encoder = new MvtEncoder("polygons");
 
     foreach (var (id, name, wkb) in raw)
@@ -171,24 +174,41 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
         catch { continue; }              // defensive: geometry-crs-policy §1
         tParse += sw.ElapsedMicroseconds();
 
-        sw.Restart();
+        // Prepare is three distinct operations and the first measurement
+        // showed it dominating at 92%. Timing them separately is the difference
+        // between "geometry preparation is slow" and knowing which primitive to
+        // write ourselves (ADR-003 Alternative B).
+        var swp = Stopwatch.StartNew();
         Geometry prepared;
         try
         {
-            // The naive implementation on purpose. If NTS intersection
-            // dominates the profile, that is the evidence ADR-003's
-            // Alternative B needs — our own clipper would then be justified by
-            // measurement rather than by taste.
-            var clipped = geom.Intersection(clipBox);
-            if (clipped.IsEmpty) { tPrepare += sw.ElapsedMicroseconds(); continue; }
+            swp.Restart();
+            Geometry clipped;
+            if (fastClip)
+            {
+                var r = RectClip.Clip(geom, clipEnv, geomFactory, out var cg);
+                if (r == RectClip.Result.Outside || cg is null) { tClip += swp.ElapsedMicroseconds(); continue; }
+                if (r == RectClip.Result.Inside) trivialInside++;
+                clipped = cg;
+            }
+            else
+            {
+                clipped = geom.Intersection(clipBox);
+            }
+            tClip += swp.ElapsedMicroseconds();
+            if (clipped.IsEmpty) continue;
 
+            swp.Restart();
             var simplified = DouglasPeuckerSimplifier.Simplify(clipped, tolerance);
-            if (simplified.IsEmpty) { tPrepare += sw.ElapsedMicroseconds(); continue; }
+            tSimplify += swp.ElapsedMicroseconds();
+            if (simplified.IsEmpty) continue;
 
+            swp.Restart();
             prepared = ToTileSpace(simplified, env, geomFactory);
+            tTransform += swp.ElapsedMicroseconds();
         }
-        catch { tPrepare += sw.ElapsedMicroseconds(); continue; }
-        tPrepare += sw.ElapsedMicroseconds();
+        catch { continue; }
+        tPrepare = tClip + tSimplify + tTransform;
 
         sw.Restart();
         if (encoder.Add(id, prepared, [new("name", name)])) emitted++;
@@ -208,6 +228,11 @@ app.MapGet("/tiles-local/{z:int}/{x:int}/{y:int}.mvt", async (HttpContext ctx, N
     h["X-Us-Fetch"] = tFetch.ToString();
     h["X-Us-Parse"] = tParse.ToString();
     h["X-Us-Prepare"] = tPrepare.ToString();
+    h["X-Us-Clip"] = tClip.ToString();
+    h["X-Clip-Mode"] = fastClip ? "fast" : "nts";
+    h["X-Trivial-Inside"] = trivialInside.ToString();
+    h["X-Us-Simplify"] = tSimplify.ToString();
+    h["X-Us-Transform"] = tTransform.ToString();
     h["X-Us-Encode"] = tEncode.ToString();
     ctx.Response.ContentType = "application/vnd.mapbox-vector-tile";
     await ctx.Response.Body.WriteAsync(bytes);
