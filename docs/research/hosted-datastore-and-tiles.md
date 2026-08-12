@@ -120,6 +120,17 @@ indexes, no materialised anything. A datastore gives us somewhere to put:
   customer's DBA allows;
 - data copied in during migration from Oracle or SQL Server.
 
+### The strongest single example
+
+Runtime schema evolution. ArcGIS lets an administrator add fields, add indexes
+and change some properties on a live layer, **and only on hosted layers**. See
+[runtime-schema-evolution.md](runtime-schema-evolution.md).
+
+This is not a clever feature. It is a direct consequence of owning the store,
+and it is unavailable on registered data for precisely the reason this section
+gives. If Q-32 needs a concrete answer to "what does the datastore actually buy
+an administrator", this is it.
+
 ### It also answers Q-31 as a product question
 
 Q-31 asked whether we expose provider capability differences or hide them. The

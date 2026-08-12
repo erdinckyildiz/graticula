@@ -131,6 +131,13 @@ Directly from §80, plus the ones the scale target forces:
 - How are workers supervised, health-checked, and crash-contained (§21)?
 - On what triggers are workers recycled — lifetime, request count, memory, memory
   *growth*, config change, administrator request (§22)?
+  **Concrete case added 2026-08-12:** a runtime schema change on a hosted layer
+  ([research/runtime-schema-evolution.md](../research/runtime-schema-evolution.md)).
+  Every worker holding warm state for that service must be refreshed, or it
+  keeps serving the old field list. This is the first named, non-hypothetical
+  configuration-change trigger, and it interacts directly with the warm-state
+  and affinity-routing design — the workers that must be refreshed are exactly
+  the ones the router knows are warm.
 - **How does request routing find a worker able to serve a given service —
   and does it prefer one already warm for it?** Elevated after
   [research/runtime-models-compared.md](../research/runtime-models-compared.md)

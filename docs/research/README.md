@@ -24,6 +24,7 @@ Planned topics, in priority order:
 | `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written, first pass** |
 | `multi-database-consequences.md` | PostgreSQL, SQL Server, Oracle as first-class — **written**, analysis of an owner decision |
 | `hosted-datastore-and-tiles.md` | Own MVT encoder, cache as the equaliser, optional managed datastore — **written**, proposal |
+| `runtime-schema-evolution.md` | How ArcGIS changes a live layer's schema, and what it costs — **written**, first pass |
 | `spatial-dialects.md` | PostGIS vs SQL Server Spatial vs Oracle Spatial: function coverage, indexing, SRID handling, validity semantics — **not started, now high priority** |
 | `rendering-engines.md` | Skia, Cairo, MapLibre Native — **written, first pass, deliberately thin** |
 

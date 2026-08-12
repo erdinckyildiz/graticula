@@ -54,6 +54,14 @@ is "seeding 1,000 services takes how long, and what happens when the data
 changes underneath". Invalidation was already the harder half; it is now the
 harder half of a more important ADR.
 
+**A second invalidation trigger, added 2026-08-12: schema change.**
+([research/runtime-schema-evolution.md](../research/runtime-schema-evolution.md))
+Removing a field makes every cached feature response and every tile carrying
+that attribute *wrong*, not merely stale. Adding a field makes them stale.
+The cache must distinguish the two, because the correct response differs: wrong
+content must be purged before it can be served again, stale content may be
+served while it refreshes.
+
 L1 lifetime is coupled to worker lifetime (ADR-007): aggressive worker recycling
 destroys L1 value, so the two decisions must be made together rather than
 sequentially.
