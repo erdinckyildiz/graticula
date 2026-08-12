@@ -33,6 +33,7 @@ for every review gate.
 | **Native API** | **OGC API Features, Parts 1 + 2 + 3. WFS, WMS and WMTS move to the compatibility layer.** | Answered 2026-08-12 — see [ADR-005](adr/ADR-005-api-architecture.md) |
 | **Editing** | **In scope.** Through our API *and* directly against the database with QGIS. Both paths coexist. | Answered 2026-08-12 |
 | **Provider write capability** | **Full read/write on all three spatial engines** (Q-50a). Not read-only, not migrate-then-serve. Registered Oracle and SQL Server layers are editable through our API, subject to granted rights. | Answered 2026-08-12 |
+| **Migration tooling** | **Inventory plus definition import, free.** Scan the source server and report honestly what can and cannot come across, then import definitions. Data stays in place. | Answered 2026-08-12 |
 
 ## The primary user is the GIS administrator
 
@@ -172,6 +173,35 @@ server-side, removes GDAL from per-request work. Three earlier findings change:
 GDAL is still needed — for metadata and validation when registering a COG, and
 for file-based vector providers — but not thousands of times per second on the
 tile path.
+
+### Migration tooling — inventory first, and free
+
+**Decided 2026-08-12 (Q-16).** Two separable steps, a decomposition observed in
+Honua Server:
+
+**1. Inventory.** Scan an existing GeoServer or ArcGIS Server and produce a
+report: what exists, what we can bring across, and **what we cannot, with the
+reason.** This is deliberately available before anyone commits to anything.
+
+It is cheap to build and it is the same philosophy as
+[ADR-008](adr/ADR-008-query-engine.md) §2's *never degrade silently* — state the
+limits up front rather than after the customer has committed. An honest "we
+cannot bring these eleven layers across, here is why" is worth more to an
+administrator than an optimistic import that half works.
+
+**2. Definition import.** Service and layer definitions, field configuration,
+extents, cache settings. **Data stays where it is** — Q-50a made registered
+Oracle and SQL Server fully capable, so there is nothing to move.
+
+Styles are the ragged edge. SLD and ArcGIS renderer JSON do not map cleanly onto
+MapLibre style. We convert what converts and report what does not, rather than
+producing something that looks converted and renders wrongly.
+
+**Both are free.** `VERIFY` Honua places service imports behind an Enterprise
+entitlement while leaving file import in the community tier — a well-drawn
+monetisation boundary that says plainly where they believe the value sits.
+Giving away what an open-core competitor charges for is a concrete differentiator
+and it feeds Q-49.
 
 ### v1 migration reach — stated plainly
 
