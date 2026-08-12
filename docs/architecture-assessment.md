@@ -236,10 +236,13 @@ of a seeding-versus-speed trade that a managed platform cannot pick between; and
 **administration — the thin-server model has no administrator in it at all**,
 which is precisely our stated primary user.
 
-**Taken forward:** auto-discovery as a first-class publishing mode; deferring
-authorization to row-level security where the provider supports it, so we do not
-run two authorization models that can disagree; function layers; `ST_AsMVT` as
-the PostGIS fast path.
+**Taken forward:** auto-discovery as a first-class publishing mode; **row-level
+security delegation as an opt-in provider capability** — demoted from a takeaway
+on 2026-08-12, because [security.md](security.md) §2.1 found our own
+authorization was always going to exist: file providers have no RLS, not every
+database will grant role-switching, and per-layer authorization is a question
+the database cannot answer; function layers; `ST_AsMVT` as the PostGIS fast
+path.
 
 ## 9. Modern geospatial server patterns
 

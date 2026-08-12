@@ -232,13 +232,17 @@ policy, and it should be an idle timeout rather than aggressive closing.
 **The policy:**
 
 - Pools are **per (worker, data source)**, never per service.
-  **⚠ Blocking conflict, found by fresh-challenger review G5 (debt D-01):** this
-  is incompatible with delegating authorization to row-level security
-  (assessment §8), because RLS depends on the database session's identity and a
-  shared pooled connection does not have one. Either pools become per principal,
-  or identity is reset per request at a cost nobody has measured, or RLS
-  delegation is abandoned. **Must be resolved before either decision is
-  implemented.**
+  **Conflict resolved 2026-08-12** — [security.md](../security.md) §2. Pools stay
+  per data source and do **not** fragment per principal. RLS delegation becomes
+  an opt-in provider capability using **transaction-scoped** identity switching,
+  so any connection can serve any principal and the identity cannot outlive the
+  commit.
+
+  One consequence lands on this section: a delegated query runs inside an
+  explicit transaction, which holds `ACCESS SHARE` for its duration — exactly
+  what §5b says must be short. Streaming a large result under delegation
+  therefore holds that lock for the whole stream. Recorded as A-036 with three
+  partial mitigations, none free.
 - **Never idle in transaction.** This is the actual lock discipline, and it is
   non-negotiable.
 - Statement timeouts are mandatory. A long query is a held lock.

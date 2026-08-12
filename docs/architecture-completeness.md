@@ -36,7 +36,8 @@ finished, however confident the ADR sounds.
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
 | Compatibility layer (§51) | scope set | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles**. WMS out of v1 (Q-47). ArcGIS REST pending Q-17. Outside the core domain. |
-| AuthN / AuthZ (§41, §42) | — | — | — | — | — | — | — | not started |
+| AuthZ (§42) | **partial** | n/a | — | — | — | — | — | model decided in [security.md](security.md) §2–3. Multi-tenant resource isolation still open (D-04) |
+| AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
 | Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9: bounded queues, admission control, immediate rejection with retry signal |
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |

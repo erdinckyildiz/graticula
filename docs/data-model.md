@@ -70,6 +70,11 @@ this provider evaluate a predicate, clip, simplify — it answers:
 - Can I create tables and indexes?
 - Can I alter a schema?
 - Can I materialise generalised geometry?
+- **Can I assume a principal's identity for the duration of a statement?**
+  Added 2026-08-12 ([security.md](security.md) §2.2) — this is what makes
+  delegating row filtering to the provider's own row-level security possible.
+  Where it is absent the layer does not offer delegation, and our own
+  authorization still applies.
 
 A feature's precondition is therefore **"we can write here"**, not "the data is
 hosted". An organisation that grants write access to its own database gets

@@ -91,11 +91,26 @@ us inventing a layout.
 The key is **the compiled plan's identity, plus the layer's schema
 fingerprint** — not the request URL.
 
-**⚠ Incomplete, found by fresh-challenger review G5 (debt D-02): the key must
-also include the authorization context.** Two principals with different rights
-can produce the same plan against the same layer, so as specified a cache hit
-crosses an authorization boundary. That is a data breach, not a stale read. One
-line to fix now; severe if it reaches implementation unfixed.
+**Completed 2026-08-12** ([security.md](../security.md) §3), after G5 found the
+key had no authorization context and a cache hit could therefore cross an
+authorization boundary.
+
+The naive fix — put the principal in the key — is correct and catastrophic,
+because every user then gets their own tile. The resolution splits by kind:
+
+- **Uniform authorization** (layer visibility, allow or deny) is checked
+  **before the cache lookup**. All authorized users share one entry, which is
+  the overwhelmingly common case for tiles.
+- **Varying authorization** (row filters, field visibility) becomes part of the
+  key as a **grant fingerprint** — a hash of the effective authorization that
+  affects the output, not the principal.
+
+The governing rule: *a cache entry may be shared by any two requests that would
+produce byte-identical output under their own authorization; if that cannot be
+proven from the key, it is not shared.*
+
+This also makes permission-change invalidation structural rather than a sweep —
+changing the effective grant changes the key, so old entries become unreachable.
 
 Two consequences, both good:
 
