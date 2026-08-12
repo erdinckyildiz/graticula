@@ -25,7 +25,7 @@ finished, however confident the ADR sounds.
 | Query engine | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | structure decided, numbers not. Conditions in ADR-008 §10 |
 | Raster engine | rescoped | DRAFT | — | — | — | — | — | catalog + access control only; no pixel production. Q-27 is now the deciding question |
 | Caching | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | tiles are the real cache; L2 optional permanently; coherence is best-effort for registered data and documented as such |
-| Job system | — | DRAFT | — | — | — | — | — | not started |
+| Job system | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | queue in the platform store, no broker; job classes with reserved capacity; every job declares its re-run behaviour |
 | Clustering | deferred | DEFERRED | n/a | n/a | — | — | — | `DEFERRED` (§79) |
 | Build vs adopt policy | ✓ | n/a | n/a | n/a | — | — | — | ACTIVE |
 | Provider architecture (§27) | — | — | — | — | — | — | — | not started |
@@ -33,7 +33,7 @@ finished, however confident the ADR sounds.
 | Vector tiles (§33) | — | — | — | — | — | — | — | not started — **elevated**: the only tile format, and the source for WMS compatibility |
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
-| Publishing (§38) | — | — | — | — | — | — | — | not started — now also owns runtime schema evolution, which is publishing with a smaller blast radius |
+| Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
 | Compatibility layer (§51) | — | — | — | — | — | — | — | not started — **required**, not optional (migration is a goal). Outside the core domain. |
 | AuthN / AuthZ (§41, §42) | — | — | — | — | — | — | — | not started |
