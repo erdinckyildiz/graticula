@@ -77,6 +77,53 @@ refuses to restart for a certificate.
 
 ## 4. Decision — the version handshake refuses; it does not migrate
 
+> **Amended 2026-08-13** — [independent review 3](../reviews/independent-review-3-operations.md)
+> **O1**, severe. As first written, §4 required exact version agreement
+> (*"must agree"*) while §5 and §6 both required old code to keep running against
+> the expanded schema. **Both cannot be true**, and between them they deleted
+> rolling upgrade *and* the rollback §6 exists to provide: once the migration
+> stamps N+1, the N−1 component reads the stamp, sees a mismatch, and refuses to
+> start.
+>
+> **The fix is §4a. The stamp carries two numbers, not one.**
+
+### 4a. Two numbers, and the contract phase is what closes the rollback door
+
+The stamp in the platform store records:
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | The migration level actually applied |
+| `minimum_reader_version` | **The oldest component version that may safely operate against it** |
+
+A component declares what it needs and the handshake asks two questions:
+
+1. **Am I too old?** `component_version >= stamp.minimum_reader_version`.
+   Fails when a **contract** migration has removed something this component
+   still uses.
+2. **Am I too new?** `stamp.schema_version >= component.required_schema`.
+   Fails when the migration has not been run yet.
+
+**Expand raises `schema_version` and leaves `minimum_reader_version` alone.**
+That is precisely why the previous version keeps running, and it makes §6's
+rollback window a *mechanical* property rather than a documented promise:
+**contract is the operation that raises `minimum_reader_version`, and raising it
+is what shuts the door.**
+
+This also answers the question §4 could not. A released component cannot declare
+forward compatibility with a schema that did not exist when it shipped — so the
+**schema** declares backward compatibility instead. The information lives where
+it is known.
+
+**Refusal messages name both numbers and the direction**, per §10 condition 1:
+*"this component is version 4 and the platform store requires at least version 5
+— a contract migration has run and this component cannot be rolled back to"*, not
+*"incompatible schema"*.
+
+---
+
+### 4b. The original decision, retained
+
 **On startup, every component reads the platform schema version and refuses to
 run against an incompatible one.** It does not auto-migrate.
 

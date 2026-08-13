@@ -44,6 +44,8 @@ secrets/
 
 # Editor and OS
 .vscode/
+.vs/
+*.user
 .idea/
 *.swp
 .DS_Store
