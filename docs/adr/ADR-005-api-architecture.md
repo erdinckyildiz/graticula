@@ -28,6 +28,27 @@ Three inputs have accumulated since this ADR was stubbed:
 - **Editing is in scope** (Q-42, corrected 2026-08-12). Feature write endpoints
   exist, and the write surface is an open question — see §3.7.
 
+## 3.3a. ArcGIS service types — amended 2026-08-13 (Q-17a)
+
+[Q-17](../open-questions.md) excluded MapServer, ImageServer, GeometryServer and
+GPServer together, on the grounds that *those produce rendered images*. **That
+justification is false for two of the four**, and the error was found by the
+owner rather than by review — it is the first real defect the §63 contradiction
+sweep would have caught.
+
+| Service | v1 | Reason |
+|---|---|---|
+| **FeatureServer** | **In**, including `applyEdits` | Q-17. The reason the compatibility layer exists |
+| **GeometryServer** | **In** | Returns geometry, not images. A thin REST surface over PROJ and NetTopologySuite, both of which [ADR-003](ADR-003-geometry-engine.md) already puts in-process. Near-zero marginal cost, and ArcGIS Enterprise portals configure a geometry service URL that clients call — so omitting it partially defeats Q-17's own goal. `VERIFY` how much ArcGIS JS API 4.x still needs it |
+| **GPServer** | **Out** | Not because it renders — it does not. Because it is a container for published geoprocessing tools and we have a job system with **no toolbox**. An empty shell is worse than an honest absence. Reopening is governed by [ADR-006](ADR-006-plugin-model.md)'s existing trigger |
+| **ImageServer** | **Out** | Genuinely needs server-side raster rendering and dynamic mosaicking. Conflicts with [ADR-009](ADR-009-raster-engine.md)'s serve-COG-and-let-the-client-render decision |
+| **MapServer** | **Out of v1** | Needs the rendering engine. [ADR-004](ADR-004-rendering-engine.md) §0 — the owner wants this eventually and prefers it to WMS |
+
+**The pattern worth extracting:** Q-17 bundled four decisions under one sentence
+of reasoning. Bundled decisions inherit the weakest justification in the bundle
+and nobody notices, because the sentence reads as though it covers everything.
+Per-service is more work to write and the only way to be right.
+
 ## 2. Alternatives
 
 ### Alternative A — Protocol adapters over a protocol-neutral internal interface
