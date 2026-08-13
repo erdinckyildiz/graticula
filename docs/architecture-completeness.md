@@ -122,7 +122,7 @@ production line, and they are not the five with the biggest boxes.
 - [ ] Fresh-challenger review complete (§67)
 - [ ] Licensing implications understood
 - [ ] No blocking open question remains
-- [ ] **Q-49 tested with real GIS teams.** [competitive-position.md](competitive-position.md)
+- [x] **Q-49 answered by the owner, 2026-08-13** — *"I will give this to the world."* **The requirement to test it with real GIS teams is dissolved rather than met**: it assumed a commercial-style justification a gift does not owe. The positioning was sharpened at the same time, from *better capabilities than GeoServer* (measurably false) to *the ArcGIS Server exit path* — [competitive-position.md](competitive-position.md) §6. What survives is a **prioritisation** risk, not an existential one: nobody outside the project has confirmed the exit path matters, so we may build the right thing in the wrong order. Original criterion: **Q-49 tested with real GIS teams.** [competitive-position.md](competitive-position.md)
       concludes that desk research cannot answer why this product should exist.
       Three conversations with organisations running ArcGIS Server would settle
       it, and every architectural decision after this one is cheaper to make with

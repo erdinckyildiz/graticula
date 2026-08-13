@@ -77,7 +77,7 @@ layer down, and the next layer down needs production-shaped code.
 
 ## 3. What genuinely blocks the first production line
 
-Five items. Not forty-four.
+Six items. Not forty-four — and one of them takes five minutes.
 
 | # | Item | Why it blocks | Effort |
 |---|---|---|---|
@@ -85,6 +85,7 @@ Five items. Not forty-four.
 | **B2** | **ADR-003 out of `DRAFT`** | Every path touches geometry, and the ADR that decides where geometry work happens is still a draft. It is mostly answered by runs 1–3 — it needs writing up and deciding, not more investigation | ~1 session |
 | **B3** | **TLS and certificates (Q-55)** | A server with no transport security story cannot be built and secured later. It touches configuration, deployment, the admin API and the reverse-proxy question simultaneously. Needs a decision, not a prototype | ~1 session |
 | **B4** | **AuthN (§41)** | Identity underpins the admin API, the publisher role, RBAC, hosted-item ownership and audit. Nothing user-facing can be written first and have authentication threaded through afterwards without rewriting it | ~1–2 sessions |
+| **B0** | **A `LICENSE` file (Q-73)** | The repository is public with no licence, which means all rights reserved: legally nobody may use, fork or contribute. It is the one blocker that is a five-minute task, and it contradicts the owner's stated intent every day it is not fixed | minutes, once chosen |
 | **B5** | **Packaging (Q-71)** | The baseline is now three images — server, mandatory datastore, job worker with GDAL — with no story for how they are packaged, version-matched, upgraded or carried into an air-gapped install. "Run it" has no answer | ~1 session |
 
 **Everything else can be decided while building**, and several items will be
@@ -104,11 +105,14 @@ decided *better* while building.
 - **The three 2 AM scenarios (F5).** They were proposed as a test of whether the
   observability model exists. Better answered against a system that can be
   observed.
-- **Q-49 — why this product should exist.** Attempted three times from the desk
-  with no strong answer, and desk research will not produce one. It needs
-  conversations with organisations running ArcGIS Server, which can and should
-  happen in parallel with building rather than gating it. **A working skeleton
-  makes those conversations better, not worse.**
+- ~~**Q-49 — why this product should exist.**~~ **Answered 2026-08-13, the day
+  after this section was written:** *"I will give this to the world."* The
+  existential question is retired and §81's requirement to test it with real GIS
+  teams is dissolved — it assumed a commercial-style justification a gift does
+  not owe. What is left is prioritisation: nobody outside the project has
+  confirmed that the ArcGIS exit path is the thing they want first, so those
+  conversations still matter, and **a working skeleton makes them better, not
+  worse.** See [competitive-position.md](competitive-position.md) §6.
 
 ---
 
@@ -180,6 +184,16 @@ and §3, that point is close — five decisions away, not forty-four.
 - It does not claim B1–B5 is a complete list. It is a list of what blocks *the
   slice described in step 3*. A different first slice would block on different
   things.
-- It does not resolve Q-49. Nothing here answers why this product should exist,
-  and that remains the largest open risk in the project — larger than any
-  technical item in this document.
+- ~~It does not resolve Q-49.~~ **Q-49 was answered by the owner on 2026-08-13**,
+  the day after this plan was written: *"I will give this to the world."* The
+  existential risk is retired and the §81 criterion dissolved. What replaces it
+  is smaller but not nothing — a prioritisation risk, since no GIS team outside
+  the project has confirmed that the ArcGIS exit path is what they want first.
+  See [competitive-position.md](competitive-position.md) §6.
+- **Two new blockers arrived with that answer.** Q-73: the repository is public
+  with no `LICENSE` file, so it is legally all-rights-reserved and nobody may use
+  or contribute to it — trivial to fix, and it must be fixed before the repo is
+  promoted anywhere. Q-72: giving a server to the world obliges a release
+  process, a security-response contact and embargo policy, and a contribution
+  policy. **Q-73 joins B1–B5 as a blocker; Q-72 does not block code but must
+  land before the first public release.**

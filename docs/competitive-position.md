@@ -126,3 +126,72 @@ independent of positioning.
 
 It says the **product** has no demonstrated reason to exist yet, and that no
 amount of further architecture will supply one.
+
+
+---
+
+## 6. Q-49 answered by the owner, 2026-08-13
+
+**§4's honest conclusion was that desk research could not answer why this
+product should exist. It could not, and did not need to.**
+
+### Why it exists
+
+> *"I will give this to the world, with better capabilities than GeoServer."*
+
+The first half is sufficient on its own. A gift needs no market case, and QGIS,
+GeoServer and PostGIS each began exactly this way. It is consistent with the
+licensing posture and with the owner's stated motive throughout.
+
+**It also dissolves a Phase 0 exit criterion.** §81 required Q-49 to be tested
+with real GIS teams. That requirement assumed a commercial-style justification
+— *is there a market worth the cost* — which a gift does not owe. The
+conversations remain valuable for prioritisation; they are no longer a gate.
+
+### The second half needs sharpening, and the reason is measurable
+
+**On raw capability count we are behind GeoServer, and every good decision of
+the last two days moved us further behind:**
+
+| Decision | Capability GeoServer has and we will not |
+|---|---|
+| Vector-first | Server-side raster rendering |
+| Q-47 | WMS in v1 |
+| Q-67 | Tiles from any registered store |
+| Q-70 | Deployment without PostgreSQL |
+| Q-28 / A-016 | GDAL in the serving container |
+| Never planned | WCS, WPS, CSW, SLD/CSS/YSLD styling, the extension ecosystem |
+
+GeoServer's weakness is not a shortage of capabilities — it has far more than we
+intend to build. Leading with *"better capabilities than GeoServer"* would make
+the project's first public claim one that a knowledgeable reader refutes in a
+minute, and would misdirect the roadmap toward closing a gap we deliberately
+opened.
+
+### The version that is true, testable, and prioritises the work
+
+> **Everything an ArcGIS Server shop needs in order to leave, which GeoServer
+> does not provide.**
+
+Each of these is a genuine GeoServer gap rather than a preference:
+
+| | Why GeoServer does not cover it |
+|---|---|
+| **Full ArcGIS FeatureServer compatibility, including `applyEdits`** (Q-17) | GeoServer has no ArcGIS REST surface. Existing clients keep working through the migration instead of being rewritten alongside it |
+| **Free migration tooling** (Q-16) | Scan the estate, report honestly what can and cannot come across, import definitions. Honua charges for the equivalent; GeoServer offers none |
+| **A real service runtime** (ADR-007) | Affinity routing, warmth-aware, bounded per-worker context budget, supervisor. GeoServer has no equivalent concept, and §3 of this document found that no existing GIS server does warmth-aware routing at all |
+| **Never degrade silently** (ADR-008 §2) | Published capability reports and explicit refusal rather than quietly dragging data back to the server. A philosophy difference, not a feature |
+| **Self-service publishing with a publisher role** | GeoNode provides this, but as a separate stack layered on GeoServer rather than as the server's own model |
+
+This is narrow. That is the point: it is falsifiable, it tells us what to build
+first, and it is a claim that survives contact with someone who knows GeoServer
+well.
+
+### What this still does not settle
+
+The positioning above is derived from decisions already taken, not from anyone
+outside the project confirming it matters. **§5's caveat stands: no GIS team has
+been asked.** The difference Q-49's answer makes is that this is now a
+prioritisation risk rather than an existential one. If nobody wants an ArcGIS
+exit path, the project is still worth building and giving away — it is simply
+built in the wrong order.
