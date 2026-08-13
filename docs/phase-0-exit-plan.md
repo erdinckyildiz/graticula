@@ -177,6 +177,31 @@ and §3, that point is close — five decisions away, not forty-four.
 
 ---
 
+## 6a. What the 2026-08-13 scope decisions did — and did not — change
+
+Between Q-17a and Q-83 the owner roughly tripled the product's scope: full
+protocol parity (Q-78, 29 faces over 10 engines), GPServer with a Python SDK
+(Q-17b), ImageServer (Q-17c), three more database dialects (Q-80, Q-81), the
+full format list (Q-52), and geocoding (Q-84). Three ADRs were reopened.
+
+**None of it changes §3.** The six blockers are the same six, because they are
+what stands between here and the *first line of production code*, and scope does
+not move that line. B1 the contradiction sweep, B2 ADR-003, B3 TLS, B4 AuthN,
+B5 packaging — all unchanged. B0 is done.
+
+**What it changes is everything after.** The walking skeleton in §6 step 3 is
+still the right first slice and still achievable in the same time. What follows
+it is now a multi-year programme rather than a release, and the sequencing in
+[protocol-surface.md](protocol-surface.md) §5 is the map: **four engine decisions
+account for twelve of the sixteen new protocols**, and the honest way to build
+this is engine by engine, not protocol by protocol.
+
+**Three new subsystems have no foundation in anything decided so far** — the
+observation store (Q-79), 3D and terrain (Q-79), and geocoding (Q-84). Each is a
+product in its own right and each should be scheduled as its own decision rather
+than absorbed into a parity sweep. That is the Q-17a lesson, which cost nothing
+to learn the first time and would cost a great deal to relearn at this scale.
+
 ## 7. What this plan does not claim
 
 - It does not claim the architecture is finished. §1 says plainly that the

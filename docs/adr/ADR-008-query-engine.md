@@ -308,6 +308,47 @@ Two consequences for this ADR:
   mangling geometry*. `.STIntersection()` and `SDO_GEOM.SDO_INTERSECTION` are
   the candidates and neither has been measured. Recorded as **A-039**.
 
+### Amendment, 2026-08-13 — Q-80, Q-81: the dialect count doubles
+
+MySQL, MariaDB and DuckDB are in scope as providers. Counting properly, the
+Query AST now targets **six** SQL dialects rather than the three Q-21 settled:
+PostGIS, SQL Server, Oracle, MySQL 8, MariaDB, DuckDB.
+
+**Two corrections to how they arrived.** MySQL and MariaDB were listed as one
+row on the capability matrix; they are **two providers**. MySQL 8's spatial
+support is Boost.Geometry-backed with a reasonably complete OGC surface, while
+MariaDB's diverged and covers less. One capability declaration for both would
+have one of them claiming the other's abilities. And DuckDB is **not a
+registered-source provider** — see Q-81; it is the file-format query engine, and
+placing it there avoids pointing concurrent request traffic at a single-writer
+embedded OLAP engine.
+
+**What six dialects actually costs**, per engine and none of it optional:
+
+- SQL generation from the AST, and a **capability declaration** — which is what
+  §2's refusal model consumes. Six engines with different function coverage
+  means the capability report is doing far more work than it was designed for.
+- Type and SRID mapping. **MySQL 8 honours the SRS definition's axis order**, so
+  EPSG:4326 is latitude-first — a well-known footgun, and a direct concern for
+  [geometry-crs-policy.md](../geometry-crs-policy.md).
+- A CI entry running against the **real engine**, not a mock. Testcontainers
+  covers MySQL and MariaDB;
+  [research/honua-capability-matrix.md](../research/honua-capability-matrix.md)
+  §5 found that route while looking for something else.
+- If writable (Q-82): a transaction model, a concurrency model and a definition
+  of a conflict, all under A-027.
+
+**And the cost that is not per-engine but global — Q-20.** Six providers means
+**six geometry implementations** evaluating our predicates: PostGIS's GEOS,
+DuckDB's GEOS, MySQL's Boost.Geometry, MariaDB's, SQL Server's, Oracle's
+SDO_GEOM, plus NetTopologySuite in our own process. They disagree at the edges
+on validity, precision, what *touches*, and empty-geometry results.
+
+**§2's never-degrade-silently principle does not cover this.** Refusing an
+unsupported operation is honest. Quietly returning a *different answer* on a
+different provider is not, and no capability report catches it, because every
+engine claims to support `intersects`.
+
 ### Amendment, 2026-08-12 — Q-67: tiles come only from hosted data
 
 **Owner decision, taken after run 3 rather than before it.** Vector tiles are
