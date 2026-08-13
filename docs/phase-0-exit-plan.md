@@ -12,9 +12,15 @@ which do not, and gives a recommendation with a shape and a rough duration.
 
 | | |
 |---|---|
-| ADRs | 12 written. 8 `ACCEPTED WITH CONDITIONS`, 1 `ACCEPTED`, 1 `DRAFT` (ADR-003), 2 `DEFERRED` (rendering, clustering) |
-| Open questions | **44 open**, 30 answered |
-| §81 exit criteria | **4 of 16 met** |
+| ADRs | **17 written** — 12 `ACCEPTED WITH CONDITIONS`, 1 `ACCEPTED`, 2 `REOPENED` (plugins, raster), 2 `DEFERRED` (rendering, clustering). **None `DRAFT`** |
+| Open questions | **47 open**, 48 answered |
+| §81 exit criteria | **7 of 15 met**, and see the note below |
+
+> **Corrected 2026-08-13** after independent review finding P14: this table said
+> *12 ADRs, 1 DRAFT, 44 open questions, 4 of 16* while the rest of the document
+> was being updated the same day. **The most-quoted status summary in the
+> repository was the least maintained part of it**, and the matrix cites this
+> section as its §81 verdict.
 | §66 review gates | **0 of 9 run** |
 | Benchmarks | 3 rounds, one subsystem (the tile path) |
 | Independent adversarial review | **never done** — see §5 |
