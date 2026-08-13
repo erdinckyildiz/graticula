@@ -28,6 +28,22 @@ Three inputs have accumulated since this ADR was stubbed:
 - **Editing is in scope** (Q-42, corrected 2026-08-12). Feature write endpoints
   exist, and the write surface is an open question — see §3.7.
 
+## 3.2a. Full protocol parity — amended 2026-08-13 (Q-78)
+
+The owner put sixteen further protocols in scope. **The surface map is
+[protocol-surface.md](../protocol-surface.md)**, and its central finding governs
+how this ADR should be read from here: **twenty-nine protocol faces sit over ten
+engines**, eight of which are already decided or in flight.
+
+The consequence for §3's protocol-neutral internal interface is direct. That
+interface was asserted rather than proven, and it is about to carry **six faces
+over the feature engine alone** — OGC API Features, WFS-T, ArcGIS FeatureServer,
+OData v4, gRPC and MCP — with different query languages, identity models,
+transaction semantics and error conventions.
+
+**If §3 is right, faces five and six are cheap. If it leaks, this will find out.**
+That is a better outcome than the protocols themselves, and A-026 now carries it.
+
 ## 3.3a. ArcGIS service types — amended 2026-08-13 (Q-17a)
 
 [Q-17](../open-questions.md) excluded MapServer, ImageServer, GeometryServer and
