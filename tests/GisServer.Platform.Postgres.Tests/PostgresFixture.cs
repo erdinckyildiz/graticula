@@ -50,10 +50,11 @@ public abstract class PostgresFixture : IAsyncLifetime
         {
             Assert.True(
                 ConnectionString is not null,
-                $"{ConnectionVariable} is not set. These tests are traited Integration and are "
-                + "excluded from the default run; asking for them without configuring a database "
-                + "is an error rather than a pass, because a test that goes green with its "
-                + "subject absent is worse than no test.");
+                $"{ConnectionVariable} is not set, so these tests FAIL rather than skip. A test "
+                + "that goes green with its subject absent is worse than no test — this project "
+                + "has written that trap four times. Set it to a PostGIS connection string, e.g. "
+                + "'Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis'. Filter them "
+                + "out deliberately with --filter Category!=Integration if you mean to.");
 
             return _dataSource!;
         }

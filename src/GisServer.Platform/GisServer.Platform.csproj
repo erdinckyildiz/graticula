@@ -22,4 +22,8 @@
     <AssemblyName>GisServer.Platform</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\GisServer.Core\GisServer.Core.csproj" />
+  </ItemGroup>
+
 </Project>

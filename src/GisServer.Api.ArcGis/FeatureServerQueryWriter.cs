@@ -77,6 +77,62 @@ public sealed class FeatureServerQueryWriter
 
         FeatureSchema schema = source.SchemaFor(query);
 
+        // The object id is fetched as a field and re-emitted as the OID rather
+        // than taken from Feature.Id, because the two are not the same thing.
+        // Q-57's declared identity may be a uuid or text; ADR-013 §2a's ArcGIS
+        // object id must be a unique integer. Where a layer has both, they can
+        // be different columns.
+        int objectIdIndex = schema.IndexOf(_layer.ObjectIdColumn!);
+
+        if (objectIdIndex < 0)
+        {
+            throw new ArgumentException(
+                $"The query must request '{_layer.ObjectIdColumn}' so it can be written as the "
+                + "object id. An ArcGIS response whose objectIdFieldName names a field the "
+                + "response does not contain is one a client cannot page or select against.",
+                nameof(query));
+        }
+
+        // The first row is pulled before a single byte is written, and this
+        // ordering is load-bearing rather than tidy. Executing the query is what
+        // raises the failures that matter — the statement timeout, a dropped
+        // table, a credential that no longer works — and once the header has
+        // been handed to the response's PipeWriter it cannot be taken back.
+        // Response.Clear() resets the status and the headers; it does not
+        // discard buffered body bytes. Writing the header first therefore
+        // produced a 504 whose body was a truncated object with an error
+        // appended to it: the right status carrying malformed JSON. Measured,
+        // not reasoned about.
+        //
+        // A failure after this point still truncates. That case is narrower —
+        // the database died mid-result — and is handled by aborting rather than
+        // by pretending a clean response is still possible.
+        IAsyncEnumerator<Feature> features =
+            source.ReadAsync(query, cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+        try
+        {
+            bool hasFirst = await features.MoveNextAsync().ConfigureAwait(false);
+
+            return await WriteBodyAsync(writer, features, hasFirst, schema, objectIdIndex, query, geometryType, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            await features.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task<int> WriteBodyAsync(
+        Utf8JsonWriter writer,
+        IAsyncEnumerator<Feature> features,
+        bool hasFirst,
+        FeatureSchema schema,
+        int objectIdIndex,
+        FeatureQuery query,
+        GeometryKind geometryType,
+        CancellationToken cancellationToken)
+    {
         writer.WriteStartObject();
         writer.WriteString("objectIdFieldName", _layer.ObjectIdColumn);
         writer.WriteString("globalIdFieldName", string.Empty);
@@ -92,10 +148,14 @@ public sealed class FeatureServerQueryWriter
         // every field is a string until the catalogue records column types —
         // honest, and narrower than it will be. Recorded rather than hidden.
         writer.WriteStartArray("fields");
-        WriteField(writer, _layer.ObjectIdColumn!, "esriFieldTypeOID");
         foreach (string name in schema.Names)
         {
-            WriteField(writer, name, "esriFieldTypeString");
+            WriteField(
+                writer,
+                name,
+                string.Equals(name, _layer.ObjectIdColumn, StringComparison.Ordinal)
+                    ? "esriFieldTypeOID"
+                    : "esriFieldTypeString");
         }
 
         writer.WriteEndArray();
@@ -103,10 +163,9 @@ public sealed class FeatureServerQueryWriter
         writer.WriteStartArray("features");
 
         int written = 0;
-        await foreach (Feature feature in source.ReadAsync(query, cancellationToken)
-            .ConfigureAwait(false))
+        for (bool more = hasFirst; more; more = await features.MoveNextAsync().ConfigureAwait(false))
         {
-            WriteFeature(writer, feature, schema);
+            WriteFeature(writer, features.Current, schema, objectIdIndex);
             written++;
         }
 
@@ -123,14 +182,20 @@ public sealed class FeatureServerQueryWriter
         return written;
     }
 
-    private void WriteFeature(Utf8JsonWriter writer, Feature feature, FeatureSchema schema)
+    private void WriteFeature(
+        Utf8JsonWriter writer, Feature feature, FeatureSchema schema, int objectIdIndex)
     {
         writer.WriteStartObject();
 
         writer.WriteStartObject("attributes");
-        WriteAttribute(writer, _layer.ObjectIdColumn!, feature.Id);
         for (int i = 0; i < schema.Count; i++)
         {
+            if (i == objectIdIndex)
+            {
+                WriteObjectId(writer, schema.Names[i], feature[i]);
+                continue;
+            }
+
             WriteAttribute(writer, schema.Names[i], feature[i]);
         }
 
@@ -149,6 +214,38 @@ public sealed class FeatureServerQueryWriter
         ArcGisGeometryWriter.Write(writer, feature.Geometry, _layer.Srid);
 
         writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Writes the object id as a JSON number.
+    /// </summary>
+    /// <remarks>
+    /// <b>A number, never a string.</b> The field is declared
+    /// <c>esriFieldTypeOID</c>, and a client that pages or selects by object id
+    /// against a quoted value gets no matches and no error. Caught by running
+    /// the endpoint rather than by any test — the first response emitted
+    /// <c>"objectid":"1"</c> and looked plausible.
+    /// </remarks>
+    private static void WriteObjectId(Utf8JsonWriter writer, string name, object? value)
+    {
+        switch (value)
+        {
+            case int number:
+                writer.WriteNumber(name, number);
+                return;
+            case long number:
+                writer.WriteNumber(name, number);
+                return;
+            case short number:
+                writer.WriteNumber(name, number);
+                return;
+            default:
+                throw new InvalidOperationException(
+                    $"The object id column '{name}' produced "
+                    + $"{value?.GetType().Name ?? "null"}, which is not an integer. ADR-013 §2a "
+                    + "requires a unique integer for the ArcGIS surface, and the catalogue "
+                    + "recorded this column as one — so the registration and the table disagree.");
+        }
     }
 
     private static void WriteAttribute(Utf8JsonWriter writer, string name, object? value)

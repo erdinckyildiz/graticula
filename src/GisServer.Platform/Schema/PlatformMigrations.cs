@@ -5,8 +5,18 @@ namespace GisServer.Platform.Schema;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Append only. A migration that has shipped is never edited, because a store
-/// that already ran it will not run it again and the two would silently diverge.
+/// <b>Append only — from the first tagged release.</b> A migration that has
+/// shipped is never edited, because a store that already ran it will not run it
+/// again and the two would silently diverge.
+/// </para>
+/// <para>
+/// <b>Before that release, editing a migration is correct and this says so
+/// deliberately.</b> No store exists that we do not control: the only databases
+/// that have run these are throwaway test schemas. Adding a column by appending
+/// a migration nobody needed would leave the initial schema permanently odd, to
+/// honour a rule whose purpose — preventing divergence between stores — cannot
+/// yet be served. The rule binds at v1.0.0, and the reason it does not bind now
+/// is written here so the judgement is not re-made silently later.
 /// </para>
 /// <para>
 /// Scope is <c>docs/v1-scope.md</c>: PostGIS only, ArcGIS FeatureServer,
@@ -82,6 +92,11 @@ public static class PlatformMigrations
         // we do not keep a side mapping table, which would be state about
         // somebody else's table and would drift on their first edit.
         //
+        // geometry_type is declared rather than inferred from the data. ArcGIS
+        // puts it in the response header before any row has been read, and a
+        // layer whose query matches nothing still has a type — inferring from
+        // the first feature would make an empty result untypeable.
+        //
         // object_id_column is nullable, and its nullability is ADR-013 §2a made
         // physical: OGC API Features accepts a string id, ArcGIS FeatureServer
         // requires a unique integer. A registered table keyed by uuid or text is
@@ -99,11 +114,14 @@ public static class PlatformMigrations
             srid              integer     not null,
             identity_column   text        not null,
             object_id_column  text        null,
+            geometry_type     text        not null,
             is_hosted         boolean     not null,
             created_at        timestamptz not null default now(),
             updated_at        timestamptz not null default now(),
             constraint layer_name_not_blank check (length(btrim(name)) > 0),
             constraint layer_srid_positive check (srid > 0),
+            constraint layer_geometry_type_known check (geometry_type in (
+                'Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon')),
             constraint layer_table_unique unique (data_source_id, schema_name, table_name, geometry_column)
         )
         """,
