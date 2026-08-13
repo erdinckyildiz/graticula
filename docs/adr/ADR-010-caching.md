@@ -277,6 +277,26 @@ does not push clip into the provider will spend most of its wall-clock stopped.
 Otherwise no decision changes here. The numbers are recorded because §6
 currently reasons about seeding without any.
 
+### 6b. Cache state must be readable per layer
+
+**Added 2026-08-13 by [ADR-017](ADR-017-admin-api.md) §3.1.**
+
+Walking *the map is showing old data* found that this ADR's coherence policy is
+**configuration rather than an observable**. An administrator holding a user
+complaint needs to answer, per layer: when was each zoom level last generated,
+what is the invalidation policy, and has the source drifted since.
+
+Two requirements follow:
+
+- **The cache index records generation time per tile set**, not merely bytes.
+- **The coherence policy is readable through the admin API per layer.** §5
+  accepts best-effort coherence for registered data and documents it as such —
+  **but a best-effort guarantee an administrator cannot inspect is
+  indistinguishable from a bug**, and will be reported as one.
+
+Invalidation is scoped — by bbox, by zoom range — rather than all-or-nothing,
+because a full invalidation of a seeded pyramid is itself an outage.
+
 ## 7. Multi-node
 
 Inherited from [ADR-002](ADR-002-primary-data-architecture.md) §5 and owed to

@@ -34,7 +34,7 @@ finished, however confident the ADR sounds.
 | Glyph & sprite serving | — | — | — | — | — | — | — | not started — new requirement from the vector-first decision; must work air-gapped |
 | Style document management | — | — | — | — | — | — | — | not started — storage and serving only, no evaluation |
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
-| Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
+| Admin API (§39) | **shape decided** | `ACCEPTED WITH CONDITIONS` | — | — | **partial** | **partial** | — | [ADR-017](adr/ADR-017-admin-api.md), 2026-08-13. **Blocker B6 discharged.** Shape, not surface: separate versioned prefix, one async pattern (202 + job), runtime state through the API with only bootstrap in config, every mutation audited, capability report as a first-class resource. **Designed against F5's 2 AM scenarios rather than as a CRUD list**, which surfaced the allocation-and-GC-pause requirement. New finding: §6's **degraded mode** — the platform store lives in the mandatory datastore, so a datastore outage blinds the admin API exactly when it is needed, and a minimal supervisor-served surface must survive it. Full catalogue is Phase 1 |
 | Compatibility layer (§51) | **scope set, amended twice in one day** | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles + full ArcGIS FeatureServer including edits + GeometryServer** (Q-17, Q-17a). **GeometryServer added and elevated to v1 core** — owner calls it crucial. Cheap to build, not cheap to operate: it publishes the general overlay run 1 measured at 438.6 ms, on caller-supplied geometry, with no special case to exploit (ADR-005 §3.3b, A-042). **GPServer in, Python-based, after the SDK** (Q-17b) — reopens ADR-006. **ImageServer in, decomposed per operation** (Q-17c) — reopens ADR-009. WMS and MapServer remain out of v1 (Q-47, ADR-004). Outside the core domain. |
 | Feature service data model gaps | **identity, relationships, attachments decided** | `ACCEPTED WITH CONDITIONS` | — | — | **partial** | — | — | [ADR-013](adr/ADR-013-feature-service-data-model.md), 2026-08-13. Q-57, Q-58a, Q-58b answered; **all three ship in v1**. Identity is declared not inferred; relationships declared not reverse-engineered; attachments in the database, streamed, behind a separate bounded pool. Remaining: **Q-58c** — domains, subtypes, editor tracking. Opened A-040 and A-041. Originally: **Corroborated 2026-08-13**: Honua ships attachments and related records at Community tier ([research/honua-capability-matrix.md](research/honua-capability-matrix.md) §2), so these are table stakes for FeatureServer compatibility rather than refinements |
 | Format support | **enumerated (Q-52)** | — | — | — | — | — | — | 9 import, 5 output. **A-038 confirmed**: File Geodatabase has no managed .NET reader, so GDAL is not avoidable and A-016's job-worker placement stands. **GeoParquet now has three independent justifications** — Q-74's Python SDK boundary, Q-81's DuckDB engine, and this list — having had none a week ago |
@@ -109,10 +109,16 @@ production line, and they are not the five with the biggest boxes.
       existing decisions, three additions, two decisions we had not realised we
       needed. Network partition between nodes is not walked, since clustering is
       deferred.
-- [ ] **Three 2 AM scenarios written end to end** — adversarial review F5. Stale
-      tiles, a slow service, a failed registration. What does the administrator
-      see, from which endpoint, composed from what? If it cannot be written, the
-      observability model is missing rather than deferred.
+- [x] **2 AM scenarios written end to end** — adversarial review F5, met
+      2026-08-13 in [ADR-017](adr/ADR-017-admin-api.md) §3. **Four rather than three**: stale tiles, a
+      slow service, a failed registration, and an expired certificate, which
+      ADR-014 added and which is the only one with a known date in advance.
+      Written as the *design method* for the admin API rather than as a
+      documentation exercise, and F5's test earned its keep — each scenario
+      produced a requirement a CRUD-first surface would have missed. The largest:
+      **worker introspection must expose allocation rate and GC pause**, because
+      A-037 measured 80.9% GC pause at 18% CPU and a CPU graph alone shows an
+      idle worker and explains nothing.
 - [x] **Geometry and CRS reality pass** — fresh-challenger review G4.
       [geometry-crs-policy.md](geometry-crs-policy.md), 2026-08-12. Found that
       five separate problems are one problem: **lossy on read means not

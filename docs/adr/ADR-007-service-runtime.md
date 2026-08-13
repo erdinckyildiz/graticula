@@ -490,6 +490,23 @@ required on remote data sources (ADR-014 §3), every pool refill now pays a
 handshake rather than a plain connect. That belongs in Q-04's connection budget
 measurement rather than being assumed negligible.
 
+### 4.17 Worker introspection must expose allocation, not only CPU
+
+**Added 2026-08-13 by [ADR-017](ADR-017-admin-api.md) §3.2**, and it is that
+ADR's largest consequence rather than a detail of it.
+
+Walking the *this service is slow* scenario end to end showed that the standard
+worker view — CPU, memory, request rate, latency — **cannot explain the failure
+mode this runtime actually has.** A-037 measured **80.9% GC pause at 18% CPU
+utilisation**: an administrator looking at a CPU graph sees an idle worker and
+concludes the problem is elsewhere.
+
+So `/admin/workers/{id}` exposes **allocation rate and GC pause share** alongside
+the usual counters, and they are not optional extras — they are the two numbers
+that make §4.14's ceiling visible. `A-050` asks whether they are affordable as
+continuous metrics rather than benchmark instruments; the benchmark harness read
+them per request without difficulty, which is encouraging but not the same test.
+
 ## 5. Service explosion model (§24)
 
 | Services | Request workers | Bound contexts | Processes | DB connections |

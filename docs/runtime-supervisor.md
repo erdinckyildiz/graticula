@@ -224,3 +224,33 @@ This fits the supervisor's governing principle rather than straining it. The
 supervisor exists so that a management-plane concern does not become a
 data-plane failure; an unnoticed expiry is precisely a management-plane concern
 becoming a total data-plane failure, on a timer, in public.
+
+
+---
+
+## A minimal admin surface, served here
+
+**Added 2026-08-13 by [ADR-017](adr/ADR-017-admin-api.md) §6.**
+
+This document's governing principle is that **a management-plane failure must not
+become a data-plane failure.** ADR-017 found the inverse, and it is new:
+
+**The platform store lives in the datastore** (Q-69, Q-70). If the datastore is
+down, the admin API loses users, sessions, layer definitions and job records —
+**at exactly the moment an administrator most needs to look.** A data-plane
+failure would blind the management plane.
+
+The supervisor already survives independently of the request workers and holds
+knowledge that needs no database. It therefore serves a minimal surface that
+works with **no platform store at all**: health, version, certificates (which
+live on the secret volume, not in the database), worker state, and a break-glass
+authentication path valid **only while the store is unreachable**, audited to
+disk.
+
+Everything else answers *the platform store is unavailable, and here is what is
+known*. **A 500 from the admin API during an outage is the worst possible
+response**, because it removes the last tool the administrator has.
+
+The break-glass path is recorded as `A-051` and as dissent in ADR-017 §11: it is
+the classic shape of an authentication bypass, and the condition that bounds it
+is one somebody must implement correctly.
