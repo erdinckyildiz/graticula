@@ -82,7 +82,9 @@ Six items. Not forty-four — and one of them takes five minutes.
 | # | Item | Why it blocks | Effort |
 |---|---|---|---|
 | **B1** | **Contradiction sweep (§63)** | Three owner decisions reversed within hours of each other on 2026-08-12, one of them reversing a headline decision taken the same morning. Something has been missed — **and on 2026-08-13 the owner found the first one by pointing at a question number**: Q-17 excluded four ArcGIS service types on the grounds that they *produce rendered images*, which is false for two of them. One bundled sentence carried four decisions and inherited the weakest justification in the bundle. If one glance found that, a sweep will find more | ~1 session, **and now demonstrably worth it** |
-| **B2** | **ADR-003 out of `DRAFT`** | Every path touches geometry, and the ADR that decides where geometry work happens is still a draft. Runs 1–3 answered the *hot-path* half. **Estimate raised 2026-08-13 (sweep S9):** Q-20 and A-043 put **six geometry engines** in play, and ADR-003 must now also state a cross-engine consistency position that the benchmarks say nothing about | **~2 sessions**, was ~1 |
+| **B2a** | **ADR-003, single-provider half — `ACCEPTED`** | Where geometry work happens on the hot path. **Already answered by benchmark runs 1–3**: clip and simplify are ours, topology stays NTS, and the boundary is empirically placed rather than argued. Needs writing up as a decision, not investigating | ~1 session |
+| ~~B2b~~ | **ADR-003, cross-engine consistency — NOT a skeleton blocker** | A-043 and Q-20 put **six geometry engines** in play, disagreeing at the edges on validity, precision and `touches`. **This blocks the *second* provider, not the first.** The walking skeleton is PostGIS only, so the question cannot arise in it. Needs `experiments/geometry-oracle` — one corpus of adversarial geometries, six engines, diff the answers | gate on **provider two**, not on code |
+| **B6** | **Admin API shape (§39)** — **added 2026-08-13** | **A gap in this plan's own list, found while checking it.** §6 step 3 defines the skeleton as *published through the admin API*, and §1 records the admin API as not started. Not the full surface — enough shape that publish, list and inspect have somewhere to live, and enough that ADR-015's user, role, session and key operations have a home. **The primary user is the GIS administrator (Q-06a), and this is the only blocker that is their surface** | ~1 session |
 | ~~**B3**~~ | ~~TLS and certificates (Q-55)~~ **DONE 2026-08-13 — [ADR-014](adr/ADR-014-tls-and-certificates.md)** | A server with no transport security story cannot be built and secured later. It touches configuration, deployment, the admin API and the reverse-proxy question simultaneously. Needs a decision, not a prototype | ~1 session |
 | ~~**B4**~~ | ~~AuthN (§41)~~ **DONE 2026-08-13 — [ADR-015](adr/ADR-015-authentication.md)** | Identity underpins the admin API, the publisher role, RBAC, hosted-item ownership and audit. Nothing user-facing can be written first and have authentication threaded through afterwards without rewriting it | ~1–2 sessions |
 | ~~**B0**~~ | ~~A `LICENSE` file (Q-73)~~ **DONE 2026-08-13 — Apache-2.0** | The repository is public with no licence, which means all rights reserved: legally nobody may use, fork or contribute. It is the one blocker that is a five-minute task, and it contradicts the owner's stated intent every day it is not fixed | minutes, once chosen |
@@ -131,6 +133,11 @@ Starting implementation on an architecture that has never had an independent
 adversarial read is the largest process risk in this plan, and it is not
 mitigated by the author reviewing it a third time.
 
+**This got more important on 2026-08-13, not less.** Four ADRs (013–016), a
+contradiction sweep and roughly fifteen scope decisions were written that day by
+the same agent, in one session, with no independent read at any point. The volume
+of unreviewed architecture is now the largest it has been.
+
 **Pragmatic option:** a reviewer with no prior context, given only the documents
 and the master prompt, with no access to the reasoning that produced them. That
 is not the same as a different person and should not be recorded as if it were,
@@ -151,11 +158,20 @@ the 44 open questions closing everything Q-67/Q-69/Q-70 dissolved. Run the §66
 review gates that do not need code: correctness, simplicity, consistency,
 licensing.
 
-### Step 2 — decide what cannot be discovered by building (~3 sessions)
+### Step 2 — decide what cannot be discovered by building
 
-TLS (B3), AuthN (B4), packaging (B5), and the admin API's *shape* — not its full
-surface, but enough that the skeleton has somewhere to put publish, list and
-inspect. Then the independent review from §5.
+~~TLS (B3), AuthN (B4), packaging (B5)~~ — **all three done 2026-08-13**
+([ADR-014](adr/ADR-014-tls-and-certificates.md),
+[ADR-015](adr/ADR-015-authentication.md),
+[ADR-016](adr/ADR-016-packaging-deployment-upgrade.md)).
+
+**Remaining: B2a, B6, and the independent review.** Roughly three sessions.
+
+> **Revised estimate, 2026-08-13.** This plan said implementation was about a
+> week away. Five of six blockers were discharged in a single session, and B2
+> then split — its expensive half turned out to gate the *second provider*
+> rather than the first. **Implementation is now about three sessions away**,
+> and the remaining work is one write-up, one design, and one review.
 
 ### Step 3 — walking skeleton (§71–§73)
 
