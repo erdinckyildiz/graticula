@@ -142,6 +142,58 @@ PROJ and NetTopologySuite, both already in-process per ADR-003. It is cheap to
 *build*. It is not cheap to *operate*. Those are different claims and both are
 true.
 
+### 3.3c. ArcGIS geometry mapping, and where `Polyline` lives
+
+`Polyline` is a **wire-format type, not a domain type.** The domain speaks OGC
+Simple Features (`GisServer.Geometry.GeometryKind` records why); ArcGIS shapes
+exist only in this adapter.
+
+| ArcGIS | Domain | Notes |
+|---|---|---|
+| `esriGeometryPoint` | `Point` | |
+| `esriGeometryMultipoint` | `MultiPoint` | |
+| `esriGeometryPolyline` — `paths` | `LineString` (1 path) or `MultiLineString` (n) | |
+| `esriGeometryPolygon` — `rings` | `Polygon` (1 shell) or `MultiPolygon` (n) | Ring **winding order** carries the shell/hole distinction; classification happens here |
+| `esriGeometryEnvelope` | `Envelope` | A query input, not a stored geometry |
+
+**Outbound is lossless and mechanical.** A `MultiLineString` becomes a Polyline
+with n paths; a `MultiPolygon` becomes a Polygon whose rings are ordered
+shell-then-holes per part.
+
+**Inbound is ambiguous, and the rule is that the column decides.** A Polyline
+with exactly one path could become `LineString` or a single-part
+`MultiLineString`, and PostGIS columns are typed — writing `MULTILINESTRING`
+into a `geometry(LineString, 3857)` column fails. So: **the target column's
+declared type chooses the form**, and an untyped `geometry` column gets the
+simpler one. The same rule governs Polygon, where ring classification runs first.
+
+#### True curves
+
+ArcGIS supports `curvePaths` and `curveRings`, and clients send them when a
+layer advertises `supportsTrueCurve`.
+
+**We declare `supportsTrueCurve: false`**, and that is not a new decision — it
+falls out of [geometry-crs-policy.md](../geometry-crs-policy.md) §5, which
+already requires curves to be linearised on output with a documented tolerance
+and declared in the capability report. Declaring `false` makes well-behaved
+ArcGIS clients densify before sending, which is exactly the behaviour §5 wants,
+obtained by telling the truth rather than by policing input.
+
+Two consequences that do need stating:
+
+- **Curve input is refused, not silently linearised.** §5's write rule is that a
+  linearised curve must never be written back — it would replace an exact arc
+  with a polyline and nobody would notice until a survey disagreed. A client that
+  sends `curvePaths` anyway gets an explicit refusal naming the reason.
+- **A registered column holding `CIRCULARSTRING` or `CURVEPOLYGON` yields a
+  layer whose geometry is read-only.** We linearise on read, and
+  [ADR-008](ADR-008-query-engine.md) §4.5a's *lossy on read means not writable*
+  then applies automatically. The capability report says so rather than failing
+  at the first edit.
+
+Hosted layers never hit this, because we own the schema and do not create curve
+columns.
+
 **The pattern worth extracting:** Q-17 bundled four decisions under one sentence
 of reasoning. Bundled decisions inherit the weakest justification in the bundle
 and nobody notices, because the sentence reads as though it covers everything.
