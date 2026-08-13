@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>A connected sequence of straight segments.</summary>
 /// <remarks>

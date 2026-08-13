@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>Shared behaviour for the homogeneous multi-part geometries.</summary>
 /// <typeparam name="TPart">The part type.</typeparam>

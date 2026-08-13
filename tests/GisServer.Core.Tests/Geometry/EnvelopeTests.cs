@@ -1,7 +1,7 @@
-using GisServer.Geometry;
+using GisServer.Geometries;
 using Xunit;
 
-namespace GisServer.Core.Tests.Geometry;
+namespace GisServer.Core.Tests.Geometries;
 
 public sealed class EnvelopeTests
 {

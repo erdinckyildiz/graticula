@@ -72,7 +72,11 @@ public abstract class PostgresFixture : IAsyncLifetime
         _schema = "gisserver_test_" + Guid.NewGuid().ToString("n")[..12];
 
         NpgsqlDataSourceBuilder builder = new(ConnectionString);
-        builder.ConnectionStringBuilder.SearchPath = _schema;
+        // Private schema FIRST so our tables land in it, but public must stay on
+        // the path: PostGIS installs its functions there, and replacing the path
+        // outright makes st_asbinary vanish with a confusing "function does not
+        // exist" rather than an obvious configuration error.
+        builder.ConnectionStringBuilder.SearchPath = $"{_schema},public";
         _dataSource = builder.Build();
 
         await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync();

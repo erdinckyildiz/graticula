@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>A single position.</summary>
 /// <remarks>

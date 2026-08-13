@@ -1,6 +1,6 @@
 using System;
 
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>A closed <see cref="LineString"/> bounding an area.</summary>
 /// <remarks>

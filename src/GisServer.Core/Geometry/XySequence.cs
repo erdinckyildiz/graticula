@@ -1,6 +1,6 @@
 using System;
 
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>
 /// An ordered sequence of 2D coordinates held as one flat, interleaved

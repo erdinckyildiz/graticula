@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GisServer.Platform.Postgres\GisServer.Platform.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\GisServer.Core\GisServer.Core.csproj" />
   </ItemGroup>
 
 </Project>

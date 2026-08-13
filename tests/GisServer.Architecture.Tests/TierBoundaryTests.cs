@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using GisServer.Geometry;
+using GisServer.Geometries;
 using Xunit;
 
 namespace GisServer.Architecture.Tests;

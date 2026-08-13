@@ -1,4 +1,4 @@
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>
 /// A geometry, in OGC Simple Features terms. See <see cref="GeometryKind"/> for

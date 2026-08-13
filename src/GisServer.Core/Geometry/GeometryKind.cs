@@ -1,4 +1,4 @@
-namespace GisServer.Geometry;
+namespace GisServer.Geometries;
 
 /// <summary>
 /// The geometry types this server models, using OGC Simple Features names.
