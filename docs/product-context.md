@@ -29,7 +29,7 @@ for every review gate.
 | **Primary user** | **The GIS administrator** | Answered 2026-08-12 — see below |
 | **Day-one workload** | **Features first, then vector tiles** | Answered 2026-08-12 — see below |
 | **Migration posture** | **Displacing existing ArcGIS Server / GeoServer deployments is a goal** | Answered 2026-08-12 — see below |
-| **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
+| **Rendering** | ~~Vector-first. No server-side raster tiles. Raster imagery catalogued, not rasterised.~~ **`SUPERSEDED BY ACCUMULATION` 2026-08-13.** Replacement posture: **the client renders by default; the server renders where a protocol requires it.** | Decided 2026-08-12, dismantled 2026-08-13 by Q-17c, Q-78 and Q-83 without ever being reversed — see [reviews/contradiction-sweep-1.md](reviews/contradiction-sweep-1.md) S1 |
 | **Databases** | ~~PostgreSQL is not mandatory~~ → **PostgreSQL IS mandatory** (Q-70). The datastore is required (Q-69) and PostGIS-only (Q-32). Oracle Spatial and SQL Server Spatial remain first-class **providers** — registered sources with full read/write — but are not platform stores, not datastores and not tile sources. | Reversed 2026-08-12, same day as the original decision — see below |
 | **Storage model** | **Hosted data in a managed datastore; referenced data in registered PostGIS / Oracle / SQL Server sources.** | Answered 2026-08-12 — see [data-model.md](data-model.md) |
 | **Native API** | **OGC API Features, Parts 1 + 2 + 3. WFS, WMS and WMTS move to the compatibility layer.** | Answered 2026-08-12 — see [ADR-005](adr/ADR-005-api-architecture.md) |
@@ -201,6 +201,30 @@ deployments are actually being displaced, and it materially changes the work.
   organisation displacing GeoServer already has its data somewhere. Still needs
   confirmation; it significantly changes the publishing architecture (§38).
 - `TBD` **Product name.** Working title `gis-server`.
+
+## Rendering posture — `SUPERSEDED BY ACCUMULATION`, 2026-08-13
+
+> **Read this before the section below.** Vector-first was never reversed. It was
+> **out-voted one capability at a time** and the headline was left standing,
+> because no single decision contradicted it outright:
+>
+> | Decision | What it added | What it removed from vector-first |
+> |---|---|---|
+> | **Q-17c** | ArcGIS ImageServer | *raster imagery is catalogued, not rasterised* |
+> | **Q-78** | OGC API Maps | *the client renders* |
+> | **Q-83** | server-side rendering and legend | the remainder |
+>
+> **Replacement posture: the client renders by default; the server renders where
+> a protocol requires it.** ADR-004 and ADR-009 both carry the consequences —
+> ADR-009 is `REOPENED`, ADR-004 is `DEFERRED` and **that pair is itself a
+> contradiction**, raised as Q-85.
+>
+> Recorded as supersession rather than rewritten, because the *way* it went is
+> the finding: [CLAUDE.md](../CLAUDE.md) §2's `INFERRED` rule guards against an
+> inference recorded as fact; this is the mirror image — a fact left standing
+> after the reasoning beneath it was removed. See [reviews/contradiction-sweep-1.md](reviews/contradiction-sweep-1.md) S1.
+
+### Original section, retained
 
 ## Rendering posture — vector-first, the client renders
 

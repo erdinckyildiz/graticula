@@ -170,7 +170,11 @@ because the failure mode — building a rhetorical case and then believing it �
 is exactly what §2 of this document was already about.
 
 What survives the correction: **on the axes GeoServer competes on today, we are
-narrower**, and no amount of framing changes that. Leading with *"better
+narrower**, and no amount of framing changes that. — **Qualified 2026-08-13
+(sweep S8): this is now true of what is *shipped*, which is nothing, and false of
+what is *scoped*.** Q-78 and Q-83 put full parity and more in scope hours after
+this was written. The sentence was a scope claim when written and is a shipping
+claim now; both readings are useful, and conflating them is not. Leading with *"better
 capabilities than GeoServer"* in v1 would still be refutable in a minute by
 anyone who knows GeoServer. What changes is the *horizon* over which the claim
 becomes true — see §6a.

@@ -44,8 +44,8 @@ finished, however confident the ADR sounds.
 | AuthN (§41) | — | — | — | — | — | — | — | not started — local accounts, JWT, OAuth 2.0, OIDC |
 | **Protocol conformance testing** | — | **none** | — | — | — | — | — | **Absent from the architecture, and Q-78 makes that untenable.** Honua publishes 1,117 passing tests across 13 suites. Claiming 29 protocol faces without conformance evidence is a weaker position than claiming six with it. OGC publishes the suites; this is a CI decision to be taken early, not discovered late |
 | **Geocoding** (GeocodeServer) | **in scope (Q-84)** | — | — | — | — | — | — | **New subsystem, not an endpoint.** Address parsing (locale-specific — a Turkish-built product has an advantage here that Anglocentric open geocoders lack), matching and scoring, reverse and batch. **Reference data is the real question**, and it is GPServer's toolbox problem again: a geocoder with no street centrelines is an empty shell. Recommended: build the engine, customer brings the data — the only option that survives Q-15 air-gapped |
-| **Observation store** (SensorThings, EDR) | — | — | — | — | — | — | — | **New product surface, not a new endpoint** — a different domain model with its own storage, temporal indexing and write path. Q-79 asks whether it was chosen or swept in |
-| **3D and terrain** (3D Tiles, Terrain-RGB) | — | — | — | — | — | — | — | **No foundation in anything decided** — not the vector tile pipeline, not the raster engine. Q-79 |
+| **Observation store** (SensorThings, EDR) | **IN SCOPE — PENDING CONFIRMATION (Q-79)** | — | — | — | — | — | — | **New product surface, not a new endpoint** — a different domain model with its own storage, temporal indexing and write path. Q-79 asks whether it was chosen or swept in |
+| **3D and terrain** (3D Tiles, Terrain-RGB) | **IN SCOPE — PENDING CONFIRMATION (Q-79)** | — | — | — | — | — | — | **No foundation in anything decided** — not the vector tile pipeline, not the raster engine. Q-79 |
 | Observability (§46) | — | — | — | — | — | — | — | not started |
 | Backpressure (§48) | — | — | — | — | — | — | — | shape set by ADR-007 §4.9. Fairness still depends on N4's per-source limit and D-04's per-tenant limits, neither of which exists |
 | Runtime supervisor (§21) | **designed** | feeds ADR-007 | — | — | — | — | — | [runtime-supervisor.md](runtime-supervisor.md). Severe gap closed. Q-63 to Q-65 remain: routing placement, memory-growth detection, adoption protocol |
@@ -65,6 +65,7 @@ finished, however confident the ADR sounds.
 | 1 — adversarial | 2026-08-12 | 12 (3 severe) | [adversarial-review-1.md](reviews/adversarial-review-1.md) — all dispositions applied |
 | 2 — fresh challenger (§67) | 2026-08-12 | 8 (3 severe) | [fresh-challenger-review-2.md](reviews/fresh-challenger-review-2.md) — **written by the same agent, which §67 forbids.** Findings are real; coverage is suspect. A genuine independent review is still owed. |
 | 3 — genuinely independent | — | — | **Still owed.** §67 requires a reviewer who did not participate. Rounds 1 and 2 were both self-review. |
+| **Contradiction sweep 1 (§63)** | 2026-08-13 | **11 (3 severe)** | [contradiction-sweep-1.md](reviews/contradiction-sweep-1.md) — blocker **B1 discharged**. S1 vector-first superseded by accumulation without ever being reversed; S2 in-scope capabilities whose ADR is `DEFERRED`; S3 **§82 applied to a list rather than per capability**, which is a binding rule that stopped being followed under scope pressure. Eight dispositions applied, three raised as Q-85 to Q-87 |
 
 ## Review gates (§66)
 
@@ -123,7 +124,7 @@ production line, and they are not the five with the biggest boxes.
       Tested by attempting an install with no network.
 - [ ] High-risk decisions have prototypes
 - [ ] Performance-sensitive decisions have benchmarks — **tile path done three times**: [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) settles A-019, A-004, A-001, A-037 and A-021-on-PostGIS, and opened A-039. Remaining: connection budget, worker model, affinity routing, seeding, feature-query streaming, and a capacity number on hardware that is not capped and contended. **The same tile path on SQL Server and Oracle is deferred as [D-05](architecture-debt.md)** — accepted debt, not an oversight
-- [ ] Contradiction sweep clean (§63)
+- [x] **Contradiction sweep run** (§63) — [contradiction-sweep-1.md](reviews/contradiction-sweep-1.md), 2026-08-13. **Run, not clean**: 11 findings, 3 severe, 8 dispositions applied and 3 open as Q-85 to Q-87. The criterion says *clean*, so it stays unticked until those three close. **The finding to carry forward is S3** — §82 stopped being applied under scope pressure, and the next sweep cannot catch that, because a missing justification looks exactly like one nobody wrote down
 - [ ] Adversarial review complete, every material criticism resolved or recorded
 - [ ] Fresh-challenger review complete (§67)
 - [ ] Licensing implications understood
