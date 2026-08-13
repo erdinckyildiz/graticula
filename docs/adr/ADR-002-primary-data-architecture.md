@@ -150,7 +150,54 @@ following shape:
    someone with a database dump. External secret managers are an optional
    provider, never a requirement (§2).
 
+## 4b. Amendment — the platform store is PostgreSQL, and only PostgreSQL
+
+**2026-08-12, Q-70. Supersedes §4a below, which is retained because the path
+matters: four engines, then two, then one, in a single day.**
+
+The platform store is **PostgreSQL**. There is no second dialect.
+
+**Why the portability requirement disappeared rather than being met.** It was
+never a goal in itself — it existed so that an organisation refusing to run
+PostgreSQL could still run us. Q-69 made the datastore mandatory and Q-32 made
+the datastore PostGIS-only, so every deployment now runs PostgreSQL regardless.
+A portable platform store buys nothing when the thing it was portable *away
+from* is present anyway.
+
+**What this deletes:**
+
+- The SQLite dialect, its migrations and its schema-compatibility tests.
+- One job-claim implementation. [ADR-011](ADR-011-job-system.md) needed
+  `FOR UPDATE SKIP LOCKED` for PostgreSQL and a different mechanism for SQLite,
+  which has no equivalent and serialises writers. Only the PostgreSQL path
+  remains.
+- Roughly half the platform-store CI matrix.
+- A-018, which is `SUPERSEDED` rather than validated.
+
+**What it costs, recorded rather than glossed.** An organisation with a policy
+against running PostgreSQL cannot run this product. That was the express purpose
+of §4a and of Q-51's reasoning, and it is now a lost segment, accepted by the
+owner. The mitigation is that Q-32 ships the datastore as a managed appliance we
+install, configure, back up and upgrade — the requirement is *run our
+container*, not *employ a PostgreSQL DBA*.
+
+**What does not change.** **Oracle Spatial and SQL Server Spatial remain
+first-class providers**, with full read/write feature services and ArcGIS
+FeatureServer compatibility (Q-50a, Q-17), against data that stays where it is.
+They are not platform stores, not datastores and — since Q-67 — not tile
+sources. The multi-dialect problem is now entirely a *query and write* problem,
+which is [ADR-008](ADR-008-query-engine.md)'s, and no longer a storage problem.
+
+**Alignment worth noting.** [CLAUDE.md](../../CLAUDE.md) §6 has stated the
+baseline deployment target as `gis-server → PostgreSQL/PostGIS` since the
+project began. This is the first point at which the architecture agrees with it.
+
+---
+
 ## 4a. Amendment — the platform store is portable
+
+> **`SUPERSEDED` 2026-08-12 by §4b.** Retained for the record, not for guidance.
+
 
 Replaces §4.1 and §4.4.
 

@@ -461,8 +461,8 @@ The synthesis.
    ┌───────────────┬───────────────┼───────────────┬──────────────────┐
    │ PLATFORM      │ DATASTORE     │ REGISTERED    │ DERIVED          │
    │ STORE         │ hosted data   │ SOURCES       │ ARTEFACTS        │
-   │ SQLite | PG   │ PostGIS /     │ PostGIS /     │ tiles, caches,   │
-   │ metadata only │ MSSQL /Oracle │ MSSQL /Oracle │ generalisation   │
+   │ PostgreSQL    │ PostGIS only  │ PostGIS /     │ tiles, caches,   │
+   │ metadata only │ MANDATORY     │ MSSQL /Oracle │ generalisation   │
    │               │ we own schema │ / files       │ regenerable      │
    └───────────────┴───────────────┴───────────────┴──────────────────┘
 ```
@@ -498,7 +498,7 @@ In priority order (§53). Kubernetes last, after the platform works without it
 
 | Profile | Shape |
 |---|---|
-| **Developer** | One binary, SQLite platform store, a local PostGIS or file providers. No datastore required. |
+| **Developer** | One binary plus the datastore container. **Q-69 and Q-70 removed the no-datastore, SQLite-only developer profile**: PostgreSQL is a hard dependency of every deployment, including this one. Whether that is acceptable for local development, or whether developers get a documented escape hatch, is part of Q-71. |
 | **Single enterprise server** | One node, N request workers, job workers, platform store and datastore co-located in one database instance. **This is the target we design for.** |
 | **Enterprise cluster** | Several peer nodes, shared platform store, no distinguished node. Cache bytes node-local by default; a cross-node miss costs a rebuild. Deferred to ADR-012. |
 | **Kubernetes** | A packaging of the cluster profile. Nothing in the architecture requires it. |

@@ -162,9 +162,13 @@ duplicated dataset and a clean retry.
 
 ## 6. Disk full
 
-Cache writes fail. Job conversions fail. If the platform store is SQLite on the
-same disk, it cannot write and scenario 1 applies with the added misery that
-recovery needs disk.
+Cache writes fail. Job conversions fail. **Amended 2026-08-12 (Q-70):** the
+platform store is PostgreSQL, and since Q-69 it sits beside a mandatory
+datastore — very likely on the same disk. So disk-full now takes the platform
+store, the hosted data and the cache together, rather than the cache alone.
+Scenario 1 applies, and recovery needs disk. **That is a worse failure than the
+SQLite version this paragraph originally described**, and the co-location it
+assumes is exactly what the single-enterprise-server profile recommends.
 
 > **N6 — the L3 cache has no size budget and no eviction policy.**
 

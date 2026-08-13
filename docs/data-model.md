@@ -16,14 +16,14 @@ one place.
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ PLATFORM STORE          our metadata, no spatial data        │
-│ SQLite (single-node) | PostgreSQL (multi-node)               │
+│ PostgreSQL — only (Q-70)                                     │
 │ services, catalog, roles, jobs, styles, cache index          │
 │ small, precious, backed up carefully                         │
 └──────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
 │ DATASTORE               hosted data — we own the schema      │
-│ PostGIS | SQL Server Spatial | Oracle Spatial                │
+│ PostGIS — only (Q-32), and MANDATORY (Q-69)                  │
 │ the system of record for hosted layers                       │
 │ large, authoritative, must be backed up                      │
 └──────────────────────────────────────────────────────────────┘

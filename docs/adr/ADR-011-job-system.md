@@ -8,6 +8,12 @@
 
 ---
 
+> **Amended 2026-08-12 (Q-70).** The platform store is PostgreSQL only. Every
+> reference below to a SQLite job-claim path, or to supporting two locking
+> mechanisms, is `SUPERSEDED`: the queue uses `FOR UPDATE SKIP LOCKED` and there
+> is no second implementation. See [ADR-002](ADR-002-primary-data-architecture.md)
+> §4b.
+
 ## 1. Context
 
 This ADR started life as "geoprocessing" (§36). It is now considerably more

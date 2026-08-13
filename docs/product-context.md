@@ -28,7 +28,7 @@ for every review gate.
 | **Day-one workload** | **Features first, then vector tiles** | Answered 2026-08-12 — see below |
 | **Migration posture** | **Displacing existing ArcGIS Server / GeoServer deployments is a goal** | Answered 2026-08-12 — see below |
 | **Rendering** | **Vector-first. No server-side raster tiles. WMS in the compatibility layer only. Raster imagery catalogued, not rasterised.** | Answered 2026-08-12 — see below |
-| **Databases** | **PostgreSQL is not mandatory. Oracle Spatial and SQL Server Spatial are first-class, for both spatial data and the platform store.** | Answered 2026-08-12 — see below |
+| **Databases** | ~~PostgreSQL is not mandatory~~ → **PostgreSQL IS mandatory** (Q-70). The datastore is required (Q-69) and PostGIS-only (Q-32). Oracle Spatial and SQL Server Spatial remain first-class **providers** — registered sources with full read/write — but are not platform stores, not datastores and not tile sources. | Reversed 2026-08-12, same day as the original decision — see below |
 | **Storage model** | **Hosted data in a managed datastore; referenced data in registered PostGIS / Oracle / SQL Server sources.** | Answered 2026-08-12 — see [data-model.md](data-model.md) |
 | **Native API** | **OGC API Features, Parts 1 + 2 + 3. WFS, WMS and WMTS move to the compatibility layer.** | Answered 2026-08-12 — see [ADR-005](adr/ADR-005-api-architecture.md) |
 | **Editing** | **In scope.** Through our API *and* directly against the database with QGIS. Both paths coexist. | Answered 2026-08-12 |
@@ -350,9 +350,42 @@ into WMS images, MapLibre Native stops being a liability and becomes the
 obviously correct tool — precisely because it is not neutral. It already speaks
 the language we chose.
 
-## Databases — PostgreSQL is not mandatory
+## Databases — PostgreSQL is mandatory (reversed, same day)
 
-**Decided by the project owner, 2026-08-12.** Invalidates A-009 and reopened
+**This section records a decision and its reversal, both by the project owner on
+2026-08-12.** It is written as a reversal rather than rewritten as though the
+first decision never happened, because the original reasoning was sound and was
+outweighed rather than refuted (CLAUDE.md §2).
+
+### Where it landed — Q-70
+
+**PostgreSQL is a hard dependency of every deployment.** It follows from two
+later decisions rather than being chosen directly: the datastore is mandatory
+(Q-69) and the datastore is PostGIS-only (Q-32).
+
+**Oracle Spatial and SQL Server Spatial remain first-class providers** —
+registered sources, full read/write feature services, complete ArcGIS
+FeatureServer compatibility including edits, against data that never moves. They
+are not platform stores (Q-51), not datastores (Q-32) and not tile sources
+(Q-67). **The multi-dialect problem is now entirely a query and write problem,
+not a storage problem.**
+
+What it deletes: the SQLite platform-store dialect, one set of migrations, one
+job-claim implementation, half the platform-store CI matrix, and A-018.
+
+What it costs: an organisation with a policy against running PostgreSQL cannot
+run this product. That is a lost segment and it is accepted. The mitigation is
+that the datastore ships as a managed appliance we install, configure, back up
+and upgrade — the ask is *run our container*, not *employ a PostgreSQL DBA*.
+
+What it restores: [CLAUDE.md](../CLAUDE.md) §6 has stated the baseline
+deployment target as `gis-server → PostgreSQL/PostGIS` since the project began.
+The architecture now agrees with it for the first time.
+
+### The original decision, kept on the record
+
+**Decided by the project owner, 2026-08-12, then reversed the same day.**
+Invalidated A-009 and reopened
 [ADR-002](adr/ADR-002-primary-data-architecture.md). Full analysis:
 [research/multi-database-consequences.md](research/multi-database-consequences.md).
 
@@ -365,15 +398,23 @@ directly in front of our stated migration target.
 
 Two distinct consequences, which must not be conflated:
 
-**The platform store becomes portable.** `VERIFY` **Narrowed 2026-08-12 (Q-51)
-to SQLite and PostgreSQL only.** SQLite is the embedded default and already meets
+**The platform store becomes portable.** — **`SUPERSEDED` by Q-70; PostgreSQL
+only.** `VERIFY` **Narrowed 2026-08-12 (Q-51) to SQLite and PostgreSQL only.** SQLite is the embedded default and already meets
 the no-PostgreSQL requirement completely, since platform metadata is a few
 thousand rows of non-spatial data. SQL Server and Oracle were cut as platform
 stores because the remaining justification was an unevidenced policy requirement
 costing four dialect implementations and a four-way CI matrix. **They remain
 first-class providers and datastores**, where the requirement is real.
 
-**Three first-class spatial dialects.** This is the larger change, and the
+**Three first-class spatial dialects.** — **still true, but its consequence was
+reversed by Q-67.** The paragraph below reasoned that because `ST_AsMVT` is
+PostGIS-only, in-process MVT encoding was the only path for the other two
+engines. Q-67 removed the requirement instead: those engines do not serve tiles
+at all. In-process encoding went from *the primary path* to *possibly
+unnecessary* (Q-68) in the space of a day, and A-001's promotion below should be
+read with that in mind.
+
+**Original text.** This is the larger change, and the
 single most consequential fact is that **`ST_AsMVT` exists only in PostGIS.** For
 SQL Server and Oracle, in-process MVT encoding is not an alternative — it is the
 only path. That promotes the language prototype's third endpoint from a
