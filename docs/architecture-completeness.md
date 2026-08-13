@@ -79,6 +79,14 @@ a failure reopens the relevant decisions rather than being noted and passed over
 
 ## Phase 0 exit criteria (§81)
 
+**Assessment 2026-08-13:** [phase-0-exit-plan.md](phase-0-exit-plan.md). Four of
+sixteen met, but the count is misleading in both directions. Several criteria
+below cannot be met by Phase 0 at all — eight ADRs carry conditions that are
+*numbers* only a running system produces. Five items genuinely block the first
+production line, and they are not the five with the biggest boxes.
+
+
+
 - [x] `architecture-assessment.md` complete — all 27 required sections (§70).
       **First complete draft, 2026-08-12. Not yet reviewed.**
 - [x] Initial ADRs written, none still `DRAFT` without a stated reason.
