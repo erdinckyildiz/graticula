@@ -246,6 +246,20 @@ Replaces §4.1 and §4.4.
 
 ## 5. State inventory
 
+> **Amended 2026-08-13 by [ADR-016](ADR-016-packaging-deployment-upgrade.md) §3.**
+> Three entries were missing and are easy to miss for the same reason — each
+> feels like configuration and is not: **TLS certificates and trust anchors**
+> (installed through the admin API per ADR-014 §2b, so losing them regenerates a
+> self-signed certificate and every client fails validation at once),
+> **sessions, API keys and accounts** (ADR-015 — losing them logs out an
+> organisation), and **Python tool definitions and source** (Q-17b — user-authored
+> code that exists nowhere else).
+>
+> **And one ambiguity below is resolved.** This section says the datastore
+> *remains optional*, so both the with- and without-datastore cases had to be
+> designed. **Q-69 made it mandatory.** Only one case exists, which halves the
+> storage design and removes a branch from every backup and restore path.
+
 Required by ADR-012 and §80.29–30. This is the deliverable that makes clustering
 possible later without a redesign.
 

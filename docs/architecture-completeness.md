@@ -54,7 +54,7 @@ finished, however confident the ADR sounds.
 | Failure scenarios (§59) | **walked** | n/a | — | — | — | — | ✓ | [failure-scenarios.md](failure-scenarios.md) |
 | Geometry & CRS policy | **written** | n/a | — | — | — | — | — | [geometry-crs-policy.md](geometry-crs-policy.md). Per-engine claims need `VERIFY` |
 | Resource governance (§49) | — | — | — | — | — | — | — | not started |
-| Deployment profiles (§53) | — | — | — | — | — | — | — | not started |
+| Deployment profiles (§53) | **decided** | `ACCEPTED WITH CONDITIONS` | — | — | — | **partial** | — | [ADR-016](adr/ADR-016-packaging-deployment-upgrade.md), 2026-08-13. **Blocker B5 discharged. Q-71, Q-13 and Q-76 answered; N9 closed.** Three images; version handshake **refuses rather than auto-migrates**; expand-and-contract; **rollback to exactly one version and only before contract**. Air-gapped delivery is a single verifiable bundle with nothing fetched at runtime, which is what decided Q-76 against pip. Developers run the same compose file — no second code path. Conditions in §10 |
 | Licensing (§55) | WIP | n/a | n/a | n/a | — | — | n/a | see [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) |
 | Competitive position | **analysed** | n/a | — | — | — | — | — | [competitive-position.md](competitive-position.md). Q-49 attempted three times with no strong answer. GeoNode already does self-service publishing. What survives is a niche: the fully open ArcGIS Server exit path. **Needs validation with real GIS teams, which desk research cannot supply.** |
 
@@ -118,7 +118,7 @@ production line, and they are not the five with the biggest boxes.
       writable**, now enforced by the write path in ADR-008 §4.5a. Answered Q-56
       and gave Q-36 its first concrete requirement. Per-engine behaviour still
       needs verification.
-- [ ] **Air-gapped checklist written and tested** — adversarial review F11.
+- [~] **Air-gapped checklist — written 2026-08-13, not yet tested.** [ADR-016](adr/ADR-016-packaging-deployment-upgrade.md) §7 makes delivery a single verifiable bundle and forbids runtime fetching: no pip (Q-76), no ACME, no PROJ grid downloads, no GDAL driver fetch, soft-fail revocation. **What remains is whatever the rendering engine needs**, since ADR-004 is deferred — fonts and glyph packs. The criterion says *and tested*, and §10 condition 3 is the test: install on a machine with no network route. Original: **Air-gapped checklist written and tested** — adversarial review F11.
       Q-15. Offline PROJ grids, GDAL driver data, fonts, MapLibre glyph packs and
       sprites, COG-capable clients, and any rasteriser's display requirements.
       Tested by attempting an install with no network.

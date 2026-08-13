@@ -20,7 +20,7 @@ reading decisions did not.
 | **N8** | ~~TLS is not mentioned anywhere~~ — **CLOSED 2026-08-13** by [ADR-014](adr/ADR-014-tls-and-certificates.md). | ~~Severe~~ |
 | N1 | A service context must be self-sufficient for serving, and that was never stated | High |
 | N4 | Concurrency is limited per service, never per data source | High |
-| N9 | Rolling upgrade needs expand-and-contract migration discipline | High |
+| N9 | ~~Rolling upgrade needs expand-and-contract migration discipline~~ — **CLOSED 2026-08-13**, [ADR-016](adr/ADR-016-packaging-deployment-upgrade.md) §5 | ~~High~~ |
 | N3 | No circuit breaker per data source | Medium |
 | N7 | Import jobs need staging and atomic commit to survive a partition | Medium |
 | N2 | L3 lookup should not require the cache index | Medium |
@@ -264,6 +264,12 @@ and impossible to retrofit after the first migration that breaks it.
 
 This is the third independent argument that **upgrade needs an ADR before
 Phase 1** — G8 said so, Q-45 implied it, and this scenario confirms it.
+
+> **CLOSED 2026-08-13.** [ADR-016](adr/ADR-016-packaging-deployment-upgrade.md)
+> §5 adopts expand-and-contract, and §6 draws the consequence this scenario did
+> not: **rollback is supported to exactly one prior version and only before the
+> contract phase runs.** Past that point rollback would be data loss dressed as
+> a procedure, so it is restore-from-backup and we say so.
 
 ---
 
