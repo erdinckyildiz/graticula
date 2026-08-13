@@ -136,7 +136,7 @@ rather than in-scope in one and questioned in the other. Applied below.
 
 ---
 
-## S6 — MODERATE · Database driver licensing now conflicts with the outbound licence
+## S6 — MODERATE · Database driver licensing now conflicts with the outbound licence · **DEFERRED to D-06**
 
 **Evidence.** [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) on the
 Oracle driver:
@@ -156,9 +156,7 @@ which Apache-2.0 cannot sublicense; the community `MySqlConnector` is MIT and
 can. Choosing wrongly is a licence violation, not a preference. `VERIFY` both,
 and Oracle's current `Oracle.ManagedDataAccess.Core` terms, before implementation.
 
-**Disposition.** The likely answer is that database drivers are **customer-supplied
-or separately-licensed components, not bundled**, which changes Q-71's packaging
-story. Recorded against Q-71 and DEPENDENCY-LICENSES. Applied below.
+**Disposition — deferred by the owner, 2026-08-13, and correctly.** Licensing constrains what we may *ship*, not what we may *decide*, and nothing ships in Phase 0. Verifying now would also be work against a dependency list that moved three times the same day. **Moved to [D-06](../architecture-debt.md)** with a concrete repayment trigger — *before the first binary that bundles a database driver, a GDAL build or a Python wheel set* — rather than left as an open finding. The likely resolution is unchanged: drivers become customer-supplied rather than bundled, which is a Q-71 packaging consequence. The annotations in DEPENDENCY-LICENSES were applied and stand as a `VERIFY` note for that day.
 
 ---
 
