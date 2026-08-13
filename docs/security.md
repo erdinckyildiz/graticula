@@ -249,3 +249,31 @@ are per service rather than per tenant.
 
 **The whole-system security review required by §66 has not been run.** These are
 per-decision mitigations, not a reviewed composition.
+
+
+---
+
+## User-uploaded content
+
+**Added 2026-08-13 by [ADR-013](adr/ADR-013-feature-service-data-model.md) §4d.**
+
+Attachments are the **first surface in this product that accepts arbitrary bytes
+from a user.** Nothing else designed so far does. That is a change to the threat
+model rather than a feature, and this document did not cover it.
+
+Requirements, not suggestions:
+
+| | |
+|---|---|
+| **`Content-Disposition: attachment` always** | Never rendered inline, for any content type |
+| **Separate origin, or a CSP that forbids execution** | An uploaded SVG or HTML served same-origin as the admin API is stored XSS against the GIS administrator — our **primary user** (Q-06a), the one with the most authority in the system |
+| **Client `Content-Type` is not trusted** | Sniff it, store what we determined *alongside* what was claimed, serve ours |
+| **Filenames are data, never paths** | No filename component reaches a filesystem call or a URL path segment unescaped |
+| **Hard size cap and per-layer quota** | The cap follows [geometry-crs-policy.md](geometry-crs-policy.md) §6's principle: refuse *that attachment* by id, not the query that touched it |
+| **No decompression on upload** | We store bytes. Archives are not opened, inspected or expanded — decompression bombs are not our problem if we never decompress |
+
+**What this section does not cover, and should before attachments ship:** virus
+scanning, whether we offer it at all or declare it the operator's business, and
+whether an attachment inherits its feature's row-level security or carries its
+own grant. The second is not obvious — the whole point of RLS is that a user
+may see some rows and not others, and an attachment id is a guessable integer.

@@ -452,6 +452,25 @@ Three consequences, none of them yet quantified:
 This does not change any decision in §4. It records that a load-bearing number
 is missing, so that it is not discovered during a capacity incident instead.
 
+### 4.15 A second, bounded pool for attachment streaming
+
+**Added 2026-08-13 by [ADR-013](ADR-013-feature-service-data-model.md) §4b.**
+
+Attachments are stored in the database, so serving one holds a pooled connection
+for as long as the client takes to receive the bytes. A slow client — or a
+malicious one reading at one byte per second — holds it indefinitely, and enough
+of them exhaust the pool. **The whole layer stops serving, not just
+attachments.** This is slowloris pointed at §4.8's connection budget.
+
+Attachment reads therefore draw from a **separate, small, bounded pool**,
+isolated from the query budget. Exhausting it degrades attachments only.
+
+Two things this ADR does not yet have: a number for that pool, and evidence that
+isolation alone is enough. Both are `A-041`. If it is insufficient, the fallback
+is buffer-and-release above a size threshold, which reintroduces the memory
+problem streaming exists to avoid — and ADR-013 §9 makes that the trigger to
+reopen the storage decision rather than patch it.
+
 ## 5. Service explosion model (§24)
 
 | Services | Request workers | Bound contexts | Processes | DB connections |
