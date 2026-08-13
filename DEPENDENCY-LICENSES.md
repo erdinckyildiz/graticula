@@ -30,6 +30,8 @@ bundled components frequently differ from the parent project.
 
 | Component | Role | Tier | Licence (claimed) | Status | Obligation notes |
 |---|---|---|---|---|---|
+| **Npgsql** | PostgreSQL driver | 2 | PostgreSQL Licence (BSD-style) | `UNVERIFIED` | **Actually referenced today**, by `GisServer.Platform.Postgres` and `GisServer.Providers.PostGis` only; an architecture test fails the build if it reaches Tier 1. Permissive and unproblematic under Apache-2.0 outbound. |
+| **Konscious.Security.Cryptography.Argon2** | Password hashing (ADR-015 §5) | 2 | MIT | `UNVERIFIED` | **Actually referenced today**, behind `IPasswordHasher`. Managed, no native payload. **The row that deserves scrutiny disproportionate to its size**: it is a small community package holding the single most security-critical primitive in the server, and .NET ships no Argon2id of its own. The port exists so replacing it — libsodium via NSec, or a future BCL implementation — touches one file. |
 | PostgreSQL | Baseline database | external | PostgreSQL Licence | `UNVERIFIED` | Separate process; not linked. |
 | PostGIS | Spatial extension | external | GPL-2.0-or-later | `UNVERIFIED` | Separate process; not linked. Distribution posture differs from linking. |
 | SQL Server driver | Data provider | 2 | `Microsoft.Data.SqlClient` is MIT | `UNVERIFIED` | The straightforward one. No longer needed for the platform store (Q-51). |

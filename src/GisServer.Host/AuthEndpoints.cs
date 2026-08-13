@@ -1,0 +1,202 @@
+using System;
+using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
+using GisServer.Platform.Identity;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace GisServer.Host;
+
+/// <summary>What a client sends to log in.</summary>
+/// <param name="Name">The principal name.</param>
+/// <param name="Password">The password.</param>
+internal sealed record LoginRequest(string? Name, string? Password);
+
+/// <summary>What a client sends to complete first-start setup.</summary>
+/// <param name="Token">The setup token from the server log.</param>
+/// <param name="Name">The administrator's principal name.</param>
+/// <param name="DisplayName">A human label, or null.</param>
+/// <param name="Password">The administrator's password.</param>
+internal sealed record SetupRequest(
+    string? Token, string? Name, string? DisplayName, string? Password);
+
+/// <summary>The authentication endpoints.</summary>
+internal static class AuthEndpoints
+{
+    /// <summary>
+    /// Shortest password we accept.
+    /// </summary>
+    /// <remarks>
+    /// <b>Length only, and no composition rules.</b> Requiring an uppercase, a
+    /// digit and a symbol measurably pushes people toward <c>Password1!</c>,
+    /// which is in every wordlist. NIST SP 800-63B dropped composition rules for
+    /// exactly this reason. Length is the property that actually helps.
+    /// <b>What is missing:</b> a check against known-breached passwords, which
+    /// is worth more than either and needs a corpus we do not ship.
+    /// </remarks>
+    public const int MinimumPasswordLength = 12;
+
+    /// <summary>Maps login and logout.</summary>
+    public static void MapAuth(this WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        app.MapPost("/rest/auth/login", LoginAsync);
+        app.MapPost("/rest/auth/logout", LogoutAsync);
+    }
+
+    private static async Task LoginAsync(
+        HttpContext context,
+        LoginRequest request,
+        LoginService login,
+        CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrEmpty(request.Password))
+        {
+            await Refuse(context, 400, "name and password are required.").ConfigureAwait(false);
+            return;
+        }
+
+        LoginResult result = await login
+            .AuthenticateAsync(request.Name, request.Password, RemoteAddress(context), cancellation)
+            .ConfigureAwait(false);
+
+        if (!result.Succeeded)
+        {
+            // 401 for a bad credential, 429 for a throttle. The distinction is
+            // safe to make: it tells an attacker their attempts are being
+            // counted, which is information they can get by counting their own
+            // attempts, and it tells a locked-out administrator why — which they
+            // cannot get any other way.
+            (int status, string message) = result.Failure switch
+            {
+                LoginFailure.AddressThrottled => (
+                    StatusCodes.Status429TooManyRequests,
+                    "Too many failed sign-in attempts from this address. Wait and try again."),
+                LoginFailure.AccountThrottled => (
+                    StatusCodes.Status429TooManyRequests,
+                    "Too many failed sign-in attempts for this account. Wait and try again. The "
+                    + "account is not locked: the correct password still works."),
+                _ => (
+                    StatusCodes.Status401Unauthorized,
+
+                    // One message for wrong-name, wrong-password and disabled.
+                    // Distinguishing them is an account-enumeration oracle, which
+                    // is the step before every credential-stuffing run.
+                    "The name or password is incorrect."),
+            };
+
+            await Refuse(context, status, message).ConfigureAwait(false);
+            return;
+        }
+
+        AuthenticatedSession session = result.Session!.Value;
+
+        await Results.Json(new
+        {
+            token = result.Token,
+            expiresAt = session.ExpiresAt,
+            principal = new { name = session.Principal.Name, kind = session.Principal.Kind.ToString() },
+
+            // Said in the response as well as the documentation, because this is
+            // the one moment a client author is definitely reading. ADR-015 §4's
+            // second mitigation is that the header form is preferred and
+            // advertised, and advertising it only in a manual is not advertising.
+            usage = "Send this as 'Authorization: Bearer <token>'. Do not put it in a URL.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task LogoutAsync(
+        HttpContext context, IIdentityStore store, CancellationToken cancellation)
+    {
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+
+        if (current?.SessionId is not { } sessionId)
+        {
+            // Not an error. Logging out when not logged in has already achieved
+            // what the caller asked for, and a 400 here makes a client that
+            // clears its own state first look broken.
+            await Results.Json(new { revoked = false }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        await store.RevokeSessionAsync(sessionId, cancellation).ConfigureAwait(false);
+        await Results.Json(new { revoked = true }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Completes first-start setup. Reachable only while setup is pending.</summary>
+    public static async Task SetupAsync(
+        HttpContext context,
+        SetupRequest request,
+        ISetupStore setup,
+        IPasswordHasher hasher,
+        ServerState state,
+        TimeProvider time,
+        CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token)
+            || string.IsNullOrWhiteSpace(request.Name)
+            || string.IsNullOrEmpty(request.Password))
+        {
+            await Refuse(context, 400, "token, name and password are required.").ConfigureAwait(false);
+            return;
+        }
+
+        if (request.Password.Length < MinimumPasswordLength)
+        {
+            await Refuse(
+                context,
+                400,
+                $"The password must be at least {MinimumPasswordLength} characters. Length is the "
+                + "only rule: composition requirements push people toward predictable passwords.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Principal? administrator = await setup.RedeemAsync(
+            request.Token,
+            request.Name,
+            request.DisplayName,
+            hasher.Hash(request.Password),
+            time.GetUtcNow(),
+            cancellation).ConfigureAwait(false);
+
+        if (administrator is null)
+        {
+            await Refuse(
+                context,
+                403,
+                "That setup token is not usable. It is single-use and time-limited, and one of "
+                + "those has already happened to it. Restart the server to issue another; a "
+                + "server that already has an administrator will not issue one at all.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        state.SetupCompleted();
+
+        await Results.Json(new
+        {
+            principal = new { name = administrator.Name },
+            next = "Sign in at /rest/auth/login.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The source address, or null when it cannot be determined.</summary>
+    /// <remarks>
+    /// <b>The socket's address, never a forwarded header.</b> Behind a proxy this
+    /// is the proxy, which makes the per-address limit far too coarse — but
+    /// trusting <c>X-Forwarded-For</c> without a configured trusted-proxy list
+    /// lets any caller set their own rate-limit bucket, which makes the limit
+    /// zero. Too coarse is recoverable; forgeable is not. Configuring trusted
+    /// proxies is owed.
+    /// </remarks>
+    private static IPAddress? RemoteAddress(HttpContext context) =>
+        context.Connection.RemoteIpAddress;
+
+    private static Task Refuse(HttpContext context, int status, string message) =>
+        Results.Json(new { error = new { code = status, message } }, statusCode: status)
+            .ExecuteAsync(context);
+}

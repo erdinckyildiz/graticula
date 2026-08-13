@@ -9,9 +9,11 @@ using GisServer.Api.ArcGis;
 using GisServer.Features;
 using GisServer.Geometries;
 using GisServer.Platform.Catalog;
+using GisServer.Platform.Identity;
 using GisServer.Platform.Postgres;
 using GisServer.Platform.Schema;
 using GisServer.Platform.Secrets;
+using GisServer.Security.Argon2;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Diagnostics;
@@ -48,6 +50,27 @@ public static class Program
 
         builder.Services.AddSingleton<LayerConnections>();
 
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<ServerState>();
+        builder.Services.AddSingleton<IPasswordHasher>(_ => new Argon2idPasswordHasher());
+
+        builder.Services.AddSingleton<IIdentityStore>(services =>
+            new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton<ISetupStore>(services =>
+            new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton(services => new Authentication(
+            services.GetRequiredService<IIdentityStore>(),
+            services.GetRequiredService<TimeProvider>()));
+
+        builder.Services.AddSingleton(services => new LoginService(
+            services.GetRequiredService<IIdentityStore>(),
+            services.GetRequiredService<IPasswordHasher>(),
+            LoginThrottle.Default,
+            settings.SessionLifetime,
+            services.GetRequiredService<TimeProvider>()));
+
         WebApplication app = builder.Build();
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
 
@@ -71,11 +94,14 @@ public static class Program
             return 1;
         }
 
-        // ADR-015 §1 warns that authentication cannot be threaded through
-        // later without rewriting what came first. It is not implemented, so
-        // this says so at every startup rather than letting the omission be
-        // discovered by whoever exposes the server.
-        Log.AuthenticationNotImplemented(logger);
+        await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
+
+        // Authentication exists; authorization does not. Q-59 has not decided
+        // what the roles are, so the role table ships empty and nothing consults
+        // it -- every layer is readable by anonymous. Said at every startup
+        // rather than once, because the warning this replaces was true for weeks
+        // and the temptation with a standing warning is to stop reading it.
+        Log.AuthorizationNotImplemented(logger);
 
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
         // exception must still produce an answer that says what to do.
@@ -85,6 +111,51 @@ public static class Program
                 context.Features.Get<IExceptionHandlerFeature>()?.Error
                     ?? new InvalidOperationException("An error was reported with no exception."),
                 logger)));
+
+        app.Use(async (context, next) =>
+        {
+            AuthenticatedSession? session = await context.RequestServices
+                .GetRequiredService<Authentication>()
+                .ResolveAsync(context, context.RequestAborted)
+                .ConfigureAwait(false);
+
+            context.Features.Set(session is { } live
+                ? new RequestPrincipal(live.Principal, live.SessionId)
+                : new RequestPrincipal(Principal.Anonymous, null));
+
+            await next(context).ConfigureAwait(false);
+        });
+
+        // After authentication, so setup is the only surface an unconfigured
+        // server exposes, and before the endpoints, so nothing is reachable
+        // around it.
+        app.Use(async (context, next) =>
+        {
+            ServerState state = context.RequestServices.GetRequiredService<ServerState>();
+
+            if (!state.IsSetupPending
+                || context.Request.Path == "/rest/setup"
+                || context.Request.Path == "/healthz/live")
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 503,
+                        message =
+                            "This server has no administrator yet and is refusing everything "
+                            + "except setup. A one-time setup token has been written to the "
+                            + "server log; POST it to /rest/setup with a name and a password.",
+                    },
+                },
+                statusCode: StatusCodes.Status503ServiceUnavailable)
+                .ExecuteAsync(context).ConfigureAwait(false);
+        });
 
         MapEndpoints(app);
 
@@ -232,6 +303,69 @@ public static class Program
         });
 
         app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
+
+        app.MapAuth();
+        app.MapPost("/rest/setup", AuthEndpoints.SetupAsync);
+
+        app.MapGet("/rest/whoami", (HttpContext context) =>
+        {
+            // Small, and it earns its place: it is the only way to confirm from
+            // outside that a token resolved to the principal it should, and the
+            // authentication tests assert against it.
+            RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+            return Results.Ok(new
+            {
+                name = current.Principal.Name,
+                kind = current.Principal.Kind.ToString(),
+                authenticated = !current.Principal.IsAnonymous,
+            });
+        });
+    }
+
+    /// <summary>How long a first-start setup token lasts.</summary>
+    /// <remarks>
+    /// Long enough to read a log and make a request; short enough that a token
+    /// sitting in the log of a server nobody finished setting up is not a
+    /// standing invitation.
+    /// </remarks>
+    private static readonly TimeSpan SetupTokenLifetime = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// ADR-015 §6: issues a one-time setup token if there is no administrator.
+    /// </summary>
+    /// <remarks>
+    /// Runs after the schema handshake, so a server that is about to refuse to
+    /// start does not first print a credential into the log.
+    /// </remarks>
+    private static async Task BootstrapAsync(IServiceProvider services, ILogger logger)
+    {
+        IIdentityStore identity = services.GetRequiredService<IIdentityStore>();
+        ServerState state = services.GetRequiredService<ServerState>();
+
+        if (await identity.AnyUserExistsAsync(CancellationToken.None).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        state.RequireSetup();
+
+        ISetupStore setup = services.GetRequiredService<ISetupStore>();
+        DateTimeOffset now = services.GetRequiredService<TimeProvider>().GetUtcNow();
+
+        if (await setup.HasUsableTokenAsync(now, CancellationToken.None).ConfigureAwait(false))
+        {
+            // A restart during setup must not print a second working token: two
+            // live credentials for a one-time act is what condition 4 is about.
+            Log.SetupStillPending(logger);
+            return;
+        }
+
+        string token = await setup
+            .IssueAsync(now + SetupTokenLifetime, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        Log.SetupTokenIssued(logger, token, (int)SetupTokenLifetime.TotalMinutes);
     }
 
     private static async Task QueryAsync(

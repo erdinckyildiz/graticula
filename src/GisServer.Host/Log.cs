@@ -48,6 +48,32 @@ internal static partial class Log
     public static partial void AuthenticationNotImplemented(ILogger logger);
 
     [LoggerMessage(
+        EventId = 1008,
+        Level = LogLevel.Warning,
+        Message = "Authentication works, authorization does not. Q-59 has not decided what the "
+                + "roles are, so no rule consults them and every published layer is readable by "
+                + "anonymous. Signing in changes who you are, and not yet what you may do.")]
+    public static partial void AuthorizationNotImplemented(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1009,
+        Level = LogLevel.Critical,
+        Message = "SETUP REQUIRED. This server has no administrator. One-time setup token, valid "
+                + "for {Minutes} minutes:\n\n    {Token}\n\nPOST it to /rest/setup with a name "
+                + "and a password of at least 12 characters. Everything else is refused until "
+                + "then. It is single-use and is not printed again.")]
+    public static partial void SetupTokenIssued(ILogger logger, string token, int minutes);
+
+    [LoggerMessage(
+        EventId = 1010,
+        Level = LogLevel.Critical,
+        Message = "SETUP REQUIRED, and a usable setup token has already been issued. It is not "
+                + "reprinted: it went to the log of an earlier start, and issuing a second would "
+                + "mean two live credentials for a one-time act. If it is lost, delete the row "
+                + "from setup_token and restart.")]
+    public static partial void SetupStillPending(ILogger logger);
+
+    [LoggerMessage(
         EventId = 1006,
         Level = LogLevel.Error,
         Message = "{Path} failed and was answered with {Status}.")]

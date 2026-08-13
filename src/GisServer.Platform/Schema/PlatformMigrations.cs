@@ -242,5 +242,48 @@ public static class PlatformMigrations
             granted_by   uuid        null references principal (id) on delete set null,
             constraint principal_role_pk primary key (principal_id, role_name)
         )
+        """,
+
+        // Rate limiting state, in the store rather than in memory. Two reasons,
+        // and the second is the one that decides it: a restart must not clear an
+        // attacker's budget, and ADR-007's deployment model allows more than one
+        // worker, where in-memory counters mean the limit is really N times what
+        // it says.
+        //
+        // The name attempted is recorded, not a principal id, because a guess at
+        // a name that does not exist must be counted too — counting only real
+        // accounts turns the endpoint into a free enumeration oracle.
+        """
+        create table login_attempt (
+            id             uuid        not null primary key,
+            attempted_name text        not null,
+            source_address inet        null,
+            attempted_at   timestamptz not null default now(),
+            succeeded      boolean     not null
+        )
+        """,
+
+        // Both indexes carry attempted_at because every read is windowed. A
+        // lookup by name alone would scan an ever-growing history to answer a
+        // question about the last fifteen minutes.
+        "create index login_attempt_name_idx on login_attempt (attempted_name, attempted_at)",
+        "create index login_attempt_address_idx on login_attempt (source_address, attempted_at)",
+
+        // ADR-015 §6. In the store rather than in memory because condition 4
+        // requires the token to survive a restart that happens mid-setup and
+        // still be single-use: an in-memory token would be reissued on restart,
+        // which is a second valid token rather than the same one.
+        //
+        // used_at is what makes it single-use, and it is set in the same
+        // transaction as the administrator it creates.
+        """
+        create table setup_token (
+            id         uuid        not null primary key,
+            token_hash bytea       not null unique,
+            created_at timestamptz not null default now(),
+            expires_at timestamptz not null,
+            used_at    timestamptz null,
+            constraint setup_token_expiry_after_creation check (expires_at > created_at)
+        )
         """);
 }

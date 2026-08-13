@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\GisServer.Api.ArcGis\GisServer.Api.ArcGis.csproj" />
     <ProjectReference Include="..\GisServer.Platform.Postgres\GisServer.Platform.Postgres.csproj" />
+    <ProjectReference Include="..\GisServer.Security.Argon2\GisServer.Security.Argon2.csproj" />
     <ProjectReference Include="..\GisServer.Providers.PostGis\GisServer.Providers.PostGis.csproj" />
   </ItemGroup>
 

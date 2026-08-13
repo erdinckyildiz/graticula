@@ -30,7 +30,8 @@ internal sealed record HostSettings(
     string HostName,
     bool RequireHttps,
     string? CertificatePath,
-    string? CertificatePassword)
+    string? CertificatePassword,
+    TimeSpan SessionLifetime)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -78,7 +79,14 @@ internal sealed record HostSettings(
             configuration["GisServer:HostName"] ?? Dns.GetHostName(),
             requireHttps,
             configuration["GisServer:CertificatePath"],
-            configuration["GisServer:CertificatePassword"]);
+            configuration["GisServer:CertificatePassword"],
+
+            // Twelve hours: long enough that a working day does not need a
+            // second sign-in, short enough that a token copied out of a browser
+            // is not useful next week. ADR-015 3 makes this cheap to change --
+            // sessions are server-side, so shortening it takes effect at once
+            // rather than waiting for issued tokens to expire.
+            TimeSpan.FromHours(configuration.GetValue("GisServer:SessionHours", defaultValue: 12)));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>

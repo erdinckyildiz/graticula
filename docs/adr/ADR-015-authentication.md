@@ -200,12 +200,49 @@ The setup token is single-use, expires, and its use is the first audit entry.
    read against the platform store is material at the concurrency ADR-007
    targets, the in-process cache TTL becomes a stated revocation delay rather
    than an implementation detail.
+   **OPEN.** Implemented as one indexed read per authenticated request, with no
+   cache. Unmeasured, so A-046 remains `UNVALIDATED`.
 2. **Token redaction is tested by asserting on log output**, not by reading the
    code. §4.1 fails silently otherwise, and silently is the only way it fails.
+   **NOT YET APPLICABLE, and deliberately so.** §4's `token=` query parameter is
+   not accepted (D-10). Accepting it before the redaction exists would be the
+   weakening without the bound. This condition becomes due in the same change
+   that adds `/generateToken`, not before.
 3. **Lockout is tested for the denial-of-service inversion** — that locking one
    account cannot be used to lock out an organisation.
+   **DISCHARGED**, and the shape of the fix matters more than the test.
+   A second limit does not by itself remove the inversion — what removes it is
+   *where each limit sits relative to verifying the password*. The address limit
+   is a gate before verification, because Argon2id is expensive and the endpoint
+   would otherwise be a CPU amplifier. The account limit is consulted only
+   *after* verification has already failed, so a request carrying the correct
+   password is honoured no matter how much of the account's budget an attacker
+   has spent. **Nothing here ever locks an account.** Pinned by
+   `LoginServiceTests.The_account_limit_cannot_be_used_to_lock_someone_out`.
 4. **The bootstrap token cannot be reused**, tested, including after a restart
    that occurs mid-setup.
+   **DISCHARGED.** The token is stored hashed, and redemption marks it used by a
+   *conditional* update in the same transaction that creates the administrator —
+   so two concurrent redemptions produce one administrator, and a failure partway
+   rolls the token back to unused rather than spending it on nobody. A restart is
+   simulated by a fresh store over the same database. Pinned by
+   `SetupStoreTests.A_token_survives_a_restart_and_is_still_single_use` and
+   `..._Two_concurrent_redemptions_produce_exactly_one_administrator`.
+
+### 9a. What is implemented, as of 2026-08-13
+
+**Real:** local password accounts with Argon2id (parameters stored per
+credential, re-hashed on login when the cost is raised); opaque server-side
+sessions with immediate revocation; the first-start bootstrap; and both rate
+limits.
+
+**Not built, tracked as D-10:** OIDC, SAML 2.0, SCIM 2.0, API keys, mTLS
+identity, and the ArcGIS `/generateToken` surface.
+
+**Authentication without authorization, tracked as D-11.** A principal is
+resolved and nothing consults it. Q-59 has not decided what the roles are, and
+inventing them here is what review O3 warned against. The server says this at
+every startup rather than letting it be assumed.
 
 ## 10. Assumptions
 

@@ -24,12 +24,25 @@
          reference, so it is not yet due — but the row in DEPENDENCY-LICENSES.md
          is now real rather than hypothetical. -->
     <PackageVersion Include="Npgsql" Version="9.0.2" />
+    <!-- Argon2id. ADR-015 §5 names the algorithm; .NET has no implementation of
+         it, and writing one is the least defensible thing we could do with this
+         budget — a wrong Argon2id verifies against itself perfectly while being
+         far weaker than intended, so testing does not catch it.
+         MIT, managed, no native payload. Behind IPasswordHasher (Tier 1) so the
+         choice is replaceable: this is a small community package holding the
+         single most security-critical primitive in the server, and that is worth
+         saying out loud rather than discovering later. -->
+    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- FakeTimeProvider. Session expiry and rate-limit windows are time
+         behaviour, and the alternative to a controllable clock is a test that
+         sleeps: slow, flaky, and unable to test a 15-minute window at all. -->
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.0.0" />
   </ItemGroup>
 
 </Project>
