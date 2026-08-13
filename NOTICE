@@ -1,0 +1,10 @@
+gis-server
+Copyright 2026 Erdinç Yıldız and the gis-server contributors
+
+This product includes software developed as part of the gis-server project,
+licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party dependencies retain their own licences. The obligations they
+create — including attribution, source-availability and driver bill-of-material
+requirements — are tracked in DEPENDENCY-LICENSES.md, which is the authoritative
+list for this project. This file is not a substitute for it.

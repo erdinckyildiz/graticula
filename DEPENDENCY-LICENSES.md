@@ -2,6 +2,14 @@
 
 Required by §55.
 
+**Outbound licence: Apache-2.0** (Q-73, 2026-08-13). See `LICENSE` and `NOTICE`.
+Every inbound dependency must be compatible with redistribution under Apache-2.0.
+**This makes one class of dependency newly disqualifying: GPL and AGPL components
+cannot be linked into anything we ship**, because we cannot sublicense them under
+Apache-2.0. LGPL remains usable via the Tier 2 port layer. The note below records
+the earlier *inbound* posture, which predates the outbound choice and is now
+constrained by it.
+
 **Project licensing posture:** open source; copyleft (GPL/AGPL) is acceptable to
 the project owner. There is therefore no *exclusion* pressure on dependencies.
 This register exists to track **obligations**, not to filter candidates.
