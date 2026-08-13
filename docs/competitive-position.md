@@ -153,20 +153,70 @@ conversations remain valuable for prioritisation; they are no longer a gate.
 **On raw capability count we are behind GeoServer, and every good decision of
 the last two days moved us further behind:**
 
-| Decision | Capability GeoServer has and we will not |
-|---|---|
-| Vector-first | Server-side raster rendering |
-| Q-47 | WMS in v1 |
-| Q-67 | Tiles from any registered store |
-| Q-70 | Deployment without PostgreSQL |
-| Q-28 / A-016 | GDAL in the serving container |
-| Never planned | WCS, WPS, CSW, SLD/CSS/YSLD styling, the extension ecosystem |
+| Decision | Capability GeoServer has | Does it matter? |
+|---|---|---|
+| Vector-first | Server-side raster rendering | **Deferred, not rejected** — see §6a. The owner prefers an ArcGIS MapServer-style rendered service to WMS |
+| Q-47 | WMS in v1 | Yes for migration, and it is recorded as such. But the owner rejects WMS on its merits, not as a scope cut |
+| Q-67 | Tiles from any registered store | Owner: no. Tiles are wanted from hosted data, which is where they are |
+| Q-70 | Deployment without PostgreSQL | **Overstated in the first draft of this table.** PostgreSQL is bundled inside the appliance; the operator never installs or manages it, and data still comes from any of three engines. The narrow fact survives — a site forbidding PostgreSQL binaries anywhere cannot run us — but the operational impact is close to zero |
+| Q-28 / A-016 | GDAL in the serving container | **Overstated in the first draft.** A-016 moves GDAL to the job-worker image; it does not remove format support. GDAL is available where conversion happens |
+| Never planned | WCS, WPS, CSW, SLD/CSS/YSLD, the extension ecosystem | Genuinely absent, genuinely deliberate |
 
-GeoServer's weakness is not a shortage of capabilities — it has far more than we
-intend to build. Leading with *"better capabilities than GeoServer"* would make
-the project's first public claim one that a knowledgeable reader refutes in a
-minute, and would misdirect the roadmap toward closing a gap we deliberately
-opened.
+**Two rows of this table were wrong when first written, and the correction came
+from the owner rather than from review.** The original version conflated
+*capability removed* with *capability that matters*, which is the same mistake
+the table was written to warn against. Recorded rather than silently edited,
+because the failure mode — building a rhetorical case and then believing it —
+is exactly what §2 of this document was already about.
+
+What survives the correction: **on the axes GeoServer competes on today, we are
+narrower**, and no amount of framing changes that. Leading with *"better
+capabilities than GeoServer"* in v1 would still be refutable in a minute by
+anyone who knows GeoServer. What changes is the *horizon* over which the claim
+becomes true — see §6a.
+
+## 6a. The owner's positioning, and the two horizons
+
+**2026-08-13.** Pressed on the table above, the owner made three points that
+change the shape of the answer rather than the facts in it:
+
+> *"I hate WMS. Super slow. Prefer ArcGIS MapServer capability."*
+> *"We can design a better symbology."*
+> *"Ours shall work on all DBs as well. PostgreSQL is a builtin db inside."*
+
+**Recorded as a stated preference and direction, not as a decision.** ADR-004
+remains `DEFERRED` and v1 scope is unchanged — confirmed by the owner on being
+asked directly. What is now on the record is *why* WMS is out: it is rejected on
+its merits, not merely cut for scope, and the preferred future shape is a
+REST-style rendered map service in the manner of an ArcGIS MapService.
+
+This gives the product two positioning horizons, and they should not be
+conflated:
+
+| | Claim | Status |
+|---|---|---|
+| **v1** | **The ArcGIS Server exit path.** FeatureServer compatibility including edits, free migration tooling, a real service runtime, never-degrade-silently. | True today, derived from decisions already taken, testable |
+| **Later** | **Better rendered maps than GeoServer.** A fast REST map service with a symbology model that is not SLD. | **Not yet true, and the more interesting claim.** GeoServer's WMS genuinely is slow and its styling genuinely is painful, so this is a real capability comparison on an axis users care about |
+
+**The owner's instinct on this is probably better than the sharpening in §6.**
+That section argued the *"better than GeoServer"* claim was false, which is
+correct for v1 scope and misses that the owner was describing a product the docs
+do not yet contain. The honest position is that the claim is **premature rather
+than wrong**.
+
+**What it would cost, so the deferral is an informed one.** Un-deferring ADR-004
+is not adding an endpoint. It reopens **Q-26**, cross-tile label consistency,
+which is currently recorded as *closed, not answered* on the grounds that labels
+are placed client-side — server-side rendering makes label placement ours, and
+it is one of the genuinely hard problems in cartography. It makes symbology a
+Tier 1 subsystem: style model, symbol library, label engine, font handling. It
+puts fonts and glyph packs into the air-gapped checklist (Q-15). And rendering is
+CPU- and allocation-heavy, which
+[benchmarks/mvt-generation/RESULTS.md](../benchmarks/mvt-generation/RESULTS.md)
+run 3 showed this runtime is not yet sized for (A-037).
+
+None of that is an argument against building it. It is the reason it is a
+separate decision with its own ADR rather than a scope note.
 
 ### The version that is true, testable, and prioritises the work
 

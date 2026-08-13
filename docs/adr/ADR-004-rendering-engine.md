@@ -2,11 +2,62 @@
 
 | | |
 |---|---|
-| **Status** | `DEFERRED` — confirmed 2026-08-12, WMS is out of v1 |
+| **Status** | `DEFERRED` — confirmed 2026-08-12 (WMS out of v1) and **re-confirmed 2026-08-13** by the owner, who at the same time recorded a clear preference for the capability this ADR would deliver. See §0. |
 | **Confidence** | — |
 | **Decided** | — |
 
 ---
+
+## 0. The deferral is now an informed one — 2026-08-13
+
+Deferred twice for different reasons, and the second reason is not the first.
+
+**2026-08-12:** deferred because vector-first made server-side rendering
+unnecessary, and Q-47 kept WMS out of v1.
+
+**2026-08-13:** the owner, asked directly, re-confirmed the deferral — and
+stated a preference that this ADR should carry:
+
+> *"I hate WMS. Super slow. Prefer ArcGIS MapServer capability."*
+> *"We can design a better symbology."*
+
+Two things follow, and both are recorded as **preference and direction, not
+decision** (CLAUDE.md §2):
+
+1. **WMS is rejected on its merits, not merely cut for scope.** Any future
+   revisit should not treat *add WMS* as the obvious first move. The preferred
+   shape is a REST-style rendered map service in the manner of an ArcGIS
+   MapService — the same capability, a better interface.
+2. **Symbology is seen as a differentiator, not a checkbox.** GeoServer's SLD
+   lineage is widely disliked and this is a genuine opening. If this ADR is ever
+   un-deferred, the symbology model is the interesting part and belongs in it,
+   not as an afterthought to a rasteriser choice.
+   [build-vs-adopt-policy.md](../build-vs-adopt-policy.md) already places
+   cartographic logic in Tier 1, so it would be ours to design.
+
+**What un-deferring costs, so that the next decision is made with it in view:**
+
+- **Q-26 reopens.** Cross-tile label consistency is currently recorded as
+  *closed, not answered* — closed because labels are placed client-side. Server
+  rendering makes label placement ours, and it is one of the genuinely hard
+  problems in cartography rather than a feature to schedule.
+- **Fonts and glyph packs enter the air-gapped checklist** (Q-15), which
+  currently assumes the client carries them.
+- **The worker model is not sized for it.** Rendering is CPU- and
+  allocation-heavy, and
+  [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md)
+  run 3 measured 80.9% GC pause at 18% CPU on a lighter workload than this
+  (A-037). ADR-007 §4.14 already records that worker sizing has no allocation
+  term.
+- **Tier 3 constraint still applies.** MapServer, GeoServer and QGIS Server are
+  never adopted, in whole or in part, and a rendered map service is precisely
+  where that temptation would arise.
+
+**Positioning consequence, recorded in
+[competitive-position.md](../competitive-position.md) §6a:** this capability is
+what would make *"better capabilities than GeoServer"* a true claim rather than
+a premature one. That is an argument for building it eventually, and not an
+argument for building it first.
 
 ## 1. Context
 

@@ -325,6 +325,17 @@ A rendered map service — closer to an ArcGIS MapService than to a WMS adapter 
 remains a possible future capability. If it is built, it should be built as a
 product capability with its own justification, not as a legacy adapter.
 
+**Strengthened 2026-08-13.** This is no longer a neutral note. The owner rejects
+WMS on its merits — *"I hate WMS. Super slow. Prefer ArcGIS MapServer
+capability"* — and considers symbology an opening rather than a checkbox:
+*"we can design a better symbology."* v1 scope is unchanged and ADR-004 stays
+`DEFERRED`, confirmed on being asked directly. What changed is that the eventual
+shape is now specified: a REST rendered map service with our own symbology
+model, not a WMS adapter. See [ADR-004](adr/ADR-004-rendering-engine.md) §0 for
+what un-deferring would cost, and
+[competitive-position.md](competitive-position.md) §6a for why it is the
+capability that would make the GeoServer comparison true.
+
 ### The tension the owner accepted
 
 Displacing existing ArcGIS Server and GeoServer deployments is a confirmed goal
