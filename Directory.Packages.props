@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Central package management.
+
+    DEPENDENCY-LICENSES.md rule 1 says a row must be VERIFIED before an ADR
+    adopts a dependency. Every row is currently UNVERIFIED and that is recorded
+    as deliberate debt D-06, with a repayment trigger: before the first binary
+    that bundles a database driver, a GDAL build or a Python wheel set.
+
+    Nothing below is bundled yet. When the first one is, D-06 comes due.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

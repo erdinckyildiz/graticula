@@ -1,0 +1,38 @@
+<Project>
+
+  <!--
+    Settings common to every project. Kept deliberately small.
+
+    Warnings are errors because this codebase's quality mechanism is the written
+    record, and a warning nobody reads is the same failure in a different file.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Server GC: measured as the right default in benchmarks/mvt-generation.
+       A-037 found allocation, not CPU, is the binding constraint. -->
+  <PropertyGroup Condition="'$(OutputType)' == 'Exe'">
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CA1707 forbids underscores in member names. Underscored test names are
+         the convention because they are read as sentences in failure output.
+         Suppressed for test projects only; production code keeps the rule. -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+</Project>
