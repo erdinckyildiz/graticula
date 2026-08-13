@@ -203,3 +203,24 @@ before or after routing to it?** Under §8 the supervisor marks a worker
 unavailable on crash detection, and whatever routes reads that state — so before,
 provided the routing component observes supervisor state. That is a constraint on
 Q-63's answer.
+
+
+---
+
+## Certificate expiry monitoring
+
+**Added 2026-08-13 by [ADR-014](adr/ADR-014-tls-and-certificates.md) §2c.**
+
+A certificate expiry is a **total data-plane outage with a known date**. That
+makes it the most predictable outage this system can suffer, and being surprised
+by one is not a failure of luck.
+
+The supervisor monitors expiry for every certificate it holds — the serving
+certificate, client certificates for data sources, and trust anchors — and
+surfaces it with lead time: **warning at 30 days, escalating at 7, critical at
+1.** It appears in the admin API health surface and in whatever §46 exports.
+
+This fits the supervisor's governing principle rather than straining it. The
+supervisor exists so that a management-plane concern does not become a
+data-plane failure; an unnoticed expiry is precisely a management-plane concern
+becoming a total data-plane failure, on a timer, in public.

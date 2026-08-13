@@ -471,6 +471,25 @@ is buffer-and-release above a size threshold, which reintroduces the memory
 problem streaming exists to avoid — and ADR-013 §9 makes that the trigger to
 reopen the storage decision rather than patch it.
 
+### 4.16 Certificate rotation must not restart a worker
+
+**Added 2026-08-13 by [ADR-014](ADR-014-tls-and-certificates.md) §2b.**
+
+§4.3 binds service contexts lazily and §4.4 keeps them warm, with affinity
+routing existing specifically to preserve that warmth. **A worker restart evicts
+every warm context on it.**
+
+So installing or rotating a TLS certificate by restarting would trigger the
+cold-start storm this section is built to avoid — on a schedule, for a reason
+unrelated to any service, and typically at whatever hour the certificate happens
+to expire. Certificates therefore take effect on the next handshake, with
+existing connections finishing on the old one. `A-044`.
+
+**A second, smaller interaction.** §4.8 shrinks idle pools to zero. With TLS
+required on remote data sources (ADR-014 §3), every pool refill now pays a
+handshake rather than a plain connect. That belongs in Q-04's connection budget
+measurement rather than being assumed negligible.
+
 ## 5. Service explosion model (§24)
 
 | Services | Request workers | Bound contexts | Processes | DB connections |

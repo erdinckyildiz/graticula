@@ -17,7 +17,7 @@ reading decisions did not.
 |---|---|---|
 | **N5** | ~~§21's runtime supervisor was never designed.~~ **CLOSED 2026-08-12** - [runtime-supervisor.md](runtime-supervisor.md) | **Severe** |
 | **N6** | **The L3 cache has no size budget and no eviction.** It will fill any disk. | **Severe** |
-| **N8** | **TLS is not mentioned anywhere** — not in security, deployment or air-gapped planning. | **Severe** |
+| **N8** | ~~TLS is not mentioned anywhere~~ — **CLOSED 2026-08-13** by [ADR-014](adr/ADR-014-tls-and-certificates.md). | ~~Severe~~ |
 | N1 | A service context must be self-sufficient for serving, and that was never stated | High |
 | N4 | Concurrency is limited per service, never per data source | High |
 | N9 | Rolling upgrade needs expand-and-contract migration discipline | High |
@@ -221,6 +221,12 @@ Not in [security.md](security.md), not in deployment, not in the air-gapped
 planning. Yet we have TLS on: our serving endpoint, connections to data sources,
 object storage access, and the COG proxy's outbound fetches
 ([ADR-009](adr/ADR-009-raster-engine.md) §2.4).
+
+> **CLOSED 2026-08-13 by [ADR-014](adr/ADR-014-tls-and-certificates.md).** All
+> three problems below are addressed, and the first turned out to have a second
+> reason nobody had noticed: a restart to load a certificate evicts every warm
+> service context, so it triggers the cold-start storm ADR-007 §4.4 exists to
+> prevent — rotation-without-restart is architectural, not merely courteous.
 
 Specific problems:
 

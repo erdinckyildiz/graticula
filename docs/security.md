@@ -277,3 +277,48 @@ scanning, whether we offer it at all or declare it the operator's business, and
 whether an attachment inherits its feature's row-level security or carries its
 own grant. The second is not obvious — the whole point of RLS is that a user
 may see some rows and not others, and an attachment id is a guessable integer.
+
+
+---
+
+## Transport security
+
+**Added 2026-08-13 by [ADR-014](adr/ADR-014-tls-and-certificates.md), which owns
+the decisions.** This section records what they mean for the security model.
+
+**We terminate TLS ourselves by default**, HTTPS from first start with a
+generated self-signed certificate. Plain HTTP requires an explicit flag and warns
+at every startup.
+
+Three items belong here rather than in the ADR:
+
+### Forwarded headers are a trust boundary
+
+When a reverse proxy terminates TLS, `X-Forwarded-Proto`, `-For` and `-Host`
+determine the scheme in generated URLs and the client address in any policy that
+uses one. **A client able to reach the server directly can forge all three.**
+They are honoured only from explicitly configured trusted proxy addresses, and
+the default trusted set is empty.
+
+### Outbound fetches are SSRF, and §6 already knew
+
+This was listed as unwritten. The COG proxy (ADR-009 §2.4) fetches URLs supplied
+when a raster source is registered. An administrator — or anyone who can
+register a source — can point one at `169.254.169.254`, at an internal admin
+endpoint, or at loopback, and the fetch carries **the server's network
+position**, which is usually far better than the attacker's. TLS does nothing
+about this.
+
+- Outbound targets are allow-listed by host or prefix.
+- Link-local, loopback and private ranges are refused unless explicitly
+  permitted — an on-premises MinIO on a private address is a legitimate case and
+  must be configured rather than assumed.
+- Cross-host redirects outside the allow-list are not followed.
+
+### Revocation soft-fails offline, and that is a real weakening
+
+OCSP and CRL endpoints are unreachable in an air-gapped install. Hard-fail would
+make such an install validate nothing successfully, so the default is soft-fail.
+**This is a genuine reduction in the guarantee, not a technicality**, and it
+belongs in deployment documentation where an operator will see it rather than
+here where they will not.
