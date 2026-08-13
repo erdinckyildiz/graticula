@@ -224,6 +224,23 @@ product in its own right and each should be scheduled as its own decision rather
 than absorbed into a parity sweep. That is the Q-17a lesson, which cost nothing
 to learn the first time and would cost a great deal to relearn at this scale.
 
+## 6b. Scope was cut, 2026-08-13
+
+The owner answered the question §6a raised and P3 escalated. **v1 is PostGIS
+only, ArcGIS FeatureServer plus VectorTileServer plus GeometryServer** —
+[v1-scope.md](v1-scope.md).
+
+This is the first decision in the project's history that **removed** scope. Three
+independent reviewers had each concluded that nothing in the process would force
+one; the process did not, and the owner did.
+
+**What it does to this plan.** §6's three steps stand. The skeleton in step 3
+changes shape — ArcGIS FeatureServer rather than OGC API Features — and gets
+smaller. The remaining work before code is the **backward-facing propagation
+sweep** (B1, reopened) and ADR-001's status honesty. Everything else the reviews
+raised is either out of v1 or is Phase 1 work with a running system to test
+against.
+
 ## 7. What this plan does not claim
 
 - It does not claim the architecture is finished. §1 says plainly that the

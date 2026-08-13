@@ -1,5 +1,11 @@
 # Protocol Surface — Engines and Faces
 
+> **Superseded for v1 by [v1-scope.md](v1-scope.md), 2026-08-13.** Q-88 cut v1
+> to **three ArcGIS faces over two engines** — FeatureServer, VectorTileServer,
+> GeometryServer, on PostGIS. Everything below remains the map of where the
+> product could go; none of it is v1. The engine-versus-face framing is what
+> made the cut legible, so the document stays.
+
 **Written 2026-08-13**, after the owner put full protocol parity with Honua in
 scope ([capability matrix](research/honua-capability-matrix.md)).
 

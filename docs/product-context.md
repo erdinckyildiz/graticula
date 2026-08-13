@@ -18,8 +18,13 @@ for every review gate.
 
 ## Decisions taken by the project owner
 
+> **Read [v1-scope.md](v1-scope.md) first.** It is the authoritative statement of v1 and
+> **the first decision in this project that removed scope rather than adding
+> it.** Where a row below disagrees with it, v1-scope wins.
+
 | Topic | Decision | Consequence |
 |---|---|---|
+| **v1 scope (Q-88)** | **PostGIS only — hosted and registered — with ArcGIS FeatureServer, VectorTileServer and GeometryServer. OGC API Features moves to v2.** | Removes five databases, rendering, user-supplied Python and most of the protocol surface. Inverts ADR-005, which is `REOPENED`. See [v1-scope.md](v1-scope.md) |
 | **Why it exists (Q-49)** | **"I will give this to the world."** Open source, public, unrestricted. Sufficient on its own; a gift owes no market case. Dissolves §81's requirement to test Q-49 with real GIS teams. | Answered 2026-08-13 — see [competitive-position.md](competitive-position.md) §6 |
 | **Positioning** | **Not** "better capabilities than GeoServer" — measurably false and getting more so. **The ArcGIS Server exit path**: FeatureServer compatibility with edits, free migration tooling, a real service runtime, never-degrade-silently. | Sharpened 2026-08-13 |
 | **Licence** | **Apache-2.0** (Q-73). Permissive with an express patent grant. Anyone may fork, close and sell it — accepted, because that is what *give it to the world* means. **Consequence: GPL and AGPL dependencies are now disqualified**, since we cannot sublicense them under Apache-2.0. The earlier *copyleft acceptable* note was about inbound dependencies and is superseded by this. | No dependency is excluded on licence grounds. LGPL/MIT are free of friction. AGPL obligations apply over the network for a server product and must be stated explicitly wherever relevant. |

@@ -2,9 +2,50 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Status** | **`REOPENED` 2026-08-13 by Q-88** — v1 ships ArcGIS only and OGC API Features moves to v2, which **inverts this ADR's central decision**. See §0. Previously: `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM-HIGH` |
 | **Decided** | 2026-08-12 |
+
+---
+
+## 0. `REOPENED` 2026-08-13 — v1 is ArcGIS-first
+
+This ADR decided **OGC API Features 1+2+3 as the native surface**, with legacy
+protocols in a compatibility layer *outside the core domain*.
+[Q-88](../open-questions.md) decided v1 ships **ArcGIS FeatureServer,
+VectorTileServer and GeometryServer only**, with OGC API Features in v2.
+
+**That inverts the central decision.** It is not an amendment and should not be
+absorbed as one.
+
+**It resolves review finding A10 by choosing it.** A10 found the compatibility
+layer had become more capable than the product it wraps — by accretion, in four
+places, without a decision. It is now the product surface **deliberately**, which
+is defensible where drift was not. Master prompt §51's *outside the core domain*
+boundary must be amended to match, or suspended for v1.
+
+**It is consistent with why the product exists.** Q-49's answer is *the ArcGIS
+Server exit path*; speaking ArcGIS natively executes that thesis rather than
+compromising it. `VERIFY`: implementing a publicly documented REST API is
+ordinarily permissible and is the same clean-room position the compatibility
+layer already held — emphasis changes, legality does not. CLAUDE.md §5 still
+forbids proprietary source and undocumented internals.
+
+**And it makes §3's protocol-neutral internal interface speculative.** §3.2a
+argued six faces would be *"the hardest available test"* of whether that
+interface is genuinely neutral. **v1 has one face**, so the interface would be
+built and never exercised — which is §82's *what concrete problem does this
+solve?* answered with *a problem we will have later*. Raised as **Q-89**, with a
+recommendation to build the ArcGIS surface directly and extract the interface
+when OGC arrives.
+
+**A-026 stops being load-bearing.** It asked whether OGC API Features plus
+extensions can express §28. v1 does not ask.
+
+**What survives unchanged:** §3.3a and §3.3b's per-service decisions,
+§3.3b's GeometryServer caps, the never-degrade-silently capability report, and
+the write-surface analysis — all of which are about ArcGIS surfaces or are
+protocol-independent.
 
 ---
 
