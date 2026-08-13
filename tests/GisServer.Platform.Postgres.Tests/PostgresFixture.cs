@@ -101,6 +101,9 @@ public abstract class PostgresFixture : IAsyncLifetime
         await _dataSource.DisposeAsync();
     }
 
+    /// <summary>The private schema this test owns.</summary>
+    protected string SchemaName => _schema;
+
     /// <summary>The adapter under test.</summary>
     protected PostgresPlatformSchemaStore Store() => new(DataSource);
 

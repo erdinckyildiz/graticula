@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. The PostGIS feature provider.
+
+    Separate from GisServer.Platform.Postgres on purpose: that one owns the
+    platform store's own schema, this one reads the customer's spatial data.
+    Same driver, different concern, and they will diverge — the platform store is
+    ours and versioned, a registered table is somebody else's and may be
+    read-only (A-017).
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>GisServer.Providers.PostGis</RootNamespace>
+    <AssemblyName>GisServer.Providers.PostGis</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GisServer.Core\GisServer.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+</Project>
