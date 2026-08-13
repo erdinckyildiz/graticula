@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 1. The platform store's domain: schema versioning, the migration model,
+    and the startup handshake.
+
+    No PackageReference, ever — enforced by tests/GisServer.Architecture.Tests.
+    The database driver lives in an adapter project that implements a port
+    declared here, per build-vs-adopt-policy.md §4.
+
+    Everything here is pure. The handshake is a decision about two numbers and
+    must be testable without a database, because ADR-016 §10 condition 1 requires
+    the refusal to be tested by deliberately starting a stale component.
+
+    SQL text for our own platform store is not a tier concern — the tiers govern
+    adopted *libraries*, and Q-70 made PostgreSQL the only platform store there
+    will be. Executing that SQL is the adapter's job; owning it is ours.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>GisServer.Platform</RootNamespace>
+    <AssemblyName>GisServer.Platform</AssemblyName>
+  </PropertyGroup>
+
+</Project>

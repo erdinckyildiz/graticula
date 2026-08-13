@@ -40,6 +40,7 @@ public sealed class Tier1ProjectFileTests
     private static readonly string[] Tier1Projects =
     [
         Path.Combine("src", "GisServer.Core", "GisServer.Core.csproj"),
+        Path.Combine("src", "GisServer.Platform", "GisServer.Platform.csproj"),
     ];
 
     [Fact]
