@@ -16,12 +16,13 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(1);
+    public static SchemaVersion ComponentSchemaVersion => new(2);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
     [
         CatalogueV1,
+        IdentityV2,
     ]);
 
     /// <summary>
@@ -108,4 +109,120 @@ public static class PlatformMigrations
         """,
 
         "create index layer_data_source_idx on layer (data_source_id)");
+
+    /// <summary>
+    /// Identity: principals, local credentials, sessions and API keys
+    /// ([ADR-015](../../../docs/adr/ADR-015-authentication.md)).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No role set is defined here.</b> Q-59 — what the roles are and what
+    /// each may do — is open, and independent review O3 found that citing
+    /// "administrators only" as a control while the term is undefined is not a
+    /// control at all. The <em>shape</em> is created; the contents are not
+    /// invented.
+    /// </para>
+    /// <para>
+    /// <b>Nothing stores a token.</b> Sessions and API keys hold a hash. A table
+    /// of live bearer tokens is a credential database, and the whole argument for
+    /// opaque server-side tokens (ADR-015 §3) was that revocation should work —
+    /// which is undermined if a database dump hands over every live credential.
+    /// </para>
+    /// </remarks>
+    private static Migration IdentityV2 => Migration.Expand(
+        new SchemaVersion(2),
+        "Create principals, local credentials, sessions, API keys and the role shape.",
+
+        // disabled_at rather than a boolean: when matters as much as whether,
+        // and ADR-015 §3 promises an administrator can see and terminate.
+        """
+        create table principal (
+            id           uuid        not null primary key,
+            kind         text        not null,
+            name         text        not null unique,
+            display_name text        null,
+            created_at   timestamptz not null default now(),
+            disabled_at  timestamptz null,
+            constraint principal_kind_known check (kind in ('user', 'service', 'anonymous')),
+            constraint principal_name_not_blank check (length(btrim(name)) > 0)
+        )
+        """,
+
+        // Anonymous is a principal (ADR-015 §2a), so it exists as a row rather
+        // than as a null check scattered through the authorization code. Seeded
+        // here because it is structural, not configuration.
+        """
+        insert into principal (id, kind, name, display_name)
+        values ('00000000-0000-0000-0000-000000000001', 'anonymous', 'anonymous', 'Anonymous')
+        """,
+
+        // Separate from principal because most principals have no password: a
+        // service authenticates with a key, an OIDC user authenticates elsewhere,
+        // and anonymous authenticates not at all.
+        //
+        // algorithm and parameters are stored per row so that a future hardening
+        // — Argon2id cost increase, or a different algorithm — can re-hash on
+        // next login rather than invalidating every password at once.
+        """
+        create table local_credential (
+            principal_id  uuid        not null primary key references principal (id) on delete cascade,
+            algorithm     text        not null,
+            parameters    jsonb       not null,
+            password_hash bytea       not null,
+            updated_at    timestamptz not null default now()
+        )
+        """,
+
+        // token_hash, never the token. Unique so a hash collision or a duplicate
+        // issue is a constraint violation rather than two live sessions.
+        """
+        create table session (
+            id             uuid        not null primary key,
+            principal_id   uuid        not null references principal (id) on delete cascade,
+            token_hash     bytea       not null unique,
+            created_at     timestamptz not null default now(),
+            expires_at     timestamptz not null,
+            revoked_at     timestamptz null,
+            source_address inet        null,
+            constraint session_expiry_after_creation check (expires_at > created_at)
+        )
+        """,
+
+        "create index session_principal_idx on session (principal_id)",
+
+        // Long-lived by nature, so scoped narrowly and revocable (ADR-015 §5).
+        """
+        create table api_key (
+            id           uuid        not null primary key,
+            principal_id uuid        not null references principal (id) on delete cascade,
+            name         text        not null,
+            token_hash   bytea       not null unique,
+            created_at   timestamptz not null default now(),
+            expires_at   timestamptz null,
+            revoked_at   timestamptz null,
+            last_used_at timestamptz null,
+            constraint api_key_name_unique_per_principal unique (principal_id, name)
+        )
+        """,
+
+        // The shape only. Q-59 decides what roles exist and what each carries;
+        // inventing them here would be the "administrators only" problem review
+        // O3 named — a control resting on a term nobody has defined.
+        """
+        create table role (
+            name        text not null primary key,
+            description text not null,
+            constraint role_name_not_blank check (length(btrim(name)) > 0)
+        )
+        """,
+
+        """
+        create table principal_role (
+            principal_id uuid        not null references principal (id) on delete cascade,
+            role_name    text        not null references role (name) on delete restrict,
+            granted_at   timestamptz not null default now(),
+            granted_by   uuid        null references principal (id) on delete set null,
+            constraint principal_role_pk primary key (principal_id, role_name)
+        )
+        """);
 }
