@@ -2,11 +2,44 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Status** | `REOPENED` 2026-08-13 by Q-17c — see §0. Previously: | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-08-12 |
 
 ---
+
+## 0. `REOPENED` 2026-08-13 — ImageServer is in scope
+
+This ADR decided **serve COG, let the client render**, and that raster imagery is
+catalogued rather than rasterised. Q-17c puts ArcGIS **ImageServer** in scope,
+which reverses the central decision.
+
+**Decomposed per operation, applying Q-17a's lesson rather than repeating its
+mistake.** ImageServer is not one capability; it is three groups at very
+different cost, and accepting or declining it whole would bundle them the way
+Q-17 bundled four services under one sentence.
+
+| Group | Operations | Cost against what we already have |
+|---|---|---|
+| **Near-free** | `identify`, `getSamples`, `computeHistograms`, `computeStatisticsHistograms`, `download`, mosaic footprint `query` | A COG range read, a GDAL call we already make, or — for footprints — an ordinary feature query over the catalogue. Almost nothing new |
+| **Medium** | Tiled access to already-processed imagery | A tiling scheme over rasters. No dynamic rendering if the pixels are pre-processed |
+| **Expensive — the actual decision** | `exportImage`, raster function chains, dynamic mosaicking | Needs a **raster rendering engine**, a **processing-chain evaluator**, and a **mosaic dataset model** with footprints, overviews, priorities and seamlines |
+
+**The third group is plausibly the largest single capability in the matrix,
+larger than the vector renderer**, and it should be scheduled as its own decision
+rather than absorbed as *ImageServer support*.
+
+**Q-77 owns the line that has to be drawn first.** GDAL does much of the
+mechanical work — warp, VRT-as-mosaic, overviews — and already lives in the job
+worker under A-016, which makes it Tier 2 raster I/O. But choosing what colour a
+pixel becomes is **cartographic logic, which the build-vs-adopt policy puts in
+Tier 1**. The line probably falls between *assembling and warping pixels*
+(adopted) and *deciding what colour they are* (ours). It needs stating before
+either half is built.
+
+**What survives unchanged:** COG as the storage format, conversion at
+registration, GDAL on job workers, and proxied delivery (§2.4). Nothing below is
+wrong — it is now incomplete.
 
 ## 1. Context
 

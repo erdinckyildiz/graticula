@@ -2,11 +2,46 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` — decision is "not yet" |
+| **Status** | `REOPENED` 2026-08-13 by Q-17b — see §0. Previously: | `ACCEPTED WITH CONDITIONS` — decision is "not yet" |
 | **Confidence** | `MEDIUM-HIGH` |
 | **Decided** | 2026-08-12 |
 
 ---
+
+## 0. `REOPENED` 2026-08-13 — by the exact trigger this ADR named
+
+This ADR decided **internal extension points only**, and stated its reopening
+trigger precisely: *someone needing a provider, format or operation we have
+decided not to build.* It went further and predicted the order — **geoprocessing
+first, because job workers already provide the isolation**; data providers last,
+because they sit in the request path with no cheap isolation story.
+
+**Q-17b is that trigger, arriving by that route.** The owner has put GPServer in
+scope with tools written in **Python**. That is a third-party plugin system for
+geoprocessing in everything but name, and pretending otherwise would be the kind
+of quiet scope drift §62 exists to prevent.
+
+**What the prediction got right, and it is worth saying because it constrains
+the redesign:** geoprocessing genuinely is the safest place to start. Job workers
+are already isolated from request workers (§4.2), already have their own memory
+budget, and already run GDAL, so an out-of-process Python interpreter fits the
+existing shape rather than forcing a new one.
+
+**What this ADR must now answer that it previously did not:**
+
+- A published contract, versioned, for third parties — the thing §2 declined to
+  build. Q-74 defines its data boundary.
+- A sandbox model. Arbitrary user code is a different risk class from an
+  internal extension point, and Q-75 owns it.
+- A dependency story, which Q-76 owns and which collides with air-gapped
+  installs.
+- Who may publish. §2's reasoning assumed extensions came from us; the
+  self-service model (Q-59–Q-62) introduced publishers who upload **data**.
+  **Uploading code is a different grant** and should not inherit the same role
+  by default.
+
+The rest of this ADR stands for **providers, formats and API surfaces**, which
+remain internal-only. Only the geoprocessing axis is reopened.
 
 ## 1. Context
 

@@ -39,10 +39,51 @@ sweep would have caught.
 | Service | v1 | Reason |
 |---|---|---|
 | **FeatureServer** | **In**, including `applyEdits` | Q-17. The reason the compatibility layer exists |
-| **GeometryServer** | **In** | Returns geometry, not images. A thin REST surface over PROJ and NetTopologySuite, both of which [ADR-003](ADR-003-geometry-engine.md) already puts in-process. Near-zero marginal cost, and ArcGIS Enterprise portals configure a geometry service URL that clients call — so omitting it partially defeats Q-17's own goal. `VERIFY` how much ArcGIS JS API 4.x still needs it |
-| **GPServer** | **Out** | Not because it renders — it does not. Because it is a container for published geoprocessing tools and we have a job system with **no toolbox**. An empty shell is worse than an honest absence. Reopening is governed by [ADR-006](ADR-006-plugin-model.md)'s existing trigger |
-| **ImageServer** | **Out** | Genuinely needs server-side raster rendering and dynamic mosaicking. Conflicts with [ADR-009](ADR-009-raster-engine.md)'s serve-COG-and-let-the-client-render decision |
+| **GeometryServer** | **In — and the owner calls it crucial (2026-08-13), so it is v1 core rather than a cheap addition to the compatibility layer.** See §3.3b for what that costs | Returns geometry, not images. A thin REST surface over PROJ and NetTopologySuite, both of which [ADR-003](ADR-003-geometry-engine.md) already puts in-process. Near-zero marginal cost, and ArcGIS Enterprise portals configure a geometry service URL that clients call — so omitting it partially defeats Q-17's own goal. `VERIFY` how much ArcGIS JS API 4.x still needs it |
+| **GPServer** | **In, after the Python SDK** (Q-17b) | The *no toolbox* objection was answered by the owner within hours: **the toolbox is not ours to write.** Tools are Python, the ArcPy and PyQGIS model. That reopens [ADR-006](ADR-006-plugin-model.md) by the trigger it named, and is gated behind Q-74 (data boundary), Q-75 (sandbox) and Q-76 (dependencies) |
+| **ImageServer** | **In, decomposed** (Q-17c) | Reopens [ADR-009](ADR-009-raster-engine.md). Split per operation: `identify`, `getSamples`, histograms, `download` and footprint `query` are near-free; tiled access is medium; `exportImage`, raster functions and dynamic mosaicking need a raster rendering engine and are their own decision (Q-77) |
 | **MapServer** | **Out of v1** | Needs the rendering engine. [ADR-004](ADR-004-rendering-engine.md) §0 — the owner wants this eventually and prefers it to WMS |
+
+### 3.3b. GeometryServer is crucial — and it is a compute endpoint, not a data endpoint
+
+**Owner, 2026-08-13: “GeometryServer is crucial.”** That raises it from a cheap
+addition to v1 core, and it changes what has to be true about it.
+
+Everything else in the compatibility layer *reads data we hold*. GeometryServer
+**runs computation on geometry the caller supplies**, which is a different shape
+with three consequences.
+
+**1. It exposes the exact operation run 1 measured as pathological.**
+[benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md)
+found `NTS.Intersection` at **438.6 ms — 79% of a whole tile request** — and the
+fix was to stop calling it, replacing rectangle clipping with `RectClip`. **That
+escape route does not exist here.** GeometryServer's `intersect`, `difference`,
+`union` and `cut` are general polygon overlay against arbitrary caller geometry;
+there is no special case to exploit. We are publishing the slow operation as an
+API.
+
+**2. It is a denial-of-service surface by construction.** A caller may post
+Türkiye's outline — 72,919 vertices, which is real data in our own test set —
+and ask to intersect it with something. Overlay is superlinear. Required, not
+optional: a **vertex-count cap per request**, a **wall-clock timeout per
+operation**, and a **total-vertices cap across a batch**, since these operations
+accept arrays. This is adjacent to
+[geometry-crs-policy.md](../geometry-crs-policy.md) §6 but not the same problem:
+§6 governs *serving* a geometry too large to return; this governs *computing* on
+one.
+
+**3. It sits on the request path, so ADR-007's worker model owns it.** Unlike
+geoprocessing (Q-17b), which is explicitly asynchronous and job-worker-bound,
+GeometryServer is synchronous and answers in the request. A-037 measured
+allocation as the binding constraint at 80.9% GC pause, and overlay on large
+inputs allocates heavily while the caller chooses the size. **Same lesson as
+attachments in [ADR-013](ADR-013-feature-service-data-model.md) §4a: any endpoint
+where the caller picks our allocation size needs a cap, not a hope.**
+
+**What this does not change:** the implementation is still a thin surface over
+PROJ and NetTopologySuite, both already in-process per ADR-003. It is cheap to
+*build*. It is not cheap to *operate*. Those are different claims and both are
+true.
 
 **The pattern worth extracting:** Q-17 bundled four decisions under one sentence
 of reasoning. Bundled decisions inherit the weakest justification in the bundle
