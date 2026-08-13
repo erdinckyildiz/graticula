@@ -237,8 +237,7 @@ detailed form.
 SQL injection (mitigated in [ADR-008](adr/ADR-008-query-engine.md) §4.6 but not
 reviewed as a whole) · SSRF, which matters more than usual because
 [ADR-009](adr/ADR-009-raster-engine.md) proxies range requests to URLs ·
-path traversal · authentication itself (§41) — local accounts, JWT, OAuth 2.0,
-OIDC · privilege escalation paths · malicious geometry beyond
+path traversal · ~~authentication itself (§41)~~ — **written 2026-08-13, [ADR-015](adr/ADR-015-authentication.md)** · privilege escalation paths · malicious geometry beyond
 [ADR-008](adr/ADR-008-query-engine.md)'s filter bounds · decompression bombs
 (registration-time only so far) · denial of service and the interaction with
 [ADR-007](adr/ADR-007-service-runtime.md)'s backpressure · secret handling
@@ -322,3 +321,45 @@ make such an install validate nothing successfully, so the default is soft-fail.
 **This is a genuine reduction in the guarantee, not a technicality**, and it
 belongs in deployment documentation where an operator will see it rather than
 here where they will not.
+
+
+---
+
+## Authentication
+
+**Decided 2026-08-13 in [ADR-015](adr/ADR-015-authentication.md), which owns it.**
+Three things belong in this document rather than in the ADR, because they are
+security positions rather than design choices.
+
+### Anonymous is a principal, not the absence of one
+
+Open data portals are a normal deployment of a GIS server. Modelling anonymous
+access as *no identity* scatters `if (user == null)` through every authorization
+check, which is where bugs live. Anonymous gets a name, can hold roles, and can
+be granted a layer. Refusing anonymous access is then configuration rather than
+a special case.
+
+### ArcGIS compatibility puts credentials in URLs, and we accepted it
+
+Q-17 requires unmodified ArcGIS clients to work, and those clients send their
+token as a `token=` query parameter. **A credential in a URL leaks by design** —
+into our access logs, into every proxy and load balancer in front of us, into
+browser history, and into `Referer` headers sent to third parties.
+
+We cannot refuse it without discarding the compatibility we chose. Four
+mitigations bound it, all required rather than advisable: query strings are
+**redacted in the logging code path** on those routes; the header form is
+preferred and advertised; compatibility tokens are short-lived and **cannot
+reach the admin API**; and they are revocable and listed like any other session.
+
+**This is a deliberate weakening of the posture in exchange for the migration
+path.** Recorded here rather than in a footnote, because if never-degrade-
+silently applies to capabilities it applies to security trade-offs.
+
+### Publishing data and publishing code are different grants
+
+Q-75 asked who may publish a Python geoprocessing tool. Partly answered: **not
+the publisher role, by default.** A publisher uploading a shapefile and a
+publisher uploading executable code that runs on our server are not the same
+risk, and a permission that covers both is wrong in one direction or the other.
+Code publication defaults to administrators.

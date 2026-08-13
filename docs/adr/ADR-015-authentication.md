@@ -1,0 +1,228 @@
+# ADR-015 — Authentication
+
+| | |
+|---|---|
+| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Confidence** | `MEDIUM` |
+| **Decided** | 2026-08-13 |
+| **Answers** | §41 · blocker **B4** · part of security.md §6's *not yet written* |
+
+---
+
+## 1. Context
+
+[security.md](../security.md) §2 designed **authorization** — roles plus
+owner-set sharing, delegating to database row-level security where the provider
+allows it. It never designed **authentication**, and §6 lists it among the
+unwritten.
+
+It is blocker **B4** because identity is upstream of everything user-facing: the
+admin API, the publisher role, item ownership, audit, RLS delegation and the
+cache key all consume an identity that does not yet exist. Nothing can be
+written first and have authentication threaded through later without rewriting
+it.
+
+**Two constraints shape this more than any preference.**
+
+### 1a. The identity has to survive into the database
+
+§2's authorization delegates to RLS using transaction-scoped `SET LOCAL ROLE`
+(D-01). That means an authenticated principal is not just a token our code
+understands — **it must map to a database role name**, deterministically, for
+every provider that supports delegation.
+
+This rules out identity models that are purely opaque or purely claims-shaped.
+Whatever we authenticate to, it must yield a **stable, mappable principal name**,
+and the mapping from principal to database role is configuration an administrator
+controls.
+
+### 1b. ArcGIS compatibility drags in a legacy token scheme, and it is worse than it looks
+
+Q-17 committed to full ArcGIS FeatureServer compatibility so that existing
+clients keep working. Those clients authenticate by calling `/generateToken` and
+then sending the token **as a `token=` query parameter**.
+
+**A credential in a URL leaks by design.** It lands in server access logs, in
+every reverse proxy and load balancer log in front of us, in browser history, and
+in `Referer` headers sent to third parties. This is not our design error — it is
+inherited, and the whole point of Q-17 is that unmodified clients work.
+
+We cannot refuse it without breaking the compatibility we chose. What we can do
+is bound the damage, and §4 does.
+
+---
+
+## 2. Decision — principals, and there are three kinds
+
+| Principal | Authenticates with | Notes |
+|---|---|---|
+| **User** | Local password, OIDC, SAML | A person. Owns items (§2.0), holds roles |
+| **Service** | API key, or mTLS client certificate | A machine. Never owns items; roles only |
+| **Anonymous** | nothing | A real principal, not the absence of one — see §2a |
+
+**Anonymous is a principal.** Open data portals are a normal deployment of a GIS
+server, and modelling anonymous as *no identity* produces `if (user == null)`
+scattered through every authorization check, which is where bugs live. It gets a
+name, it can hold roles, and a layer can be granted to it. Refusing anonymous
+access entirely is then a configuration, not a special case.
+
+---
+
+## 3. Decision — tokens are opaque and server-side, not JWT
+
+**Access tokens are opaque random strings, with state in the platform store.**
+
+This was an awkward choice a week ago and is cheap now. [Q-70](../open-questions.md)
+made the platform store **mandatory PostgreSQL**, so there is always a
+transactional store within reach of every node. The main argument for JWT —
+statelessness, so you need no shared store — buys nothing when a shared store is
+guaranteed.
+
+What we get instead is the thing JWT cannot give:
+
+- **Revocation that works.** Disabling an account or revoking a session takes
+  effect on the next request. A JWT remains valid until it expires, so firing an
+  administrator would leave their token live for the token lifetime, and the only
+  fixes are a blocklist — which is server-side state, i.e. this decision arrived
+  at by a worse road — or lifetimes so short they hurt.
+- **Session listing.** An administrator can see and terminate active sessions,
+  which is table stakes for an admin surface and impossible with bearer JWTs.
+- **No signing-key rotation problem**, and no algorithm-confusion vulnerability
+  class.
+
+**Counter-argument, recorded:** a store lookup per request. It is one indexed
+primary-key read against a database we already hold a pooled connection to, and
+it is cacheable in-process with a short TTL bounded by the revocation delay we
+are willing to accept. If measurement contradicts this, §9's condition covers it.
+
+**JWTs still appear at the edges** — an OIDC provider issues them and we validate
+one during login. We do not mint them as our own session tokens.
+
+---
+
+## 4. Decision — the ArcGIS token surface, and how its damage is bounded
+
+We implement `/generateToken` and accept `token=` in the query string, because
+Q-17 requires unmodified clients to work.
+
+Four mitigations, all required:
+
+1. **Query strings are redacted on those routes before logging.** Not
+   "configured to be" — redaction is the code path, and logging the raw query on
+   a token-bearing route is the bug.
+2. **Header form is preferred and advertised.** Clients that can send
+   `X-Esri-Authorization: Bearer …` are told to, in documentation and in the
+   capability report.
+3. **ArcGIS-issued tokens are short-lived by default and separately scoped.** A
+   token that leaks into a `Referer` should expire before it is useful, and it
+   should not be usable against the admin API. Compatibility tokens grant the
+   compatibility surface.
+4. **They are revocable and listed like any other session** (§3), so a leak has
+   a remedy other than waiting.
+
+**This is a deliberate weakening of the security posture, accepted in exchange
+for the migration path**, and it belongs in the record rather than in a footnote.
+If §2's *never degrade silently* applies to capabilities, the same honesty
+applies to security trade-offs.
+
+---
+
+## 5. Decision — identity sources
+
+| Source | Status | Note |
+|---|---|---|
+| **Local accounts** | **First-class, always present** | Not a fallback. Air-gapped sites may have no reachable IdP, and Q-15 assumes none |
+| **OIDC** | Supported, free | Honua gates this at **Pro**; Q-49's positioning is that we do not |
+| **SAML 2.0** | Supported, free | Honua gates at **Enterprise**. Still common in government and defence, which are plausible customers |
+| **SCIM 2.0** | Supported, free | Provisioning, not authentication. Included because Q-83 put it in scope |
+| **API keys** | Service principals only | Long-lived by nature, so scoped narrowly and revocable |
+| **mTLS** | Off by default | [ADR-014](ADR-014-tls-and-certificates.md) §6 validates the certificate; **this ADR interprets the identity in it**. That boundary was set deliberately |
+
+**Local accounts are first-class rather than a bootstrap convenience**, and that
+is a real position: it means password storage, lockout policy and rotation are
+ours to get right rather than delegated to an IdP.
+
+Passwords are stored with **Argon2id**. Failed attempts are rate-limited per
+account *and* per source address — per-account alone lets an attacker lock out
+every user they can name, which converts a brute-force defence into a
+denial-of-service tool.
+
+---
+
+## 6. Decision — first-start bootstrap
+
+On first start with no accounts, the server generates a **one-time setup token**,
+writes it to the container log, and refuses all other requests until it is used
+to create the first administrator.
+
+Considered and rejected: a default username and password, which survives into
+production; and an unauthenticated setup window, which is a race with whoever
+scans the network first.
+
+The setup token is single-use, expires, and its use is the first audit entry.
+
+---
+
+## 7. What this hands to other decisions
+
+- **RLS delegation (§1a)** gets a stable principal name and an
+  administrator-controlled mapping to database roles.
+- **Cache keys** get an identity for D-02's grant fingerprints.
+- **Ownership (§2.0)** gets an owner: user principals only. A service principal
+  cannot own an item, because ownership carries sharing decisions and a machine
+  has no judgement about them.
+- **Q-75's question is answered in part.** Publishing *data* and publishing
+  *code* are different grants. A Python geoprocessing tool is executable code on
+  our server, and the role that permits it is **separate from the publisher
+  role**, defaulting to administrators only. A publisher uploading a shapefile
+  and a publisher uploading a script are not the same risk and must not share a
+  permission.
+- **Audit** gets a subject. Every mutating request records principal, source
+  address, and — for compatibility tokens — that it arrived by that route.
+
+---
+
+## 8. Consequences
+
+- [security.md](../security.md) §6 loses *authentication itself* from its
+  unwritten list; **privilege escalation paths and secret handling remain**.
+- The platform store gains accounts, sessions, API keys and audit tables. All
+  small, all precious, all in the ADR-002 backup path.
+- The admin API gains user, role, session and key management — a substantial
+  surface, and its **primary user is the GIS administrator** (Q-06a).
+- **D-04 multi-tenant isolation is still not addressed.** Authentication tells us
+  *who*; it does nothing about one tenant's expensive query degrading another's.
+  Explicitly out of scope here so it is not assumed covered.
+
+## 9. Conditions
+
+1. **Session lookup cost is measured**, not assumed. If a per-request indexed
+   read against the platform store is material at the concurrency ADR-007
+   targets, the in-process cache TTL becomes a stated revocation delay rather
+   than an implementation detail.
+2. **Token redaction is tested by asserting on log output**, not by reading the
+   code. §4.1 fails silently otherwise, and silently is the only way it fails.
+3. **Lockout is tested for the denial-of-service inversion** — that locking one
+   account cannot be used to lock out an organisation.
+4. **The bootstrap token cannot be reused**, tested, including after a restart
+   that occurs mid-setup.
+
+## 10. Assumptions
+
+| ID | Assumption | Status |
+|---|---|---|
+| A-046 | An opaque-token session lookup per request is affordable at the concurrency ADR-007 targets | `UNVALIDATED` — §3's central bet. If false, the fallback is a longer in-process cache TTL, which trades revocation latency for throughput, and that trade should be a stated number rather than a default |
+| A-047 | Every provider supporting RLS delegation can accept a principal name we generate, via administrator-controlled mapping | `UNVALIDATED` — §1a. PostgreSQL roles, SQL Server users and Oracle proxy authentication have different naming rules, length limits and case behaviour. A mapping that works on one may not on another |
+
+## 11. Dissent
+
+**Against opaque tokens.** The industry default is JWT and a reader will expect
+it; choosing otherwise invites the question at every review. The answer is that
+the usual reason for JWT — avoiding shared state — was deleted by Q-70, and
+revocation is worth more to an administrator than statelessness is to us.
+
+**Against implementing `/generateToken` at all.** It is a credential-in-URL
+scheme we would never design, and §4 admits it weakens the posture. But Q-17's
+entire value is that unmodified ArcGIS clients keep working, and a compatibility
+layer that requires client changes is not a compatibility layer. The mitigations
+bound it; they do not make it good.
