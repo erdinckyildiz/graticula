@@ -36,7 +36,7 @@ finished, however confident the ADR sounds.
 | Publishing (§38) | — | — | — | — | — | — | — | not started — owns runtime schema evolution (publishing with a smaller blast radius) and registration, which runs as an interactive-class job |
 | Admin API (§39) | — | — | — | — | — | — | — | not started — **elevated**: primary user is the GIS administrator |
 | Compatibility layer (§51) | **scope set** | — | — | — | — | — | — | v1 is **WFS + WMTS-for-vector-tiles + full ArcGIS FeatureServer including edits** (Q-17). WMS, MapServer, ImageServer out (Q-47). Outside the core domain. |
-| Feature service data model gaps | — | — | — | — | — | — | — | **opened by Q-17**: stable `objectId` (Q-57), attachments, relationships, domains, subtypes, editor tracking (Q-58) |
+| Feature service data model gaps | — | — | — | — | — | — | — | **opened by Q-17**: stable `objectId` (Q-57), attachments, relationships, domains, subtypes, editor tracking (Q-58). **Corroborated 2026-08-13**: Honua ships attachments and related records at Community tier ([research/honua-capability-matrix.md](research/honua-capability-matrix.md) §2), so these are table stakes for FeatureServer compatibility rather than refinements |
 | Migration tooling | **scope set** | — | — | — | — | — | — | inventory plus definition import, free (Q-16). Needs a home — probably its own component rather than part of the compatibility layer |
 | Self-service publishing | **scope confirmed** | — | — | — | — | — | — | second user type and second publishing path. Neither GeoServer nor Honua has this. Q-59 to Q-62 open |
 | AuthZ (§42) | **partial** | n/a | — | — | — | — | — | model decided in [security.md](security.md) §2–3. Multi-tenant resource isolation still open (D-04) |

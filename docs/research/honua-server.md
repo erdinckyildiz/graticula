@@ -300,6 +300,16 @@ integration, and cheap if the query AST is genuinely protocol-neutral
 ([ADR-005](../adr/ADR-005-api-architecture.md) §3) — which is a decent test of
 whether our neutral interface really is neutral.
 
+## 6a. Capability matrix
+
+A full protocol, provider, format and operations comparison is in
+[honua-capability-matrix.md](honua-capability-matrix.md), compiled 2026-08-13
+from the published README and the dependency manifest — Tier A and Tier B only.
+Its headline: their surface is roughly five times ours, and the two features an
+ArcGIS migration is actually made of — `applyEdits` and service import — are
+behind Pro and Enterprise tiers respectively, which is exactly where Q-16 and
+Q-17 chose to be free.
+
 ## 7. What to do next
 
 1. **Read their published docs properly**, not just the README, and build an
