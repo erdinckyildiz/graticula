@@ -17,7 +17,7 @@ finished, however confident the ADR sounds.
 | Data model — storage and layer modes | **decided** | n/a | — | — | — | — | — | four lifecycles separated; datastore is a provider we own, on any of three spatial engines; editing is out of our API |
 | Connection discipline / quiesce | — | — | — | — | — | — | — | new obligation: we must not block a DBA's DDL. Lands on ADR-007 §5b and the admin API |
 | Schema drift detection | — | — | — | — | — | — | — | improvement over ArcGIS, which requires manual restart. A-023 |
-| Geometry engine | engine settled | DRAFT | prototype | **measured x2** | — | — | — | .NET means NetTopologySuite in-runtime. The split is now empirically placed, not argued: clip and simplify are ours, topology stays NTS (ADR-003 §5a-§5b). Q-66 asks the next question — whether the tile path takes geometry objects at all |
+| Geometry engine | **decided** | `ACCEPTED WITH CONDITIONS` | prototype | **measured x3** | — | — | — | **Blocker B2a discharged 2026-08-13.** Alternative B, refined by measurement into **three tiers rather than two**: push down to the provider first, ours on flat arrays second, adopted NTS topology third — *the cheapest geometry operation is the one that never crosses the wire*. §6b gives three conditions for owning a primitive so the boundary is applied rather than admired. **Single-provider scope**; cross-engine consistency (A-043) deferred with a trigger that is the second provider, not a date. A-006 moved to `CONTESTED`. Conditions in §9a |
 | Rendering engine | rescoped | DEFERRED | n/a | — | — | — | — | `DEFERRED` — vector-first; only WMS-in-compatibility-layer remains |
 | API architecture | **decided, scope widened sharply** | `ACCEPTED WITH CONDITIONS` | — | — | — | — | — | OGC API Features 1+2+3 native; capability report generated not hand-written. **Q-78 put full protocol parity in scope**: 29 faces over 10 engines — [protocol-surface.md](protocol-surface.md). Eight engines decided or in flight, two do not exist (Q-79). Six faces over the feature engine is now the hardest available test of ADR-005's protocol-neutral interface, which was asserted and never proven (A-026) |
 | Plugin model | **`REOPENED`** | `REOPENED` | — | — | — | — | — | **The trigger fired, 2026-08-13, by the route ADR-006 predicted** — Q-17b puts a Python-based GPServer in scope, which is a third-party plugin system for geoprocessing. ADR-006 named geoprocessing as the first candidate because job workers already isolate. Providers, formats and API surfaces stay internal-only; only the geoprocessing axis reopened. Q-74 to Q-76 |
@@ -96,9 +96,10 @@ production line, and they are not the five with the biggest boxes.
 
 - [x] `architecture-assessment.md` complete — all 27 required sections (§70).
       **First complete draft, 2026-08-12. Not yet reviewed.**
-- [x] Initial ADRs written, none still `DRAFT` without a stated reason.
-      ADR-003 is the only remaining `DRAFT` and its reason is stated: it is
-      blocked on ADR-001.
+- [x] Initial ADRs written, **none still `DRAFT`** — 2026-08-13. ADR-003 was the
+      last one and is now `ACCEPTED WITH CONDITIONS`. Sixteen ADRs; two
+      `DEFERRED` with reasons (ADR-004 rendering, ADR-012 clustering), two
+      `REOPENED` by scope decisions (ADR-006 plugins, ADR-009 raster).
 - [ ] Critical questions (§80, all 40) answered or explicitly deferred with cause
 - [ ] Load-bearing assumptions validated — at minimum A-003, A-004, A-007
 - [x] **Failure scenario pass complete** (§59) — adversarial review F9.

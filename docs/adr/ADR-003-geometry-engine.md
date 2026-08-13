@@ -2,9 +2,10 @@
 
 | | |
 |---|---|
-| **Status** | `DRAFT` — **unblocked 2026-08-12**, ADR-001 chose .NET |
-| **Confidence** | — |
-| **Decided** | — |
+| **Status** | **`ACCEPTED WITH CONDITIONS`** — single-provider scope. Cross-engine consistency is deferred, see §6d |
+| **Confidence** | `HIGH` for the split, which is measured. `LOW` for cross-engine consistency, which is not |
+| **Decided** | 2026-08-13 |
+| **Answers** | Q-03 · blocker **B2a** |
 
 ---
 
@@ -175,14 +176,108 @@ changes the provider contract and not just an implementation.
 
 ## 6. Decision
 
-Pending. Blocked on ADR-001.
+**Alternative B, refined by measurement into three tiers rather than two.**
+
+§2 framed this as *ours versus adopted*. Runs 1–3 added a tier above both, and
+it is the one that matters most.
+
+### 6a. The three tiers, in cost order
+
+| Tier | Where | What belongs here |
+|---|---|---|
+| **1. Push down to the provider** | In the database, before anything crosses the wire | Bounding-box filter, **clip**, **simplify**, and any predicate the dialect supports |
+| **2. Ours, on flat arrays** | In our process, no geometry objects | Rectangle clip, tile simplification, tile-space transform and quantisation, MVT encoding |
+| **3. Adopted — NetTopologySuite** | In our process, on NTS geometry | Genuine topology: overlay, buffer, validity, precise predicates, convex hull, everything GeometryServer exposes |
+
+**Tier 1 is first because it beats the other two by an order of magnitude, and
+not for the reason we expected.** [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) finding 11: a z16 tile with 327
+features and 12 KB of output was reading **201,580 vertices to emit 2,080**, because
+four administrative polygons — Türkiye at 72,919 points, Marmara Denizi at 52,455 —
+overlap every tile in the city. **A tile's cost floor is set by the largest
+geometry overlapping it, not by its content.** Pushing clip and simplify into the
+database cut latency 13x and allocation 15x at z16.
+
+The rule that follows, and it should be read before the table above:
+
+> **The cheapest geometry operation is the one that never crosses the wire.**
+
+### 6b. What decides whether an operation is ours or adopted
+
+Tier 2 versus tier 3 is not taste. Three conditions, all required:
+
+1. **There is a special case we can exploit.** `RectClip` is 63x faster than
+   `NTS.Intersection` because clipping to an axis-aligned rectangle is not
+   general polygon overlay, and in a dense urban tile most features are entirely
+   *inside* — where the right answer is a bounding-box comparison and no
+   clipping at all. Where no such special case exists, tier 3.
+2. **It is on the hot path**, so the win is worth the maintenance and the
+   conformance burden.
+3. **Renderable is a sufficient correctness bar.** Our clipper can emit
+   degenerate connecting edges on concave polygons and `TileSimplify` can produce
+   self-intersections; renderers tolerate both, analytical overlay would not.
+
+**Where any of the three fails, the operation is adopted.** That is why
+GeometryServer — which Q-17a made v1 core — is entirely tier 3: it publishes
+general overlay on caller-supplied geometry, where none of the three conditions
+holds.
+
+### 6c. The mechanism, which is the transferable part
+
+Both of our primitives won for the same reason, and it is not cleverness.
+
+**NTS `Coordinate` is a `class`.** A 556,728-vertex tile is 556,728 heap objects
+before the first distance calculation. Working on flat `double[]` removed them:
+a z12 tile went from **404 MB allocated to 204 MB**, and gen0 collections halved.
+
+That matters more than either primitive, because A-037 established that
+**allocation, not CPU, is the ceiling** — 80.9% GC pause at 18% CPU utilisation
+under concurrency. **A tier-2 candidate is therefore identified by allocation
+behaviour, not by CPU profile**, and the profiler that only shows CPU will miss
+every one of them.
+
+It also refutes the hypothesis this ADR would otherwise have adopted. §5b records
+it: we predicted NTS's simplification cost was topology repair — `IsValid` on
+every polygon, `Buffer(0)` on failures. Measured with repair disabled: 307.5 ms
+against 363.9 ms. Nothing. The cost was object churn all along.
+
+### 6d. Scope of this decision, and what is deferred
+
+**This decision is made for a single provider.** It is complete and sufficient
+for the walking skeleton, which is PostGIS only.
+
+**Deferred: the cross-engine consistency position.** Q-80 and Q-81 took the
+provider count to six, so six geometry engines will evaluate our predicates —
+PostGIS's GEOS, DuckDB's GEOS, MySQL 8's Boost.Geometry, MariaDB's, SQL Server's,
+Oracle's SDO_GEOM, plus NetTopologySuite in-process. **They disagree at the edges**
+on validity, precision, `touches` and empty-geometry results, and tier 1 pushes
+work into exactly those engines.
+
+That is a correctness problem rather than a performance one, and **ADR-008 §2's
+never-degrade-silently does not cover it**: refusing an unsupported operation is
+honest, quietly returning a different answer is not, and no capability report
+catches it because every engine claims `intersects`.
+
+It is `A-043`, it is deferred, and **the trigger is the second provider, not a
+date.** The validation mechanism is `experiments/geometry-oracle`: one corpus of
+adversarial geometries, all six engines, diff the answers. Until it runs, tier-1
+pushdown is proven on PostGIS and assumed nowhere else.
+
+### 6e. Precision
+
+The in-process factory uses a **floating** precision model. Tile-space
+quantisation to the 4096-unit integer grid is a **deliberate, lossy, terminal**
+transformation: quantised geometry is rendered and discarded, never written back
+and never used for analysis. This is the same rule
+[ADR-008](ADR-008-query-engine.md) §4.5a already states as *lossy on read means
+not writable*, arrived at from the other direction.
 
 ## 7. Assumptions
 
 | ID | Assumption | Status |
 |---|---|---|
 | A-004 | Hot-path geometry overhead is material enough to justify our own primitives | **`VALIDATED` 2026-08-12** — twice, on clipping and on simplification |
-| A-006 | A single internal geometry representation can serve both vector and tile paths without a second conversion | `UNVALIDATED` |
+| A-006 | A single internal geometry representation can serve both vector and tile paths without a second conversion | **`CONTESTED` 2026-08-13** — evidence points both ways, which per the register's own definition means it is stated at the wrong granularity. **Against it:** the tile path measured ~139 bytes allocated per vertex read, three to four copies of every coordinate, and both tier-2 primitives won by *leaving* the shared representation. **For it:** topology (tier 3) genuinely needs geometry objects, and GeometryServer is v1 core. The likely resolution is two representations with an explicit conversion where topology is required — which is **Q-66**, and is not decided here |
+| A-043 | Six geometry engines can be made to agree closely enough that the same query returns the same answer on any provider | `UNVALIDATED` — deferred with §6d. Gates provider two, not the skeleton |
 
 ## 8. Dependencies
 
@@ -197,7 +292,40 @@ for vector/raster interaction), the tiling pipeline.
 - The oracle suite shows the adopted engine failing cases we care about.
 - Benchmarks show the conversion boundary dominating the saved overhead.
 - The adopted engine's licence or maintenance status changes materially.
+- **A second provider ships** — §6d's deferral expires by event, not by date.
+- **Q-66 resolves toward coordinates rather than geometry objects**, which would
+  move the tier 2/3 boundary rather than merely optimise behind it.
+- **A tier-2 candidate is proposed that fails any of §6b's three conditions.**
+  The temptation will recur, and the conditions exist to be applied rather than
+  admired.
+
+## 9a. Conditions
+
+1. **Tier-1 pushdown is verified per dialect before that provider ships**, not
+   assumed from PostGIS. §6d.
+2. **Our two primitives keep a conformance test against NTS** on the cases where
+   both are valid — run 2 measured 292,716 output vertices against NTS's
+   293,508, and that agreement is a property to hold, not a coincidence to note
+   once.
+3. **The renderable-correctness bar in §6b.3 is enforced by construction**: tier
+   2 output must not be reachable by any analytical path. ADR-008 §4.5a is the
+   existing mechanism.
 
 ## 10. Dissent
 
-To be recorded during the debate round.
+**Against tier 2 existing at all.** Alternative A — adopt NTS for everything —
+is simpler, has no conformance burden and no second implementation to keep
+correct. The measurement is decisive against it on the hot path (63x and 47x),
+but the honest form of the objection is not *is it faster*; it is **how many
+primitives will we end up owning?** Each is a maintenance and correctness
+liability, and §6b's three conditions exist precisely because the answer must
+not be *as many as we feel like*.
+
+**Against tier 1 being first.** Pushing clip and simplify into the provider makes
+our output depend on six vendors' geometry implementations, which is §6d's
+deferred problem and A-043's risk. Doing the work in-process would give one
+answer everywhere. The counter is finding 11: without pushdown the fallback path
+reads two orders of magnitude more geometry than it emits, and no amount of
+in-process cleverness recovers that. **We have chosen consistency risk over a
+cost we measured, and §6d says so plainly rather than filing it as an
+optimisation.**
