@@ -9,18 +9,45 @@ making architectural claims. Section references below (§n) point into it.
 
 ---
 
-## 1. Current phase: Phase 0 — Architecture Discovery
+## 1. Current phase: Phase 1 — Implementation
 
-**Do not write production code.** (§3, §70, §85)
+**Phase 0 ended 2026-08-13 by owner decision.** Production code is written under
+`/src`, with tests under `/tests`.
 
-The only code permitted right now lives under `/experiments` and `/benchmarks`,
-and exists solely to answer a specific open architectural question. Experiment
-code is disposable. It is never promoted to production; if an experiment
-succeeds, the production implementation is written fresh under the architecture
-the experiment validated.
+Scope is [docs/v1-scope.md](docs/v1-scope.md), which is authoritative: **PostGIS
+only, ArcGIS FeatureServer, VectorTileServer and GeometryServer, hosted and
+registered data.** Where any other document disagrees, v1-scope wins until that
+document is amended.
 
-Phase 0 ends when `docs/architecture-assessment.md` is complete, the initial
-ADRs exist, and the criteria in §81 are met.
+**Phase 0 did not end because its criteria were met.** It ended because the
+remaining criteria were judged unanswerable without running code, and that
+judgement is recorded rather than implied. Of §81's sixteen:
+
+- **Met:** the assessment exists (though stale — see *carried*), the ADRs exist
+  with none `DRAFT`, the failure-scenario pass, the geometry and CRS pass, the
+  2 AM scenarios, and Q-49.
+- **Dissolved:** Q-49's *test with real GIS teams*, on the grounds that a gift
+  owes no market case. **This silently removed the validation path for A-003 and
+  five other assumptions** — see *carried*.
+- **Carried into Phase 1, and they are debts rather than completions:** the §66
+  review gates (0 of 9 run); the contradiction sweep, `REOPENED` because round 1
+  caught only forward-facing contradictions;
+  [architecture-assessment.md](docs/architecture-assessment.md), which describes
+  an architecture that no longer exists; the ADR conditions, roughly
+  twenty-five, none discharged; **A-003**, the load-bearing assumption under
+  ADR-007, which now has no validation route; and every finding in
+  [independent review 3](docs/reviews/independent-review-3-synthesis.md) not
+  removed by the v1 cut.
+
+**The rule that replaces "do not write production code":** a `carried` item does
+not become finished by being carried. Each is tracked in
+[architecture-completeness.md](docs/architecture-completeness.md), and Phase 1
+does not end with any of them still open.
+
+`/experiments` and `/benchmarks` remain disposable and are **never promoted**.
+Where an experiment validated a design — `RectClip`, `TileSimplify`, the MVT
+encoder — the production implementation is written fresh, and the experiment
+becomes a specification with a measured target attached.
 
 ## 2. Decision hygiene
 

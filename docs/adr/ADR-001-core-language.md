@@ -2,9 +2,49 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED` — **not validated by a language benchmark**, see §6 |
-| **Confidence** | `MEDIUM` |
+| **Status** | **`ACCEPTED WITH CONDITIONS`** — downgraded 2026-08-13, [independent review 3](../reviews/independent-review-3-synthesis.md) A1/P7. The comparison CLAUDE.md §7 required was not run, and §6's first reason for skipping it was voided the same day it was written. See §0 |
+| **Confidence** | **`LOW`** — was `MEDIUM`. The decision may well be right; the *evidence for it* is argument, and one of the three arguments is dead |
 | **Decided** | 2026-08-12 |
+
+---
+
+## 0. Status downgraded 2026-08-13 — the reason for skipping the prototype is dead
+
+§6 gives three reasons the two-language comparison was dropped. **The first no
+longer holds, and it was voided the same day §6 was written.**
+
+> "**In-process MVT encoding became mandatory.** `ST_AsMVT` is PostGIS-only, and
+> Oracle and SQL Server are first-class (Q-50a)…"
+
+**Q-67** decided tiles come only from hosted data, and the datastore is
+PostGIS-only. **Q-88** then cut v1 to PostGIS entirely.
+[RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) already says it plainly:
+*"there are now no tile sources that lack it… A-019 is no longer load-bearing."*
+
+The second reason — the no-GDAL rule neutralising C7 — rests on **A-016**, which
+this ADR's own §7 lists `UNVALIDATED`. The third is a competitor's commit count,
+which §6 itself calls "not a benchmark", and
+[competitive-position.md](../competitive-position.md) records that competitor as
+having four stars and no release.
+
+**So the decision now rests on one dead argument, one unvalidated assumption, and
+prior art.** Status is therefore `ACCEPTED WITH CONDITIONS` / `LOW`, not
+`ACCEPTED`.
+
+**This is not a reversal.** .NET is very likely right: the benchmark harness, the
+three measured rounds and every design decision downstream assume it, and nothing
+measured argues against it. What is being corrected is the **claim about the
+evidence**, which is the thing CLAUDE.md §3 exists to protect.
+
+**Condition to discharge:** either run the comparison the rules asked for, or
+record an owner decision accepting .NET without it. Until one of those happens
+this ADR is conditional, and §9's revisit trigger — *".NET misses the absolute
+targets"* — **cannot fire, because no targets exist** (`performance.md` is a
+stub, review finding P6).
+
+**Also corrected here:** §7's A-001 row said `VALIDATED` in its text and
+`UNVALIDATED` in its status column, and its A-016 row disagreed with the
+register. The register is authoritative and both are fixed.
 
 ---
 
@@ -313,7 +353,7 @@ necessary and is run then — with a reason, rather than as a ritual.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-001 | **`VALIDATED` 2026-08-12** — the tile path IS CPU-bound in our process, because `ST_AsMVT` is unavailable on two of three providers. 94 ms for a dense tile, 23 ms of it database. Earlier note, now superseded: **Now doubtful** — with `ST_AsMVT` pushdown the hot path may be dominated by database and network time, in which case all four candidates are adequate and this ADR turns on secondary criteria | `UNVALIDATED` |
+| A-001 | **`VALIDATED` 2026-08-12** — the tile path IS CPU-bound in our process, because `ST_AsMVT` is unavailable on two of three providers. 94 ms for a dense tile, 23 ms of it database. Earlier note, now superseded: **Now doubtful** — with `ST_AsMVT` pushdown the hot path may be dominated by database and network time, in which case all four candidates are adequate and this ADR turns on secondary criteria | **`VALIDATED`** (register is authoritative) |
 | A-002 | A single-binary distribution is genuinely valuable for air-gapped installs | `UNVALIDATED` |
 | A-005 | In-runtime geometry meaningfully reduces defect resolution time versus FFI | `UNVALIDATED` |
 | A-016 | GDAL-backed providers can be made optional, so a PostGIS-only deployment is genuinely one artefact (Q-28) | `UNVALIDATED` — if false, C7 is largely neutralised | 

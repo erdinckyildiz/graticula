@@ -222,6 +222,12 @@ non-standardness, and it keeps §50 honest.
 WMS, WFS and WMTS are **not core**. They are adapters over the same internal
 interface, in the compatibility layer (§51), for migration.
 
+> **Stale text below, corrected 2026-08-13** ([independent review 3](../reviews/independent-review-3-synthesis.md) A6). This section still
+> said *"Which ArcGIS-compatible surface to offer, if any, is still Q-17"* and
+> listed GeometryServer and GPServer as excluded because they *"produce rendered
+> images"* — which §3.3a established is false for both. **§0, §3.3a and §3.3b
+> are authoritative; the paragraphs below are retained for history.**
+
 **ArcGIS-compatible surface confirmed 2026-08-12 (Q-17): full FeatureServer,
 including edits.** Query plus `applyEdits`, `addFeatures`, `updateFeatures` and
 `deleteFeatures`. The reasoning: definition import (Q-16) moves the server

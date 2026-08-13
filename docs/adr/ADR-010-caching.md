@@ -310,12 +310,36 @@ that a tile cached on one node is a miss on another. **Accepting the miss is a
 legitimate choice** and should be the default: a miss costs a rebuild, not an
 error, and shared storage is a dependency we should not require.
 
-Invalidation must reach every node. Without portable `LISTEN`/`NOTIFY`
+> **Corrected 2026-08-13** ([independent review 3](../reviews/independent-review-3-synthesis.md) A5). The premise below — that
+> `LISTEN`/`NOTIFY` is not portable — cites **[ADR-002](ADR-002-primary-data-architecture.md) §4a.4**,
+> and §4a is stamped `SUPERSEDED` by §4b. **Q-70 made the platform store
+> PostgreSQL and only PostgreSQL**, so `LISTEN`/`NOTIFY` is available in every
+> deployment.
+>
+> **Three things follow, and nobody noticed they were available:**
+>
+> - **Invalidation is push, not poll.** The delay is a network round trip rather
+>   than a poll interval.
+> - **The disclosure window closes.** §5.1's *wrong* class — which includes
+>   *permissions changed* — no longer has a documented interval during which
+>   incorrect data is served. §8 called that *"a real correctness gap"* that
+>   *"should stay uncomfortable"*. It can stop being uncomfortable because it can
+>   stop existing.
+> - **The strongest argument for L2 evaporates.** The paragraph after this one
+>   says the window *"is the strongest argument for L2 as an optional
+>   accelerator"*. With no window, L2 must justify itself on its own merits —
+>   which is what CLAUDE.md §6 asks of Redis anyway.
+>
+> Polling remains the **fallback** where a listener connection is unavailable,
+> not the design. Q-30's *"the number must be documented"* still applies to that
+> fallback.
+
+Invalidation must reach every node. ~~Without portable `LISTEN`/`NOTIFY`
 ([ADR-002](ADR-002-primary-data-architecture.md) §4a.4), that is a polled
 invalidation sequence in the platform store — the same polling machinery as
 schema drift. **The invalidation delay is therefore bounded by the poll
 interval, and that bound must be documented**, because for the "wrong" class in
-§5.1 it is a window during which incorrect data is served.
+§5.1 it is a window during which incorrect data is served.~~
 
 That window is the strongest argument for L2 as an optional accelerator: with
 it, invalidation propagates immediately. Without it, correctness is preserved but

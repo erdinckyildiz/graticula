@@ -90,8 +90,16 @@ This is the clearest direct benefit of the Q-51 simplification.
 
 ### 3.3 Wake-up is polling, and the interval is a documented number
 
-`LISTEN`/`NOTIFY` is not portable
-([ADR-002](ADR-002-primary-data-architecture.md) §4a.4), so workers poll.
+> **Corrected 2026-08-13** ([independent review 3](../reviews/independent-review-3-synthesis.md) A5). Same superseded citation as
+> ADR-010 §7. **Q-70 made the platform store PostgreSQL only**, so
+> `LISTEN`/`NOTIFY` is available and job wake-up is push. A worker waiting on a
+> notification picks up a job in milliseconds rather than at the next poll, which
+> matters most for the **interactive job class** (§3.5) — registration and
+> publishing, where a human is watching. Polling stays as the fallback and as the
+> lease-reclaim sweep, which is time-based and cannot be push.
+
+~~`LISTEN`/`NOTIFY` is not portable
+([ADR-002](ADR-002-primary-data-architecture.md) §4a.4), so workers poll.~~
 
 The interval is a trade between latency and load, and it must be **a documented
 number rather than an implementation detail**, because it is the floor on how

@@ -41,9 +41,9 @@ for every review gate.
 | **Editing** | **In scope.** Through our API *and* directly against the database with QGIS. Both paths coexist. | Answered 2026-08-12 |
 | **Provider write capability** | **Full read/write on all three spatial engines** (Q-50a). Not read-only, not migrate-then-serve. Registered Oracle and SQL Server layers are editable through our API, subject to granted rights. | Answered 2026-08-12 |
 | **Migration tooling** | **Inventory plus definition import, free.** Scan the source server and report honestly what can and cannot come across, then import definitions. Data stays in place. | Answered 2026-08-12 |
-| **Datastore** | **v1, PostGIS only, optional, shipped as a managed appliance** we install and operate (Q-32). Not three engines - that was an over-application of the no-mandatory-PostgreSQL decision. | Answered 2026-08-12 |
+| **Datastore** | **v1, PostGIS only, MANDATORY (Q-69), shipped as a managed appliance** we install and operate (Q-32). Not three engines - that was an over-application of the no-mandatory-PostgreSQL decision. | Answered 2026-08-12 |
 | **Data ownership** | **No default.** Hosted and registered are both first class, chosen per layer by a lifecycle test: does the data have a life outside the service? | Answered 2026-08-12 |
-| **Compatibility surface** | **WFS, WMTS-for-vector-tiles, and full ArcGIS FeatureServer including edits** (Q-17). Not MapServer, ImageServer, GeometryServer or GPServer. | Answered 2026-08-12 |
+| **Compatibility surface** | ~~WFS, WMTS-for-vector-tiles, full FeatureServer; not GeometryServer or GPServer~~ → **superseded by Q-88.** v1 is **ArcGIS FeatureServer, VectorTileServer and GeometryServer**, and they are the *primary* surface rather than a compatibility layer. WFS and WMTS move to v2 with OGC API Features. | Answered 2026-08-12, superseded 2026-08-13 — [v1-scope.md](v1-scope.md) |
 | **Vector tile sources** | **Hosted data only, strictly** (Q-67). Registered Oracle, SQL Server and foreign PostGIS layers serve features and never tiles. | Answered 2026-08-12, against measured evidence rather than in advance of it — see below |
 
 ## Two users, two publishing paths
