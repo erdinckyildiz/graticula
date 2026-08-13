@@ -1,73 +1,94 @@
 # gis-server
 
-*(working title)*
+An enterprise GIS application server, designed from first principles and given
+away. Apache-2.0.
 
-A next-generation enterprise GIS application server, designed from first
-principles.
-
-**This repository currently contains no production code, by design.**
+**Working title.** Final product name: TBD.
 
 ---
 
-## What this is
+## Status
 
-An attempt to answer one question honestly:
+**Phase 1 — implementation**, since 2026-08-13. Phase 0's architecture work is in
+[`docs/`](docs/); what carried forward as debt rather than completion is listed
+in [CLAUDE.md](CLAUDE.md) §1 and tracked in
+[architecture-completeness.md](docs/architecture-completeness.md).
 
-> If we were designing an enterprise GIS application server from scratch today,
-> with every lesson learned from ArcGIS Server, ArcSOC, GeoServer, MapServer,
-> QGIS Server, PostGIS and the modern cloud-native geospatial ecosystem — but
-> none of their historical constraints — what should it look like?
+**v1 scope** is [docs/v1-scope.md](docs/v1-scope.md) and is authoritative:
 
-Not a clone of any of them. The full specification governing the work is
-[MASTER_GIS_PLATFORM_PROMPT.md](MASTER_GIS_PLATFORM_PROMPT.md).
+> A PostGIS-backed GIS server that speaks ArcGIS — feature services, vector tile
+> services and a geometry service — over data that is either hosted in our
+> datastore or registered in the customer's own PostGIS.
 
-## Current phase
+OGC API Features, the other databases, rendering, geoprocessing and the rest of
+the protocol surface are **deferred, not cancelled**; the map is
+[protocol-surface.md](docs/protocol-surface.md).
 
-**Phase 0 — Architecture Discovery.** Research, independent analysis, structured
-debate, prototypes where uncertain, benchmarks where measurable, and recorded
-decisions. Implementation begins only after this phase passes review (§70, §81,
-§85).
+## Building
 
-## Where to start reading
-
-| Document | What it holds |
-|---|---|
-| [CLAUDE.md](CLAUDE.md) | The working rules. Read first. |
-| [docs/product-context.md](docs/product-context.md) | What we are building and for whom. Has open items. |
-| [docs/build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md) | What we write ourselves, what we adopt, and where the seam goes. |
-| [docs/architecture-assessment.md](docs/architecture-assessment.md) | **The Phase 0 deliverable. First complete draft — all 27 sections written, not yet reviewed.** Start here for the whole picture. |
-| [docs/adr/](docs/adr/) | Twelve architecture decisions. Nine decided, one awaiting a prototype, two deferred. |
-| [docs/open-questions.md](docs/open-questions.md) | What we do not know yet. |
-| [docs/architecture-assumptions.md](docs/architecture-assumptions.md) | What we are betting on, and how each bet gets settled. |
-| [docs/architecture-completeness.md](docs/architecture-completeness.md) | How far each area has actually been taken. |
-
-## Design constraints already fixed
-
-- **Baseline deployment is `gis-server` → PostgreSQL/PostGIS.** Nothing more may
-  be *required* to run the platform. Kubernetes, Redis and message brokers are
-  optional at most, and must earn their place with evidence (§82).
-- **Scale target: 100–1,000 published services.** Larger numbers are stress
-  models, not requirements. Small deployments must not be made painful to serve
-  hypothetical large ones (§60).
-- **Open source, copyleft acceptable.** No dependency is excluded on licence
-  grounds; obligations are tracked in
-  [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
-- **Must run air-gapped**, on Linux and Windows, on a laptop and on a server.
-- **Every decision is reversible** (§10), including the language. Sunk cost is
-  not an argument.
-
-## Repository layout
-
-```text
-docs/           architecture documents and registers
-docs/adr/       architecture decision records
-docs/research/  raw research notes on existing systems
-experiments/    disposable code that answers architectural questions
-benchmarks/     repeatable measurements that settle disagreements
+```bash
+dotnet build
+dotnet test --filter "Category!=Integration"
 ```
+
+Integration tests need a PostgreSQL and are excluded by default:
+
+```bash
+export GISSERVER_TEST_PG="Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis"
+dotnet test --filter "Category=Integration"
+```
+
+They **fail rather than skip** when asked for without a database configured. A
+test that goes green with its subject absent is worse than no test — this
+project has caught three instruments lying already, and each was found by trying
+to make it fail rather than by reading it.
+
+## Layout
+
+| | |
+|---|---|
+| `src/GisServer.Core` | **Tier 1.** Geometry model and domain. No package references, enforced |
+| `src/GisServer.Platform` | **Tier 1.** Platform store schema, migrations, the version handshake |
+| `src/GisServer.Platform.Postgres` | **Tier 2 adapter.** Where Npgsql is allowed to be |
+| `tests/GisServer.Architecture.Tests` | Fails the build if a library reaches Tier 1 |
+| `benchmarks/` | **Disposable.** Never promoted; see below |
+| `docs/` | ADRs, registers, reviews |
+
+[build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md) §4 governs the tiers:
+Tier 1 is written by us always, Tier 2 libraries are permitted only behind our
+own port, and no library type may appear in a Tier 1 signature. That last rule is
+a build failure, not a convention.
+
+## Benchmarks are specifications, not code to reuse
+
+[`benchmarks/mvt-generation/RESULTS.md`](benchmarks/mvt-generation/RESULTS.md)
+holds three measured rounds against 6.5 million OpenStreetMap polygons. The code
+there is disposable and is never promoted (CLAUDE.md §1); what carries forward is
+the findings, and they shaped the production types directly:
+
+- **Allocation, not CPU, is the ceiling.** 80.9% GC pause at 18% CPU utilisation
+  under concurrency. A profiler showing only CPU reports an idle worker and
+  explains nothing.
+- **A coordinate must not be an object.** The adopted library made a
+  556,728-vertex tile into 556,728 heap objects; flat arrays halved a z12 tile's
+  allocation from 404 MB to 204 MB.
+- **A tile's cost floor is set by the largest geometry overlapping it.** A z16
+  tile read 201,580 vertices to emit 2,080, because four administrative polygons
+  overlap every tile in the city. Pushdown is structural, not tuning.
+
+## Documents worth reading first
+
+- [v1-scope.md](docs/v1-scope.md) — what is being built
+- [architecture-assessment.md](docs/architecture-assessment.md) — the synthesis.
+  **Known stale**; see review finding A2
+- [open-questions.md](docs/open-questions.md) — uncertainty is recorded, not hidden
+- [architecture-debt.md](docs/architecture-debt.md) — temporary compromises, with
+  repayment triggers
+- [reviews/](docs/reviews/) — including three independent adversarial reviews
+  that found 41 issues, 17 severe. §67 still owes a fourth, by someone who did
+  not participate
 
 ## Licence
 
-Not yet chosen. See [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md); the
-decision is open and material, since an AGPL choice carries network-use
-obligations for a server product.
+Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE) and
+[DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).

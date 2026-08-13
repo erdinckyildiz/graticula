@@ -16,6 +16,16 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
+  <ItemGroup Label="Data access — Tier 2, adapters only">
+    <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0
+         outbound. Referenced only by GisServer.Platform.Postgres; the
+         architecture test fails the build if it reaches Tier 1.
+         D-06's trigger is the first binary that BUNDLES a driver, not the first
+         reference, so it is not yet due — but the row in DEPENDENCY-LICENSES.md
+         is now real rather than hypothetical. -->
+    <PackageVersion Include="Npgsql" Version="9.0.2" />
+  </ItemGroup>
+
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />

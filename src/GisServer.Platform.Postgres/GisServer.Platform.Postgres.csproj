@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. This is where the database driver is allowed to be.
+
+    build-vs-adopt-policy.md §4: adopted libraries are permitted, behind our own
+    port interface, and no library type may appear in a Tier 1 signature. The
+    port is IPlatformSchemaStore in GisServer.Platform; Npgsql lives here and
+    nothing outside this project references it.
+
+    tests/GisServer.Architecture.Tests fails the build if that slips.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>GisServer.Platform.Postgres</RootNamespace>
+    <AssemblyName>GisServer.Platform.Postgres</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GisServer.Platform\GisServer.Platform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+</Project>
