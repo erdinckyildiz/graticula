@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>GisServer.Platform.Postgres.Tests</RootNamespace>
+    <RootNamespace>GisServer.Api.ArcGis.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,9 +11,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\GisServer.Platform.Postgres\GisServer.Platform.Postgres.csproj" />
-    <ProjectReference Include="..\..\src\GisServer.Core\GisServer.Core.csproj" />
-    <ProjectReference Include="..\..\src\GisServer.Providers.PostGis\GisServer.Providers.PostGis.csproj" />
     <ProjectReference Include="..\..\src\GisServer.Api.ArcGis\GisServer.Api.ArcGis.csproj" />
   </ItemGroup>
 

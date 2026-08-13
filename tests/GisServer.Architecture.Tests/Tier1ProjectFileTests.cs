@@ -41,6 +41,7 @@ public sealed class Tier1ProjectFileTests
     [
         Path.Combine("src", "GisServer.Core", "GisServer.Core.csproj"),
         Path.Combine("src", "GisServer.Platform", "GisServer.Platform.csproj"),
+        Path.Combine("src", "GisServer.Api.ArcGis", "GisServer.Api.ArcGis.csproj"),
     ];
 
     [Fact]
