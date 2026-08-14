@@ -1,0 +1,87 @@
+# gis-server, from nothing to a served layer.
+#
+# See README.md for the four commands. This file is the whole deployment: one
+# server against one PostGIS, which is CLAUDE.md §6's baseline target and
+# ADR-019's fused-tier decision made concrete.
+
+name: gis-server
+
+services:
+  datastore:
+    build:
+      context: ./deploy
+      dockerfile: datastore.Dockerfile
+    environment:
+      POSTGRES_DB: gis
+      POSTGRES_USER: gis
+      # Development only. Change it, or supply it from a secret, before this is
+      # reachable by anything you do not control.
+      POSTGRES_PASSWORD: ${GIS_DATASTORE_PASSWORD:-gis}
+    volumes:
+      - datastore:/var/lib/postgresql/data
+    healthcheck:
+      # The server refuses to start against a store it cannot identify, so
+      # starting it before PostgreSQL accepts connections turns a race into a
+      # crash loop that looks like a bug in the server.
+      test: ["CMD-SHELL", "pg_isready -U gis -d gis"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: deploy/server.Dockerfile
+    depends_on:
+      datastore:
+        condition: service_healthy
+    environment:
+      GisServer__PlatformStore: >-
+        Host=datastore;Port=5432;Database=gis;Username=gis;
+        Password=${GIS_DATASTORE_PASSWORD:-gis};Search Path=gisserver,public
+
+      # Required, and there is no default on purpose. It seals every registered
+      # data source credential (ADR-002 §4.7): a default would be a published
+      # key, and every deployment that forgot to change it would be readable
+      # from a database backup by anyone who had read this file.
+      #
+      #   docker compose run --rm --no-deps server keygen
+      #
+      # Passed through empty rather than guarded with compose's `:?` syntax. The
+      # guard fires on every command including `run ... keygen`, so the check
+      # made the command that produces the value impossible to run. Found by
+      # trying it. The server refuses to start without it and says so clearly,
+      # which is the better place for the error anyway.
+      GisServer__SecretKey: ${GIS_SECRET_KEY:-}
+
+      GisServer__HostName: ${GIS_HOSTNAME:-localhost}
+    ports:
+      - "${GIS_PORT:-8443}:8443"
+    volumes:
+      # ADR-016 §3 and its condition 4: the serving certificate is state, not
+      # configuration. Without this volume the server generates a new identity
+      # on every replacement and every client that trusted the old one fails at
+      # the same moment.
+      - server-state:/var/lib/gis-server
+    healthcheck:
+      # Liveness, which by design does not consult the database — a probe that
+      # did would tell the orchestrator to kill this container during a
+      # datastore outage, turning an outage into a restart loop.
+      test: ["CMD-SHELL", "curl -fsSk https://127.0.0.1:8443/healthz/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # on-failure, bounded, NOT unless-stopped. ADR-016 §4b makes the server
+    # refuse to start against an un-migrated or newer store, and that refusal is
+    # permanent until somebody acts — so an unbounded restart policy turns a
+    # correct, well-explained refusal into a crash loop, and the explanation
+    # scrolls past five times a minute. Observed on the first clean run of this
+    # file.
+    restart: on-failure:5
+
+volumes:
+  datastore:
+  server-state:

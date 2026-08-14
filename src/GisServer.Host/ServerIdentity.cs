@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -44,6 +45,62 @@ internal static class ServerIdentity
     private static readonly TimeSpan Lifetime = TimeSpan.FromDays(365);
 
     /// <summary>Generates a self-signed certificate for <paramref name="hostName"/>.</summary>
+    /// <summary>
+    /// Loads the persisted self-signed certificate, generating one on first run.
+    /// </summary>
+    /// <param name="hostName">The name to put in the subject alternative name.</param>
+    /// <param name="statePath">
+    /// The directory that survives a container replacement.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-016 §3 lists certificates as state, and condition 4 says this is
+    /// the entry most likely to be treated as configuration by whoever writes
+    /// the compose file.</b> It was: until now the server generated a fresh
+    /// certificate on every start, so every restart changed the server's
+    /// identity and every client that had pinned or accepted it failed at once.
+    /// </para>
+    /// <para>
+    /// <b>Written without a password, and the volume is the protection.</b> A
+    /// password stored beside the file it protects is theatre; the honest
+    /// statement is that anything able to read this directory holds the
+    /// server's private key, which is equally true of the AES key that lives
+    /// there too.
+    /// </para>
+    /// </remarks>
+    public static X509Certificate2 LoadOrCreate(string hostName, string statePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hostName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(statePath);
+
+        string file = Path.Combine(statePath, "serving-certificate.pfx");
+
+        if (File.Exists(file))
+        {
+            X509Certificate2 existing = X509CertificateLoader.LoadPkcs12FromFile(file, password: null);
+
+            // An expired certificate is replaced rather than served. Serving one
+            // fails every client with an error that names expiry, which is at
+            // least clear — but a server that can fix it and does not is just
+            // waiting to be woken at 03:14 (ADR-017 §3.4).
+            if (existing.NotAfter > DateTimeOffset.UtcNow.AddDays(1))
+            {
+                return existing;
+            }
+
+            existing.Dispose();
+        }
+
+        X509Certificate2 generated = GenerateSelfSigned(hostName);
+
+        Directory.CreateDirectory(statePath);
+        File.WriteAllBytes(file, generated.Export(X509ContentType.Pkcs12));
+
+        return generated;
+    }
+
+    /// <summary>Generates a self-signed certificate.</summary>
+    /// <param name="hostName">The name to put in the subject alternative name.</param>
     public static X509Certificate2 GenerateSelfSigned(string hostName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(hostName);

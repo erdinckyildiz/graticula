@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using Microsoft.Extensions.Configuration;
 
@@ -31,7 +32,8 @@ internal sealed record HostSettings(
     bool RequireHttps,
     string? CertificatePath,
     string? CertificatePassword,
-    TimeSpan SessionLifetime)
+    TimeSpan SessionLifetime,
+    string StatePath)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -86,7 +88,15 @@ internal sealed record HostSettings(
             // is not useful next week. ADR-015 3 makes this cheap to change --
             // sessions are server-side, so shortening it takes effect at once
             // rather than waiting for issued tokens to expire.
-            TimeSpan.FromHours(configuration.GetValue("GisServer:SessionHours", defaultValue: 12)));
+            TimeSpan.FromHours(configuration.GetValue("GisServer:SessionHours", defaultValue: 12)),
+
+            // ADR-016 §3's secret volume. Defaults to a directory beside the
+            // process for a local run, and is mounted in a container. Anything
+            // that must survive a container replacement and is not in the
+            // platform database lives here — today that is the serving
+            // certificate.
+            configuration["GisServer:StatePath"]
+                ?? Path.Combine(AppContext.BaseDirectory, "state"));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>

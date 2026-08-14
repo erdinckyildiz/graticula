@@ -227,6 +227,12 @@ developer then runs what the customer runs.
 1. **A version-mismatch refusal is tested by deliberately starting a stale
    image**, and the message must name which two components disagree and in which
    direction.
+   **PARTLY DISCHARGED.** The refusal has been observed twice against a real
+   store — a schema-5 server against a schema-2 store, and against an empty one
+   — and both messages name the two versions and the direction. What has *not*
+   been tested is the other direction: a **stale image against a newer store**,
+   which is the dangerous case §4b exists for. That needs two published image
+   tags, so it is owed with the first release rather than now.
 2. **A rollback is rehearsed**, not assumed: upgrade, roll back before contract,
    confirm the previous version serves correctly.
 3. **The bundle is tested by installing on a machine with no network route**,
@@ -234,6 +240,20 @@ developer then runs what the customer runs.
 4. **Certificate material survives a container replacement**, tested — §3 lists
    it as state, and it is the entry most likely to be treated as configuration
    by whoever writes the compose file.
+   **DISCHARGED 2026-08-14, and the prediction was correct: it was wrong.** The
+   server generated a fresh self-signed certificate on every start, so every
+   replacement changed its identity and every client that had accepted the old
+   one failed at the same moment. It is now written to the state volume on first
+   run and loaded thereafter, replaced only when within a day of expiry.
+   Verified by capturing the SHA-256 fingerprint, running `docker compose down`
+   — which destroys the containers — then `up`, and comparing. Identical.
+
+   Two further quickstart defects came out of the same walk, both from running
+   it rather than reading it: compose's `${VAR:?}` guard on the secret key fired
+   on *every* command including the `keygen` that produces the value, making the
+   documented first step impossible; and `restart: unless-stopped` turned
+   §4b's deliberate, permanent refusal to start against an un-migrated store
+   into a crash loop that scrolled its own explanation away five times a minute.
 
 ## 11. Assumptions
 

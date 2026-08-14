@@ -34,6 +34,21 @@ public static class Program
     /// <summary>Entry point.</summary>
     public static async Task<int> Main(string[] args)
     {
+        // Before configuration is read, because its whole purpose is to
+        // produce the value that configuration will demand. A first run should
+        // not require the operator to know how to drive openssl.
+        if (args is ["keygen", ..])
+        {
+            Console.WriteLine(Convert.ToBase64String(SecretProtector.GenerateKey()));
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "That is a 32-byte AES-256 key, base64. Set it as GisServer__SecretKey. It seals "
+                + "every registered data source credential (ADR-002 §4.7), so a lost key means "
+                + "every registration must be re-entered, and a leaked one means every credential "
+                + "is readable from a database backup. Keep it where you keep secrets.");
+            return 0;
+        }
+
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
         HostSettings settings = HostSettings.Read(builder.Configuration);
@@ -282,7 +297,7 @@ public static class Program
 
                 X509Certificate2 certificate = settings.CertificatePath is { } path
                     ? X509CertificateLoader.LoadPkcs12FromFile(path, settings.CertificatePassword)
-                    : ServerIdentity.GenerateSelfSigned(settings.HostName);
+                    : ServerIdentity.LoadOrCreate(settings.HostName, settings.StatePath);
 
                 listen.UseHttps(https =>
                 {

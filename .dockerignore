@@ -1,0 +1,12 @@
+# Keeps the build context small and the image reproducible. Without this the
+# context includes every bin/ and obj/ in the tree, which is slow and can leak a
+# host-built binary into the image.
+**/bin/
+**/obj/
+.git/
+.vs/
+.env
+benchmarks/
+experiments/
+docs/
+*.md
