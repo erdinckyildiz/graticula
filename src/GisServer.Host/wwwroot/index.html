@@ -14,14 +14,14 @@
   No build step, no framework, no npm — A-055. The trade is a large file for a
   small supply chain, and it reverses at some size.
 
-  The map is esri-leaflet, which is Apache-2.0. The ArcGIS Maps SDK for
-  JavaScript would also work and is not open source, which is a strange thing to
-  require of people who came here to avoid Esri licensing (ADR-020 §4).
+  The map is the ArcGIS Maps SDK, loaded from Esri's CDN. That is not
+  redistribution — the browser fetches it and nothing proprietary ships inside
+  this product — and it is the real client rather than a light one, which makes
+  it the closest test of whether the server is genuinely ArcGIS-compatible.
 -->
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
+<link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.29/"></script>
 
 <style>
   :root {
@@ -30,25 +30,14 @@
     --accent: #0b6157; --ok: #2f7a55; --stop: #92620d; --alert: #a63a2b;
     --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #0c1413; --surface: #121b1a; --surface-2: #172220;
-      --ink: #e3ece8; --muted: #8fa29d; --rule: #24322f;
-      --accent: #4fb5a6; --ok: #56a97c; --stop: #c7962f; --alert: #d9705d;
-    }
-  }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  header {
-    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-    padding: 14px 22px; border-bottom: 1px solid var(--rule); background: var(--surface);
-  }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+           padding: 14px 22px; border-bottom: 1px solid var(--rule); background: var(--surface); }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; }
   header .who { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: auto; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 22px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .09em;
        color: var(--muted); font-weight: 600; margin: 26px 0 10px; }
   h2:first-child { margin-top: 0; }
@@ -58,11 +47,11 @@
   th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em;
        text-transform: uppercase; color: var(--muted); font-weight: 400;
        padding: 10px 13px; background: var(--surface-2); border-bottom: 1px solid var(--rule); }
-  td { padding: 10px 13px; border-top: 1px solid var(--rule); vertical-align: middle; }
+  td { padding: 9px 13px; border-top: 1px solid var(--rule); vertical-align: middle; }
   tr:first-child td { border-top: 0; }
-  td.name { font-weight: 600; cursor: pointer; }
-  td.name:hover { color: var(--accent); text-decoration: underline; }
   .sub { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+            margin-right: 7px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.25); }
 
   .pill { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
           letter-spacing: .05em; padding: 3px 7px; border-radius: 2px;
@@ -70,30 +59,25 @@
   .p-started { color: var(--ok); border-color: var(--ok); }
   .p-stopped { color: var(--stop); border-color: var(--stop); }
   .p-public { color: var(--accent); border-color: var(--accent); }
-  .p-org, .p-private { color: var(--muted); border-color: var(--rule); }
+  .p-organization, .p-private { color: var(--muted); border-color: var(--rule); }
 
-  button, select {
-    font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 3px;
-    border: 1px solid var(--rule); background: var(--surface); color: var(--ink); cursor: pointer;
-  }
+  button, select { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 3px;
+                   border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+                   cursor: pointer; }
   button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-
   input { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 3px;
           border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
 
-  #map { height: 420px; border-top: 1px solid var(--rule); }
-  #detail { display: none; }
-  #detail.on { display: block; }
-  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 1px; background: var(--rule); border-bottom: 1px solid var(--rule); }
-  .meta div { background: var(--surface); padding: 10px 13px; }
-  .meta .k { font-family: var(--mono); font-size: 10px; letter-spacing: .09em;
-             text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 3px; }
-  .meta .v { font-size: 14px; }
+  #mapPanel { display: none; margin-bottom: 8px; }
+  #mapPanel.on { display: block; }
+  #view { height: 480px; }
+  #legend { padding: 9px 13px; border-top: 1px solid var(--rule); font-size: 13px;
+            display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
 
-  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 460px; z-index: 2000;
+  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 480px; z-index: 2000;
            background: var(--surface); border: 1px solid var(--rule); border-left-width: 3px;
            border-radius: 3px; padding: 12px 15px; font-size: 13.5px; display: none;
            box-shadow: 0 10px 28px -14px rgba(0,0,0,.5); }
@@ -104,8 +88,8 @@
   #signin { max-width: 380px; margin: 90px auto; }
   #signin .panel { padding: 22px; }
   #signin label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
-  #signin input { width: 100%; }
-  #signin button { width: 100%; margin-top: 18px; }
+  #signin input, #signin button { width: 100%; }
+  #signin button { margin-top: 18px; }
   .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
 </style>
 </head>
@@ -124,30 +108,25 @@
     <label for="u">Name</label><input id="u" autocomplete="username">
     <label for="p">Password</label><input id="p" type="password" autocomplete="current-password">
     <button class="primary" id="go">Sign in</button>
-    <p class="hint">
-      Everything below is the admin API. Nothing here can do anything
-      <code>curl</code> could not.
-    </p>
+    <p class="hint">Everything below is the admin API. Nothing here can do anything
+      <code>curl</code> could not.</p>
   </div>
 </div>
 
 <main class="wrap" id="app" style="display:none">
+  <div class="panel" id="mapPanel">
+    <div id="view"></div>
+    <div id="legend"></div>
+  </div>
+
   <h2>Services</h2>
   <div class="panel">
     <table>
       <thead><tr>
-        <th>Name</th><th>Source</th><th>Status</th><th>Sharing</th><th>ArcGIS</th><th></th>
+        <th></th><th>Name</th><th>Source</th><th>Status</th><th>Sharing</th><th>ArcGIS</th><th></th>
       </tr></thead>
       <tbody id="layers"></tbody>
     </table>
-  </div>
-
-  <div id="detail">
-    <h2 id="detailName">Service</h2>
-    <div class="panel">
-      <div class="meta" id="detailMeta"></div>
-      <div id="map"></div>
-    </div>
   </div>
 
   <h2>Data sources</h2>
@@ -164,14 +143,19 @@
 <script>
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem("gis-token") || null;
-let map = null, preview = null;
+
+// One colour per shown layer, so the legend means something.
+const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
+const shown = new Map();     // layer name -> { colour, layer }
+let esri = null;             // the SDK modules, loaded once
+let view = null;
 
 function toast(message, ok = false) {
   const t = $("toast");
   t.textContent = message;
   t.className = "on " + (ok ? "good" : "bad");
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => (t.className = ""), 6000);
+  t._timer = setTimeout(() => (t.className = ""), 7000);
 }
 
 async function api(path, options = {}) {
@@ -184,19 +168,149 @@ async function api(path, options = {}) {
   try { body = text ? JSON.parse(text) : null; } catch { /* not json */ }
 
   if (!response.ok) {
-    // The server's own message, not a generic one. Every refusal in this
-    // product is written to say what to do about it, and swallowing that in
-    // favour of "request failed" would waste the only useful part.
+    // The server's own message. Every refusal in this product is written to say
+    // what to do about it, and replacing that with "request failed" throws away
+    // the only useful part.
     throw new Error((body && body.error && body.error.message) || `${response.status} ${path}`);
   }
   return body;
 }
 
+/**
+ * Loads the SDK once and teaches it to authenticate.
+ *
+ * The map's requests go straight from the browser to /rest/services/… and would
+ * otherwise carry no credential — so a private or organization layer would 404
+ * for the map while the console can see it perfectly. ADR-015 §4's answer to
+ * this in the ArcGIS world is a `token=` query parameter, which we deliberately
+ * do not implement because a credential in a URL leaks into every proxy log.
+ *
+ * An interceptor puts it in the Authorization header instead, which is the form
+ * ADR-015 §4 says clients should prefer. That it works with the real SDK is the
+ * argument for not rushing `token=`.
+ */
+function loadEsri() {
+  if (esri) return Promise.resolve(esri);
+
+  return new Promise((resolve, reject) => {
+    require([
+      "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
+      "esri/layers/WebTileLayer", "esri/Basemap", "esri/config",
+    ], (Map, MapView, FeatureLayer, WebTileLayer, Basemap, config) => {
+      config.request.interceptors.push({
+        urls: location.origin,
+        before: params => {
+          params.requestOptions.headers = {
+            ...(params.requestOptions.headers || {}),
+            Authorization: "Bearer " + token,
+          };
+        },
+      });
+
+      esri = { Map, MapView, FeatureLayer, WebTileLayer, Basemap };
+      resolve(esri);
+    }, reject);
+  });
+}
+
+async function ensureMap() {
+  const { Map, MapView, WebTileLayer, Basemap } = await loadEsri();
+  if (view) return view;
+
+  // OpenStreetMap rather than an Esri basemap: Esri's need an API key tied to
+  // an ArcGIS account, which is exactly what the people this product is for do
+  // not have.
+  const basemap = new Basemap({
+    baseLayers: [new WebTileLayer({
+      urlTemplate: "https://tile.openstreetmap.org/{level}/{col}/{row}.png",
+      copyright: "© OpenStreetMap contributors",
+    })],
+  });
+
+  view = new MapView({
+    container: "view",
+    map: new Map({ basemap }),
+    center: [0, 20],
+    zoom: 2,
+  });
+
+  return view;
+}
+
+function symbolFor(geometryType, colour) {
+  if (geometryType === "esriGeometryPolygon") {
+    return { type: "simple-fill", color: colour + "55",
+             outline: { color: colour, width: 1.6 } };
+  }
+  if (geometryType === "esriGeometryPolyline") {
+    return { type: "simple-line", color: colour, width: 2.4 };
+  }
+  return { type: "simple-marker", size: 9, color: colour,
+           outline: { color: "#fff", width: 1.2 } };
+}
+
+function drawLegend() {
+  $("legend").innerHTML = shown.size === 0
+    ? '<span class="sub">Nothing shown. Use Show next to a service.</span>'
+    : [...shown.entries()].map(([name, s]) =>
+        `<span><i class="swatch" style="background:${s.colour}"></i>${name}</span>`).join("");
+}
+
+async function show(name, geometryType) {
+  const { FeatureLayer } = await loadEsri();
+  const mapView = await ensureMap();
+
+  const colour = PALETTE[shown.size % PALETTE.length];
+
+  const layer = new FeatureLayer({
+    url: `${location.origin}/rest/services/${encodeURIComponent(name)}/FeatureServer/0`,
+    title: name,
+    outFields: ["*"],
+    renderer: { type: "simple", symbol: symbolFor(geometryType, colour) },
+    popupTemplate: { title: name, content: "{*}" },
+  });
+
+  mapView.map.add(layer);
+  shown.set(name, { colour, layer });
+  drawLegend();
+  $("mapPanel").classList.add("on");
+
+  try {
+    await layer.when();
+
+    // Zoom to the layer just shown. fullExtent comes from the layer document,
+    // which this server fills from PostGIS statistics — so it may be absent,
+    // and an absent extent is said out loud rather than left as a map that
+    // quietly did not move.
+    if (layer.fullExtent) {
+      await mapView.goTo(layer.fullExtent.expand(1.4));
+    } else {
+      toast(`${name} is shown, but its extent is unknown so the map did not move. `
+        + "Run ANALYZE on the source table and reload.");
+    }
+  } catch (e) {
+    // The SDK reports a refused request here, and the server's message is the
+    // useful part — a stopped service, a layer not shared, a parameter refused.
+    hide(name);
+    toast(`${name}: ${e.message || e}`);
+  }
+}
+
+function hide(name) {
+  const entry = shown.get(name);
+  if (!entry) return;
+  if (view) view.map.remove(entry.layer);
+  shown.delete(name);
+  drawLegend();
+  if (shown.size === 0) $("mapPanel").classList.remove("on");
+}
+
 async function refreshHealth() {
   try {
     const h = await api("/admin/health");
-    $("health").textContent =
-      h.status === "ok" ? "platform store reachable" : "DEGRADED — platform store unreachable";
+    $("health").textContent = h.status === "ok"
+      ? "platform store reachable"
+      : "DEGRADED — platform store unreachable";
   } catch { $("health").textContent = "unreachable"; }
 }
 
@@ -208,94 +322,86 @@ async function whoami() {
   return me;
 }
 
-const pill = (value, kind) => `<span class="pill p-${value}">${value}</span>`;
+const pill = value => `<span class="pill p-${value}">${value}</span>`;
 
 async function loadLayers() {
   const { layers } = await api("/admin/layers");
-  $("layers").innerHTML = layers.map(l => `
-    <tr>
-      <td class="name" data-open="${l.name}">${l.name}</td>
+
+  $("layers").innerHTML = layers.map(l => {
+    const isShown = shown.has(l.name);
+    const stopped = l.status === "stopped";
+    const swatch = isShown
+      ? `<i class="swatch" style="background:${shown.get(l.name).colour}"></i>` : "";
+
+    return `<tr>
+      <td>
+        <button data-show="${l.name}" class="${isShown ? "on" : ""}"
+          ${stopped ? "disabled title='A stopped service answers 503, so there is nothing to draw.'" : ""}>
+          ${isShown ? "Hide" : "Show"}
+        </button>
+      </td>
+      <td><b class="${isShown ? "zoom" : ""}" data-zoom="${isShown ? l.name : ""}"
+             style="${isShown ? "cursor:pointer" : ""}"
+             title="${isShown ? "Zoom to this layer" : ""}">${swatch}${l.name}</b></td>
       <td class="sub">${l.dataSource} · ${l.table}</td>
       <td>${pill(l.status)}</td>
       <td>${pill(l.sharing)}</td>
       <td class="sub">${l.arcGisServable ? "yes" : "no object id"}</td>
       <td style="text-align:right; white-space:nowrap">
-        <button data-toggle="${l.name}" data-to="${l.status === "started" ? "stop" : "start"}">
-          ${l.status === "started" ? "Stop" : "Start"}
+        <button data-toggle="${l.name}" data-to="${stopped ? "start" : "stop"}">
+          ${stopped ? "Start" : "Stop"}
         </button>
         <select data-share="${l.name}">
-          ${["private", "organization", "public"]
-            .map(s => `<option value="${s}"${s === l.sharing ? " selected" : ""}>${s}</option>`)
-            .join("")}
+          ${["private", "organization", "public"].map(s =>
+            `<option value="${s}"${s === l.sharing ? " selected" : ""}>${s}</option>`).join("")}
         </select>
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 }
 
 async function loadSources() {
   const { dataSources } = await api("/admin/datasources");
-  $("sources").innerHTML = dataSources.map(d => `
-    <tr><td><b>${d.name}</b></td><td class="sub">${d.kind}</td><td class="sub">${d.layerCount}</td></tr>
-  `).join("");
-}
-
-/**
- * Opens a service using only what a client would have: the layer document.
- * If this can draw it, so can ArcGIS Pro.
- */
-async function open(name) {
-  const doc = await api(`/rest/services/${encodeURIComponent(name)}/FeatureServer/0?f=json`);
-
-  $("detailName").textContent = name;
-  $("detail").classList.add("on");
-  $("detailMeta").innerHTML = [
-    ["geometry", doc.geometryType.replace("esriGeometry", "")],
-    ["object id", doc.objectIdField || "none"],
-    ["fields", doc.fields.length],
-    ["capabilities", doc.capabilities],
-    ["max records", doc.maxRecordCount],
-    ["extent", doc.extent ? "known" : "unknown"],
-  ].map(([k, v]) => `<div><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
-
-  if (!map) {
-    map = L.map("map").setView([0, 0], 2);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-  }
-  if (preview) { map.removeLayer(preview); preview = null; }
-
-  preview = L.esri.featureLayer({
-    url: `${location.origin}/rest/services/${encodeURIComponent(name)}/FeatureServer/0`,
-    pointToLayer: (g, latlng) => L.circleMarker(latlng,
-      { radius: 7, color: "#0b6157", weight: 2, fillColor: "#4fb5a6", fillOpacity: .8 }),
-  });
-  preview.on("requesterror", e => toast("The map client could not read the service: " + (e.message || "")));
-  preview.addTo(map);
-
-  setTimeout(() => map.invalidateSize(), 50);
-  preview.once("load", () => {
-    const b = preview.getBounds();
-    if (b && b.isValid()) map.fitBounds(b.pad(0.35));
-  });
-}
-
-async function refresh() {
-  await Promise.all([refreshHealth(), loadLayers(), loadSources()]);
+  $("sources").innerHTML = dataSources.map(d =>
+    `<tr><td><b>${d.name}</b></td><td class="sub">${d.kind}</td>
+     <td class="sub">${d.layerCount}</td></tr>`).join("");
 }
 
 document.addEventListener("click", async event => {
-  const openName = event.target.dataset?.open;
-  if (openName) { try { await open(openName); } catch (e) { toast(e.message); } return; }
+  // Clicking a shown layer's name re-frames the map on it, which is what you
+  // want once several are up.
+  const zoomName = event.target.dataset?.zoom;
+  if (zoomName && shown.has(zoomName) && view) {
+    const { layer } = shown.get(zoomName);
+    if (layer.fullExtent) { await view.goTo(layer.fullExtent.expand(1.4)); }
+    else { toast(`${zoomName} has no known extent.`); }
+    return;
+  }
+
+  const showName = event.target.dataset?.show;
+  if (showName) {
+    if (shown.has(showName)) { hide(showName); await loadLayers(); return; }
+    event.target.disabled = true;
+    try {
+      // The geometry type comes from the layer document, which is what the SDK
+      // will read anyway — asking first only chooses the symbol.
+      const doc = await api(`/rest/services/${encodeURIComponent(showName)}/FeatureServer/0?f=json`);
+      await show(showName, doc.geometryType);
+    } catch (e) { toast(e.message); }
+    await loadLayers();
+    return;
+  }
 
   const toggle = event.target.dataset?.toggle;
   if (toggle) {
-    const action = event.target.dataset.to;
     event.target.disabled = true;
     try {
-      const r = await api(`/admin/layers/${encodeURIComponent(toggle)}/${action}`, { method: "POST" });
+      const r = await api(`/admin/layers/${encodeURIComponent(toggle)}/${event.target.dataset.to}`,
+        { method: "POST" });
+      if (r.to === "stopped") hide(toggle);
       toast(`${toggle}: ${r.from} → ${r.to}. ${r.note}`, true);
-      await loadLayers();
-    } catch (e) { toast(e.message); event.target.disabled = false; }
+    } catch (e) { toast(e.message); }
+    await loadLayers();
   }
 });
 
@@ -309,8 +415,8 @@ document.addEventListener("change", async event => {
       body: JSON.stringify({ sharing: event.target.value }),
     });
     toast(`${share}: shared ${r.from} → ${r.to}`, true);
-    await loadLayers();
-  } catch (e) { toast(e.message); await loadLayers(); }
+  } catch (e) { toast(e.message); }
+  await loadLayers();
 });
 
 $("go").addEventListener("click", async () => {
@@ -336,10 +442,12 @@ $("signout").addEventListener("click", async () => {
 async function start() {
   const me = await whoami();
   if (!me.authenticated) { $("signin").style.display = ""; $("app").style.display = "none"; return; }
+
   $("signin").style.display = "none";
   $("app").style.display = "";
   $("signout").style.display = "";
-  await refresh();
+  drawLegend();
+  await Promise.all([refreshHealth(), loadLayers(), loadSources()]);
 }
 
 start().catch(e => toast(e.message));

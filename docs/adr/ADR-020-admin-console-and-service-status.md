@@ -96,8 +96,26 @@ that affects every consumer of it, including people the publisher has never met.
 
 ## 4. Decision — the map library is not Esri's proprietary SDK
 
-The request named the ArcGIS Maps SDK for JavaScript. The console uses
-**esri-leaflet** instead, and the reason is licensing rather than capability.
+**Amended 2026-08-14, the same day, on a corrected premise.** This section first
+chose esri-leaflet over the ArcGIS Maps SDK on redistribution grounds. That
+reasoning was too broad: **loading the SDK from Esri's CDN is not
+redistribution** — the browser fetches it and nothing proprietary ships inside
+this product. The objection only ever applied to bundling it.
+
+So the console uses the **ArcGIS Maps SDK**, and the argument for it is stronger
+than neutrality: esri-leaflet is a light client that asks for very little, and
+the Maps SDK is what ArcGIS Pro and every Esri web app are built on. Pointing the
+demanding client at ourselves is the closest available test of whether this
+server is ArcGIS-compatible or merely compatible with the subset we implemented —
+and the first time it was tried it found four parameters we refused that every
+client sends.
+
+**What still holds:** nothing proprietary may be vendored into the repository or
+the image. If the SDK is ever bundled for an air-gapped deployment (Q-15), this
+decision is reopened, and esri-leaflet — which is Apache-2.0 — is the fallback
+that needs no permission.
+
+The original comparison, retained:
 
 | | ArcGIS Maps SDK for JS | esri-leaflet |
 |---|---|---|
