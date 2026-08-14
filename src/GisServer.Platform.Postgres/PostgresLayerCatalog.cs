@@ -18,7 +18,7 @@ public sealed class PostgresLayerCatalog
         l.id, l.name, l.schema_name, l.table_name, l.geometry_column, l.srid,
         l.identity_column, l.object_id_column, l.is_hosted, l.geometry_type,
         d.name, d.connection_secret, d.key_version,
-        l.owner_principal_id, l.sharing
+        l.owner_principal_id, l.sharing, l.status
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -106,7 +106,8 @@ public sealed class PostgresLayerCatalog
             connectionString,
             geometryType,
             reader.IsDBNull(13) ? null : reader.GetGuid(13),
-            ParseSharing(reader.GetString(14)));
+            ParseSharing(reader.GetString(14)),
+            ParseStatus(reader.GetString(15)));
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>
@@ -118,6 +119,22 @@ public sealed class PostgresLayerCatalog
     /// defaulting to anything else would publish data. Refusing is the only
     /// option that is neither silent nor dangerous.
     /// </remarks>
+    /// <summary>Reads the status, refusing an unknown one.</summary>
+    /// <remarks>
+    /// Throws for the same reason <see cref="ParseSharing"/> does: the column
+    /// has a check constraint listing exactly two values, so a third means the
+    /// store was written by a version this one does not understand. Defaulting
+    /// to started would serve a service somebody deliberately stopped.
+    /// </remarks>
+    private static ServiceStatus ParseStatus(string status) => status switch
+    {
+        "started" => ServiceStatus.Started,
+        "stopped" => ServiceStatus.Stopped,
+        _ => throw new InvalidOperationException(
+            $"The service status '{status}' is not one this build knows. The platform store has "
+            + "been written by a different version of the server."),
+    };
+
     private static SharingScope ParseSharing(string sharing) => sharing switch
     {
         "private" => SharingScope.Private,

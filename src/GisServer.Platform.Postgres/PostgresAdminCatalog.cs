@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
+using GisServer.Platform.Catalog;
 using GisServer.Platform.Identity;
 using GisServer.Platform.Secrets;
 using Npgsql;
@@ -159,7 +160,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     {
         const string Sql = """
             select l.id, l.name, d.name, l.schema_name, l.table_name, l.sharing,
-                   l.owner_principal_id, p.name, l.object_id_column
+                   l.owner_principal_id, p.name, l.object_id_column, l.status
             from layer l
             join data_source d on d.id = l.data_source_id
             left join principal p on p.id = l.owner_principal_id
@@ -182,7 +183,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 Parse(reader.GetString(5)),
                 reader.IsDBNull(6) ? null : reader.GetGuid(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7),
-                !reader.IsDBNull(8)));
+                !reader.IsDBNull(8),
+                ParseStatus(reader.GetString(9))));
         }
 
         return layers;
@@ -228,7 +230,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             Parse(reader.GetString(2)),
             reader.IsDBNull(3) ? null : reader.GetGuid(3),
             null,
-            !reader.IsDBNull(4));
+            !reader.IsDBNull(4),
+            ServiceStatus.Started);
     }
 
     /// <inheritdoc/>
@@ -246,6 +249,45 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
+
+    /// <inheritdoc/>
+    public async Task<ServiceStatus?> SetStatusAsync(
+        string layerName, ServiceStatus status, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+
+        // A CTE captures the old value before the update overwrites it, so the
+        // audit record can say what changed rather than only what it is now —
+        // which anybody can read. `returning` alone would yield the new value.
+        const string Sql = """
+            with before as (select name, status from layer where name = @name)
+            update layer set status = @status
+            from before
+            where layer.name = before.name
+            returning before.status
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", layerName);
+        command.Parameters.AddWithValue("status", Wire(status));
+
+        object? previous = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return previous is string text ? ParseStatus(text) : null;
+    }
+
+    /// <summary>The wire form of a service status.</summary>
+    public static string Wire(ServiceStatus status) =>
+        status == ServiceStatus.Started ? "started" : "stopped";
+
+    /// <summary>Parses the wire form, or refuses.</summary>
+    public static ServiceStatus ParseStatus(string status) => status switch
+    {
+        "started" => ServiceStatus.Started,
+        "stopped" => ServiceStatus.Stopped,
+        _ => throw new InvalidOperationException(
+            $"The service status '{status}' is not one this build knows."),
+    };
 
     /// <summary>The wire form of a sharing scope.</summary>
     public static string Wire(SharingScope scope) => scope switch

@@ -23,7 +23,8 @@ public sealed class PublishedLayer
         string connectionString,
         GeometryKind geometryType,
         Guid? owner,
-        SharingScope sharing)
+        SharingScope sharing,
+        ServiceStatus status)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -36,6 +37,7 @@ public sealed class PublishedLayer
         GeometryType = geometryType;
         Owner = owner;
         Sharing = sharing;
+        Status = status;
     }
 
     /// <summary>The catalogue identity.</summary>
@@ -72,4 +74,10 @@ public sealed class PublishedLayer
 
     /// <summary>Who may read it (ADR-018 §3b).</summary>
     public SharingScope Sharing { get; }
+
+    /// <summary>Whether it runs at all (ADR-020 §3).</summary>
+    public ServiceStatus Status { get; }
+
+    /// <summary>Whether requests for it should be served.</summary>
+    public bool IsRunning => Status == ServiceStatus.Started;
 }

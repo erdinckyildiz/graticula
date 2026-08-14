@@ -91,6 +91,36 @@ internal static class Authorize
     }
 
     /// <summary>
+    /// Writes the refusal for a service that is stopped.
+    /// </summary>
+    /// <remarks>
+    /// <b>503, not 404.</b> ADR-020 §3: it exists and is unavailable, which is a
+    /// different sentence from <em>no such layer</em>, and an operator whose
+    /// client has started failing needs to see which one it is. Reached only by
+    /// a caller already permitted to know the layer exists — a caller who is
+    /// not gets the 404 and never learns there is anything to be unavailable.
+    /// </remarks>
+    public static Task RefuseStoppedAsync(HttpContext context, string layerName)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return Results.Json(
+            new
+            {
+                error = new
+                {
+                    code = 503,
+                    message =
+                        $"The service '{layerName}' is stopped. It is registered and deliberately "
+                        + "unavailable — an operator took it out of rotation. This is not a "
+                        + "transient failure and retrying will not help; ask an administrator to "
+                        + "start it.",
+                },
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);
+    }
+
+    /// <summary>
     /// The status and sentence for a refusal.
     /// </summary>
     /// <remarks>

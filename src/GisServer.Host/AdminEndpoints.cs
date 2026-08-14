@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
+using GisServer.Platform.Catalog;
 using GisServer.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -72,6 +73,10 @@ internal static class AdminEndpoints
         app.MapPost("/admin/layers", PublishAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
+        app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
+            SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
+        app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
+            SetStatusAsync(c, name, ServiceStatus.Stopped, a, l, t));
         app.MapDelete("/admin/layers/{name}", UnpublishAsync);
     }
 
@@ -391,6 +396,7 @@ internal static class AdminEndpoints
                 dataSource = l.DataSourceName,
                 table = l.Qualified,
                 sharing = PostgresSharing(l.Sharing),
+                status = Wire(l.Status),
                 owner = l.OwnerName,
                 l.ArcGisServable,
             }),
@@ -450,6 +456,59 @@ internal static class AdminEndpoints
             name,
             from = before is { } was ? PostgresSharing(was.Sharing) : null,
             to = PostgresSharing(scope),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Starts or stops a service (ADR-020 §3).
+    /// </summary>
+    /// <remarks>
+    /// <b><c>admin:manageServer</c>, not the publisher privilege.</b> Publishing
+    /// is a content act; stopping a running service is an operational one that
+    /// affects every consumer of it, including people the publisher has never
+    /// met.
+    /// </remarks>
+    private static async Task SetStatusAsync(
+        HttpContext context,
+        string name,
+        ServiceStatus status,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        ServiceStatus? previous =
+            await catalog.SetStatusAsync(name, status, cancellation).ConfigureAwait(false);
+
+        if (previous is null)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, status == ServiceStatus.Started ? "layer.start" : "layer.stop", name,
+            Detail(new { from = Wire(previous.Value), to = Wire(status) }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            from = Wire(previous.Value),
+            to = Wire(status),
+
+            // Said because it is the question an operator asks next, and the
+            // answer is not obvious: stopping does not change who the service is
+            // shared with, so starting it again restores exactly what it was.
+            note = status == ServiceStatus.Stopped
+                ? "Requests for this service now answer 503. Its sharing is unchanged, so starting "
+                  + "it restores exactly the audience it had."
+                : "The service is serving again.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -608,6 +667,9 @@ internal static class AdminEndpoints
             return "unparseable";
         }
     }
+
+    private static string Wire(ServiceStatus status) =>
+        Platform.Postgres.PostgresAdminCatalog.Wire(status);
 
     private static string PostgresSharing(SharingScope scope) =>
         Platform.Postgres.PostgresAdminCatalog.Wire(scope);

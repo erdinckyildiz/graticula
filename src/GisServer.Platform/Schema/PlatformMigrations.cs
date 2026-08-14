@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(5);
+    public static SchemaVersion ComponentSchemaVersion => new(6);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -40,6 +40,7 @@ public static class PlatformMigrations
         RolesV3,
         AuditV4,
         SharingV5,
+        StatusV6,
     ]);
 
     /// <summary>
@@ -478,4 +479,33 @@ public static class PlatformMigrations
         // Every read filters on this, and a portal with one public layer among
         // a thousand private ones should not scan them all to find it.
         "create index layer_sharing_idx on layer (sharing)");
+
+    /// <summary>
+    /// Service status: started or stopped (ADR-020 §3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not the sharing scope.</b> Sharing answers <em>who may see this</em>
+    /// and status answers <em>does it run at all</em>. Making a service
+    /// unavailable by marking it private would hide it from everybody except
+    /// its owner and administrators — who would then still hit a source that is
+    /// mid-rebuild — and it would overwrite the sharing setting that has to be
+    /// restored afterwards.
+    /// </para>
+    /// <para>
+    /// <b>Default started.</b> A layer that has just been published is one
+    /// somebody wanted; a second call to turn it on would make publishing a
+    /// two-step operation for no benefit.
+    /// </para>
+    /// </remarks>
+    private static Migration StatusV6 => Migration.Expand(
+        new SchemaVersion(6),
+        "Add operational status to layers.",
+
+        "alter table layer add column status text not null default 'started'",
+
+        """
+        alter table layer add constraint layer_status_known
+          check (status in ('started', 'stopped'))
+        """);
 }

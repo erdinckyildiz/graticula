@@ -29,4 +29,11 @@
     <InternalsVisibleTo Include="GisServer.Host.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The console (ADR-020). The web SDK already includes wwwroot as Content;
+         this only makes it land beside the assembly, because the file provider
+         is rooted at AppContext.BaseDirectory rather than the content root. -->
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

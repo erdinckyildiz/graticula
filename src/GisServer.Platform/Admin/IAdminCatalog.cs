@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Geometries;
+using GisServer.Platform.Catalog;
 using GisServer.Platform.Identity;
 
 namespace GisServer.Platform.Admin;
@@ -54,6 +55,7 @@ public sealed record LayerPublication(
 /// <param name="Owner">Who owns it, or null.</param>
 /// <param name="OwnerName">Their name, or null.</param>
 /// <param name="ArcGisServable">Whether it has an integer object id.</param>
+/// <param name="Status">Whether it runs.</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -62,7 +64,8 @@ public readonly record struct AdminLayer(
     SharingScope Sharing,
     Guid? Owner,
     string? OwnerName,
-    bool ArcGisServable);
+    bool ArcGisServable,
+    ServiceStatus Status);
 
 /// <summary>
 /// The write side of the catalogue.
@@ -116,6 +119,11 @@ public interface IAdminCatalog
     /// <returns>The layer as it was before, or null if there is no such layer.</returns>
     Task<AdminLayer?> SetSharingAsync(
         string layerName, SharingScope sharing, CancellationToken cancellationToken);
+
+    /// <summary>Starts or stops a service (ADR-020 §3).</summary>
+    /// <returns>The status it had before, or null if there is no such layer.</returns>
+    Task<ServiceStatus?> SetStatusAsync(
+        string layerName, ServiceStatus status, CancellationToken cancellationToken);
 
     /// <summary>Removes a published layer. The data is untouched.</summary>
     /// <returns>Whether a layer was removed.</returns>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
@@ -18,6 +19,7 @@ using GisServer.Security.Argon2;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
@@ -197,6 +199,20 @@ public static class Program
                 .ExecuteAsync(context).ConfigureAwait(false);
         });
 
+        // ADR-020 §2: the console is static files and nothing else. Mapped
+        // after the setup gate so an unconfigured server does not serve a UI
+        // whose every call would 503, and scoped to /console so that the file
+        // provider can never see anything outside its own directory —
+        // condition 2, and the first code here that could suffer path traversal.
+        app.UseFileServer(new FileServerOptions
+        {
+            FileProvider = new PhysicalFileProvider(
+                Path.Combine(AppContext.BaseDirectory, "wwwroot")),
+            RequestPath = "/console",
+            EnableDefaultFiles = true,
+            EnableDirectoryBrowsing = false,
+        });
+
         MapEndpoints(app);
 
         Log.Listening(
@@ -357,11 +373,18 @@ public static class Program
 
             IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation);
 
+            // A stopped service is listed for somebody who can administer it and
+            // hidden from everybody else: to a data consumer it is
+            // indistinguishable from an absent one, and listing it would offer a
+            // service that answers 503 to every click.
+            bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
+
             return Results.Ok(FeatureServerMetadataWriter.Catalogue(
                 layers
-                    .Where(layer => LayerAccess
-                        .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                        .IsAllowed())
+                    .Where(layer => (layer.IsRunning || seesStopped)
+                        && LayerAccess
+                            .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
+                            .IsAllowed())
                     .Select(layer => layer.Definition.Name)));
         });
 
@@ -445,16 +468,26 @@ public static class Program
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        if (layer is not null
-            && LayerAccess
+        if (layer is null
+            || !LayerAccess
                 .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
                 .IsAllowed())
         {
-            return layer;
+            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
+            return null;
         }
 
-        await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
-        return null;
+        // ADR-020 §3, and the order matters: sharing is checked first, so a
+        // caller who may not see the layer learns nothing about whether it is
+        // running. Only somebody already entitled to know it exists gets the
+        // 503 that says it is stopped.
+        if (!layer.IsRunning)
+        {
+            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
+            return null;
+        }
+
+        return layer;
     }
 
     private static async Task ServiceMetadataAsync(
@@ -833,6 +866,12 @@ public static class Program
         if (layer is null || !reason.IsAllowed())
         {
             await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
+            return;
+        }
+
+        if (!layer.IsRunning)
+        {
+            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
             return;
         }
 
