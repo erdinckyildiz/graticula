@@ -190,6 +190,35 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
     }
 
+    /// <summary>
+    /// A related-records reader over two layers.
+    /// </summary>
+    /// <param name="origin">The layer the caller started from.</param>
+    /// <param name="related">The layer being reached.</param>
+    /// <returns>The reader.</returns>
+    /// <remarks>
+    /// <b>Whether both layers share a database is decided here</b>, by comparing
+    /// their connection strings, because this is the only place that holds both.
+    /// A join is one statement in one database; a relationship declared across
+    /// two is refused at query time rather than at declaration time, since a
+    /// data source can be re-registered elsewhere after the declaration.
+    /// </remarks>
+    public PostGisRelatedRecords RelatedFor(PublishedLayer origin, PublishedLayer related)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(origin);
+        ArgumentNullException.ThrowIfNull(related);
+
+        bool same = string.Equals(
+            origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal);
+
+        return new PostGisRelatedRecords(
+            _pools.GetOrAdd(origin.ConnectionString, BuildPool),
+            origin.Definition,
+            related.Definition,
+            same);
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {

@@ -282,7 +282,19 @@ enlarges that slice rather than following it.
 | §4c | Read a migrated `__ATTACH` on a registered source | **not built** — refused with 501 saying so |
 | §4c | Create a companion table where we have DDL rights | **not built** |
 | §4d | Virus scanning | **not built, and not decided** — §4d left it open and it stays open |
-| §3 | Relationships and related records | **not built** |
+| §3 | Relationships declared, not reverse-engineered | **built**, schema 9 |
+| §3 | `queryRelatedRecords` is one query, not N+1 | **built**, and the reader counts its own statements so a test can prove it |
+| §7 | Publish validates a declaration's join keys | **built** — both columns must exist and be comparable |
+| §3 | Many-to-many via an intermediate table | **not built** — refused with the reason. The ADR sketches it and does not specify the second declaration it needs |
+| §3 | Composite relationships cascade on delete | **not built.** The flag is stored and nothing acts on it, which is worse than not having it — see below |
+
+**`composite` is stored and does nothing, and that is the worst state.** §3 says
+a composite relationship cascades on delete — performed by the database where it
+already declares `ON DELETE CASCADE`, and by us in the same transaction where it
+does not. Neither happens. An administrator can set the flag, see it reported in
+the layer document, and reasonably conclude deleting a parcel removes its owners.
+Recorded as [D-26](../architecture-debt.md) rather than left to be discovered by
+somebody's orphaned rows.
 
 **The slow-reader mitigation is built and unmeasured.** §4b asks whether a
 separate pool is sufficient *or* whether a size threshold above which we buffer

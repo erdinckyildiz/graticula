@@ -202,11 +202,17 @@ public static class FeatureServerMetadataWriter
     /// <param name="geometryType">Its declared geometry type.</param>
     /// <param name="description">Its fields and extent.</param>
     /// <param name="capabilities">What the caller may do.</param>
+    /// <param name="relationships">
+    /// Declared relationships this layer takes part in, from either side, in the
+    /// shape an ArcGIS client reads. A relationship a client cannot discover is
+    /// one nobody follows.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
         LayerDescription description,
-        string capabilities)
+        string capabilities,
+        IEnumerable<object>? relationships = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -235,10 +241,16 @@ public static class FeatureServerMetadataWriter
             capabilities,
             maxRecordCount = MaxRecordCount,
             supportedQueryFormats = "JSON",
-            // Hosted layers only: ADR-013 §4c's registered cases are designed and
-        // not built, and declaring the capability on a layer that refuses it is
-        // worse than not declaring it.
-        hasAttachments = layer.IsHosted,
+            // Hosted layers only: ADR-013 §4c's registered cases are designed
+            // and not built, and declaring a capability on a layer that refuses
+            // it is worse than not declaring it.
+            hasAttachments = layer.IsHosted,
+
+            // <b>Declared relationships, so a client can find them.</b> A
+            // relationship a client cannot discover is one nobody follows —
+            // queryRelatedRecords needs an id, and this document is the only
+            // place an ArcGIS client looks for it.
+            relationships = relationships ?? Array.Empty<object>(),
             hasStaticData = true,
             isDataVersioned = false,
 

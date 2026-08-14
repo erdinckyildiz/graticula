@@ -70,6 +70,9 @@ public static class Program
 
         builder.Services.AddSingleton<LayerConnections>();
 
+        builder.Services.AddSingleton(services =>
+            new PostgresRelationshipCatalog(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>Raised so our own cap is the one that fires.</b> The default form
         // value limit is 4 MB, which is well under the 500,000 vertices
         // GeometryServer documents as its bound — so a request inside the
@@ -457,6 +460,7 @@ public static class Program
 
         VectorTileEndpoints.Map(app);
         AttachmentEndpoints.Map(app);
+        RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
         HostedDataEndpoints.Map(app);
 
@@ -542,6 +546,59 @@ public static class Program
                 .Where(layer => layer.Definition.IsHosted
                     && layer.Definition.Srid == VectorTileEndpoints.WebMercator)
                 .Select(layer => layer.Definition.Name)));
+    }
+
+    /// <summary>
+    /// A layer's relationships, in the shape an ArcGIS client reads.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both sides, with the role named.</b> A relationship appears on each
+    /// participating layer — a parcel's document lists its owners and the
+    /// owners' lists its parcels — and reporting only the ones where this layer
+    /// is the origin makes half of them undiscoverable.
+    /// </remarks>
+    private static async Task<IEnumerable<object>> RelationshipsForAsync(
+        PublishedLayer layer,
+        PostgresRelationshipCatalog relationships,
+        PostgresLayerCatalog layers,
+        CancellationToken cancellation)
+    {
+        IReadOnlyList<LayerRelationship> declared =
+            await relationships.ForLayerAsync(layer.Id, cancellation).ConfigureAwait(false);
+
+        if (declared.Count == 0)
+        {
+            return [];
+        }
+
+        List<object> reported = [];
+
+        foreach (LayerRelationship relationship in declared)
+        {
+            bool fromOrigin = relationship.OriginLayerId == layer.Id;
+
+            Guid otherId = fromOrigin ? relationship.RelatedLayerId : relationship.OriginLayerId;
+
+            PublishedLayer? other =
+                await layers.FindByIdAsync(otherId, cancellation).ConfigureAwait(false);
+
+            reported.Add(new
+            {
+                id = relationship.Id,
+                name = relationship.Name,
+                relatedTableName = other?.Definition.Name,
+
+                // ArcGIS names the direction from the reader's point of view.
+                role = fromOrigin ? "esriRelRoleOrigin" : "esriRelRoleDestination",
+                keyField = fromOrigin ? relationship.OriginKey : relationship.RelatedKey,
+                cardinality = relationship.Cardinality == RelationshipCardinality.OneToOne
+                    ? "esriRelCardinalityOneToOne"
+                    : "esriRelCardinalityOneToMany",
+                composite = relationship.Composite,
+            });
+        }
+
+        return reported;
     }
 
     /// <summary>The audit detail for a read override.</summary>
@@ -650,6 +707,7 @@ public static class Program
         string layerName,
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
+        PostgresRelationshipCatalog relationships,
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
@@ -664,7 +722,12 @@ public static class Program
             .ConfigureAwait(false);
 
         await Results.Ok(FeatureServerMetadataWriter.Layer(
-            layer.Definition, layer.GeometryType, description, CapabilitiesFor(context, layer)))
+            layer.Definition,
+            layer.GeometryType,
+            description,
+            CapabilitiesFor(context, layer),
+            await RelationshipsForAsync(layer, relationships, catalog, cancellation)
+                .ConfigureAwait(false)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 

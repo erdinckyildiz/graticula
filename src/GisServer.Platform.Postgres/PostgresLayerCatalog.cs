@@ -76,6 +76,29 @@ public sealed class PostgresLayerCatalog
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(reader) : null;
     }
 
+    /// <summary>One layer by its catalogue id, or null.</summary>
+    /// <param name="id">Its id.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The layer, or null.</returns>
+    /// <remarks>
+    /// Relationships name layers by id rather than by name, because a service
+    /// can be renamed and a declaration that pointed at a name would then point
+    /// at nothing — or worse, at whatever took the name next.
+    /// </remarks>
+    public async Task<PublishedLayer?> FindByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {Columns} from layer l join data_source d on d.id = l.data_source_id "
+            + "where l.id = @id");
+
+        command.Parameters.AddWithValue("id", id);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(reader) : null;
+    }
+
     private PublishedLayer Map(NpgsqlDataReader reader)
     {
         string layerName = reader.GetString(1);

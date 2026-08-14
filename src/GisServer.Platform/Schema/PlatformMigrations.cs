@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(8);
+    public static SchemaVersion ComponentSchemaVersion => new(9);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -43,6 +43,7 @@ public static class PlatformMigrations
         StatusV6,
         DatastoreV7,
         AttachmentQuotaV8,
+        RelationshipsV9,
     ]);
 
     /// <summary>
@@ -590,4 +591,64 @@ public static class PlatformMigrations
         alter table layer add constraint layer_attachment_quota_not_negative
           check (attachment_quota_bytes >= 0)
         """);
+
+    /// <summary>
+    /// Declared relationships between layers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Declared, not reverse-engineered</b> —
+    /// [ADR-013](../../../docs/adr/ADR-013-feature-service-data-model.md) §3.
+    /// Reading relationship classes out of a geodatabase's <c>GDB_ITEMS</c>
+    /// tables is reverse-engineering Esri internals, which CLAUDE.md §5 forbids;
+    /// it only works when the source is a geodatabase, which most PostGIS
+    /// schemas are not; and it breaks silently whenever Esri changes the layout.
+    /// </para>
+    /// <para>
+    /// <b>Which makes this strictly more capable than the model it replaces.</b>
+    /// An administrator can relate two ordinary tables that were never designed
+    /// to be related, on any supported database, with no geodatabase anywhere.
+    /// </para>
+    /// <para>
+    /// <b>The keys are column names, and nothing here can check them.</b> A
+    /// declaration is metadata; whether <c>parcels.parcel_id</c> actually joins
+    /// to <c>owners.parcel_id</c> is a fact about two tables this row does not
+    /// see. §7's condition is that publish validates it, and that validation
+    /// lives in the admin API where both tables can be reached.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> A new table only; nothing existing is touched, so
+    /// <c>minimum_reader_version</c> stays where it is and a version 8 reader
+    /// runs unchanged — it simply reports no relationships.
+    /// </para>
+    /// </remarks>
+    private static Migration RelationshipsV9 => Migration.Expand(
+        new SchemaVersion(9),
+        "Declared relationships between layers (ADR-013 §3).",
+
+        """
+        create table relationship (
+            id                uuid        not null primary key,
+            name              text        not null unique,
+            origin_layer_id   uuid        not null references layer (id) on delete cascade,
+            origin_key        text        not null,
+            related_layer_id  uuid        not null references layer (id) on delete cascade,
+            related_key       text        not null,
+            cardinality       text        not null,
+            composite         boolean     not null default false,
+            created_at        timestamptz not null default now(),
+            constraint relationship_cardinality_known
+              check (cardinality in ('OneToOne', 'OneToMany')),
+            constraint relationship_name_not_blank
+              check (length(btrim(name)) > 0),
+            constraint relationship_not_reflexive
+              check (origin_layer_id <> related_layer_id or origin_key <> related_key)
+        )
+        """,
+
+        // Both directions are queried — a client asks for a parcel's owners and
+        // for an owner's parcels — and without these each is a sequential scan
+        // of the relationship table on every request.
+        "create index relationship_origin on relationship (origin_layer_id)",
+        "create index relationship_related on relationship (related_layer_id)");
 }
