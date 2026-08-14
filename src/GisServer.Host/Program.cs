@@ -15,6 +15,7 @@ using GisServer.Platform.Identity;
 using GisServer.Platform.Postgres;
 using GisServer.Platform.Schema;
 using GisServer.Tiles;
+using GisServer.Providers.PostGis;
 using GisServer.Platform.Secrets;
 using GisServer.Security.Argon2;
 using Microsoft.AspNetCore.Builder;
@@ -69,12 +70,44 @@ public static class Program
 
         builder.Services.AddSingleton<LayerConnections>();
 
+        // <b>Raised so our own cap is the one that fires.</b> The default form
+        // value limit is 4 MB, which is well under the 500,000 vertices
+        // GeometryServer documents as its bound — so a request inside the
+        // documented limit was refused by the framework, as a 500 that told the
+        // caller the server had failed. A limit nobody documented, producing an
+        // error that blames the wrong party, ahead of the limit that was
+        // designed and explained.
+        //
+        // 48 MB is roughly four times the JSON a 500,000-vertex request weighs.
+        // It is the outer bound; the vertex cap is the semantic one, and this
+        // exists so that cap is reached.
+        builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+        {
+            options.ValueLengthLimit = 48 * 1024 * 1024;
+            options.MultipartBodyLengthLimit = 48 * 1024 * 1024;
+            options.ValueCountLimit = 4096;
+        });
+
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<ServerState>();
         builder.Services.AddSingleton<IPasswordHasher>(_ => new Argon2idPasswordHasher());
 
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        // <b>Its own pool, not the platform store's, and the difference is the
+        // search path.</b> The platform store's connection names the schema
+        // holding `layer` and `principal`; PostGIS lives in `public`. Sharing
+        // that pool made every spatial function undefined — the same defect
+        // already fixed once for the datastore registration, arriving by a
+        // second route within the hour. Registered as a keyed service so there
+        // is one place that knows how to reach PostGIS and both callers use it.
+        builder.Services.AddKeyedSingleton(
+            DatastorePool,
+            (_, _) => new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore)).Build());
+
+        builder.Services.AddSingleton<IProjector>(services =>
+            new PostGisProjector(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
 
         builder.Services.AddSingleton<ITileCache>(services => new FileSystemTileCache(
             settings.TileCachePath,
@@ -416,6 +449,7 @@ public static class Program
         app.MapPost("/rest/services/{layerName}/FeatureServer/0/applyEdits", ApplyEditsAsync);
 
         VectorTileEndpoints.Map(app);
+        GeometryServerEndpoints.Map(app);
 
         app.MapAuth();
         app.MapAdmin();
@@ -850,6 +884,9 @@ public static class Program
             Log.DatastoreNotRegistered(logger, e.Message);
         }
     }
+
+    /// <summary>The key for the datastore's own connection pool.</summary>
+    private const string DatastorePool = "datastore";
 
     /// <summary>
     /// The datastore connection, derived from the platform store's.
