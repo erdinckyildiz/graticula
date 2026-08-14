@@ -56,6 +56,14 @@ public sealed record LayerPublication(
 /// <param name="OwnerName">Their name, or null.</param>
 /// <param name="ArcGisServable">Whether it has an integer object id.</param>
 /// <param name="Status">Whether it runs.</param>
+/// <param name="Hosted">
+/// Whether the data lives in the datastore, and so can be tiled. Derived from
+/// the data source rather than read from <c>layer.is_hosted</c>, which is
+/// written <c>false</c> by every insert and read by nothing
+/// (<see href="../../../docs/architecture-debt.md">D-24</see>). Reported so the
+/// console can offer a tile control only where there is a tile service, rather
+/// than one that answers 400 (Q-67).
+/// </param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -65,7 +73,8 @@ public readonly record struct AdminLayer(
     Guid? Owner,
     string? OwnerName,
     bool ArcGisServable,
-    ServiceStatus Status);
+    ServiceStatus Status,
+    bool Hosted);
 
 /// <summary>
 /// The write side of the catalogue.

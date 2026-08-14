@@ -86,14 +86,20 @@ public static class VectorTileServerMetadataWriter
             maxScale = 0,
             maxzoom = maxZoom,
             tileInfo = TileInfo(maxZoom),
+            // <b>No cacheInfo, deliberately.</b> The first version declared
+            // storageFormat "compactV2", copied from what an Esri-published
+            // service reports. We have no bundle cache — tiles are built per
+            // request — so it was a claim about our storage that was simply
+            // untrue, and the kind a client could reasonably act on. Describing
+            // a capability we do not have is worse than describing none.
             resourceInfo = new
             {
                 styleVersion = 8,
+
+                // Served uncompressed. Declaring gzip while sending raw bytes is
+                // the failure this field exists to prevent, in the other
+                // direction.
                 tileCompression = "none",
-                cacheInfo = new
-                {
-                    storageInfo = new { packetSize = 128, storageFormat = "compactV2" },
-                },
             },
         };
     }

@@ -418,6 +418,12 @@ internal static class AdminEndpoints
                 status = Wire(l.Status),
                 owner = l.OwnerName,
                 l.ArcGisServable,
+
+                // So the console can offer tiles only where they exist. Showing
+                // the control everywhere and letting it 400 teaches people that
+                // the button sometimes does not work, which is worse than not
+                // having it.
+                l.Hosted,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
