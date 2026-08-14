@@ -27,6 +27,7 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         new(ByteArrayComparer.Instance);
 
     private readonly HashSet<Guid> _revoked = [];
+    private readonly Dictionary<Guid, HashSet<string>> _roles = [];
 
     public InMemoryIdentityStore(TimeProvider time) => Time = time;
 
@@ -132,6 +133,39 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         Add(principal, password);
         return Task.FromResult(principal);
     }
+
+    public Task<IReadOnlyList<string>> RolesOfAsync(
+        Guid principalId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<string>>(
+            _roles.TryGetValue(principalId, out HashSet<string>? granted)
+                ? [.. granted.Order(StringComparer.Ordinal)]
+                : []);
+
+    public Task GrantRoleAsync(
+        Guid principalId, string role, Guid? grantedBy, CancellationToken cancellationToken)
+    {
+        if (!_roles.TryGetValue(principalId, out HashSet<string>? granted))
+        {
+            granted = new HashSet<string>(StringComparer.Ordinal);
+            _roles[principalId] = granted;
+        }
+
+        granted.Add(role);
+        return Task.CompletedTask;
+    }
+
+    public Task RevokeRoleAsync(Guid principalId, string role, CancellationToken cancellationToken)
+    {
+        if (_roles.TryGetValue(principalId, out HashSet<string>? granted))
+        {
+            granted.Remove(role);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken) =>
+        Task.FromResult(_roles.Values.Any(r => r.Contains(role)));
 
     private sealed class ByteArrayComparer : IEqualityComparer<byte[]>
     {

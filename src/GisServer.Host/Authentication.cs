@@ -51,12 +51,33 @@ internal sealed class Authentication
         _time = time;
     }
 
-    /// <summary>Resolves the principal, defaulting to anonymous.</summary>
-    public async Task<AuthenticatedSession?> ResolveAsync(
+    /// <summary>
+    /// Resolves the principal and what it may do, defaulting to anonymous.
+    /// </summary>
+    /// <remarks>
+    /// <b>Anonymous gets its grants looked up too.</b> ADR-015 §2a made it a real
+    /// principal precisely so this path has no special case: whether a portal is
+    /// public is then a row in <c>principal_role</c> rather than a branch here.
+    /// </remarks>
+    public async Task<RequestPrincipal> ResolveAsync(
         HttpContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        AuthenticatedSession? session =
+            await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
+
+        Principal principal = session?.Principal ?? Principal.Anonymous;
+
+        Authorization authorization = Authorization.FromRoles(
+            await _store.RolesOfAsync(principal.Id, cancellationToken).ConfigureAwait(false));
+
+        return new RequestPrincipal(principal, session?.SessionId, authorization);
+    }
+
+    private async Task<AuthenticatedSession?> FindSessionAsync(
+        HttpContext context, CancellationToken cancellationToken)
+    {
         string? header = context.Request.Headers.Authorization;
 
         if (header is null || !header.StartsWith(BearerPrefix, StringComparison.Ordinal))
@@ -89,12 +110,15 @@ internal sealed class RequestPrincipal
     /// <summary>Creates the feature.</summary>
     /// <param name="principal">Who the request is from.</param>
     /// <param name="sessionId">Their session, or null for anonymous.</param>
-    public RequestPrincipal(Principal principal, Guid? sessionId)
+    /// <param name="authorization">What they may do.</param>
+    public RequestPrincipal(Principal principal, Guid? sessionId, Authorization authorization)
     {
         ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(authorization);
 
         Principal = principal;
         SessionId = sessionId;
+        Authorization = authorization;
     }
 
     /// <summary>Who the request is from. Never null — anonymous is a principal.</summary>
@@ -102,4 +126,7 @@ internal sealed class RequestPrincipal
 
     /// <summary>Their session, or null for anonymous.</summary>
     public Guid? SessionId { get; }
+
+    /// <summary>What they may do, resolved once for the request.</summary>
+    public Authorization Authorization { get; }
 }

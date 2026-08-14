@@ -55,11 +55,13 @@ public sealed class PostgresSetupStore : ISetupStore
         string name,
         string? displayName,
         PasswordHash password,
+        string role,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -126,11 +128,28 @@ public sealed class PostgresSetupStore : ISetupStore
             await credential.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // ADR-018 §4. In the same transaction as the principal, because an
+        // administrator without the grant is an account that can do nothing on a
+        // server with no other account able to grant it anything.
+        await using (NpgsqlCommand grant = new(
+            """
+            insert into principal_role (principal_id, role_name) values (@principal, @role)
+            """,
+            connection,
+            transaction))
+        {
+            grant.Parameters.AddWithValue("principal", id);
+            grant.Parameters.AddWithValue("role", role);
+
+            await grant.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         // Committed together: the token is spent if and only if the
-        // administrator exists. A failure between the two — a duplicate name, a
-        // dropped connection — rolls the token back to unused, which is the
-        // recoverable direction. Spending it without creating anybody would
-        // leave a server nobody can ever administer.
+        // administrator exists, with the role that makes them one. A failure
+        // anywhere above — a duplicate name, a dropped connection — rolls the
+        // token back to unused, which is the recoverable direction. Spending it
+        // without creating anybody, or creating somebody without the grant,
+        // would each leave a server nobody can ever administer.
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return new Principal(id, PrincipalKind.User, name, displayName, isDisabled: false);

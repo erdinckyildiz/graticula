@@ -50,6 +50,12 @@ public interface ISetupStore
     /// <param name="name">The administrator's principal name.</param>
     /// <param name="displayName">A human label, or null.</param>
     /// <param name="password">The already-hashed password.</param>
+    /// <param name="role">
+    /// The role to grant, in the same transaction. ADR-018 §4: a setup flow that
+    /// creates an account and no grant produces a server with exactly one
+    /// account, which can do nothing, and no way to grant anything to it. The
+    /// recovery is hand-written SQL, which is what this work exists to remove.
+    /// </param>
     /// <param name="now">The current time.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The administrator, or null if the token was unknown, expired or already used.</returns>
@@ -65,6 +71,7 @@ public interface ISetupStore
         string name,
         string? displayName,
         PasswordHash password,
+        string role,
         DateTimeOffset now,
         CancellationToken cancellationToken);
 }

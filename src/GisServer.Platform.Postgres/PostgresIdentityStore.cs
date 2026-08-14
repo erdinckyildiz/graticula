@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Net;
 using System.Threading;
@@ -285,6 +286,76 @@ public sealed class PostgresIdentityStore : IIdentityStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return new Principal(id, PrincipalKind.User, name, displayName, isDisabled: false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> RolesOfAsync(
+        Guid principalId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select role_name from principal_role where principal_id = @principal order by role_name");
+        command.Parameters.AddWithValue("principal", principalId);
+
+        List<string> roles = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            roles.Add(reader.GetString(0));
+        }
+
+        return roles;
+    }
+
+    /// <inheritdoc/>
+    public async Task GrantRoleAsync(
+        Guid principalId, string role, Guid? grantedBy, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+
+        // Idempotent by conflict rather than by checking first. Granting a role
+        // twice is not an error worth reporting, and do-nothing keeps the
+        // original granted_at, which is the one an audit trail is about.
+        const string Sql = """
+            insert into principal_role (principal_id, role_name, granted_by)
+            values (@principal, @role, @by)
+            on conflict (principal_id, role_name) do nothing
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("principal", principalId);
+        command.Parameters.AddWithValue("role", role);
+        command.Parameters.Add(new NpgsqlParameter("by", NpgsqlDbType.Uuid)
+        {
+            Value = (object?)grantedBy ?? DBNull.Value,
+        });
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task RevokeRoleAsync(
+        Guid principalId, string role, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "delete from principal_role where principal_id = @principal and role_name = @role");
+        command.Parameters.AddWithValue("principal", principalId);
+        command.Parameters.AddWithValue("role", role);
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> AnyPrincipalHoldingAsync(
+        string role, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select exists (select 1 from principal_role where role_name = @role)");
+        command.Parameters.AddWithValue("role", role);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
 
     private static Principal ReadPrincipal(NpgsqlDataReader reader, int idOrdinal, bool isDisabled) =>

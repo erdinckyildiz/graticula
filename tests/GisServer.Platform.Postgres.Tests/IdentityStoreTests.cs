@@ -284,6 +284,88 @@ public sealed class IdentityStoreTests : PostgresFixture
         Assert.Null(await Identity().FindForLoginAsync("nobody at all", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Granting_a_role_twice_keeps_the_first_grant()
+    {
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+
+        await store.GrantRoleAsync(ada.Id, Roles.Viewer, null, CancellationToken.None);
+        await store.GrantRoleAsync(ada.Id, Roles.Viewer, ada.Id, CancellationToken.None);
+
+        Assert.Equal([Roles.Viewer], await store.RolesOfAsync(ada.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_grant_naming_a_role_that_does_not_exist_is_refused_by_the_database()
+    {
+        // The foreign key is what stops a typo becoming a grant that confers
+        // nothing and looks like a grant. Roles.PermissionsOf answers "nothing"
+        // for an unknown role, which is the safe reading at read time — but the
+        // write should never have been allowed in the first place.
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+
+        Npgsql.PostgresException error = await Assert.ThrowsAsync<Npgsql.PostgresException>(
+            () => store.GrantRoleAsync(ada.Id, "superuser", null, CancellationToken.None));
+
+        Assert.Equal("23503", error.SqlState);
+    }
+
+    [Fact]
+    public async Task Revoking_a_role_takes_it_away_and_is_idempotent()
+    {
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+
+        await store.GrantRoleAsync(ada.Id, Roles.Publisher, null, CancellationToken.None);
+        await store.RevokeRoleAsync(ada.Id, Roles.Publisher, CancellationToken.None);
+        await store.RevokeRoleAsync(ada.Id, Roles.Publisher, CancellationToken.None);
+
+        Assert.Empty(await store.RolesOfAsync(ada.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Anonymous_can_hold_a_role_which_is_how_an_open_portal_is_configured()
+    {
+        // ADR-015 §2a's whole point, and ADR-018 §3's escape hatch: whether a
+        // server is public is a row, not a branch in the code.
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+
+        Assert.False(await store.AnyPrincipalHoldingAsync(Roles.Viewer, CancellationToken.None));
+
+        await store.GrantRoleAsync(Principal.AnonymousId, Roles.Viewer, null, CancellationToken.None);
+
+        Assert.Equal(
+            [Roles.Viewer],
+            await store.RolesOfAsync(Principal.AnonymousId, CancellationToken.None));
+        Assert.True(await store.AnyPrincipalHoldingAsync(Roles.Viewer, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task The_setup_flow_leaves_the_first_administrator_able_to_administer()
+    {
+        // ADR-018 §4. An upgraded store showed what the other outcome looks
+        // like: an administrator with no grant, on a server with nobody able to
+        // give them one. That is now D-14, and this is the test that the fresh
+        // path does not produce it.
+        await MigrateAsync();
+        PostgresSetupStore setup = new(DataSource);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        string token = await setup.IssueAsync(now.AddHours(1), CancellationToken.None);
+        Principal? admin = await setup.RedeemAsync(
+            token, "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None);
+
+        Assert.Equal(
+            [Roles.PlatformAdministrator],
+            await Identity().RolesOfAsync(admin!.Id, CancellationToken.None));
+    }
+
     private async Task<DateTime> RevokedAtAsync(Guid sessionId)
     {
         // DateTime, not DateTimeOffset: ExecuteScalar boxes a timestamptz as a

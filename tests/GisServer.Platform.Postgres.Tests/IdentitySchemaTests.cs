@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Platform.Schema;
@@ -113,24 +114,73 @@ public sealed class IdentitySchemaTests : PostgresFixture
     }
 
     [Fact]
-    public async Task The_role_table_ships_empty_because_Q59_is_open()
+    public async Task The_role_table_ships_the_four_roles_ADR018_decided()
     {
+        // This test used to assert the table was EMPTY, because Q-59 was open and
+        // review O3 warned against inventing roles — a control resting on a term
+        // nobody had defined. ADR-018 defined them, so the old assertion is
+        // replaced rather than adjusted: it encoded a decision that has been
+        // reversed, and editing a number would have hidden that.
+        //
+        // ADR-018's role set is still INFERRED (condition 1, owner confirmation
+        // outstanding). If it changes, this fails, which is the intent.
         await MigrateAsync();
 
-        await using NpgsqlCommand command = DataSource.CreateCommand("select count(*) from role");
+        await using NpgsqlCommand command =
+            DataSource.CreateCommand("select name from role order by name");
 
-        Assert.Equal(0L, await command.ExecuteScalarAsync());
+        List<string> names = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        Assert.Equal(
+            ["gis-administrator", "platform-administrator", "publisher", "viewer"],
+            names);
     }
 
     [Fact]
-    public async Task Applying_identity_leaves_the_rollback_window_open()
+    public async Task Anonymous_is_granted_nothing_so_a_fresh_server_is_closed()
     {
-        // Migration 2 is an expand, so a version-1 component must still start.
+        // ADR-018 §3, and the most consequential single row in the schema — or
+        // rather, the most consequential absence of one. Until this decision
+        // every published layer was world-readable. A test that a row does NOT
+        // exist is weak on its own, so it also checks that anonymous is present:
+        // otherwise a migration that failed to seed the principal at all would
+        // pass this.
+        await MigrateAsync();
+
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            """
+            select
+              (select count(*) from principal where kind = 'anonymous'),
+              (select count(*) from principal_role r
+                 join principal p on p.id = r.principal_id
+                where p.kind = 'anonymous')
+            """);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+
+        Assert.Equal(1L, reader.GetInt64(0));
+        Assert.Equal(0L, reader.GetInt64(1));
+    }
+
+    [Fact]
+    public async Task Applying_every_migration_leaves_the_rollback_window_open()
+    {
+        // Migrations 2 and 3 are both expands, so a version-1 component must
+        // still start against a fully migrated store. The applied version moved
+        // from 2 to 3 when ADR-018 added the role seed; the minimum reader did
+        // not move, and that is the number that matters (ADR-016 §4a).
         await MigrateAsync();
 
         SchemaStamp? stamp = await Store().ReadStampAsync(CancellationToken.None);
 
-        Assert.Equal(new SchemaVersion(2), stamp!.Applied);
+        Assert.Equal(PlatformMigrations.ComponentSchemaVersion, stamp!.Applied);
         Assert.Equal(new SchemaVersion(1), stamp.MinimumReader);
         Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(1), stamp).IsCompatible);
     }

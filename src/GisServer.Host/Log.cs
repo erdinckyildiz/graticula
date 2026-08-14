@@ -50,10 +50,19 @@ internal static partial class Log
     [LoggerMessage(
         EventId = 1008,
         Level = LogLevel.Warning,
-        Message = "Authentication works, authorization does not. Q-59 has not decided what the "
-                + "roles are, so no rule consults them and every published layer is readable by "
-                + "anonymous. Signing in changes who you are, and not yet what you may do.")]
-    public static partial void AuthorizationNotImplemented(ILogger logger);
+        Message = "Authorization is by role only. The four roles of ADR-018 are enforced on read; "
+                + "per-item ownership and sharing is not designed yet, so a layer is visible to "
+                + "everyone holding 'viewer' or to nobody. The role set is INFERRED and awaits "
+                + "the project owner (ADR-018 condition 1).")]
+    public static partial void AuthorizationIsRoleOnly(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1011,
+        Level = LogLevel.Information,
+        Message = "No principal holds 'viewer', so nothing is readable by anyone yet — including "
+                + "anonymous callers. This is the ADR-018 §3 default. Grant 'viewer' to a "
+                + "principal, or to 'anonymous' to run an open portal.")]
+    public static partial void NothingIsReadable(ILogger logger);
 
     [LoggerMessage(
         EventId = 1009,
@@ -72,6 +81,17 @@ internal static partial class Log
                 + "mean two live credentials for a one-time act. If it is lost, delete the row "
                 + "from setup_token and restart.")]
     public static partial void SetupStillPending(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1012,
+        Level = LogLevel.Critical,
+        Message = "NO ADMINISTRATOR. This store has user accounts but no principal holds "
+                + "'platform-administrator', so nobody can grant a role, create an account or "
+                + "operate this server. The setup flow does not run, because setup is for a store "
+                + "with no users at all. Recover with one statement against the platform store: "
+                + "insert into principal_role (principal_id, role_name) select id, "
+                + "'platform-administrator' from principal where name = 'YOUR-ACCOUNT';")]
+    public static partial void NoAdministrator(ILogger logger);
 
     [LoggerMessage(
         EventId = 1006,
@@ -93,5 +113,6 @@ internal static partial class Log
         EventId = 1005,
         Level = LogLevel.Information,
         Message = "Listening on {Scheme}://{Address}:{Port}")]
-    public static partial void Listening(ILogger logger, string scheme, string address, int port);
+    public static partial void Listening(
+        ILogger logger, string scheme, System.Net.IPAddress address, int port);
 }

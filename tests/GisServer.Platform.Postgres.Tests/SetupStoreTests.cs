@@ -33,7 +33,7 @@ public sealed class SetupStoreTests : PostgresFixture
 
         string token = await Setup().IssueAsync(now.AddHours(1), CancellationToken.None);
         Principal? admin = await Setup().RedeemAsync(
-            token, "root", "Root", SomeHash(), now, CancellationToken.None);
+            token, "root", "Root", SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None);
 
         Assert.NotNull(admin);
         Assert.Equal("root", admin!.Name);
@@ -49,9 +49,9 @@ public sealed class SetupStoreTests : PostgresFixture
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
         string token = await Setup().IssueAsync(now.AddHours(1), CancellationToken.None);
-        await Setup().RedeemAsync(token, "root", null, SomeHash(), now, CancellationToken.None);
+        await Setup().RedeemAsync(token, "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None);
 
-        Assert.Null(await Setup().RedeemAsync(token, "second", null, SomeHash(), now, CancellationToken.None));
+        Assert.Null(await Setup().RedeemAsync(token, "second", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
     }
 
     [Fact]
@@ -69,11 +69,11 @@ public sealed class SetupStoreTests : PostgresFixture
         PostgresSetupStore afterRestart = new(DataSource);
         Assert.True(await afterRestart.HasUsableTokenAsync(now, CancellationToken.None));
 
-        Assert.NotNull(await afterRestart.RedeemAsync(token, "root", null, SomeHash(), now, CancellationToken.None));
+        Assert.NotNull(await afterRestart.RedeemAsync(token, "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
 
         PostgresSetupStore afterSecondRestart = new(DataSource);
         Assert.False(await afterSecondRestart.HasUsableTokenAsync(now, CancellationToken.None));
-        Assert.Null(await afterSecondRestart.RedeemAsync(token, "again", null, SomeHash(), now, CancellationToken.None));
+        Assert.Null(await afterSecondRestart.RedeemAsync(token, "again", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class SetupStoreTests : PostgresFixture
         string token = await Setup().IssueAsync(now.AddMinutes(5), CancellationToken.None);
 
         Assert.Null(await Setup().RedeemAsync(
-            token, "root", null, SomeHash(), now.AddMinutes(6), CancellationToken.None));
+            token, "root", null, SomeHash(), Roles.PlatformAdministrator, now.AddMinutes(6), CancellationToken.None));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public sealed class SetupStoreTests : PostgresFixture
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
         Assert.Null(await Setup().RedeemAsync(
-            SessionToken.Generate(), "root", null, SomeHash(), now, CancellationToken.None));
+            SessionToken.Generate(), "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
 
         Assert.False(await new PostgresIdentityStore(DataSource).AnyUserExistsAsync(CancellationToken.None));
     }
@@ -125,7 +125,7 @@ public sealed class SetupStoreTests : PostgresFixture
 
         Principal?[] results = await Task.WhenAll(
             Enumerable.Range(0, 8).Select(i => new PostgresSetupStore(DataSource)
-                .RedeemAsync(token, $"admin{i}", null, SomeHash(), now, CancellationToken.None)));
+                .RedeemAsync(token, $"admin{i}", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None)));
 
         Assert.Single(results, r => r is not null);
         Assert.Equal(1, await CountUsersAsync());
@@ -148,10 +148,10 @@ public sealed class SetupStoreTests : PostgresFixture
         // The principal name is unique, so this insert violates a constraint
         // after the token has already been marked used inside the transaction.
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
-            Setup().RedeemAsync(token, "taken", null, SomeHash(), now, CancellationToken.None));
+            Setup().RedeemAsync(token, "taken", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
 
         Assert.True(await Setup().HasUsableTokenAsync(now, CancellationToken.None));
-        Assert.NotNull(await Setup().RedeemAsync(token, "root", null, SomeHash(), now, CancellationToken.None));
+        Assert.NotNull(await Setup().RedeemAsync(token, "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None));
     }
 
     [Fact]

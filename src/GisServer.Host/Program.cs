@@ -96,12 +96,19 @@ public static class Program
 
         await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
 
-        // Authentication exists; authorization does not. Q-59 has not decided
-        // what the roles are, so the role table ships empty and nothing consults
-        // it -- every layer is readable by anonymous. Said at every startup
-        // rather than once, because the warning this replaces was true for weeks
-        // and the temptation with a standing warning is to stop reading it.
-        Log.AuthorizationNotImplemented(logger);
+        // Two facts an operator needs at every start: what authorization does
+        // cover, and whether anything is currently readable at all.
+        //
+        // The message this replaced said authorization did not exist. It was
+        // true for exactly as long as that was true, and then it was a lie the
+        // server told at every startup — which is the failure mode of a standing
+        // warning nobody re-reads.
+        Log.AuthorizationIsRoleOnly(logger);
+
+        if (!await AnyoneCanReadAsync(app.Services).ConfigureAwait(false))
+        {
+            Log.NothingIsReadable(logger);
+        }
 
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
         // exception must still produce an answer that says what to do.
@@ -114,14 +121,10 @@ public static class Program
 
         app.Use(async (context, next) =>
         {
-            AuthenticatedSession? session = await context.RequestServices
+            context.Features.Set(await context.RequestServices
                 .GetRequiredService<Authentication>()
                 .ResolveAsync(context, context.RequestAborted)
-                .ConfigureAwait(false);
-
-            context.Features.Set(session is { } live
-                ? new RequestPrincipal(live.Principal, live.SessionId)
-                : new RequestPrincipal(Principal.Anonymous, null));
+                .ConfigureAwait(false));
 
             await next(context).ConfigureAwait(false);
         });
@@ -162,7 +165,7 @@ public static class Program
         Log.Listening(
             logger,
             settings.RequireHttps ? "https" : "http",
-            settings.ListenAddress.ToString(),
+            settings.ListenAddress,
             settings.Port);
 
         await app.RunAsync().ConfigureAwait(false);
@@ -282,8 +285,17 @@ public static class Program
         app.MapGet("/healthz/live", () => Results.Ok(new { status = "live" }));
 
         app.MapGet("/rest/services", async (
-            PostgresLayerCatalog catalog, CancellationToken cancellation) =>
+            HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
         {
+            // The catalogue is a list of what exists, so it needs the same
+            // permission as reading one. ADR-018 has no per-layer grants yet, so
+            // this is all-or-nothing; when the ownership axis arrives (§6) this
+            // becomes a filter rather than a gate.
+            if (!await Authorize.RequireAsync(context, Permission.LayerRead))
+            {
+                return Results.Empty;
+            }
+
             IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation);
 
             return Results.Ok(new
@@ -319,8 +331,48 @@ public static class Program
                 name = current.Principal.Name,
                 kind = current.Principal.Kind.ToString(),
                 authenticated = !current.Principal.IsAnonymous,
+                roles = current.Authorization.Roles,
+                permissions = current.Authorization.Permissions
+                    .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal),
             });
         });
+    }
+
+    /// <summary>
+    /// Whether any principal holds a role carrying <see cref="Permission.LayerRead"/>.
+    /// </summary>
+    /// <remarks>
+    /// Asked once at startup so that a server nobody can read from says so,
+    /// rather than presenting as a working server that returns 401 to
+    /// everything. ADR-018 §3's closed default is correct and surprising, and
+    /// the surprise is cheaper here than in a support conversation.
+    /// </remarks>
+    private static async Task<bool> AnyoneCanReadAsync(IServiceProvider services)
+    {
+        IIdentityStore identity = services.GetRequiredService<IIdentityStore>();
+        PostgresLayerCatalog catalog = services.GetRequiredService<PostgresLayerCatalog>();
+
+        // Only worth saying if there is something to read in the first place.
+        if ((await catalog.ListAsync(CancellationToken.None).ConfigureAwait(false)).Count == 0)
+        {
+            return true;
+        }
+
+        foreach (string role in Roles.All)
+        {
+            if (!Roles.PermissionsOf(role).Contains(Permission.LayerRead))
+            {
+                continue;
+            }
+
+            if (await identity.AnyPrincipalHoldingAsync(role, CancellationToken.None)
+                .ConfigureAwait(false))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>How long a first-start setup token lasts.</summary>
@@ -345,6 +397,25 @@ public static class Program
 
         if (await identity.AnyUserExistsAsync(CancellationToken.None).ConfigureAwait(false))
         {
+            // Users exist, so the setup flow is over — but that is not the same
+            // as the server being administrable. A store upgraded from before
+            // ADR-018 has accounts and no grants, which is ADR-018 §4's failure
+            // reached by a different road: an administrator who cannot
+            // administer, on a server with nobody able to fix it.
+            //
+            // <b>Said, not repaired.</b> Issuing a fresh setup token here would
+            // be a credential printed to a log whenever the last administrator's
+            // grant disappears, and "the last administrator's grant disappeared"
+            // is a state an attacker would like to arrange. Refusing to start
+            // would take a working read-only server down for a problem that does
+            // not affect reads. So it is loud, and the fix is one statement.
+            if (!await identity
+                .AnyPrincipalHoldingAsync(Roles.PlatformAdministrator, CancellationToken.None)
+                .ConfigureAwait(false))
+            {
+                Log.NoAdministrator(logger);
+            }
+
             return;
         }
 
@@ -376,6 +447,11 @@ public static class Program
         ILoggerFactory loggerFactory,
         CancellationToken cancellation)
     {
+        if (!await Authorize.RequireAsync(context, Permission.LayerRead).ConfigureAwait(false))
+        {
+            return;
+        }
+
         PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
 
         if (layer is null)

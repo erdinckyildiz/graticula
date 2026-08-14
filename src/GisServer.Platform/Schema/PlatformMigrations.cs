@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using GisServer.Platform.Identity;
+
 namespace GisServer.Platform.Schema;
 
 /// <summary>
@@ -26,13 +30,14 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(2);
+    public static SchemaVersion ComponentSchemaVersion => new(3);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
     [
         CatalogueV1,
         IdentityV2,
+        RolesV3,
     ]);
 
     /// <summary>
@@ -286,4 +291,74 @@ public static class PlatformMigrations
             constraint setup_token_expiry_after_creation check (expires_at > created_at)
         )
         """);
+
+    /// <summary>
+    /// The role set ADR-018 §2 decides.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A separate migration rather than an edit to <see cref="IdentityV2"/>,
+    /// and the reason is not the append-only rule</b> — that rule does not bind
+    /// until v1.0.0 and the class remarks say so. It is that the role set is
+    /// <c>INFERRED</c> (ADR-018 condition 1) and may change on one sentence from
+    /// the project owner. Keeping it in its own migration means amending it
+    /// touches one place, and it gives the version handshake a real 2 → 3
+    /// upgrade to perform against a store that already exists.
+    /// </para>
+    /// <para>
+    /// <b>Expand, and <c>minimum_reader_version</c> stays 1.</b> It only inserts
+    /// rows. A server built against schema 2 reads this store perfectly well —
+    /// it simply ignores rows in a table it never queries — so nothing here
+    /// closes the rollback window (ADR-016 §4a).
+    /// </para>
+    /// <para>
+    /// <b>Anonymous is granted nothing</b> (ADR-018 §3). A fresh server publishes
+    /// nothing to the unauthenticated, and making a portal public is one grant.
+    /// This is a behaviour change and it will look like a regression: until now
+    /// every published layer was world-readable. The failure modes are not
+    /// symmetric — a public portal that needs a grant is found in a minute by
+    /// the person setting it up, and a private dataset that was public by
+    /// default is found by someone else.
+    /// </para>
+    /// </remarks>
+    private static Migration RolesV3 => Migration.Expand(
+        new SchemaVersion(3),
+        "Seed the fixed role set from ADR-018.",
+        RoleSeedStatements());
+
+    /// <summary>
+    /// The role rows, generated from <see cref="Roles"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Generated rather than typed.</b> The role names exist in two places —
+    /// the code that resolves permissions and the rows a grant references — and
+    /// two hand-maintained copies of one fact eventually disagree. When they do,
+    /// a grant names a role the server does not know, and the principal silently
+    /// loses every permission it carried rather than getting an error.
+    /// </remarks>
+    private static string[] RoleSeedStatements()
+    {
+        List<string> statements = [];
+
+        foreach (string role in Roles.All)
+        {
+            // Literals rather than parameters: a Migration is a list of
+            // statements, not a command with arguments. The values come from our
+            // own constants, and the escape below is here so that adding a role
+            // with an apostrophe fails visibly rather than producing SQL.
+            statements.Add(
+                $"insert into role (name, description) values ('{Escape(role)}', "
+                + $"'{Escape(Roles.DescriptionOf(role))}')");
+        }
+
+        return [.. statements];
+    }
+
+    private static string Escape(string value) =>
+        value.Contains('\'', StringComparison.Ordinal)
+            ? throw new InvalidOperationException(
+                $"'{value}' contains a quote. Role names and descriptions are written into "
+                + "migration SQL as literals, so this would need parameterised migrations "
+                + "rather than an escape here.")
+            : value;
 }

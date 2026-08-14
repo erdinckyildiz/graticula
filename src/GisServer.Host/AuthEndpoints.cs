@@ -160,6 +160,10 @@ internal static class AuthEndpoints
             request.Name,
             request.DisplayName,
             hasher.Hash(request.Password),
+
+            // ADR-018 §4. The first account is a platform administrator or the
+            // server has nobody who can grant anything to anybody.
+            Roles.PlatformAdministrator,
             time.GetUtcNow(),
             cancellation).ConfigureAwait(false);
 
@@ -179,8 +183,15 @@ internal static class AuthEndpoints
 
         await Results.Json(new
         {
-            principal = new { name = administrator.Name },
+            principal = new { name = administrator.Name, role = Roles.PlatformAdministrator },
             next = "Sign in at /rest/auth/login.",
+
+            // ADR-018 §3 is a behaviour change from every previous build, and
+            // this is the moment the person who will be surprised by it is
+            // reading output.
+            note =
+                "Published layers are not readable by anonymous callers. To run an open portal, "
+                + "grant the 'viewer' role to the 'anonymous' principal.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

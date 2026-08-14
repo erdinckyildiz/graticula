@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -96,4 +97,38 @@ public interface IIdentityStore
     /// <summary>Creates a user principal with a password.</summary>
     Task<Principal> CreateUserAsync(
         string name, string? displayName, PasswordHash password, CancellationToken cancellationToken);
+
+    /// <summary>Reads the role names granted to a principal.</summary>
+    /// <remarks>
+    /// <para>
+    /// Names, not permissions. What a role carries is a decision in ADR-018 §2a
+    /// and lives in <see cref="Roles.Grants"/>; the store records only who holds
+    /// what. Resolving permissions in SQL would put the same table in two
+    /// places, and the copy in the database would be the one nobody reviews.
+    /// </para>
+    /// <para>
+    /// A role the server does not recognise confers nothing rather than
+    /// throwing — see <see cref="Roles.PermissionsOf"/>.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<string>> RolesOfAsync(Guid principalId, CancellationToken cancellationToken);
+
+    /// <summary>Grants a role. Idempotent.</summary>
+    /// <param name="principalId">Who receives it.</param>
+    /// <param name="role">The role name.</param>
+    /// <param name="grantedBy">Who granted it, or null when the server did.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task GrantRoleAsync(
+        Guid principalId, string role, Guid? grantedBy, CancellationToken cancellationToken);
+
+    /// <summary>Revokes a role. Idempotent.</summary>
+    Task RevokeRoleAsync(Guid principalId, string role, CancellationToken cancellationToken);
+
+    /// <summary>Whether any principal holds a role.</summary>
+    /// <remarks>
+    /// For the startup check that warns when nothing is readable by anyone. A
+    /// count would be more informative and is not needed: the question is
+    /// whether the answer is zero.
+    /// </remarks>
+    Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken);
 }

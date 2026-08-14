@@ -111,7 +111,14 @@ public sealed class PostgresPlatformSchemaStoreTests : PostgresFixture
 
         MigrationReport rest = await MigrateAsync();
 
-        Assert.Single(rest.Pending);
+        // Everything after migration 1, whatever that currently is. Asserting a
+        // count would make this fail every time a migration is added — which it
+        // just did, on ADR-018's role seed — and the property being tested is
+        // that migration 1 is not among them, not how many there are.
+        Assert.DoesNotContain(rest.Pending, m => m.Version.Value == 1);
+        Assert.Equal(
+            PlatformMigrations.All.All.Count - 1,
+            rest.Pending.Count);
         Assert.Equal(new SchemaVersion(2), rest.Pending[0].Version);
     }
 }
