@@ -151,6 +151,7 @@ reason that ADR gave:
 | **Sharing** | Who may read it | `PUT /admin/layers/{n}/sharing` |
 | **Data sources** | Where does this come from, can we still reach it | `GET /admin/datasources` and `/capability` |
 | **Health** | Is the platform store up | `GET /admin/health` |
+| **New hosted layer** | Design a schema, or import a file | `POST /admin/hosted/define` and `/import` |
 | **Audit** | Who changed what | *owed — see §7* |
 
 ---
@@ -167,6 +168,30 @@ reason that ADR gave:
   HTML. That is a new attack surface and it is why §8 condition 2 exists.
 - **ADR-017 §7's deferral is discharged** for the console question and stands
   for the other two.
+
+### 5a. The layer designer, added 2026-08-14
+
+Owner request: *"you can design the layer in portal/server screen to create a
+feature class in db."*
+
+Two forms side by side, because they are the same act with different starting
+material — **hosted means the datastore holds the feature class**, not that a
+file produced it. Designing a schema is for data somebody is going to collect;
+importing is for data they already have.
+
+**It obeys §2's constraint exactly.** Both forms post to admin endpoints that
+existed before the screen did and that `curl` can drive identically. The screen
+adds no capability; it adds a place to use one. The field-type list, the reserved
+names and the geometry types are all the server's answers, and when the server
+refuses — a name in use, `objectid` as a field, a type it does not know — the
+form shows the server's sentence rather than "request failed".
+
+**What it reports back is the server's answer, not "done".** The import response
+carries the row count, the inferred field types and the reprojection note, and
+all three are things somebody uploading a file wants to check before trusting
+it. A screen that says *success* throws that away.
+
+---
 
 ## 7. Deliberately not in this version
 

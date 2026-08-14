@@ -43,6 +43,27 @@
   h2:first-child { margin-top: 0; }
 
   .panel { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); overflow: hidden; }
+  .panel.pad { padding: 16px 18px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  .two h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .hint { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); max-width: 46ch; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .row label, form > label { display: flex; flex-direction: column; gap: 3px;
+       font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  form > label { margin-bottom: 12px; }
+  .row input, .row select, form > label input { font: inherit; padding: 5px 7px;
+       border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); color: var(--ink); }
+  table.fields { margin-bottom: 8px; }
+  table.fields th { padding: 6px 8px; }
+  table.fields td { padding: 4px 8px; }
+  table.fields input, table.fields select { font: inherit; font-size: 13px; padding: 3px 5px;
+       border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); color: var(--ink); }
+  button.ghost { background: transparent; border: 1px dashed var(--rule); color: var(--muted); }
+  .pill.p-hosted { background: #e2efeb; color: #0f6d5f; }
+  .pill.p-registered { background: var(--surface-2); color: var(--muted); }
+  #newResult:not(:empty) { margin-top: 16px; padding: 11px 13px; border-radius: 3px;
+       font-size: 13px; background: var(--surface-2); border: 1px solid var(--rule); }
   table { border-collapse: collapse; width: 100%; font-size: 14px; }
   th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em;
        text-transform: uppercase; color: var(--muted); font-weight: 400;
@@ -119,11 +140,86 @@
     <div id="legend"></div>
   </div>
 
+  <h2>New hosted layer</h2>
+  <div class="panel pad">
+    <!--
+      Two ways to make a hosted feature class, side by side, because they are
+      the same act with different starting material. Hosted means the datastore
+      holds it — not that a file produced it.
+    -->
+    <div class="two">
+      <form id="designForm" autocomplete="off">
+        <h3>Design a schema</h3>
+        <p class="hint">For data you are going to collect. Creates an empty
+          feature class you fill through the feature service.</p>
+
+        <div class="row">
+          <label>Name<input id="dName" placeholder="inspections" required></label>
+          <label>Geometry
+            <select id="dGeom">
+              <option>Point</option><option>MultiPoint</option>
+              <option>LineString</option><option>MultiLineString</option>
+              <option selected>Polygon</option><option>MultiPolygon</option>
+            </select>
+          </label>
+          <label>Sharing
+            <select id="dShare">
+              <option value="private" selected>private</option>
+              <option value="organization">organization</option>
+              <option value="public">public</option>
+            </select>
+          </label>
+        </div>
+
+        <table class="fields">
+          <thead><tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr></thead>
+          <tbody id="dFields"></tbody>
+        </table>
+        <button type="button" id="dAdd" class="ghost">Add field</button>
+
+        <p class="hint">
+          <code>objectid</code> and <code>geom</code> are created for you.
+          Stored in Web Mercator so the layer can serve tiles.
+        </p>
+
+        <button class="primary" type="submit">Create empty layer</button>
+      </form>
+
+      <form id="importForm" autocomplete="off">
+        <h3>Import a file</h3>
+        <p class="hint">For data you already have. Reads the schema from the
+          file and fills the feature class from it.</p>
+
+        <div class="row">
+          <label>Name<input id="iName" placeholder="parks" required></label>
+          <label>Sharing
+            <select id="iShare">
+              <option value="private" selected>private</option>
+              <option value="organization">organization</option>
+              <option value="public">public</option>
+            </select>
+          </label>
+        </div>
+
+        <label>GeoJSON<input id="iFile" type="file" accept=".json,.geojson,application/geo+json" required></label>
+
+        <p class="hint">
+          GeoJSON only. A shapefile is a ZIP and this server does not open
+          archives — see Q-98. Coordinates must be WGS 84 longitude, latitude;
+          they are reprojected to Web Mercator once on the way in.
+        </p>
+
+        <button class="primary" type="submit">Import and publish</button>
+      </form>
+    </div>
+    <div id="newResult"></div>
+  </div>
+
   <h2>Services</h2>
   <div class="panel">
     <table>
       <thead><tr>
-        <th></th><th>Name</th><th>Source</th><th>Status</th><th>Sharing</th><th>ArcGIS</th><th></th>
+        <th></th><th>Name</th><th>Where</th><th>Source</th><th>Status</th><th>Sharing</th><th></th>
       </tr></thead>
       <tbody id="layers"></tbody>
     </table>
@@ -348,6 +444,95 @@ function hide(name) {
   if (shown.size === 0) $("mapPanel").classList.remove("on");
 }
 
+// ---------------------------------------------------------------- new layer
+
+const FIELD_TYPES =
+  ["Text", "Integer", "BigInteger", "SmallInteger", "Double", "Single", "Boolean", "Date", "Guid"];
+
+function addFieldRow(name = "", type = "Text") {
+  const row = document.createElement("tr");
+  row.innerHTML =
+    `<td><input class="fName" value="${name}" placeholder="inspector"></td>
+     <td><select class="fType">${FIELD_TYPES.map(t =>
+       `<option${t === type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
+     <td style="text-align:center"><input class="fReq" type="checkbox"></td>
+     <td><button type="button" class="ghost fDel">Remove</button></td>`;
+  row.querySelector(".fDel").onclick = () => row.remove();
+  $("dFields").append(row);
+}
+
+// Reports what the server said rather than "done". The import response carries
+// the row count, the inferred field types and the reprojection note — all of
+// which are things somebody uploading a file wants to check before trusting it.
+function reportNew(created) {
+  const fields = (created.fields || [])
+    .map(f => `${f.name} <span class="sub">${f.type}</span>`).join(", ");
+
+  $("newResult").innerHTML =
+    `<b>${created.name}</b> created — ${created.rows} row${created.rows === 1 ? "" : "s"},
+     table <code>${created.table}</code>.<br>
+     ${fields ? `Fields: ${fields}.<br>` : ""}
+     ${created.storedIn && created.storedIn.sourceSR !== created.storedIn.storedSR
+        ? `<span class="sub">${created.storedIn.note}</span><br>` : ""}
+     <a href="${created.services.feature}?f=json" target="_blank">feature service</a> ·
+     <a href="${created.services.tiles}?f=json" target="_blank">tile service</a>`;
+}
+
+async function createDesigned(event) {
+  event.preventDefault();
+
+  const fields = [...document.querySelectorAll("#dFields tr")].map(row => ({
+    name: row.querySelector(".fName").value.trim(),
+    type: row.querySelector(".fType").value,
+    nullable: !row.querySelector(".fReq").checked,
+  })).filter(f => f.name);
+
+  try {
+    reportNew(await api("/admin/hosted/define", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("dName").value.trim(),
+        geometryType: $("dGeom").value,
+        sharing: $("dShare").value,
+        fields,
+      }),
+    }));
+
+    $("dName").value = "";
+    $("dFields").innerHTML = "";
+    addFieldRow();
+    await loadLayers();
+  } catch (e) {
+    // The server's message is the useful part — a name in use, a reserved
+    // field, a type it does not know.
+    $("newResult").textContent = e.message || String(e);
+  }
+}
+
+async function createImported(event) {
+  event.preventDefault();
+
+  const file = $("iFile").files[0];
+  if (!file) return;
+
+  const body = new FormData();
+  body.append("name", $("iName").value.trim());
+  body.append("sharing", $("iShare").value);
+  body.append("file", file);
+
+  // No Content-Type header: the browser sets it with the multipart boundary,
+  // and setting it by hand produces a body the server cannot parse.
+  try {
+    reportNew(await api("/admin/hosted/import", { method: "POST", body }));
+    $("iName").value = "";
+    $("iFile").value = "";
+    await loadLayers();
+  } catch (e) {
+    $("newResult").textContent = e.message || String(e);
+  }
+}
+
 async function refreshHealth() {
   try {
     const h = await api("/admin/health");
@@ -401,10 +586,10 @@ async function loadLayers() {
       <td><b class="${isShown ? "zoom" : ""}" data-zoom="${isShown ? l.name : ""}"
              style="${isShown ? "cursor:pointer" : ""}"
              title="${isShown ? "Zoom to this layer" : ""}">${swatch}${l.name}</b></td>
-      <td class="sub">${l.dataSource} · ${l.table}</td>
+      <td>${pill(l.hosted ? "hosted" : "registered")}</td>
+      <td class="sub">${l.dataSource} · ${l.table}${l.arcGisServable ? "" : " · no object id"}</td>
       <td>${pill(l.status)}</td>
       <td>${pill(l.sharing)}</td>
-      <td class="sub">${l.arcGisServable ? "yes" : "no object id"}</td>
       <td style="text-align:right; white-space:nowrap">
         <button data-toggle="${l.name}" data-to="${stopped ? "start" : "stop"}">
           ${stopped ? "Start" : "Stop"}
@@ -514,6 +699,14 @@ async function start() {
   $("app").style.display = "";
   $("signout").style.display = "";
   drawLegend();
+
+  $("designForm").addEventListener("submit", createDesigned);
+  $("importForm").addEventListener("submit", createImported);
+  $("dAdd").addEventListener("click", () => addFieldRow());
+
+  // One row to start with, so the form does not look like it takes no fields.
+  addFieldRow();
+
   await Promise.all([refreshHealth(), loadLayers(), loadSources()]);
 }
 
