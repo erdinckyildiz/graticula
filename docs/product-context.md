@@ -17,6 +17,37 @@ This document holds the answer. It is an input to every ADR and the yardstick
 for every review gate.
 
 
+## Who this is for — owner decision, 2026-08-14
+
+> *"I don't want to change existing ArcGIS users. I want to reach people who
+> don't want to pay, or cannot pay, for ArcGIS licences."*
+
+**The target is the person for whom the licence is the blocker.** That includes
+two populations who look different and share one constraint:
+
+| | Who | What they have | What they need from us |
+|---|---|---|---|
+| **Never could** | NGOs, small municipalities, academic groups, agencies in developing economies, startups, individuals | QGIS, PostGIS, and no ArcGIS anything | A server that is free, small, and easy to stand up |
+| **Can no longer** | A department after a budget cut, a licence audit, or a renewal it cannot fund | ArcGIS data, ArcGIS skills, ArcGIS clients, and a deadline | A place to land that keeps their work working |
+
+**What this excludes is the happy paying customer.** We are not trying to win a
+competitive evaluation against Esri for an organisation with budget. That is not
+modesty — it changes the roadmap, because the features that win a bake-off
+against ArcGIS Enterprise are not the features that rescue somebody whose
+licence lapses in ninety days.
+
+**Three consequences, taken immediately:**
+
+- **[Q-93](open-questions.md) is answered: no.** Federating into somebody's
+  existing Portal means the customer is still paying Esri for the Portal. That
+  is the one shape of deployment this positioning rules out by definition.
+- **Q-49's switch motive is corrected.** It read *everything an ArcGIS Server
+  shop needs in order to leave* — as though the job were persuasion. The motive
+  is the invoice. We are not arguing anybody out of ArcGIS; we are catching the
+  ones already falling.
+- **The comparison set moves, and not in our favour.** See
+  [competitive-position.md](competitive-position.md) §6b.
+
 ## What this product is, in one sentence
 
 **gis-server is ArcGIS Portal, ArcGIS Server and ArcGIS Data Store fused into a

@@ -249,3 +249,48 @@ been asked.** The difference Q-49's answer makes is that this is now a
 prioritisation risk rather than an existential one. If nobody wants an ArcGIS
 exit path, the project is still worth building and giving away — it is simply
 built in the wrong order.
+
+
+## 6b. The 2026-08-14 positioning makes this document harder, not easier
+
+The owner's target is *people who cannot or will not pay for ArcGIS licences*
+([product-context.md](product-context.md)). That sounds like it aims away from
+Esri and therefore away from difficulty. It does the opposite, and §4's honest
+conclusion needs re-reading in its light.
+
+**Q-49's answer rested on a differentiator that this narrows.** It said, in as
+many words, that *better capabilities than GeoServer* is **currently false and
+getting more so** — and that the defensible claim was instead *everything an
+ArcGIS Server shop needs in order to leave, which GeoServer does not provide*.
+That claim survives only for the **can-no-longer-pay** population in
+product-context's table. It says nothing to the **never-could** population,
+which is the larger of the two and is already served — adequately, for free, and
+for twenty years — by GeoServer, MapServer and QGIS Server.
+
+**So for most of the stated market, we are entering GeoServer's market with
+fewer capabilities than GeoServer.** WCS, WPS, CSW, SLD and its plugin ecosystem
+are all absent from v1, several by decision. That is not an argument against the
+positioning — it is the argument the positioning now has to answer, and it is
+better to have it written down than discovered in a forum thread.
+
+**What genuinely differentiates us for the never-could population**, on current
+scope, is short and worth being honest about:
+
+- **One deployable against one PostgreSQL** ([ADR-019](adr/ADR-019-portal-server-split.md)),
+  where GeoServer plus a catalog plus a tile cache is three moving parts. For an
+  organisation with no dedicated GIS administrator, this may be the whole
+  argument.
+- **A managed datastore and self-service publishing** (Q-69, ADR-018) — neither
+  GeoServer nor MapServer has the ArcGIS-style item, ownership and sharing model
+  we adopted yesterday.
+- **Never degrade silently** (ADR-008 §2), which is a correctness posture rather
+  than a feature, and which nothing in the field currently offers.
+
+**What does not differentiate us for them:** ArcGIS FeatureServer compatibility,
+which is the largest single body of work in v1. A QGIS shop that never had
+ArcGIS does not need it.
+
+That is not a call to cut it — the can-no-longer-pay population needs exactly
+that, and Q-88 already committed the schedule. It is a call to notice that **the
+v1 scope is currently optimised for the smaller half of the stated market**, and
+that [Q-94](open-questions.md) is the question that follows.
