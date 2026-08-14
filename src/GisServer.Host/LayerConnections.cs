@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using GisServer.Features;
 using GisServer.Platform.Catalog;
 using GisServer.Providers.PostGis;
@@ -82,6 +83,21 @@ internal sealed class LayerConnections : IDisposable
         }
 
         return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+    }
+
+    /// <summary>A writer for one layer, over the same shared pool.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="fields">
+    /// Its real columns, which the writer uses as the identifier whitelist
+    /// ADR-008 §4.6 requires.
+    /// </param>
+    public IFeatureWriter WriterFor(PublishedLayer layer, IReadOnlyList<FieldDescription> fields)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        return new PostGisFeatureWriter(
+            _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, fields);
     }
 
     /// <inheritdoc/>

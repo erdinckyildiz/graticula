@@ -91,17 +91,29 @@ internal static class ServerIdentity
             existing.Dispose();
         }
 
-        X509Certificate2 generated = GenerateSelfSigned(hostName);
+        // <b>The bytes are written, not re-exported from the certificate.</b>
+        // GenerateSelfSigned deliberately loads its result without
+        // X509KeyStorageFlags.Exportable, so calling Export on what it returns
+        // throws "Key not valid for use in specified state" — on Windows. It
+        // does not throw on Linux, which is why the containerised verification
+        // of ADR-016 condition 4 passed while the same code could not start on
+        // a developer's machine.
+        byte[] pkcs12 = CreatePkcs12(hostName);
 
         Directory.CreateDirectory(statePath);
-        File.WriteAllBytes(file, generated.Export(X509ContentType.Pkcs12));
+        File.WriteAllBytes(file, pkcs12);
 
-        return generated;
+        return X509CertificateLoader.LoadPkcs12(pkcs12, password: null);
     }
 
-    /// <summary>Generates a self-signed certificate.</summary>
+    /// <summary>Generates a self-signed certificate as PKCS#12 bytes.</summary>
     /// <param name="hostName">The name to put in the subject alternative name.</param>
-    public static X509Certificate2 GenerateSelfSigned(string hostName)
+    /// <remarks>
+    /// Returns bytes rather than a certificate because the bytes are what gets
+    /// persisted, and exporting them a second time from a loaded certificate is
+    /// what broke on Windows.
+    /// </remarks>
+    private static byte[] CreatePkcs12(string hostName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(hostName);
 
@@ -138,10 +150,14 @@ internal static class ServerIdentity
         using X509Certificate2 certificate = request.CreateSelfSigned(
             now.AddMinutes(-5), now.Add(Lifetime));
 
-        // Round-tripped through PFX because Kestrel needs an exportable private
+        // Round-tripped through PFX because Kestrel needs a persisted private
         // key on Windows; the ephemeral key from CreateSelfSigned is not usable
         // directly there.
-        return X509CertificateLoader.LoadPkcs12(
-            certificate.Export(X509ContentType.Pfx), password: null);
+        return certificate.Export(X509ContentType.Pfx);
     }
+
+    /// <summary>Generates a self-signed certificate ready for Kestrel.</summary>
+    /// <param name="hostName">The name to put in the subject alternative name.</param>
+    public static X509Certificate2 GenerateSelfSigned(string hostName) =>
+        X509CertificateLoader.LoadPkcs12(CreatePkcs12(hostName), password: null);
 }

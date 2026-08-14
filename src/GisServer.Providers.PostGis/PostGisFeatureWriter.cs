@@ -131,7 +131,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         EditOutcome outcome = new(adds, updates, deletes, RolledBack: false);
 
-        if (batch.RollbackOnFailure && !outcome.AllSucceeded)
+        if (batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed))
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
 

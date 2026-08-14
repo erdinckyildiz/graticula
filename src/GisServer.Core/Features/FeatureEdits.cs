@@ -47,6 +47,10 @@ public readonly record struct EditResult(long ObjectId, bool Succeeded, string? 
 /// <param name="RollbackOnFailure">
 /// Whether one failure abandons the whole batch.
 /// </param>
+/// <param name="AlreadyFailed">
+/// How many features failed before the writer saw the batch — see
+/// <see cref="AnythingAlreadyFailed"/>.
+/// </param>
 /// <remarks>
 /// <b>The default is true, which is not ArcGIS's default.</b> ArcGIS defaults to
 /// partial application, and there is a reason to prefer it — a bulk sync of ten
@@ -60,10 +64,31 @@ public sealed record EditBatch(
     IReadOnlyList<FeatureAdd> Adds,
     IReadOnlyList<FeatureUpdate> Updates,
     IReadOnlyList<long> Deletes,
-    bool RollbackOnFailure = true)
+    bool RollbackOnFailure = true,
+    int AlreadyFailed = 0)
 {
     /// <summary>How many features this batch touches.</summary>
     public int Count => Adds.Count + Updates.Count + Deletes.Count;
+
+    /// <summary>
+    /// Whether anything has already failed before the writer sees the batch.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Set from features the request layer could not even parse</b> — an
+    /// unreadable geometry, a wrong spatial reference, a column that is not
+    /// there. Those never reach the writer, so without this the writer sees a
+    /// batch in which everything succeeded and commits it.
+    /// </para>
+    /// <para>
+    /// <b>Which made all-or-nothing a lie.</b> A client that asked for it, and
+    /// sent one unparseable feature among ten good ones, got the ten applied and
+    /// <c>rolledBack: false</c> — precisely the half-applied batch the default
+    /// exists to prevent. Found by sending a geometry in the wrong spatial
+    /// reference and watching the other feature survive.
+    /// </para>
+    /// </remarks>
+    public bool AnythingAlreadyFailed => AlreadyFailed > 0;
 
     /// <summary>Whether it asks for anything at all.</summary>
     public bool IsEmpty => Count == 0;

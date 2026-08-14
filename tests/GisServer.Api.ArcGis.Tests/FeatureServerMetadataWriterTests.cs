@@ -44,17 +44,24 @@ public sealed class FeatureServerMetadataWriterTests
         JsonDocument.Parse(JsonSerializer.Serialize(value)).RootElement;
 
     [Fact]
-    public void The_service_document_claims_query_and_nothing_else()
+    public void The_service_document_reports_the_capabilities_it_is_given()
     {
         // ADR-008 §2 applied where it bites first. A client reads this string to
         // decide whether to offer editing; claiming "Create,Update,Delete"
         // because applyEdits is planned puts that button in front of a user
         // today.
-        JsonElement service = Json(FeatureServerMetadataWriter.Service(
-            Layer(), GeometryKind.Polygon, null));
+        JsonElement readOnly = Json(FeatureServerMetadataWriter.Service(
+            Layer(), GeometryKind.Polygon, null, "Query"));
 
-        Assert.Equal("Query", service.GetProperty("capabilities").GetString());
-        Assert.False(service.GetProperty("allowGeometryUpdates").GetBoolean());
+        Assert.Equal("Query", readOnly.GetProperty("capabilities").GetString());
+        Assert.False(readOnly.GetProperty("allowGeometryUpdates").GetBoolean());
+
+        // And when the caller may edit, the flag that gates geometry editing in
+        // a client follows the capability rather than staying false.
+        JsonElement editable = Json(FeatureServerMetadataWriter.Service(
+            Layer(), GeometryKind.Polygon, null, "Query,Create,Update,Delete"));
+
+        Assert.True(editable.GetProperty("allowGeometryUpdates").GetBoolean());
     }
 
     [Fact]
@@ -65,7 +72,7 @@ public sealed class FeatureServerMetadataWriterTests
         // silently failure inverted: the client asks, and we say no after it
         // has already offered the feature.
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, Description()));
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         foreach (string claim in (string[])
             ["supportsAdvancedQueries", "supportsStatistics", "supportsPagination",
@@ -79,7 +86,7 @@ public sealed class FeatureServerMetadataWriterTests
     public void The_object_id_field_is_declared_as_the_OID_type_not_merely_named()
     {
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, Description()));
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         Assert.Equal("objectid", layer.GetProperty("objectIdField").GetString());
 
@@ -95,7 +102,7 @@ public sealed class FeatureServerMetadataWriterTests
         // ADR-013 §2a. The query endpoint refuses such a layer; a client reading
         // this document learns why before it tries, rather than after.
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(objectId: null), GeometryKind.Polygon, Description()));
+            Layer(objectId: null), GeometryKind.Polygon, Description(), "Query"));
 
         Assert.Equal(JsonValueKind.Null, layer.GetProperty("objectIdField").ValueKind);
     }
@@ -136,7 +143,7 @@ public sealed class FeatureServerMetadataWriterTests
         // Null means unknown; a zeroed box means "the features are off the coast
         // of Africa", which is the classic symptom of confusing the two.
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, Description(extent: null)));
+            Layer(), GeometryKind.Polygon, Description(extent: null), "Query"));
 
         Assert.Equal(JsonValueKind.Null, layer.GetProperty("extent").ValueKind);
     }
@@ -147,7 +154,7 @@ public sealed class FeatureServerMetadataWriterTests
         // An extent without a spatial reference is four numbers a client cannot
         // place.
         JsonElement extent = Json(FeatureServerMetadataWriter.Layer(
-                Layer(), GeometryKind.Polygon, Description(new Envelope(1, 2, 3, 4))))
+                Layer(), GeometryKind.Polygon, Description(new Envelope(1, 2, 3, 4)), "Query"))
             .GetProperty("extent");
 
         Assert.Equal(1, extent.GetProperty("xmin").GetDouble());
@@ -159,7 +166,7 @@ public sealed class FeatureServerMetadataWriterTests
     public void The_display_field_prefers_a_text_field_over_the_object_id()
     {
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, Description()));
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         Assert.Equal("name", layer.GetProperty("displayField").GetString());
     }
@@ -173,7 +180,7 @@ public sealed class FeatureServerMetadataWriterTests
             [new FieldDescription("objectid", FieldType.Integer, false, null)], null);
 
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, numeric));
+            Layer(), GeometryKind.Polygon, numeric, "Query"));
 
         Assert.Equal("objectid", layer.GetProperty("displayField").GetString());
     }
@@ -210,7 +217,7 @@ public sealed class FeatureServerMetadataWriterTests
         // query route in this server ends in /0. If this ever reports more, the
         // routes are wrong too.
         JsonElement layers = Json(FeatureServerMetadataWriter.Service(
-            Layer(), GeometryKind.Polygon, null)).GetProperty("layers");
+            Layer(), GeometryKind.Polygon, null, "Query")).GetProperty("layers");
 
         JsonElement only = Assert.Single(layers.EnumerateArray().ToArray());
         Assert.Equal(0, only.GetProperty("id").GetInt32());
@@ -224,7 +231,7 @@ public sealed class FeatureServerMetadataWriterTests
         // drift, a well-behaved client silently gets fewer features than it
         // asked for and no indication why.
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
-            Layer(), GeometryKind.Polygon, Description()));
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         Assert.Equal(FeatureQuery.MaximumLimit, layer.GetProperty("maxRecordCount").GetInt32());
     }

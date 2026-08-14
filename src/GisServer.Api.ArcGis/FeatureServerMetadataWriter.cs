@@ -92,9 +92,12 @@ public static class FeatureServerMetadataWriter
     /// <param name="layer">The layer definition.</param>
     /// <param name="geometryType">Its declared geometry type.</param>
     /// <param name="extent">Where its features are, or null if unknown.</param>
-    public static object Service(LayerDefinition layer, GeometryKind geometryType, Envelope? extent)
+    /// <param name="capabilities">What the caller may do — see the remarks on the type.</param>
+    public static object Service(
+        LayerDefinition layer, GeometryKind geometryType, Envelope? extent, string capabilities)
     {
         ArgumentNullException.ThrowIfNull(layer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
 
         return new
         {
@@ -106,18 +109,18 @@ public static class FeatureServerMetadataWriter
             maxRecordCount = MaxRecordCount,
             supportedQueryFormats = "JSON",
 
-            // <b>Query only, and saying so is the point.</b> ADR-008 §2's
-            // never-degrade-silently applies here before it applies anywhere
+            // <b>Computed per caller, and saying so accurately is the point.</b>
+            // ADR-008 §2's never-degrade-silently applies here before anywhere
             // else: a client reads this string to decide whether to offer an
-            // edit button. Claiming "Create,Update,Delete" because applyEdits is
-            // planned would put that button in front of a user today.
-            capabilities = "Query",
+            // edit button, so over-claiming puts that button in front of
+            // somebody who will be refused when they press it.
+            capabilities,
             description = string.Empty,
             copyrightText = string.Empty,
             spatialReference = SpatialReference(layer.Srid),
             initialExtent = ExtentOrNull(extent, layer.Srid),
             fullExtent = ExtentOrNull(extent, layer.Srid),
-            allowGeometryUpdates = false,
+            allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal),
             units = UnitsOf(layer.Srid),
 
             // One layer per service, always. ADR-013's model is a service per
@@ -146,11 +149,16 @@ public static class FeatureServerMetadataWriter
     /// <param name="layer">The layer definition.</param>
     /// <param name="geometryType">Its declared geometry type.</param>
     /// <param name="description">Its fields and extent.</param>
+    /// <param name="capabilities">What the caller may do.</param>
     public static object Layer(
-        LayerDefinition layer, GeometryKind geometryType, LayerDescription description)
+        LayerDefinition layer,
+        GeometryKind geometryType,
+        LayerDescription description,
+        string capabilities)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
 
         return new
         {
@@ -169,10 +177,10 @@ public static class FeatureServerMetadataWriter
             displayField = DisplayField(layer, description),
             globalIdField = string.Empty,
 
-            fields = Fields(layer, description),
+            fields = Fields(layer, description, capabilities),
             extent = ExtentOrNull(description.Extent, layer.Srid),
 
-            capabilities = "Query",
+            capabilities,
             maxRecordCount = MaxRecordCount,
             supportedQueryFormats = "JSON",
             hasAttachments = false,
@@ -216,7 +224,8 @@ public static class FeatureServerMetadataWriter
         _ => "esriFieldTypeString",
     };
 
-    private static object[] Fields(LayerDefinition layer, LayerDescription description) =>
+    private static object[] Fields(
+        LayerDefinition layer, LayerDescription description, string capabilities) =>
         [.. description.Fields.Select(field => new
         {
             name = field.Name,
@@ -227,9 +236,11 @@ public static class FeatureServerMetadataWriter
             length = field.MaxLength,
             nullable = field.Nullable,
 
-            // The object id is never editable; nothing is, while capabilities
-            // says Query.
-            editable = false,
+            // The object id is never editable even when the layer is: it is
+            // assigned by the database, and a client offering to change it would
+            // be offering to break every reference to the feature.
+            editable = capabilities.Contains("Update", StringComparison.Ordinal)
+                && !string.Equals(field.Name, layer.ObjectIdColumn, StringComparison.Ordinal),
             domain = (object?)null,
         })];
 

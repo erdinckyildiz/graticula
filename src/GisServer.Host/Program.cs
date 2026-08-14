@@ -368,6 +368,8 @@ public static class Program
         app.MapGet("/rest/services/{layerName}/FeatureServer", ServiceMetadataAsync);
         app.MapGet("/rest/services/{layerName}/FeatureServer/0", LayerMetadataAsync);
         app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
+        app.MapPost("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
+        app.MapPost("/rest/services/{layerName}/FeatureServer/0/applyEdits", ApplyEditsAsync);
 
         app.MapAuth();
         app.MapAdmin();
@@ -474,7 +476,7 @@ public static class Program
             .DescribeAsync(cancellation).ConfigureAwait(false);
 
         await Results.Ok(FeatureServerMetadataWriter.Service(
-            layer.Definition, layer.GeometryType, description.Extent))
+            layer.Definition, layer.GeometryType, description.Extent, CapabilitiesFor(context, layer)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -497,8 +499,251 @@ public static class Program
             .DescribeAsync(cancellation).ConfigureAwait(false);
 
         await Results.Ok(FeatureServerMetadataWriter.Layer(
-            layer.Definition, layer.GeometryType, description))
+            layer.Definition, layer.GeometryType, description, CapabilitiesFor(context, layer)))
             .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+
+    /// <summary>
+    /// ArcGIS <c>applyEdits</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The privilege mapping is stricter than ArcGIS Portal's, deliberately.</b>
+    /// Portal separates <em>edit</em> — add, and change your own features — from
+    /// <em>full edit</em>, which reaches everybody's. That distinction rests on
+    /// editor tracking, which records who created each row, and editor tracking
+    /// is deferred (Q-58). Without it we cannot tell whose feature is whose, so
+    /// treating an update as "probably yours" would be a guess with somebody
+    /// else's data. Adds need <c>features:edit</c>; updates and deletes need
+    /// <c>features:fullEdit</c>, and that is narrower than Portal until Q-58
+    /// lands.
+    /// </para>
+    /// <para>
+    /// <b>Editing requires being able to read.</b> The sharing scope is checked
+    /// first, and a layer that is not visible to the caller answers exactly as it
+    /// does for a query — 404, indistinguishable from absent, so the endpoint
+    /// cannot be used to discover layer names.
+    /// </para>
+    /// </remarks>
+    private static async Task ApplyEditsAsync(
+        HttpContext context,
+        string layerName,
+        PostgresLayerCatalog catalog,
+        LayerConnections connections,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        if (!layer.Definition.IsArcGisServable)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            $"Layer '{layerName}' has no integer object-id column, so its features "
+                            + "cannot be addressed for update or delete (ADR-013 §2a).",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        string? adds = Field(form, context, "adds");
+        string? updates = Field(form, context, "updates");
+        string? deletes = Field(form, context, "deletes");
+
+        // Adds need less than updates and deletes do; asking for the wider
+        // privilege on a batch that only adds would refuse a legitimate edit.
+        if (adds is not null
+            && !await Authorize.RequireAsync(context, Privilege.FeaturesEdit).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if ((updates is not null || deletes is not null)
+            && !await Authorize.RequireAsync(context, Privilege.FeaturesFullEdit).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IFeatureSource source = connections.SourceFor(layer);
+        LayerDescription description = await source.DescribeAsync(cancellation).ConfigureAwait(false);
+
+        ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
+            adds, updates, deletes,
+            RollbackOnFailure(form, context),
+            layer.Definition, description.Fields,
+            out string? malformed);
+
+        if (parsed is null)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = malformed } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        EditOutcome outcome = await connections
+            .WriterFor(layer, description.Fields)
+            .ApplyAsync(parsed.Batch, cancellation)
+            .ConfigureAwait(false);
+
+        await AuditEditsAsync(context, audit, layerName, parsed, outcome, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(ApplyEditsResponse.Build(outcome, parsed))
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads a field from the form, falling back to the query string.</summary>
+    /// <remarks>
+    /// ArcGIS clients POST <c>applyEdits</c> form-encoded. The query string is
+    /// accepted too because it makes the endpoint testable with a plain URL, and
+    /// because some clients do it for small batches.
+    /// </remarks>
+    private static string? Field(IFormCollection form, HttpContext context, string name)
+    {
+        if (form.TryGetValue(name, out Microsoft.Extensions.Primitives.StringValues value)
+            && !string.IsNullOrWhiteSpace(value))
+        {
+            return value.ToString();
+        }
+
+        return context.Request.Query.TryGetValue(name, out value) && !string.IsNullOrWhiteSpace(value)
+            ? value.ToString()
+            : null;
+    }
+
+    /// <summary>
+    /// Whether one failure abandons the batch.
+    /// </summary>
+    /// <remarks>
+    /// <b>Defaults to true, where ArcGIS defaults to false.</b> Partial
+    /// application leaves the client responsible for reconciling a half-applied
+    /// batch, and a client that does not read the per-feature results has
+    /// silently lost data it believes it saved. The dangerous mode is available
+    /// and has to be asked for.
+    /// </remarks>
+    private static bool RollbackOnFailure(IFormCollection form, HttpContext context)
+    {
+        string? value = Field(form, context, "rollbackOnFailure");
+
+        return value is null
+            || !bool.TryParse(value, out bool requested)
+            || requested;
+    }
+
+    private static Task AuditEditsAsync(
+        HttpContext context,
+        IAuditLog audit,
+        string layerName,
+        ApplyEditsRequest.Parsed parsed,
+        EditOutcome outcome,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        int failed = 0;
+
+        foreach (IReadOnlyList<EditResult> results in
+            (IReadOnlyList<EditResult>[])[outcome.Adds, outcome.Updates, outcome.Deletes])
+        {
+            foreach (EditResult result in results)
+            {
+                if (!result.Succeeded)
+                {
+                    failed++;
+                }
+            }
+        }
+
+        // Counts, not the features themselves. An audit row per edited feature
+        // would make a ten-thousand-feature sync write ten thousand audit rows,
+        // and the question an audit answers here is "who changed this layer and
+        // how much", not "what were the coordinates".
+        return audit.RecordAsync(
+            new AuditEvent(
+                current.Principal.Id,
+                current.Principal.Name,
+                context.Connection.RemoteIpAddress?.ToString(),
+                "layer.applyEdits",
+                layerName,
+                JsonSerializer.Serialize(new
+                {
+                    adds = parsed.Batch.Adds.Count,
+                    updates = parsed.Batch.Updates.Count,
+                    deletes = parsed.Batch.Deletes.Count,
+                    rejected = parsed.RejectedAdds.Count + parsed.RejectedUpdates.Count
+                        + parsed.RejectedDeletes.Count,
+                    failed,
+                    outcome.RolledBack,
+                }),
+
+                // Rejections count. Counting only writer failures reported a
+                // batch as successful when a feature never reached the writer,
+                // which is the same mistake that made all-or-nothing a lie.
+                !outcome.RolledBack && failed == 0
+                    && parsed.RejectedAdds.Count == 0
+                    && parsed.RejectedUpdates.Count == 0
+                    && parsed.RejectedDeletes.Count == 0),
+            cancellation);
+    }
+
+    /// <summary>
+    /// What this caller may actually do with this layer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Per caller, not per service.</b> A client reads this string to decide
+    /// whether to show an edit button, so reporting the service's theoretical
+    /// capability would put that button in front of somebody who will be refused
+    /// when they press it — never-degrade-silently, inverted.
+    /// </para>
+    /// <para>
+    /// A layer with no integer object id can never be edited whatever the
+    /// caller holds, because there is no way to name a row (ADR-013 §2a).
+    /// </para>
+    /// </remarks>
+    private static string CapabilitiesFor(HttpContext context, PublishedLayer layer)
+    {
+        if (!layer.Definition.IsArcGisServable)
+        {
+            return "Query";
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        List<string> capabilities = ["Query"];
+
+        if (current.Authorization.Allows(Privilege.FeaturesEdit))
+        {
+            capabilities.Add("Create");
+        }
+
+        if (current.Authorization.Allows(Privilege.FeaturesFullEdit))
+        {
+            capabilities.Add("Update");
+            capabilities.Add("Delete");
+        }
+
+        return string.Join(",", capabilities);
     }
 
     /// <summary>How long a first-start setup token lasts.</summary>
