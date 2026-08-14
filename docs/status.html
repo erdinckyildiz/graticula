@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>4e04084</code> · 2026-08-15 00:56</p>
+<p class="stamp">Generated from commit <code>7fc1b9c</code> · 2026-08-15 01:05</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">13/63</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/59</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">589</div><div class="kpi-l">tests</div><div class="kpi-n">97 source files, 21,715 lines</div></div>
+<div class="kpi good"><div class="kpi-v">589</div><div class="kpi-l">tests</div><div class="kpi-n">97 source files, 21,734 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -204,7 +204,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
 <div class="scroll"><table><thead><tr><th>ID</th><th>Debt</th><th>Repay when</th><th>State</th></tr></thead><tbody>
-<tr class=""><td class="id">D-06</td><td>Dependency licensing is deliberately unexamined.</td><td class="muted-t">Before the first binary that bundles a database driver, a GDAL build or a Python wheel set.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-06</td><td>Dependency licensing is deliberately unexamined.</td><td class="muted-t">Before any distribution, and before adding a dependency with a copyleft parent</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-05</td><td>~~A-019 is validated only on PostGIS.~~ Rewritten 2026-08-12 by Q-67 and now much smaller: no engine except PostGIS serves tiles, so the tile half of this debt is gone.</td><td class="muted-t">Before any commitment is made that Oracle or SQL Server layers serve tiles at parity.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-01</td><td>~~RLS delegation and per-data-source pooling are incompatible.~~</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-02</td><td>~~Tenant identity is not part of the cache key.~~</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -308,6 +308,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7fc1b9c</code><time>2026-08-15</time><span>contradiction sweep round 2, and three carried debts that were carrying wrong numbers</span></li>
 <li><code>4e04084</code><time>2026-08-15</time><span>related records: declared, validated, and one query rather than N+1</span></li>
 <li><code>59e03f2</code><time>2026-08-15</time><span>do not commit a session token</span></li>
 <li><code>467a4d9</code><time>2026-08-15</time><span>attachments, and the streaming requirement that turned out not to be free</span></li>
@@ -321,7 +322,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>fff97c0</code><time>2026-08-14</time><span>tiles in another projection: silently empty, now refused</span></li>
 <li><code>681f78d</code><time>2026-08-14</time><span>a Tiles button in the console, and a capability we were claiming falsely</span></li>
 <li><code>829c890</code><time>2026-08-14</time><span>VectorTileServer, and the reason it could never have served a tile</span></li>
-<li><code>f94ed3c</code><time>2026-08-14</time><span>the first rendered tile, three days late</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

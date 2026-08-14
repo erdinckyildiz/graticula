@@ -115,6 +115,25 @@ internal static class RelationshipEndpoints
             return;
         }
 
+        // <b>Refused rather than stored, because storing it would be a lie.</b>
+        // ADR-013 §3 says a composite relationship cascades on delete — by the
+        // database where it already declares ON DELETE CASCADE, by us in the
+        // same transaction where it does not. Neither is implemented. Accepting
+        // the flag would put it in the layer document, where an administrator
+        // reads it and concludes that deleting a parcel removes its owners; the
+        // orphans that follow are silent. D-26.
+        if (request.Composite == true)
+        {
+            await Fail(context, 501,
+                "'composite' is not implemented. ADR-013 §3 says a composite relationship "
+                + "cascades on delete, and this server does not do it yet — so accepting the flag "
+                + "would report a guarantee it does not honour, and the orphaned rows would be "
+                + "silent. Declare the relationship without it, or add ON DELETE CASCADE to the "
+                + "foreign key in the database, where PostgreSQL will enforce it.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         PublishedLayer? origin = await Find(layers, request.OriginLayer, cancellation)
             .ConfigureAwait(false);
 

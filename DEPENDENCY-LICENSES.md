@@ -10,9 +10,65 @@ Apache-2.0. LGPL remains usable via the Tier 2 port layer. The note below record
 the earlier *inbound* posture, which predates the outbound choice and is now
 constrained by it.
 
-**Project licensing posture:** open source; copyleft (GPL/AGPL) is acceptable to
-the project owner. There is therefore no *exclusion* pressure on dependencies.
-This register exists to track **obligations**, not to filter candidates.
+**Project licensing posture:** ~~open source; copyleft (GPL/AGPL) is acceptable
+to the project owner. There is therefore no *exclusion* pressure on dependencies.
+This register exists to track **obligations**, not to filter candidates.~~
+
+**Corrected 2026-08-15 by the §66 licensing gate.** That paragraph describes the
+*inbound* posture from before Q-73, and Q-73's Apache-2.0 outbound choice
+reverses its conclusion: GPL and AGPL components cannot be linked into anything
+shipped, so this register **does** filter candidates as well as tracking
+obligations. Left struck rather than deleted, because the earlier position is why
+some research notes weigh licences the way they do.
+
+---
+
+---
+
+## §66 Licensing review gate — RUN 2026-08-15, and it passes
+
+**Every dependency verified from the package itself**, by reading the `<license>`
+expression in the shipped `.nuspec` rather than from documentation, a website, or
+memory. That distinction is the whole point of the gate: a licence somebody
+wrote down is a claim, and a licence in the artefact being redistributed is the
+fact.
+
+| Package | Version | Licence | Verified from | Compatible with Apache-2.0 outbound |
+|---|---|---|---|---|
+| Npgsql | 9.0.2 | **PostgreSQL** (BSD-style, permissive) | nuspec `<license type="expression">` | **Yes.** Permissive, attribution only |
+| Konscious.Security.Cryptography.Argon2 | 1.3.1 | **MIT** | nuspec | **Yes** |
+| xunit | 2.9.2 | **Apache-2.0** | nuspec | **Yes**, and identical to outbound |
+| xunit.runner.visualstudio | 2.8.2 | **Apache-2.0** | nuspec | **Yes** |
+| Microsoft.NET.Test.Sdk | 17.12.0 | **MIT** | nuspec | **Yes** |
+| Microsoft.Extensions.TimeProvider.Testing | 9.0.0 | **MIT** | nuspec | **Yes** |
+
+**Result: pass.** No GPL or AGPL component is linked into anything shipped,
+which is the one class the Apache-2.0 outbound choice (Q-73) made disqualifying.
+Four of the six are test-only and never ship at all.
+
+### What the gate found beyond the table
+
+**The register described a project that no longer exists.** Its own preamble
+still said *"copyleft (GPL/AGPL) is acceptable to the project owner. There is
+therefore no exclusion pressure on dependencies… This register exists to track
+obligations, not to filter candidates."* Q-73 chose Apache-2.0 outbound on
+2026-08-13, which makes GPL and AGPL disqualifying — so the register's stated
+purpose was the opposite of its actual one. Corrected below.
+
+**Two Tier 2 candidates were avoided for reasons that were never licence
+reasons, and it is worth saying so.** NetTopologySuite appears in
+`/benchmarks` and in no shipped assembly, because [ADR-021](docs/adr/ADR-021-tile-encoding.md)
+retired the in-process encoder — a measurement outcome, not a licensing one. A
+.NET projection library was rejected by [ADR-022](docs/adr/ADR-022-geometry-server.md)
+§4 because two coordinate engines disagree by metres, also not a licensing
+reason. **The shipped dependency list is six packages, and the two largest
+candidates were declined on evidence.**
+
+**What this gate did not check:** transitive dependencies. The six above are
+direct; Npgsql and the test packages pull others, and `dotnet list package
+--include-transitive` would enumerate them. That is the honest limit of a gate
+run by reading six nuspecs, and it is recorded rather than implied — see
+[D-06](docs/architecture-debt.md), which is narrowed rather than closed.
 
 ---
 

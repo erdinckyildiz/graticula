@@ -70,20 +70,26 @@ finished, however confident the ADR sounds.
 
 ## Review gates (§66)
 
-None run yet. Each gate is run against the whole architecture, not per-ADR, and
-a failure reopens the relevant decisions rather than being noted and passed over.
+Each gate is run against the whole architecture, not per-ADR, and a failure
+reopens the relevant decisions rather than being noted and passed over.
+
+**Two of nine run, and the seven blanks are deliberate.** A gate ticked without
+evidence is worse than one left open: it converts an unknown into a false
+assurance, and nothing afterwards re-examines it. The two below were run because
+the evidence to run them exists; the rest are named with what each is waiting
+for.
 
 | Gate | Run | Result |
 |---|---|---|
-| Correctness | — | — |
-| Simplicity | — | — |
-| Performance | — | — |
-| Failure | — | — |
-| Operations | — | — |
-| Security | — | — |
-| Extensibility | — | — |
-| Licensing | — | — |
-| Consistency | — | — |
+| Correctness | — | Partly covered by [contradiction sweep 2](reviews/contradiction-sweep-2.md), which is a narrower exercise. A correctness gate over 22 ADRs and 21,000 lines needs a reviewer who did not write them |
+| Simplicity | — | Waiting on somebody other than the author. The anti-overengineering test — *what concrete problem does this solve* — cannot be applied honestly to one's own design |
+| Performance | — | **Evidence exists and the gate does not.** Four benchmark rounds ([mvt-generation](../benchmarks/mvt-generation/RESULTS.md), [geometry-overlay](../benchmarks/geometry-overlay/RESULTS.md)) overturned two assumptions. What is missing is the architecture-wide pass that asks what they imply together |
+| Failure | — | [failure-scenarios.md](failure-scenarios.md) covers N1–N10 and predates the code. Several of its predictions are now testable and untested |
+| Operations | — | Needs a deployment somebody operates. A-051's break-glass path and D-18 are the known holes |
+| Security | — | [security.md](security.md) has grown three rules from implementation this week. A gate would ask what is missing, which is a different question from what has been added |
+| Extensibility | — | ADR-006 is `REOPENED` and no plugin code exists; the gate has nothing to examine |
+| **Licensing** | **2026-08-15** | **PASS.** All six shipped and test dependencies verified from their own nuspecs — Npgsql (PostgreSQL licence), Argon2 (MIT), xunit ×2 (Apache-2.0), test SDK and TimeProvider.Testing (MIT). No GPL or AGPL anywhere. Found and corrected a register whose stated purpose contradicted Q-73. Transitive dependencies not checked — [D-06](architecture-debt.md) narrowed, not closed |
+| **Consistency** | **2026-08-15** | **FAIL, and repaired in part.** [Contradiction sweep 2](reviews/contradiction-sweep-2.md): twelve findings. The largest is that twelve of twenty-two ADRs still describe a three-database product ([D-27](architecture-debt.md)). Four findings were new; four were already recorded at their point of decision; four are now fixed |
 
 ## Phase 0 exit criteria (§81)
 
