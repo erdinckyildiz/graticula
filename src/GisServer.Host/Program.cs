@@ -86,6 +86,12 @@ public static class Program
             options.ValueLengthLimit = 48 * 1024 * 1024;
             options.MultipartBodyLengthLimit = 48 * 1024 * 1024;
             options.ValueCountLimit = 4096;
+
+            // The hosted-data upload is the one multipart surface, and its own
+            // cap is stated in HostedDataEndpoints. This is the outer bound so a
+            // body larger than that is refused by the framework before it is
+            // buffered rather than after.
+            options.MultipartBodyLengthLimit = HostedDataEndpoints.MaximumBytes;
         });
 
         builder.Services.AddSingleton(TimeProvider.System);
@@ -105,6 +111,9 @@ public static class Program
         builder.Services.AddKeyedSingleton(
             DatastorePool,
             (_, _) => new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore)).Build());
+
+        builder.Services.AddSingleton(services =>
+            new PostGisImporter(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
 
         builder.Services.AddSingleton<IProjector>(services =>
             new PostGisProjector(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
@@ -450,6 +459,7 @@ public static class Program
 
         VectorTileEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
+        HostedDataEndpoints.Map(app);
 
         app.MapAuth();
         app.MapAdmin();

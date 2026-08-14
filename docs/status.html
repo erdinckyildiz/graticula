@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d85dbe1</code> · 2026-08-14 19:47</p>
+<p class="stamp">Generated from commit <code>7ae23fe</code> · 2026-08-14 20:09</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">63</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
-<div class="kpi "><div class="kpi-v">50</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
+<div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/59</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">518</div><div class="kpi-l">tests</div><div class="kpi-n">83 source files, 16,846 lines</div></div>
+<div class="kpi good"><div class="kpi-v">561</div><div class="kpi-l">tests</div><div class="kpi-n">87 source files, 18,313 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -199,6 +199,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-96</span><span class="owner">Owner</span></div><p>Should the tile path reproject, and how far?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-97</span><span class="owner">Owner</span></div><p>How does GeometryServer offer general overlay without offering a denial of service?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-98</span><span class="owner">Owner</span></div><p>Do we accept shapefiles, and if so what happens to the no-decompression rule?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -295,16 +296,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:82.3%"></div></div><div class="bar-n">102</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:64.5%"></div></div><div class="bar-n">80</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:62.1%"></div></div><div class="bar-n">77</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:56.5%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:32.3%"></div></div><div class="bar-n">40</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:17.7%"></div></div><div class="bar-n">22</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.4%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">152</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:77.0%"></div></div><div class="bar-n">117</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:52.6%"></div></div><div class="bar-n">80</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:46.1%"></div></div><div class="bar-n">70</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:26.3%"></div></div><div class="bar-n">40</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:14.5%"></div></div><div class="bar-n">22</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7ae23fe</code><time>2026-08-14</time><span>GeometryServer, the half of it that cannot be used as a weapon</span></li>
 <li><code>d85dbe1</code><time>2026-08-14</time><span>A-042 invalidated: a vertex cap is not a control, and the proof took the host down</span></li>
 <li><code>7ef4990</code><time>2026-08-14</time><span>the tile cache: 4x, and the row of ADR-010 I refused to implement</span></li>
 <li><code>fff97c0</code><time>2026-08-14</time><span>tiles in another projection: silently empty, now refused</span></li>
@@ -318,7 +320,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>47812c7</code><time>2026-08-14</time><span>five things the real SDK sends that we got wrong, two of them silently</span></li>
 <li><code>1828099</code><time>2026-08-14</time><span>show a layer on the map, and the credential the map did not have</span></li>
 <li><code>2a163c5</code><time>2026-08-14</time><span>the ArcGIS Maps SDK, and the four parameters that made it impossible</span></li>
-<li><code>7701d24</code><time>2026-08-14</time><span>a console, and what &quot;stop a service&quot; actually means</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

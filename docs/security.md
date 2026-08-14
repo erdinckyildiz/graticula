@@ -269,7 +269,9 @@ Requirements, not suggestions:
 | **Client `Content-Type` is not trusted** | Sniff it, store what we determined *alongside* what was claimed, serve ours |
 | **Filenames are data, never paths** | No filename component reaches a filesystem call or a URL path segment unescaped |
 | **Hard size cap and per-layer quota** | The cap follows [geometry-crs-policy.md](geometry-crs-policy.md) §6's principle: refuse *that attachment* by id, not the query that touched it |
-| **No decompression on upload** | We store bytes. Archives are not opened, inspected or expanded — decompression bombs are not our problem if we never decompress |
+| **No decompression on upload** | We store bytes. Archives are not opened, inspected or expanded — decompression bombs are not our problem if we never decompress. **2026-08-14: this rule decided a product question.** Hosted-data import accepts GeoJSON and not shapefile, because a shapefile is a ZIP of at least three files and accepting one means writing an exception to this line. Recorded as [Q-98](open-questions.md) rather than quietly taken |
+| **A parser is a decompressor too** | Added 2026-08-14 with hosted-data import, which parses rather than stores. A JSON document nested a thousand deep costs an attacker nothing and exhausts the stack; the reader caps depth at 32, feature count, total coordinates and distinct property names, and every cap is checked while parsing rather than after |
+| **Identifiers are generated, never taken** | The same rule as *filenames are data, never paths*, in a different dialect. A hosted table's name is derived from the requested one, sanitised to `[a-z][a-z0-9_]*`, truncated and suffixed with random hex. The name the caller chose is the service's; the table it lives in is ours |
 
 **What this section does not cover, and should before attachments ship:** virus
 scanning, whether we offer it at all or declare it the operator's business, and
