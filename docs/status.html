@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>681f78d</code> · 2026-08-14 17:40</p>
+<p class="stamp">Generated from commit <code>fff97c0</code> · 2026-08-14 18:00</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">60</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/57</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">462</div><div class="kpi-l">tests</div><div class="kpi-n">76 source files, 15,064 lines</div></div>
+<div class="kpi good"><div class="kpi-v">485</div><div class="kpi-l">tests</div><div class="kpi-n">79 source files, 15,846 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -225,6 +225,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-22</td><td>where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">When the query AST exists</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-24</td><td>layer.ishosted is a column nobody reads and every insert still writes.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-25</td><td>Tile cache TTL is one global number for every layer.</td><td class="muted-t">Before anybody publishes a layer that changes faster than the TTL</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -292,14 +293,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:96.2%"></div></div><div class="bar-n">102</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:75.5%"></div></div><div class="bar-n">80</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:72.6%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:66.0%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:53.8%"></div></div><div class="bar-n">57</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">25</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:20.8%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>fff97c0</code><time>2026-08-14</time><span>tiles in another projection: silently empty, now refused</span></li>
 <li><code>681f78d</code><time>2026-08-14</time><span>a Tiles button in the console, and a capability we were claiming falsely</span></li>
 <li><code>829c890</code><time>2026-08-14</time><span>VectorTileServer, and the reason it could never have served a tile</span></li>
 <li><code>f94ed3c</code><time>2026-08-14</time><span>the first rendered tile, three days late</span></li>
@@ -313,7 +315,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7701d24</code><time>2026-08-14</time><span>a console, and what &quot;stop a service&quot; actually means</span></li>
 <li><code>aa5efe6</code><time>2026-08-14</time><span>a viewer, so the compatibility claim can be seen rather than read</span></li>
 <li><code>80da548</code><time>2026-08-14</time><span>applyEdits: the endpoint, and two bugs that made all-or-nothing a lie</span></li>
-<li><code>7cff981</code><time>2026-08-14</time><span>the write path: three refusals, and a savepoint bug that made partial application a lie</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

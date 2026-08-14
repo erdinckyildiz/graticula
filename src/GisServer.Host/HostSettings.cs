@@ -33,7 +33,11 @@ internal sealed record HostSettings(
     string? CertificatePath,
     string? CertificatePassword,
     TimeSpan SessionLifetime,
-    string StatePath)
+    string StatePath,
+    string TileCachePath,
+    long TileCacheBudgetBytes,
+    long TileCacheLayerBudgetBytes,
+    TimeSpan TileCacheLifetime)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -72,6 +76,20 @@ internal sealed record HostSettings(
         // startup rather than once.
         bool requireHttps = configuration.GetValue("GisServer:RequireHttps", defaultValue: true);
 
+        // <b>A budget with a default, because N6's finding was that there was
+        // none at all.</b> 2 GB holds a useful seeded pyramid for a handful of
+        // layers and will not surprise anybody running this on a laptop; a
+        // deployment that wants more sets it, and the number is visible in one
+        // place rather than implied by whatever the disk happened to have.
+        long budget = configuration.GetValue("GisServer:TileCacheBudgetMB", defaultValue: 2048L);
+
+        // <b>Per-layer quota, so one layer cannot take the whole cache.</b>
+        // A quarter of the total: enough that a single busy layer is not
+        // artificially starved, small enough that four of them cannot crowd
+        // everything else out between them.
+        long layerBudget = configuration.GetValue(
+            "GisServer:TileCacheLayerBudgetMB", defaultValue: Math.Max(1, budget / 4));
+
         return new HostSettings(
             platformStore,
             key,
@@ -96,7 +114,30 @@ internal sealed record HostSettings(
             // platform database lives here — today that is the serving
             // certificate.
             configuration["GisServer:StatePath"]
-                ?? Path.Combine(AppContext.BaseDirectory, "state"));
+                ?? Path.Combine(AppContext.BaseDirectory, "state"),
+
+            // <b>Not under StatePath, deliberately.</b> StatePath holds things
+            // that must survive a container replacement — the serving
+            // certificate. A tile cache must not: it is derived data, it is the
+            // largest thing this server writes, and putting it on the volume
+            // that must be backed up would make every backup carry gigabytes of
+            // tiles that can be rebuilt from the database in seconds.
+            configuration["GisServer:TileCachePath"]
+                ?? Path.Combine(AppContext.BaseDirectory, "tilecache"),
+
+            budget * 1024 * 1024,
+            layerBudget * 1024 * 1024,
+
+            // <b>One hour, and it is a placeholder for a per-layer setting.</b>
+            // ADR-010 §5.3 is explicit that TTL cannot be one global number — a
+            // cadastral layer that changes twice a year and an incident layer
+            // that changes every minute need opposite answers, and the
+            // administrator is the only person who knows which is which (A-028).
+            // Volatility is not in the schema yet, so this is the floor until it
+            // is, and it is written here rather than left at some library
+            // default so the gap is visible.
+            TimeSpan.FromMinutes(
+                configuration.GetValue("GisServer:TileCacheMinutes", defaultValue: 60)));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>

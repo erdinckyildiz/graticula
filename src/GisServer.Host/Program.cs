@@ -14,6 +14,7 @@ using GisServer.Platform.Admin;
 using GisServer.Platform.Identity;
 using GisServer.Platform.Postgres;
 using GisServer.Platform.Schema;
+using GisServer.Tiles;
 using GisServer.Platform.Secrets;
 using GisServer.Security.Argon2;
 using Microsoft.AspNetCore.Builder;
@@ -74,6 +75,14 @@ public static class Program
 
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton<ITileCache>(services => new FileSystemTileCache(
+            settings.TileCachePath,
+            settings.TileCacheBudgetBytes,
+            settings.TileCacheLayerBudgetBytes,
+            settings.TileCacheLifetime,
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<ILoggerFactory>()));
 
         builder.Services.AddSingleton(services => new ServiceContexts(
             services.GetRequiredService<LayerConnections>(),

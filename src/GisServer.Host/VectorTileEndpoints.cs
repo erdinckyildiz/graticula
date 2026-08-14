@@ -232,6 +232,7 @@ internal static class VectorTileEndpoints
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
         LayerConnections connections,
+        ITileCache cache,
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await TileableAsync(context, layerName, catalog, cancellation)
@@ -256,11 +257,58 @@ internal static class VectorTileEndpoints
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
 
-        ITileSource source = connections.TileSourceFor(layer, AttributesOf(layer, description));
+        IReadOnlyList<string> attributes = AttributesOf(layer, description);
+
+        // <b>The cache is consulted after authorization, never before.</b>
+        // ADR-010 §4: for tiles the authorization is uniform — a layer is
+        // readable or it is not — so the check happens first and every
+        // authorized caller shares one entry. Looking up before the check would
+        // make a cache hit a way around the sharing rule.
+        TileCacheKey key = new(
+            layer.Id,
+            TileCacheKey.FingerprintOf(
+                layer.Definition.Srid,
+                layer.Definition.GeometryColumn,
+                attributes,
+                PostGisTileSource.Extent,
+                PostGisTileSource.Buffer),
+            address);
+
+        CachedTile cached = await cache.ReadAsync(key, cancellation).ConfigureAwait(false);
+
+        if (cached.Answered)
+        {
+            await WriteTileAsync(context, cached.Bytes, "HIT", cancellation).ConfigureAwait(false);
+            return;
+        }
+
+        ITileSource source = connections.TileSourceFor(layer, attributes);
 
         byte[] tile = await source
             .BuildAsync(address, layer.Definition.Name, cancellation)
             .ConfigureAwait(false);
+
+        // Empty is stored too — a zero-length marker. Most of a pyramid is
+        // emptiness and rebuilding the ocean on every request is the waste
+        // ADR-010 §2's negative caching exists to stop.
+        await cache.WriteAsync(key, tile, cancellation).ConfigureAwait(false);
+
+        await WriteTileAsync(context, tile, "MISS", cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sends a tile, or 204 when there is nothing in it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The cache header is not decoration.</b> Without it there is no way to
+    /// tell a working cache from a bypassed one from outside the process, and a
+    /// cache that has silently stopped working looks exactly like one that is
+    /// working — until the datastore falls over under load nobody expected.
+    /// </remarks>
+    private static async Task WriteTileAsync(
+        HttpContext context, byte[] tile, string cacheState, CancellationToken cancellation)
+    {
+        context.Response.Headers["X-Tile-Cache"] = cacheState;
 
         if (tile.Length == 0)
         {

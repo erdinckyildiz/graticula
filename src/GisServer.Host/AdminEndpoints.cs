@@ -8,6 +8,7 @@ using GisServer.Geometries;
 using GisServer.Platform.Admin;
 using GisServer.Platform.Catalog;
 using GisServer.Platform.Postgres;
+using GisServer.Tiles;
 using GisServer.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -95,6 +96,7 @@ internal static class AdminEndpoints
         HttpContext context,
         IAdminCatalog catalog,
         ServiceContexts contexts,
+        ITileCache tiles,
         CancellationToken cancellation)
     {
         string? storeError = null;
@@ -137,6 +139,19 @@ internal static class AdminEndpoints
             // cache nobody suspects when the answers go stale. The lifetime is
             // reported alongside the count so an operator reading a wrong field
             // list knows exactly how long to wait, or that /refresh exists.
+            // ADR-010 §6b: cache state must be readable. An operator asking
+            // "is this seeded" or "why is the disk full" has no other way to
+            // find out, and a cache nobody can see is one nobody suspects when
+            // the datastore starts working harder than it should.
+            tileCache = new
+            {
+                entries = tiles.Report(null).Entries,
+                megabytes = Math.Round(tiles.Report(null).Bytes / 1048576.0, 1),
+                note = "Tiles held on disk. A miss is datastore load (ADR-021), so this is the "
+                     + "number that says how much of the tile traffic the datastore is actually "
+                     + "seeing. X-Tile-Cache on a tile response says HIT or MISS.",
+            },
+
             describedShapes = new
             {
                 count = contexts.Count,
@@ -428,6 +443,30 @@ internal static class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <remarks>
+    /// <para>
+    /// <b>This does not purge the tile cache, and ADR-010 §5.1 says it should.</b>
+    /// That row — *permissions changed → purge, and this one is a security
+    /// matter* — was written before §4 settled how tile keys work, and for tiles
+    /// the two do not agree. §4's rule is that authorization for a tile is
+    /// <em>uniform</em>: a layer is readable or it is not, the check runs
+    /// <em>before</em> the cache lookup, and every authorized caller shares one
+    /// entry. So a sharing change cannot make a single cached byte wrong. It
+    /// changes who reaches the cache, not what the cache holds.
+    /// </para>
+    /// <para>
+    /// Purging anyway would throw away a whole seeded pyramid every time
+    /// somebody moved a layer from organisation to public — the most ordinary
+    /// administrative act there is — for no correctness gain at all.
+    /// </para>
+    /// <para>
+    /// <b>What would change this:</b> row-level or field-level filtering, where
+    /// the effective grant alters the output. §4 already answers that case with
+    /// a grant fingerprint in the key, which makes the invalidation structural
+    /// rather than a sweep. Neither exists yet. When one does, this comment is
+    /// wrong and the fingerprint is the fix, not a purge here.
+    /// </para>
+    /// </remarks>
     private static async Task SetSharingAsync(
         HttpContext context,
         string name,
@@ -543,6 +582,7 @@ internal static class AdminEndpoints
         IAdminCatalog catalog,
         PostgresLayerCatalog layers,
         ServiceContexts contexts,
+        ITileCache tiles,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -563,6 +603,12 @@ internal static class AdminEndpoints
         if (removed && going is not null)
         {
             contexts.Forget(going);
+
+            // ADR-010 §5.1's *wrong* class, not the stale one. An unpublished
+            // layer's tiles must go rather than expire: republishing the same
+            // name over a different table would otherwise serve the old table's
+            // pictures until the TTL ran out.
+            tiles.Purge(going.Id);
         }
 
         await AuditAsync(
@@ -616,6 +662,7 @@ internal static class AdminEndpoints
         string name,
         PostgresLayerCatalog layers,
         ServiceContexts contexts,
+        ITileCache tiles,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -637,16 +684,28 @@ internal static class AdminEndpoints
 
         contexts.Forget(layer);
 
-        await AuditAsync(context, audit, "layer.refresh", name, Detail(new { found = true }),
+        // <b>Tiles go too, and the shape change alone would not have removed
+        // them.</b> A fingerprint change makes entries built from the old
+        // columns unreachable, which is structural invalidation and correct —
+        // but an operator refreshing after an ALTER that changed *values*
+        // rather than columns keeps the same fingerprint and would keep the old
+        // pictures. Refresh means *forget what you know about this layer*, so
+        // it means both.
+        int purged = tiles.Purge(layer.Id);
+
+        await AuditAsync(context, audit, "layer.refresh", name,
+            Detail(new { found = true, tilesPurged = purged }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name,
             refreshed = true,
+            tilesPurged = purged,
             note = "The next request re-reads this table's columns and extent from the data "
-                 + "source. This clears the cache of the server that answered the call; another "
-                 + "server over the same platform store keeps its own until it expires.",
+                 + "source, and any cached tiles are gone. This clears the caches of the server "
+                 + "that answered the call; another server over the same platform store keeps its "
+                 + "own until they expire.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

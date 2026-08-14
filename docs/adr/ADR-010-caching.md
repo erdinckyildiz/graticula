@@ -391,6 +391,53 @@ inventory).
 **Depended on by:** [ADR-011](ADR-011-job-system.md) (seeding is a job),
 ADR-012 (bytes are node-local), tile pipeline, admin API (§39).
 
+## 11a. What is built, as of 2026-08-14
+
+**L3 only.** Filesystem tile cache, wired into the VectorTileServer path.
+Measured on the same tile: **17.7 ms to build against 4.4 ms to serve from
+disk**, 4×, and every hit is one fewer query against the datastore that
+[ADR-019](ADR-019-portal-server-split.md) makes mandatory and shared.
+
+| §  | Requirement | State |
+|---|---|---|
+| §2 | Tiles cached | **built** |
+| §2 | Negative caching — empty as a marker | **built**, a zero-length file |
+| §3 | L3 mandatory, filesystem | **built** |
+| §3 | Total size budget, LRU eviction | **built**, 2 GB default |
+| §3 | Per-service quota | **built**, a quarter of the total |
+| §3 | Writes fail soft | **built**, and tested by blocking the directory |
+| §3 (N2) | Lookup needs no index | **built** — the path derives from the key |
+| §4 | Key is plan identity + schema fingerprint | **built** |
+| §4 | Uniform authorization checked before lookup | **built** |
+| §5.1 | Purge on unpublish and on refresh | **built** |
+| §6b | Cache state readable | **built**, `/admin/health` and per layer |
+| §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/GisServer.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
+| §3 | L2 distributed | **not built, and never mandatory** |
+| §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
+| §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful |
+| §5.2 | Change detection, schema-drift polling | **not built.** TTL is the only mechanism, which §5.2 says is the floor |
+| §5.3 | Per-layer volatility | **not built**, and it is the largest gap — see below |
+| §6 | Seeding | **not built** |
+
+**§5.3 is the one that will be felt first.** TTL is a single global number,
+defaulting to an hour, because volatility is not in the schema. ADR-010 is
+explicit that one number cannot be right — a cadastral layer that changes twice
+a year and an incident layer that changes every minute need opposite answers,
+and A-028 records that the administrator is the only person who knows which is
+which. An hour is wrong for both of them. Tracked as [D-25](../architecture-debt.md).
+
+**A row of §5.1 is deliberately not implemented, and that is a disagreement
+rather than an omission.** §5.1 says a permission change must purge. For tiles
+it must not: §4 settled that tile authorization is uniform and checked *before*
+the lookup, so a sharing change alters who reaches the cache and not one byte of
+what it holds. Purging would discard a whole seeded pyramid on the most ordinary
+administrative act there is. The reasoning is written into `SetSharingAsync`
+rather than only here, because that is where somebody will go looking for the
+purge that is not there. When row-level or field-level filtering arrives, §4's
+grant fingerprint is the fix — not a purge.
+
+---
+
 ## 12. Conditions
 
 1. **TTL must work with no other mechanism available.** The read-only Oracle

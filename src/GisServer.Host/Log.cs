@@ -75,6 +75,22 @@ internal static partial class Log
     public static partial void DatastoreNotRegistered(ILogger logger, string reason);
 
     [LoggerMessage(
+        EventId = 1015,
+        Level = LogLevel.Information,
+        Message = "Adopted {Entries} tiles ({Megabytes:F1} MB) left by a previous run. Without "
+                + "this the budget would count from zero after every restart while the files "
+                + "stayed, so the cache would grow without limit while appearing bounded.")]
+    public static partial void TileCacheAdopted(ILogger logger, int entries, double megabytes);
+
+    [LoggerMessage(
+        EventId = 1016,
+        Level = LogLevel.Warning,
+        Message = "The tile cache is not working and is being bypassed: {Reason}. Tiles are still "
+                + "served — they are rebuilt on every request, which is datastore load ADR-021 "
+                + "expected the cache to absorb. This is logged once, not per request.")]
+    public static partial void TileCacheDegraded(ILogger logger, string reason);
+
+    [LoggerMessage(
         EventId = 1009,
         Level = LogLevel.Critical,
         // {Minimum} rather than a literal: this message stated 12 for a day
