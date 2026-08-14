@@ -909,8 +909,23 @@ public static class Program
             return;
         }
 
+        IFeatureSource source = connections.SourceFor(layer);
+
+        // One extra round trip per query, and it buys two things: outFields=*,
+        // and validating a field name against the database before it reaches
+        // SQL. It also makes D-17's coupling worse — the request path now reads
+        // the catalogue and then describes the table. A cached service context
+        // fixes both and is not built.
+        LayerDescription described = await source.DescribeAsync(cancellation).ConfigureAwait(false);
+
         if (!FeatureServerQueryParameters.TryParse(
-                context.Request.Query, layer.Definition.ObjectIdColumn!, out FeatureQuery? query, out string? error))
+                context.Request.Query,
+                layer.Definition.ObjectIdColumn!,
+                layer.Definition.Srid,
+                described.Fields,
+                out FeatureQuery? query,
+                out bool countOnly,
+                out string? error))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },
@@ -918,7 +933,29 @@ public static class Program
             return;
         }
 
-        IFeatureSource source = connections.SourceFor(layer);
+        // Parameters accepted and ignored are logged rather than left invisible.
+        // Each is a claim that ignoring it cannot lose data, and a claim nobody
+        // can see is one nobody checks.
+        ILogger queryLog = loggerFactory.CreateLogger("query");
+
+        foreach (string ignored in context.Request.Query.Keys)
+        {
+            if (FeatureServerQueryParameters.IsIgnored(ignored, out string why))
+            {
+                Log.QueryParameterIgnored(queryLog, ignored, layerName, why);
+            }
+        }
+
+        if (countOnly)
+        {
+            // What an ArcGIS client asks before it starts paging.
+            await Results.Json(new
+            {
+                count = await source.CountAsync(query!, cancellation).ConfigureAwait(false),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         FeatureServerQueryWriter writer = new(layer.Definition);
 
         context.Response.ContentType = "application/json; charset=utf-8";

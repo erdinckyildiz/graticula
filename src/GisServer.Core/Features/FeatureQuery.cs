@@ -43,13 +43,30 @@ public sealed class FeatureQuery
     /// geometry only. Reading columns nobody asked for is the cheapest waste
     /// there is, so the default is nothing rather than everything.
     /// </param>
-    public FeatureQuery(int limit, Envelope? boundingBox = null, IReadOnlyList<string>? fields = null)
+    /// <param name="offset">
+    /// How many matching features to skip. Paging, and it is <b>only sound
+    /// against a stable order</b> — see <see cref="Offset"/>.
+    /// </param>
+    /// <param name="includeGeometry">
+    /// Whether to read the shape. False when a client asked for attributes only,
+    /// which for a layer of large polygons is the difference between a table and
+    /// a download.
+    /// </param>
+    public FeatureQuery(
+        int limit,
+        Envelope? boundingBox = null,
+        IReadOnlyList<string>? fields = null,
+        int offset = 0,
+        bool includeGeometry = true)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumLimit);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
 
         Limit = limit;
         BoundingBox = boundingBox;
+        Offset = offset;
+        IncludeGeometry = includeGeometry;
 
         if (fields is null || fields.Count == 0)
         {
@@ -79,6 +96,23 @@ public sealed class FeatureQuery
 
     /// <summary>Attributes to return. Empty means identity and geometry only.</summary>
     public IReadOnlyList<string> Fields { get; }
+
+    /// <summary>
+    /// How many matching features to skip.
+    /// </summary>
+    /// <remarks>
+    /// <b>Paging by offset is only sound against a stable order, and this query
+    /// does not specify one.</b> Rows come back in whatever order the provider
+    /// finds them, so a feature inserted between page one and page two can push
+    /// another feature from page two onto page three, where the client never
+    /// sees it. That is a real defect and it is accepted here because the
+    /// alternative — refusing to page at all — makes every ArcGIS client fail on
+    /// its second request. Ordering belongs with ADR-008's query AST.
+    /// </remarks>
+    public int Offset { get; }
+
+    /// <summary>Whether to read the geometry.</summary>
+    public bool IncludeGeometry { get; }
 }
 
 /// <summary>Reads features from a layer.</summary>
@@ -130,4 +164,14 @@ public interface IFeatureSource
     /// </remarks>
     System.Threading.Tasks.Task<LayerDescription> DescribeAsync(
         System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>Counts matching features without reading them.</summary>
+    /// <remarks>
+    /// Its own method rather than a flag on the query, because it is a different
+    /// shape of answer and a different cost: no geometry crosses the wire, and
+    /// the limit and offset do not apply — a client asking how many there are
+    /// wants the total, not the size of a page.
+    /// </remarks>
+    System.Threading.Tasks.Task<long> CountAsync(
+        FeatureQuery query, System.Threading.CancellationToken cancellationToken);
 }

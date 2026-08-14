@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using GisServer.Features;
 using GisServer.Geometries;
@@ -10,16 +11,33 @@ namespace GisServer.Host.Tests;
 /// What the query endpoint accepts, and what it refuses.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The refusals carry as much weight as the acceptances. ADR-008 §2's principle
 /// is that we never degrade silently, and a parameter list is exactly where that
-/// principle decays: ignoring one unknown parameter is a one-line change that
-/// turns a wrong answer into the normal case.
+/// decays: ignoring one unknown parameter is a one-line change that turns a
+/// wrong answer into the normal case.
+/// </para>
+/// <para>
+/// <b>The acceptances now carry weight too.</b> The first version of this class
+/// refused four parameters that every ArcGIS client sends, which made the
+/// surface defensible on paper and unusable in practice.
+/// </para>
 /// </remarks>
 public sealed class FeatureServerQueryParametersTests
 {
+    private const int Srid = 3857;
+
+    private static readonly FieldDescription[] Fields =
+    [
+        new("objectid", FieldType.Integer, false, null),
+        new("name", FieldType.Text, true, 255),
+        new("height", FieldType.Double, true, null),
+    ];
+
     private static QueryCollection Query(params (string Key, string Value)[] pairs)
     {
         Dictionary<string, Microsoft.Extensions.Primitives.StringValues> values = [];
+
         foreach ((string key, string value) in pairs)
         {
             values[key] = value;
@@ -28,105 +46,214 @@ public sealed class FeatureServerQueryParametersTests
         return new QueryCollection(values);
     }
 
+    private static FeatureQuery Parse(params (string Key, string Value)[] pairs)
+    {
+        Assert.True(
+            FeatureServerQueryParameters.TryParse(
+                Query(pairs), "objectid", Srid, Fields,
+                out FeatureQuery? query, out _, out string? error),
+            error);
+
+        return query!;
+    }
+
+    private static string Refuse(params (string Key, string Value)[] pairs)
+    {
+        Assert.False(FeatureServerQueryParameters.TryParse(
+            Query(pairs), "objectid", Srid, Fields, out _, out _, out string? error));
+
+        Assert.False(string.IsNullOrWhiteSpace(error), "A refusal must say why.");
+        return error!;
+    }
+
+    // ---------- refusals ----------
+
     [Theory]
-    [InlineData("where")]
     [InlineData("outStatistics")]
-    [InlineData("returnCountOnly")]
-    [InlineData("resultOffset")]
-    [InlineData("objectIds")]
     [InlineData("orderByFields")]
+    [InlineData("returnIdsOnly")]
+    [InlineData("objectIds")]
+    [InlineData("having")]
     public void A_parameter_that_changes_the_answer_is_refused_rather_than_ignored(string parameter)
     {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query((parameter, "anything")), "objectid", out FeatureQuery? query, out string? error);
-
-        Assert.False(parsed);
-        Assert.Null(query);
-        Assert.Contains(parameter, error!, System.StringComparison.Ordinal);
+        Assert.Contains(parameter, Refuse((parameter, "anything")), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void The_object_id_is_always_requested_even_when_outFields_omits_it()
+    public void A_real_where_clause_is_refused_and_says_what_would_be_needed()
     {
-        // The bug this pins: outFields=name produced a response whose
-        // objectIdFieldName named a field the features did not carry. A client
-        // cannot page or select against that, and nothing in the response says
-        // so — it simply looks like every feature has a null object id.
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("outFields", "name")), "objectid", out FeatureQuery? query, out _);
+        string error = Refuse(("where", "name = 'x'"));
 
-        Assert.True(parsed);
-        Assert.Contains("objectid", query!.Fields!);
-        Assert.Contains("name", query.Fields!);
+        Assert.Contains("always-true", error, StringComparison.Ordinal);
+        Assert.Contains("ADR-008", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void The_object_id_is_not_requested_twice_when_outFields_already_names_it()
+    public void A_spatial_relationship_other_than_intersects_is_refused()
     {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("outFields", "objectid,name")), "objectid", out FeatureQuery? query, out _);
-
-        Assert.True(parsed);
-        Assert.Equal(["objectid", "name"], query!.Fields!);
+        Assert.Contains(
+            "esriSpatialRelIntersects",
+            Refuse(("spatialRel", "esriSpatialRelContains")),
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public void An_envelope_is_parsed_in_the_order_ArcGIS_sends_it()
+    public void An_outSR_that_would_need_reprojection_is_refused()
     {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("geometry", "1,2,3,4")), "objectid", out FeatureQuery? query, out _);
+        // Returning geometry in a system it was not asked for, or claiming a
+        // system it is not in, both put a client's features in the sea.
+        string error = Refuse(("outSR", "4326"));
 
-        Assert.True(parsed);
-        Envelope box = query!.BoundingBox!.Value;
-        Assert.Equal(1, box.MinX);
-        Assert.Equal(2, box.MinY);
-        Assert.Equal(3, box.MaxX);
-        Assert.Equal(4, box.MaxY);
+        Assert.Contains("does not reproject", error, StringComparison.Ordinal);
+        Assert.Contains("4326", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_geometry_that_is_not_an_envelope_is_refused_with_the_reason()
+    public void A_field_that_does_not_exist_is_refused_rather_than_dropped()
     {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("geometry", "{\"rings\":[]}")), "objectid", out _, out string? error);
-
-        Assert.False(parsed);
-        Assert.Contains("envelope", error!, System.StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void A_request_for_more_than_the_maximum_is_clamped_rather_than_refused()
-    {
-        // Clamping, not refusing, because a client asking for everything is
-        // asking a reasonable question badly. exceededTransferLimit is how the
-        // response tells them there is more.
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("resultRecordCount", "999999999")), "objectid", out FeatureQuery? query, out _);
-
-        Assert.True(parsed);
-        Assert.Equal(FeatureQuery.MaximumLimit, query!.Limit);
+        Assert.Contains("not a field", Refuse(("outFields", "nosuch")), StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData("0")]
     [InlineData("-5")]
     [InlineData("many")]
-    public void A_record_count_that_is_not_a_positive_integer_is_refused(string value)
-    {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("resultRecordCount", value)), "objectid", out _, out string? error);
+    public void A_record_count_that_is_not_a_positive_integer_is_refused(string value) =>
+        Refuse(("resultRecordCount", value));
 
-        Assert.False(parsed);
-        Assert.NotNull(error);
+    [Fact]
+    public void A_negative_offset_is_refused() => Refuse(("resultOffset", "-1"));
+
+    [Fact]
+    public void A_geometry_that_is_not_an_envelope_is_refused_with_the_reason()
+    {
+        Assert.Contains(
+            "envelope",
+            Refuse(("geometry", "{\"rings\":[]}")),
+            StringComparison.Ordinal);
+    }
+
+    // ---------- what every ArcGIS client sends ----------
+
+    [Fact]
+    public void The_always_true_predicate_is_accepted_in_the_spellings_clients_use()
+    {
+        // Refusing this refuses every ArcGIS client for no safety gained.
+        foreach (string where in (string[])["1=1", "1 = 1", ""])
+        {
+            Parse(("where", where));
+        }
     }
 
     [Fact]
-    public void outFields_star_is_refused_because_the_catalogue_cannot_describe_the_columns()
+    public void outFields_star_expands_to_every_column()
     {
-        bool parsed = FeatureServerQueryParameters.TryParse(
-            Query(("outFields", "*")), "objectid", out _, out string? error);
+        // Refused until the catalogue could describe columns. The stated reason
+        // expired when DescribeAsync arrived, and a refusal whose reason has
+        // expired is just an obstacle.
+        FeatureQuery query = Parse(("outFields", "*"));
 
-        Assert.False(parsed);
-        Assert.Contains("column types", error!, System.StringComparison.Ordinal);
+        Assert.Contains("name", query.Fields);
+        Assert.Contains("height", query.Fields);
+        Assert.Contains("objectid", query.Fields);
+    }
+
+    [Fact]
+    public void The_object_id_is_requested_even_when_outFields_omits_it()
+    {
+        // A response whose objectIdFieldName names a field the features do not
+        // carry is one a client cannot page or select against.
+        Assert.Contains("objectid", Parse(("outFields", "name")).Fields);
+    }
+
+    [Fact]
+    public void The_object_id_is_not_requested_twice_when_outFields_names_it()
+    {
+        Assert.Equal(["objectid", "name"], Parse(("outFields", "objectid,name")).Fields);
+    }
+
+    [Fact]
+    public void An_offset_is_carried_through_for_paging()
+    {
+        Assert.Equal(250, Parse(("resultOffset", "250")).Offset);
+    }
+
+    [Fact]
+    public void returnGeometry_false_is_honoured_and_the_default_is_true()
+    {
+        Assert.False(Parse(("returnGeometry", "false")).IncludeGeometry);
+        Assert.True(Parse(("outFields", "name")).IncludeGeometry);
+    }
+
+    [Fact]
+    public void returnCountOnly_is_reported_separately_from_the_query()
+    {
+        Assert.True(FeatureServerQueryParameters.TryParse(
+            Query(("returnCountOnly", "true")), "objectid", Srid, Fields, out _, out bool countOnly, out _));
+
+        Assert.True(countOnly);
+    }
+
+    [Fact]
+    public void An_envelope_is_parsed_in_both_the_forms_clients_send()
+    {
+        // Comma-separated from a hand-built URL, JSON from the ArcGIS SDKs.
+        // Supporting one is a compatibility surface that works for half of them.
+        foreach (string geometry in (string[])
+            ["1,2,3,4", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4}"])
+        {
+            Envelope box = Parse(("geometry", geometry)).BoundingBox!.Value;
+
+            Assert.Equal(1, box.MinX);
+            Assert.Equal(2, box.MinY);
+            Assert.Equal(3, box.MaxX);
+            Assert.Equal(4, box.MaxY);
+        }
+    }
+
+    [Fact]
+    public void A_matching_outSR_is_accepted()
+    {
+        Parse(("outSR", Srid.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void A_request_for_more_than_the_maximum_is_clamped_rather_than_refused()
+    {
+        Assert.Equal(FeatureQuery.MaximumLimit, Parse(("resultRecordCount", "999999999")).Limit);
+    }
+
+    // ---------- the ignored set ----------
+
+    [Theory]
+    [InlineData("quantizationParameters")]
+    [InlineData("maxAllowableOffset")]
+    [InlineData("cacheHint")]
+    [InlineData("f")]
+    public void A_parameter_that_cannot_lose_data_is_accepted_and_declares_itself_ignored(string name)
+    {
+        Parse((name, "whatever"));
+
+        Assert.True(
+            FeatureServerQueryParameters.IsIgnored(name, out string reason),
+            $"'{name}' is accepted but not declared as ignored, so nothing logs it.");
+
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
+    public void Nothing_is_both_refused_and_ignored()
+    {
+        // The two lists are the whole policy, and a name in both would make the
+        // behaviour depend on evaluation order rather than on a decision.
+        foreach (string refused in (string[])
+            ["outStatistics", "orderByFields", "returnIdsOnly", "objectIds", "having",
+             "returnDistinctValues", "returnExtentOnly", "time", "distance", "relationParam",
+             "groupByFieldsForStatistics"])
+        {
+            Assert.False(
+                FeatureServerQueryParameters.IsIgnored(refused, out _),
+                $"'{refused}' is listed as both refused and ignored.");
+        }
     }
 }

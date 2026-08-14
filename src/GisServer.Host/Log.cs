@@ -95,6 +95,14 @@ internal static partial class Log
     public static partial void NoAdministrator(ILogger logger);
 
     [LoggerMessage(
+        EventId = 1013,
+        Level = LogLevel.Debug,
+        Message = "'{Parameter}' on {Layer} was accepted and ignored: {Reason}. If ignoring it "
+                + "could ever change an answer, that is the silent degradation ADR-008 forbids.")]
+    public static partial void QueryParameterIgnored(
+        ILogger logger, string parameter, string layer, string reason);
+
+    [LoggerMessage(
         EventId = 1006,
         Level = LogLevel.Error,
         Message = "{Path} failed and was answered with {Status}.")]

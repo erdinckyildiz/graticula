@@ -148,7 +148,21 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // handling: WkbReader is verified against exactly this output, and a
         // silent switch to EWKB or to a driver-materialised geometry would move
         // the read path out from under its tests.
-        sql.Append(", st_asbinary(").Append(LayerDefinition.Quote(_layer.GeometryColumn)).Append(')');
+        //
+        // Omitted entirely when the client did not ask for a shape. For a layer
+        // of large polygons that is the difference between an attribute table
+        // and a download, and it is the single cheapest thing a client can do
+        // to make a grid view fast.
+        if (query.IncludeGeometry)
+        {
+            sql.Append(", st_asbinary(")
+               .Append(LayerDefinition.Quote(_layer.GeometryColumn))
+               .Append(')');
+        }
+        else
+        {
+            sql.Append(", null::bytea");
+        }
 
         sql.Append(" from ").Append(_layer.QuotedTable);
 
@@ -164,7 +178,22 @@ public sealed class PostGisFeatureSource : IFeatureSource
                .Append(')');
         }
 
+        // <b>Ordered by identity when paging.</b> Offset without an order is
+        // meaningless — the provider may return rows in any order, so page two
+        // can repeat or skip rows from page one. Ordering costs an index scan we
+        // would otherwise avoid, so it is applied only when an offset was asked
+        // for; a first page still gets the cheap unordered read.
+        if (query.Offset > 0)
+        {
+            sql.Append(" order by ").Append(LayerDefinition.Quote(_layer.IdentityColumn));
+        }
+
         sql.Append(" limit @limit");
+
+        if (query.Offset > 0)
+        {
+            sql.Append(" offset @offset");
+        }
 
         return sql.ToString();
     }
@@ -173,6 +202,11 @@ public sealed class PostGisFeatureSource : IFeatureSource
     {
         command.Parameters.AddWithValue("limit", query.Limit);
 
+        if (query.Offset > 0)
+        {
+            command.Parameters.AddWithValue("offset", query.Offset);
+        }
+
         if (query.BoundingBox is Envelope box)
         {
             command.Parameters.AddWithValue("minx", box.MinX);
@@ -180,6 +214,39 @@ public sealed class PostGisFeatureSource : IFeatureSource
             command.Parameters.AddWithValue("maxx", box.MaxX);
             command.Parameters.AddWithValue("maxy", box.MaxY);
         }
+    }
+
+    /// <inheritdoc/>
+    public async Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        // The same filter as a read, and deliberately not the same limit: a
+        // client asking how many features match wants the total, not the size of
+        // the page it would get.
+        StringBuilder sql = new("select count(*) from ");
+        sql.Append(_layer.QuotedTable);
+
+        if (query.BoundingBox is not null)
+        {
+            sql.Append(" where ")
+               .Append(LayerDefinition.Quote(_layer.GeometryColumn))
+               .Append(" && st_makeenvelope(@minx, @miny, @maxx, @maxy, ")
+               .Append(_layer.Srid.ToString(CultureInfo.InvariantCulture))
+               .Append(')');
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+
+        if (query.BoundingBox is Envelope box)
+        {
+            command.Parameters.AddWithValue("minx", box.MinX);
+            command.Parameters.AddWithValue("miny", box.MinY);
+            command.Parameters.AddWithValue("maxx", box.MaxX);
+            command.Parameters.AddWithValue("maxy", box.MaxY);
+        }
+
+        return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
 
     /// <inheritdoc/>
