@@ -26,7 +26,7 @@ public sealed class PostgresLayerCatalog
         -- exactly one home and cannot drift from the other one.
         d.is_datastore, l.geometry_type,
         d.name, d.connection_secret, d.key_version,
-        l.owner_principal_id, l.sharing, l.status
+        l.owner_principal_id, l.sharing, l.status, l.attachment_quota_bytes
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -115,7 +115,8 @@ public sealed class PostgresLayerCatalog
             geometryType,
             reader.IsDBNull(13) ? null : reader.GetGuid(13),
             ParseSharing(reader.GetString(14)),
-            ParseStatus(reader.GetString(15)));
+            ParseStatus(reader.GetString(15)),
+            reader.GetInt64(16));
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

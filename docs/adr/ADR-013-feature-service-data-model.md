@@ -198,6 +198,47 @@ exist before attachments ship rather than after the first full disk.
 
 ---
 
+### 4f. What §4a cost, discovered by trying to obey it
+
+*Added 2026-08-15, after building it.*
+
+**A single `bytea` parameter cannot stream, and it looks exactly as though it
+can.** Handing Npgsql the request stream as a parameter value compiles, runs, and
+buffers the entire attachment inside the driver: `StreamByteaConverter.GetSize`
+calls `CopyTo`, because PostgreSQL's binary protocol needs a parameter's length
+before its bytes.
+
+**The probe written to check this beforehand missed it**, because it tested with
+a `MemoryStream` — which is seekable, so its length is free. A request body is
+not. The lesson is narrower than *test with real data*: the property under test
+was *can this driver write without knowing the length*, and the fixture answered
+a different question by being more capable than the real input.
+
+So the bytes are **chunked**: metadata in one row, content in 64 KB blocks in a
+companion table, written through one pooled buffer. Memory is one buffer whatever
+the attachment's size. Measured on a 40 MB round trip: the process working set
+moved 4 MB on upload and did not grow at all on download.
+
+**What that costs is §4's "byte-compatible with a migrated `__ATTACH` table"**,
+and on inspection it costs nothing — §4c's migration case is *reading somebody
+else's* `__ATTACH`, which is a different query however we store our own.
+
+**Where the time actually goes**, measured rather than assumed, on a 40 MB
+upload against a containerised PostgreSQL:
+
+| | |
+|---|---|
+| Reading the multipart body | 45 ms |
+| Framing and writing chunks | 356 ms |
+| COPY flush + commit | ~3,500 ms |
+
+The database write dominates, and an earlier comparison suggesting otherwise was
+wrong: `insert … select repeat('x', 65536)` generates its bytes *server-side* and
+never crosses the wire, so it measured PostgreSQL's speed at inventing data
+rather than at receiving it.
+
+---
+
 ## 5. Scope — both in v1
 
 **Owner decision, 2026-08-13.** Relationships and attachments both ship in v1,
@@ -224,6 +265,31 @@ enlarges that slice rather than following it.
   a usable integer OID, whether relationships are declared, whether attachments
   are available and why not.
 - **Quotas must exist before attachments ship** (§4e).
+
+### 6a. What is built, as of 2026-08-15
+
+| §  | Requirement | State |
+|---|---|---|
+| §4 | Bytes in a companion table beside the feature | **built**, chunked — see §4f |
+| §4a | Never materialised, either direction | **built**, and tested with a stream that cannot be read twice |
+| §4b | Separate bounded pool for attachment traffic | **built**, eight connections, no statement timeout |
+| §4d | `Content-Disposition: attachment` always | **built** |
+| §4d | CSP forbidding execution | **built** — `default-src 'none'; sandbox`, plus `nosniff` |
+| §4d | Client content type not trusted | **built** — sniffed from magic bytes, both stored |
+| §4d | Filenames are data, never paths | **built** |
+| §4d | Hard size cap | **built**, 128 MB, enforced while streaming |
+| §4e | Per-layer quota | **built**, schema 8, enforced inside the write transaction |
+| §4c | Read a migrated `__ATTACH` on a registered source | **not built** — refused with 501 saying so |
+| §4c | Create a companion table where we have DDL rights | **not built** |
+| §4d | Virus scanning | **not built, and not decided** — §4d left it open and it stays open |
+| §3 | Relationships and related records | **not built** |
+
+**The slow-reader mitigation is built and unmeasured.** §4b asks whether a
+separate pool is sufficient *or* whether a size threshold above which we buffer
+and release the connection is also needed. Eight connections is a bound chosen
+by argument; nobody has pointed a slow reader at it.
+
+---
 
 ## 7. Conditions
 

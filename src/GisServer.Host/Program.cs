@@ -456,6 +456,7 @@ public static class Program
         }
 
         VectorTileEndpoints.Map(app);
+        AttachmentEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
         HostedDataEndpoints.Map(app);
 

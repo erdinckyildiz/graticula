@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(7);
+    public static SchemaVersion ComponentSchemaVersion => new(8);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -42,6 +42,7 @@ public static class PlatformMigrations
         SharingV5,
         StatusV6,
         DatastoreV7,
+        AttachmentQuotaV8,
     ]);
 
     /// <summary>
@@ -552,5 +553,41 @@ public static class PlatformMigrations
         """
         create unique index data_source_one_datastore
           on data_source ((true)) where is_datastore
+        """);
+
+    /// <summary>
+    /// Gives every layer an attachment quota, because attachments cannot ship
+    /// without one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-013](../../../docs/adr/ADR-013-feature-service-data-model.md) §4e
+    /// states this as a precondition, not a follow-up:</b> the datastore is
+    /// mandatory and is about to contain arbitrary user binaries, so its backup
+    /// size stops being a function of feature count and grows without bound.
+    /// *"Per-layer quotas are the control, and they must exist before
+    /// attachments ship rather than after the first full disk."*
+    /// </para>
+    /// <para>
+    /// <b>One gigabyte, and it is a starting point rather than a finding.</b> It
+    /// is large enough that a few thousand photographs fit and small enough that
+    /// a runaway upload loop is noticed before it fills a volume. Per-layer so
+    /// one layer cannot consume the appliance; adjustable because the right
+    /// number is a property of the deployment and nobody here knows it.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> A column with a default; a version 7 reader ignores it
+    /// entirely, so <c>minimum_reader_version</c> does not move.
+    /// </para>
+    /// </remarks>
+    private static Migration AttachmentQuotaV8 => Migration.Expand(
+        new SchemaVersion(8),
+        "Give every layer an attachment quota, which ADR-013 §4e requires before attachments ship.",
+
+        "alter table layer add column attachment_quota_bytes bigint not null default 1073741824",
+
+        """
+        alter table layer add constraint layer_attachment_quota_not_negative
+          check (attachment_quota_bytes >= 0)
         """);
 }

@@ -124,6 +124,17 @@ internal static class ErrorResponse
             "The server could not authenticate against the layer's database, or lacks permission "
             + "to read the table. The stored credential needs attention."),
 
+        // <b>A body too large is the caller's problem, not a fault.</b>
+        // Kestrel throws this when a request exceeds the configured limit, and
+        // uncaught it became "the server failed to handle this request" — for a
+        // request the server refused correctly and on purpose.
+        Microsoft.AspNetCore.Http.BadHttpRequestException big
+            when big.StatusCode == StatusCodes.Status413PayloadTooLarge => (
+            StatusCodes.Status413PayloadTooLarge,
+            "The request body is larger than this endpoint accepts. Each surface that takes a "
+            + "body states its own limit in the refusal it would have given you; this one came "
+            + "from the web server first."),
+
         SecretProtectionException => (
             StatusCodes.Status503ServiceUnavailable,
             "The stored credential for this layer could not be decrypted. The server is running "

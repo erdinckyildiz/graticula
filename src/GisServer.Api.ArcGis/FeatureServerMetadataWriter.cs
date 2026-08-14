@@ -235,7 +235,10 @@ public static class FeatureServerMetadataWriter
             capabilities,
             maxRecordCount = MaxRecordCount,
             supportedQueryFormats = "JSON",
-            hasAttachments = false,
+            // Hosted layers only: ADR-013 §4c's registered cases are designed and
+        // not built, and declaring the capability on a layer that refuses it is
+        // worse than not declaring it.
+        hasAttachments = layer.IsHosted,
             hasStaticData = true,
             isDataVersioned = false,
 

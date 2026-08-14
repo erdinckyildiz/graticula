@@ -24,7 +24,8 @@ public sealed class PublishedLayer
         GeometryKind geometryType,
         Guid? owner,
         SharingScope sharing,
-        ServiceStatus status)
+        ServiceStatus status,
+        long attachmentQuotaBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -38,6 +39,7 @@ public sealed class PublishedLayer
         Owner = owner;
         Sharing = sharing;
         Status = status;
+        AttachmentQuotaBytes = attachmentQuotaBytes;
     }
 
     /// <summary>The catalogue identity.</summary>
@@ -77,6 +79,18 @@ public sealed class PublishedLayer
 
     /// <summary>Whether it runs at all (ADR-020 §3).</summary>
     public ServiceStatus Status { get; }
+
+    /// <summary>
+    /// How many bytes of attachments this layer may hold.
+    /// </summary>
+    /// <remarks>
+    /// <b>Per layer, and it exists because attachments could not ship without
+    /// it</b> — [ADR-013](../../../docs/adr/ADR-013-feature-service-data-model.md)
+    /// §4e. The datastore is mandatory and is about to contain arbitrary user
+    /// binaries, so its backup size stops being a function of feature count.
+    /// One layer must not be able to consume the appliance.
+    /// </remarks>
+    public long AttachmentQuotaBytes { get; }
 
     /// <summary>Whether requests for it should be served.</summary>
     public bool IsRunning => Status == ServiceStatus.Started;

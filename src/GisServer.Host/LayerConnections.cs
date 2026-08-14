@@ -49,6 +49,9 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _pools = new(StringComparer.Ordinal);
+
+    private readonly ConcurrentDictionary<string, NpgsqlDataSource> _attachmentPools =
+        new(StringComparer.Ordinal);
     private bool _disposed;
 
     /// <inheritdoc/>
@@ -135,6 +138,58 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, attributes);
     }
 
+    /// <summary>
+    /// An attachment store for one layer, over a pool of its own.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The store.</returns>
+    /// <remarks>
+    /// <b>A separate, small, bounded pool — ADR-013 §4b, and it is a condition
+    /// rather than a nicety.</b> Streaming an attachment out of the database
+    /// holds a pooled connection for as long as the client takes to read it, and
+    /// a client reading one byte per second holds it indefinitely. That is
+    /// slowloris pointed at the connection pool. Sharing the query pool means
+    /// enough slow readers stop the <em>whole layer</em> serving; a separate one
+    /// means they stop attachments, which is a bad afternoon rather than an
+    /// outage.
+    /// </remarks>
+    public PostGisAttachmentStore AttachmentsFor(PublishedLayer layer)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        return new PostGisAttachmentStore(
+            _attachmentPools.GetOrAdd(layer.ConnectionString, BuildAttachmentPool),
+            layer.Definition,
+            layer.AttachmentQuotaBytes);
+    }
+
+    /// <summary>
+    /// A pool for attachment traffic, deliberately small.
+    /// </summary>
+    /// <remarks>
+    /// <b>Eight is a bound, not a capacity figure.</b> Nobody has measured what
+    /// a real attachment workload needs, and the number that matters here is not
+    /// how many concurrent downloads are comfortable — it is how many stuck ones
+    /// the deployment can afford to have doing nothing. Eight is enough for
+    /// ordinary use and few enough that exhausting them is survivable.
+    ///
+    /// <b>No statement timeout.</b> The query pool has one because an expensive
+    /// query should be stopped; an attachment read is slow because the client is
+    /// slow, and cutting it off after thirty seconds would refuse every large
+    /// download on a domestic connection.
+    /// </remarks>
+    private static NpgsqlDataSource BuildAttachmentPool(string connectionString)
+    {
+        NpgsqlConnectionStringBuilder builder = new(connectionString)
+        {
+            MaxPoolSize = 8,
+            MinPoolSize = 0,
+        };
+
+        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -146,6 +201,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _disposed = true;
 
         foreach (NpgsqlDataSource pool in _pools.Values)
+        {
+            pool.Dispose();
+        }
+
+        foreach (NpgsqlDataSource pool in _attachmentPools.Values)
         {
             pool.Dispose();
         }
