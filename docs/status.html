@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>829c890</code> · 2026-08-14 17:33</p>
+<p class="stamp">Generated from commit <code>681f78d</code> · 2026-08-14 17:40</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">60</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
-<div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
+<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/57</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">461</div><div class="kpi-l">tests</div><div class="kpi-n">76 source files, 15,013 lines</div></div>
+<div class="kpi good"><div class="kpi-v">462</div><div class="kpi-l">tests</div><div class="kpi-n">76 source files, 15,064 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -196,6 +196,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-93</span><span class="owner">**[OWNER]**</span></div><p>Answered by the owner, 2026-08-14: no.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-94</span><span class="owner">**[OWNER]**</span></div><p>Largely dissolved the same day it was opened, by the owner clarifying that the licence in question is ArcGIS Enterprise, not ArcGIS Pro.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-96</span><span class="owner">Owner</span></div><p>Should the tile path reproject, and how far?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -290,7 +291,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">106</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:95.3%"></div></div><div class="bar-n">101</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:96.2%"></div></div><div class="bar-n">102</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:72.6%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:66.0%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:53.8%"></div></div><div class="bar-n">57</div></div>
@@ -299,6 +300,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>681f78d</code><time>2026-08-14</time><span>a Tiles button in the console, and a capability we were claiming falsely</span></li>
 <li><code>829c890</code><time>2026-08-14</time><span>VectorTileServer, and the reason it could never have served a tile</span></li>
 <li><code>f94ed3c</code><time>2026-08-14</time><span>the first rendered tile, three days late</span></li>
 <li><code>a3f826c</code><time>2026-08-14</time><span>Q-68 answered by measurement: the encoder goes, and it was never written</span></li>
@@ -312,7 +314,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>aa5efe6</code><time>2026-08-14</time><span>a viewer, so the compatibility claim can be seen rather than read</span></li>
 <li><code>80da548</code><time>2026-08-14</time><span>applyEdits: the endpoint, and two bugs that made all-or-nothing a lie</span></li>
 <li><code>7cff981</code><time>2026-08-14</time><span>the write path: three refusals, and a savepoint bug that made partial application a lie</span></li>
-<li><code>710b14f</code><time>2026-08-14</time><span>ArcGIS geometry reader: the conversion that can merge two polygons into one</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

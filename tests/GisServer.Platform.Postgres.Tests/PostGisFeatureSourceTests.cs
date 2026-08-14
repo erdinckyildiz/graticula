@@ -163,6 +163,15 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         Assert.DoesNotContain("Seq Scan", plan, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <remarks>
+    /// <b>Failed once, on 2026-08-14, and was not reproduced.</b> It went red in
+    /// a full-suite run where a live server, the conformance suite and this
+    /// project were all working the same PostGIS, and passed in five subsequent
+    /// runs including two more full ones. The cause is unknown — the failure
+    /// message was not captured, which is the actual mistake here. Recorded
+    /// rather than forgotten: a test that fails once and is never chased is how
+    /// a suite becomes one people re-run instead of read.
+    /// </remarks>
     [Fact]
     public async Task Filtering_in_the_database_is_what_makes_a_bbox_query_possible_at_all()
     {

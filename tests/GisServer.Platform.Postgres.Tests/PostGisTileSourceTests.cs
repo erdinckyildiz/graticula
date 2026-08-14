@@ -191,6 +191,64 @@ public sealed class PostGisTileSourceTests : PostgresFixture
             () => Source().BuildAsync(new TileAddress(2, 99, 1), "b", CancellationToken.None));
     }
 
+    // ---------- the spatial reference ----------
+
+    [Fact]
+    public async Task A_layer_in_another_spatial_reference_produces_an_empty_tile_and_no_error()
+    {
+        // <b>This test exists to pin PostGIS behaviour, not ours.</b>
+        // ST_TileEnvelope returns a Web Mercator rectangle. Against a 4326
+        // layer, && compares two boxes whose numbers are in different units,
+        // finds no overlap, and ST_AsMVTGeom clips everything away — and
+        // *nothing raises*. A 4326 layer published for tiles therefore answered
+        // 204 for every tile on Earth, silently, which is how it shipped.
+        //
+        // The endpoint now refuses SRID != 3857 before reaching here. If PostGIS
+        // ever starts raising on mixed SRIDs this test fails, and that is the
+        // signal that the guard's reasoning has changed — the guard would still
+        // be right, but for a different reason, and the comment explaining it
+        // would be wrong.
+        await using (NpgsqlCommand setup = DataSource.CreateCommand("""
+            drop table if exists public.srid_probe;
+            create table public.srid_probe (
+                objectid serial primary key,
+                geom     geometry(Polygon, 4326));
+            insert into public.srid_probe (geom)
+            select ST_SetSRID(ST_MakeEnvelope(
+                       28.9 + i * 0.0005, 41.0 + i * 0.0005,
+                       28.9 + i * 0.0005 + 0.0003, 41.0 + i * 0.0005 + 0.0003), 4326)
+            from generate_series(1, 200) i;
+            """))
+        {
+            await setup.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            LayerDefinition wgs84 = new(
+                name: "srid-probe",
+                schemaName: "public",
+                tableName: "srid_probe",
+                geometryColumn: "geom",
+                srid: 4326,
+                identityColumn: "objectid",
+                objectIdColumn: "objectid",
+                isHosted: true);
+
+            // The tile covering that longitude and latitude in Web Mercator, so
+            // this is not empty because the address is wrong.
+            byte[] tile = await new PostGisTileSource(DataSource, wgs84, [])
+                .BuildAsync(new TileAddress(12, 2377, 1535), "probe", CancellationToken.None);
+
+            Assert.Empty(tile);
+        }
+        finally
+        {
+            await using NpgsqlCommand drop = DataSource.CreateCommand("drop table public.srid_probe");
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
     // ---------- a decoder written from the specification ----------
 
     /// <summary>A minimal Mapbox Vector Tile reader.</summary>

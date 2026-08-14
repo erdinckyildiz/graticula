@@ -106,8 +106,59 @@ internal static class VectorTileEndpoints
             return null;
         }
 
+        if (layer.Definition.Srid != WebMercator)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            $"Layer '{layerName}' is in SRID {layer.Definition.Srid} and vector "
+                            + $"tiles are served on the Web Mercator grid ({WebMercator}). This "
+                            + "server does not reproject on the tile path, so the layer needs a "
+                            + $"{WebMercator} geometry column — add one, or publish a view that "
+                            + "transforms it, and index it. Its FeatureServer at "
+                            + $"/rest/services/{layerName}/FeatureServer serves the native "
+                            + "spatial reference and is unaffected.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return null;
+        }
+
         return layer;
     }
+
+    /// <summary>
+    /// The only spatial reference tiles are served on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The failure this constant prevents is silence, not an error.</b>
+    /// <c>ST_TileEnvelope</c> returns a Web Mercator rectangle. Given a layer in
+    /// another spatial reference, <c>&amp;&amp;</c> compares two bounding boxes
+    /// whose numbers are in different units and simply does not overlap, and
+    /// <c>ST_AsMVTGeom</c> clips everything away. **PostGIS raises nothing.** The
+    /// measured result on a 4326 layer was a zero-byte tile — so the service
+    /// answered 204 for every tile on Earth, with no error and no log line, which
+    /// is exactly the silent degradation ADR-008 §2 forbids.
+    /// </para>
+    /// <para>
+    /// <b>Reprojecting on read was measured rather than dismissed.</b>
+    /// <c>ST_Transform</c> in the select, with the tile envelope transformed once
+    /// into the layer's own reference so the spatial index is still used, costs
+    /// <b>74.6 ms against 21.6 ms</b> on the same tile — 3.5×, and correct. It is
+    /// not implemented because a datum transformation is a different kind of
+    /// claim from an affine one: 4326 to 3857 is a pure formula, while a national
+    /// grid to Web Mercator needs shift grids PROJ may not have, and silently
+    /// falling back to a null transform moves features by metres. That is a CRS
+    /// decision and it is [Q-96], not something to slip in behind a constant.
+    /// </para>
+    /// </remarks>
+    private const int WebMercator = 3857;
 
     /// <summary>The service document.</summary>
     private static async Task ServiceAsync(
