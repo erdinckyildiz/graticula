@@ -110,14 +110,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>fea6498</code> · 2026-08-14 16:36</p>
+<p class="stamp">Generated from commit <code>82fe86f</code> · 2026-08-14 16:44</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">57</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
-<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">45 answered · 5 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
+<div class="kpi warn"><div class="kpi-v">60</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
-<div class="kpi warn"><div class="kpi-v">8/55</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi warn"><div class="kpi-v">8/57</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">402</div><div class="kpi-l">tests</div><div class="kpi-n">71 source files, 13,968 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
@@ -143,6 +143,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
 <tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">3</td></tr>
 <tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3</td></tr>
+<tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -180,8 +181,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-63</span><span class="owner">Council</span></div><p>Where does the routing decision live, given the supervisor is deliberately not on the data path?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-64</span><span class="owner">Council</span></div><p>How is a memory leak distinguished from a legitimately growing cache, with no baseline?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-66</span><span class="owner">Council</span></div><p>Does the provider interface hand back geometry objects on the tile path, or coordinates?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-68</span><span class="owner">Council</span></div><p>Do we keep our own MVT encoder now that every tile source is PostGIS?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-66</span><span class="owner">Council</span></div><p>Re-scoped 2026-08-14 to the feature path: there is no in-process tile path any more (ADR-021).</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-72</span><span class="owner">**[OWNER]**</span></div><p>What is the project&#x27;s governance and maintenance story?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-75</span><span class="owner">**[OWNER]** for the publish-rights half</span></div><p>How is user-supplied Python sandboxed?</p></article>
@@ -282,6 +282,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-001</td><td>The tile path is CPU-bound enough that language performance materially affects capacity</td><td><span class="pill warn">2026-08-12</span></td></tr>
 <tr><td class="id">A-013</td><td>GDAL, GEOS and PROJ permit a threaded worker model</td><td><span class="pill warn">2026-08-12</span></td></tr>
 <tr><td class="id">A-009</td><td>PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment</td><td><span class="pill warn">REINSTATED</span></td></tr>
+<tr><td class="id">A-057</td><td>STAsMVT output is acceptable to the ArcGIS and MapLibre clients we care about</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-058</td><td>The datastore has spare capacity for tile encoding in a 100–1,000 service deployment</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 </tbody></table></div></section>
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
@@ -296,6 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>82fe86f</code><time>2026-08-14</time><span>a status page generated from the repository, and the two stale facts it found</span></li>
 <li><code>fea6498</code><time>2026-08-14</time><span>D-17: cache the table&#x27;s shape, refuse to cache who may read it</span></li>
 <li><code>b4961be</code><time>2026-08-14</time><span>a password could not be changed, and the rule that stopped it had no reason behind it</span></li>
 <li><code>47812c7</code><time>2026-08-14</time><span>five things the real SDK sends that we got wrong, two of them silently</span></li>
@@ -309,7 +312,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9ba89b6</code><time>2026-08-14</time><span>WKB writer: the first half of the write path, judged by PostGIS</span></li>
 <li><code>343868d</code><time>2026-08-14</time><span>packaging: a quickstart that was walked from clean, and three defects it found</span></li>
 <li><code>08216e9</code><time>2026-08-14</time><span>conformance: 17 tests that walk what a client walks, verified against a deliberate regression</span></li>
-<li><code>0c45e66</code><time>2026-08-14</time><span>ArcGIS discovery: the surface no client could find, and a market statement I read wrong</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

@@ -12,6 +12,24 @@
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <TieredPGO>true</TieredPGO>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Opted out of central package management deliberately. /benchmarks is
+         disposable and never promoted (CLAUDE.md §1); pinning it to the
+         production version set would make a dependency bump in src able to
+         silently change what a banked measurement was measured against. The
+         numbers in RESULTS.md were taken at these versions and must stay
+         reproducible at them. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- And opted out of the production analyser set, for the same reason.
+         Directory.Build.props treats warnings as errors and requires XML docs
+         on every public member — correct for /src, wrong here. A benchmark
+         that will not compile until its throwaway helpers are documented is a
+         benchmark that does not get run, and the answer would be to weaken the
+         rule for everybody. This file is where the exception belongs. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <AnalysisLevel>none</AnalysisLevel>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -560,3 +560,129 @@ Stated plainly, because the temptation with a first good result is to over-claim
 5. **Visual verification** of a rendered tile. Still not done, and now the
    longest-standing gap: three rounds of optimisation and nobody has looked at
    one.
+
+---
+
+---
+
+# Run 4 — Q-68: does read-once-encode-many justify keeping our encoder?
+
+**2026-08-14.** Same machine, same dataset, same city. `GisBench.exe q68`.
+
+Q-67 removed the reason the in-process encoder existed — tiles come only from
+hosted data, hosted data is PostGIS, and PostGIS has `ST_AsMVT`. Run 3 had
+already measured `ST_AsMVT` beating our path 96.3 to 69.9 req/s under load, so
+there was no serving argument left. [Q-68](../../docs/open-questions.md) recorded
+the one argument that survived, and how to settle it:
+
+> `ST_AsMVT` is one database round trip per tile, whereas reading once and
+> encoding many tiles in process (a z12 read covers 16 z14 tiles) is only
+> possible with our own encoder, and that is exactly what seeding does. **Decide
+> by measuring read-once-encode-many against 16 `ST_AsMVT` calls, not by arguing
+> the policy.**
+
+## Method
+
+Two paths over the same pyramid, interleaved round by round for the reason run 2
+had to discover:
+
+| Path | What it does |
+|---|---|
+| **ST_AsMVT** | one `ST_AsMVTGeom` + `ST_AsMVT` query per child tile |
+| **read-once** | one `simpclip`-pushdown read of the parent extent, WKB parsed once, then every child clipped, transformed, simplified and encoded in process from those same geometry objects |
+
+The read-once path is given every advantage the argument claims: the parse
+happens once and is reused across all N children, pushdown is on (run 3 finding
+12 made it structural), simplify runs after the transform (run 2 finding 7), and
+the pushdown tolerance is the **child's**, not the parent's — simplifying at the
+parent's resolution would win the benchmark by shipping coarser tiles.
+
+Feature counts are decoded back out of both outputs rather than counted on the
+way in, so the two are counted the same way.
+
+Four dense Istanbul z12 tiles — 78,723 / 70,303 / 53,013 / 48,965 features.
+
+## The first run measured nothing, and said so only because it was made to
+
+The tile coordinates were worked out by hand from Istanbul's latitude. They were
+17 tiles off, both paths produced empty tiles, and the benchmark reported
+**read-once 6.77× faster**. Two empty paths agree perfectly and are both
+extremely fast.
+
+Nothing in the output said the tiles were blank. The harness now refuses to
+report a comparison where tiles average under one feature each — the fourth time
+in this project that a measurement harness has been wrong, and the fourth time
+it was caught by a number being absurd rather than by review.
+
+## Results — z12 → z14, 16 children per read
+
+Per-round throughput ratio (read-once ÷ `ST_AsMVT`), same interleaved run:
+
+| conc | r1 | r2 | r3 | r4 | r5 | r6 | r7 | **median** |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 1.18 | 1.28 | 1.09 | 1.10 | 0.84 | 0.71 | 1.48 | **1.10** |
+| 4 | 0.61 | 1.38 | 1.49 | 0.68 | 1.84 | 0.95 | 1.21 | **1.21** |
+
+**The ratio ranges 0.61 to 1.84.** On a machine carrying 25–30% unrelated load,
+that is not a throughput result — it is the noise floor.
+
+## Results — z12 → z16, 256 children per read
+
+Read-once's strongest possible case: one read serves 256 tiles.
+
+| | ST_AsMVT | read-once |
+|---|---|---|
+| round trips | 512 | **2** (256× fewer) |
+| tiles/s per round | 165.3 · 190.5 · **205.3** · 149.7 · 170.2 | 144.0 · 162.6 · 132.9 · **218.3** · 139.5 |
+| **median tiles/s** | **170.2** | **144.0** |
+| allocated per tile | **0.02 MB** | 4.90 MB |
+| GC pause | **0.0%** | **27.2%** |
+
+**At 256× fewer round trips, read-once is slower on median.**
+
+## Finding 14: the surviving argument does not survive measurement
+
+Round-trip count was the whole case, and it is real — 16× and 256× fewer, exact
+and structural. It buys nothing measurable. A round trip to a local PostgreSQL
+is not what a tile costs.
+
+What it costs instead, and these numbers are stable across every run because
+they come from counters rather than a wall clock:
+
+| | ST_AsMVT | read-once | |
+|---|---|---|---|
+| allocated per tile, z14 | 0.15 MB | **18.64 MB** | **124×** |
+| allocated per tile, z16 | 0.02 MB | **4.90 MB** | **245×** |
+| GC pause, conc 1 | 0.1% | **22.2%** | |
+| GC pause, conc 2 | 0.0% | **28.4%** | |
+| GC pause, conc 4 | 0.0% | **35.5%** | |
+
+**GC pause climbs with concurrency and `ST_AsMVT`'s does not.** That is A-037
+again, in the one workload that was supposed to be the encoder's best case.
+Run 3 established allocation rate as the ceiling; run 4 shows seeding hits it
+too.
+
+Output agreement holds throughout — 105.5% of the features, 87–91% of the bytes,
+consistent with run 1's explanation (we carry a few more boundary features and
+put `osm_id` in the feature id rather than as a tag). So the timings are
+comparable and the speed result is not a correctness result in disguise.
+
+## What run 4 does not show
+
+- **PostgreSQL had headroom here, and that is doing work in this conclusion.**
+  `ST_AsMVT` puts every byte of tile cost inside the datastore. On this machine
+  the datastore was not the constraint. [ADR-019](../../docs/adr/ADR-019-portal-server-split.md)
+  makes the datastore mandatory and shared by every service, so a deployment
+  where it *is* the constraint is not hypothetical — and there, moving work to
+  a tier that scales horizontally is an argument no benchmark on one box can
+  refute. **This is the strongest surviving case for the encoder and it is
+  untested.** Recorded as a condition on [ADR-021](../../docs/adr/ADR-021-tile-encoding.md).
+- **One machine, one dataset, one city, one table.** No mixed geometry types, no
+  line layers, no attribute-heavy tables where the tag dictionary dominates.
+- **Absolute tiles/s are not capacity numbers.** PostGIS is capped at 6 of 16
+  processors in WSL and the host carries 25–30% background load.
+- **No cache.** ADR-010's tile cache sits in front of all of this and changes
+  what seeding is for.
+- **Still no visual verification.** Four rounds of measurement and nobody has
+  looked at a rendered tile. Now the longest-standing gap in this file by a
+  wide margin.

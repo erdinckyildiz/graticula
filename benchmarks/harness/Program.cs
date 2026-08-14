@@ -28,6 +28,15 @@ if (args.Length > 0 && args[0] == "load")
     return;
 }
 
+// Q-68: read-once-encode-many against one ST_AsMVT per tile. A console mode
+// rather than an endpoint, because the question is seeding throughput over a
+// pyramid, and putting HTTP in the middle of it would measure Kestrel.
+if (args.Length > 0 && args[0] == "q68")
+{
+    await Q68.RunAsync(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 
