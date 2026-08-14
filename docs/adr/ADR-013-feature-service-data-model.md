@@ -305,18 +305,18 @@ by argument; nobody has pointed a slow reader at it.
 
 ## 7. Conditions
 
-1. **Streaming is verified, not assumed.** A test that uploads and downloads a
+1. ~~**Streaming is verified, not assumed.**~~ **DISCHARGED 2026-08-15.** A 40 MB round trip moves the process working set by 4 MB on upload and not at all on download, bytes identical. And the test that would have caught the original design hands over a stream reporting no length, refusing to seek, and yielding its bytes once — which is what a request body is, and what a `MemoryStream` is not. Original: A test that uploads and downloads a
    large attachment while watching allocation must show flat memory. If any
    layer materialises the payload, §4a has failed silently.
 2. **The separate pool is sized by measurement**, not by guess, and the slow
    client case is tested deliberately — including whether a size threshold plus
    buffer-and-release is needed on top of pool isolation.
-3. **Declared relationships are validated on publish**, at minimum that the join
+3. ~~**Declared relationships are validated on publish**~~ **DISCHARGED 2026-08-15.** A declaration is refused unless both columns exist and can be compared, and the refusal lists the columns that do exist. What is *not* checked, and is said in the response rather than implied, is whether the values mean the same thing. Original:, at minimum that the join
    columns exist and are type-compatible. An unvalidated declaration fails at
    query time in front of a user.
 4. **`__ATTACH` read support is verified against a real migrated geodatabase**,
    not against our own reconstruction of the schema.
-5. **Per-layer attachment quotas ship with the feature**, not after it.
+5. ~~**Per-layer attachment quotas ship with the feature**~~ **DISCHARGED 2026-08-15.** Schema 8, enforced inside the write transaction and rolled back — checking before races two concurrent uploads, checking after without a transaction leaves the bytes on disk. Original:, not after it.
 
 ## 8. Assumptions
 

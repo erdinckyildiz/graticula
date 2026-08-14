@@ -1,9 +1,53 @@
 # Architecture Assessment
 
-**Status:** FIRST COMPLETE DRAFT — every section written. Not yet reviewed.
-**Phase:** 0 — Architecture Discovery
+> ## Read this first — much of this document is out of date, and this box says which parts
+>
+> **Amended 2026-08-15.** This was Phase 0's primary deliverable, written when
+> nine ADRs existed and the product targeted three databases. There are now
+> twenty-two ADRs, roughly 14,000 lines of production code, and the product
+> targets one database. [CLAUDE.md](../CLAUDE.md) §1 carried it into Phase 1 as a
+> debt on the grounds that it *"describes an architecture that no longer exists"*,
+> and that remained true until this box was added.
+>
+> **Rewriting it was considered and rejected.** Two thirds of it is analysis of
+> other products, a problem definition, and risk registers — none of which the
+> passage of time has touched, and all of which would be lost in a rewrite driven
+> by the third that is stale. What was missing was any way for a reader to tell
+> the two apart.
+>
+> ### Still current
+>
+> §§1–13 — the problem definition, the analyses of ArcGIS Server, GeoServer,
+> MapServer, QGIS Server and PostGIS-centric architectures, the modern patterns,
+> the legacy patterns to avoid, and the language comparison. These describe the
+> world rather than us.
+>
+> §§19–23 — deployment models and the security, performance and licensing risk
+> registers, with the one exception noted below.
+>
+> ### Superseded, and by what
+>
+> | Section | What it says | What is true now |
+> |---|---|---|
+> | Header | *"nine decided ADRs"* | Twenty-two, of which none is accepted unconditionally |
+> | §21, §24 | **A-019** — in-process MVT encoding is critical, because *"the multi-database promise is hollow"* without it | **The promise is gone.** [v1-scope](v1-scope.md) §3a is PostGIS only, [Q-67](open-questions.md) makes tiles hosted-only, and [ADR-021](adr/ADR-021-tile-encoding.md) retired the in-process encoder after [measurement](../benchmarks/mvt-generation/RESULTS.md) run 4 |
+> | §24 | The assumption register | [architecture-assumptions.md](architecture-assumptions.md) is the live one. A-042 is `INVALIDATED`, which this document does not know |
+> | §25 | Unresolved questions | [open-questions.md](open-questions.md) is the live register, now at Q-98 |
+> | §26 | Recommended experiments | Four ran. [benchmarks/mvt-generation](../benchmarks/mvt-generation/RESULTS.md) and [benchmarks/geometry-overlay](../benchmarks/geometry-overlay/RESULTS.md) hold the results, and two of them overturned the assumption they were testing |
+> | §27 | Implementation roadmap | [v1-scope.md](v1-scope.md) supersedes it entirely |
+> | throughout | Oracle and SQL Server as first-class | Cut 2026-08-13. This document is one of thirteen that still says otherwise — counted as [D-27](architecture-debt.md) |
+>
+> ### The honest status
+>
+> **This is a Phase 0 artefact preserved as one.** It is the record of what was
+> understood before anything was built, and its value now is largely historical —
+> including where it was wrong, which is the part a rewrite would erase. For what
+> the architecture *is*, read [v1-scope.md](v1-scope.md), the ADR index, and the
+> code.
+
+**Status:** Phase 0 deliverable, superseded in part — see the box above.
+**Phase:** written during 0 — Architecture Discovery
 **Required by:** §70, §85
-**Next:** adversarial review (§85), then a fresh-challenger review (§67)
 
 This is the primary deliverable of Phase 0. It synthesises nine research notes
 and nine decided ADRs. Where a section summarises, the detail is linked; the job
@@ -531,7 +575,7 @@ documented disclosure window and it needs a number.
 
 | Risk | Status |
 |---|---|
-| In-process MVT encoding too slow for SQL Server and Oracle | **A-019, critical.** If it fails, the multi-database promise is hollow |
+| ~~In-process MVT encoding too slow for SQL Server and Oracle~~ | ~~**A-019, critical.** If it fails, the multi-database promise is hollow~~ **Retired 2026-08-15.** There is no multi-database promise (v1-scope §3a) and no in-process encoder (ADR-021) |
 | Affinity routing does not work, or degrades badly under skew | **A-014.** Fallback is blind routing — acceptable but not the design |
 | Warm state is not small, so lazy binding is a latency problem | **A-015, load-bearing** |
 | Connection budget breaks at scale on some provider | Q-04, benchmark registered |
@@ -589,7 +633,7 @@ repair this at 2 AM?
 
 | ID | Assumption | If wrong |
 |---|---|---|
-| A-019 | In-process MVT encoding meets latency targets | Non-PostGIS providers cannot serve tiles; the multi-database promise is hollow |
+| ~~A-019~~ | ~~In-process MVT encoding meets latency targets~~ **Dissolved.** It passed, then its premise was removed by Q-67 and the encoder was retired by ADR-021 — see benchmarks/mvt-generation run 4 | — |
 | A-015 | Warm per-service state is small | Lazy binding and LRU eviction both become expensive; ADR-007 weakens substantially |
 | A-014 | Affinity routing works | We become GeoServer with extra steps |
 | A-027 | Concurrency can be correct against writes we never see | Silent lost updates — the worst defect class an editing API can have |

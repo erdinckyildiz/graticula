@@ -206,15 +206,15 @@ it. A screen that says *success* throws that away.
 
 ## 8. Conditions
 
-1. **The console uses no capability the API does not expose**, checked by the
+1. ~~**The console uses no capability the API does not expose**~~ **DISCHARGED 2026-08-15.** Every screen posts to an admin endpoint that existed before it and that `curl` drives identically — including the layer designer added the same week, which was built API-first and exercised through those endpoints before the form existed. Original:, checked by the
    fact that every action it takes is reproducible with `curl`. If a screen ever
    needs an endpoint that exists only for it, that is a design failure to be
    fixed in the API.
-2. **The static-file surface serves nothing outside its own directory**, and
+2. ~~**The static-file surface serves nothing outside its own directory**~~ **DISCHARGED 2026-08-15.** Traversal refused three ways — `..`, percent-encoded `%2e%2e`, and a back-slash variant — each 404 rather than a file. Original:, and
    that is tested rather than assumed. Path traversal is on
    [security.md](../security.md)'s unwritten list and this is the first code
    that could suffer from it.
-3. **A stopped service is refused everywhere**, not merely hidden from the
+3. ~~**A stopped service is refused everywhere**~~ **DISCHARGED 2026-08-15, and the check grew with the surface.** The condition named three endpoints; there are now seven, and all seven answer 503: the service and layer documents, `query`, the VectorTileServer document and its tiles, `attachments`, and `queryRelatedRecords`. Each new surface inherited the check because they share one resolver — which is the argument for having one. Original:, not merely hidden from the
    catalogue — query, metadata and `applyEdits` each tested.
 
 ## 9. Assumptions

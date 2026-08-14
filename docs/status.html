@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>59e03f2</code> · 2026-08-15 00:18</p>
+<p class="stamp">Generated from commit <code>4e04084</code> · 2026-08-15 00:56</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">63</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi warn"><div class="kpi-v">13/63</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/59</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">589</div><div class="kpi-l">tests</div><div class="kpi-n">97 source files, 21,715 lines</div></div>
 </div></section>
@@ -124,27 +124,27 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
 <div class="scroll"><table><thead><tr><th>ADR</th><th>Decision</th><th>Status</th><th>Confidence</th><th class="num">Conditions</th></tr></thead><tbody>
 <tr><td class="id">001</td><td>Core Language</td><td><span class="pill cond">**ACCEPTED WITH CONDITIONS** — downgraded 2026-08-13, [independent review 3](../reviews/independent-review-3-synthesis.md) A1/P7. The comparison CLAUDE.md §7 required was not run, and §6&#x27;s first reason for skipping it was voided the same day it was written. See §0</span></td><td class="muted-t">**LOW** — was MEDIUM. The decision may well be right; the *evidence for it* is argument, and one of the three arguments is dead</td><td class="num"></td></tr>
-<tr><td class="id">002</td><td>Primary Data Architecture</td><td><span class="pill warn">REOPENED → re-decided, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
+<tr><td class="id">002</td><td>Primary Data Architecture</td><td><span class="pill warn">REOPENED → re-decided, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">003</td><td>Geometry Engine</td><td><span class="pill cond">**ACCEPTED WITH CONDITIONS** — single-provider scope. Cross-engine consistency is deferred, see §6d</span></td><td class="muted-t">HIGH for the split, which is measured. LOW for cross-engine consistency, which is not</td><td class="num"></td></tr>
 <tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">DEFERRED — confirmed 2026-08-12 (WMS out of v1) and **re-confirmed 2026-08-13** by the owner, who at the same time recorded a clear preference for the capability this ADR would deliver. See §0.</span></td><td class="muted-t">—</td><td class="num"></td></tr>
-<tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">**REOPENED 2026-08-13 by Q-88** — v1 ships ArcGIS only and OGC API Features moves to v2, which **inverts this ADR&#x27;s central decision**. See §0. Previously: ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
-<tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17b — see §0. Previously:</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">2</td></tr>
-<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">4</td></tr>
-<tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
-<tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17c — see §0. Previously:</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
-<tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
-<tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
+<tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">**REOPENED 2026-08-13 by Q-88** — v1 ships ArcGIS only and OGC API Features moves to v2, which **inverts this ADR&#x27;s central decision**. See §0. Previously: ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
+<tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17b — see §0. Previously:</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/2</td></tr>
+<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">0/4</td></tr>
+<tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17c — see §0. Previously:</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
+<tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
-<tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5</td></tr>
-<tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
-<tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
-<tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
-<tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">3</td></tr>
-<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
-<tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">3</td></tr>
-<tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3</td></tr>
-<tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">3</td></tr>
-<tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">3</td></tr>
+<tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
+<tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
+<tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
+<tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
+<tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">1/3</td></tr>
+<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
+<tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">0/3</td></tr>
+<tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3/3</td></tr>
+<tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">1/3</td></tr>
+<tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">0/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -230,6 +230,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-24</td><td>layer.ishosted is a column nobody reads and every insert still writes.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-25</td><td>Tile cache TTL is one global number for every layer.</td><td class="muted-t">Before anybody publishes a layer that changes faster than the TTL</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -307,6 +308,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>4e04084</code><time>2026-08-15</time><span>related records: declared, validated, and one query rather than N+1</span></li>
 <li><code>59e03f2</code><time>2026-08-15</time><span>do not commit a session token</span></li>
 <li><code>467a4d9</code><time>2026-08-15</time><span>attachments, and the streaming requirement that turned out not to be free</span></li>
 <li><code>eb3a35f</code><time>2026-08-14</time><span>the layer designer screen, which is where the two ways into the datastore meet</span></li>
@@ -320,7 +322,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>681f78d</code><time>2026-08-14</time><span>a Tiles button in the console, and a capability we were claiming falsely</span></li>
 <li><code>829c890</code><time>2026-08-14</time><span>VectorTileServer, and the reason it could never have served a tile</span></li>
 <li><code>f94ed3c</code><time>2026-08-14</time><span>the first rendered tile, three days late</span></li>
-<li><code>a3f826c</code><time>2026-08-14</time><span>Q-68 answered by measurement: the encoder goes, and it was never written</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

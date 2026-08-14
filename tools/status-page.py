@@ -63,11 +63,25 @@ def adrs():
         confidence = field(head, "Confidence") or "—"
 
         # Conditions are numbered list items under a Conditions heading. They
-        # are the project's largest open commitment and nothing counted them.
+        # are the project's largest open commitment and nothing counted them —
+        # CLAUDE.md carried "roughly twenty-five, none discharged" into Phase 1
+        # and both halves were wrong.
+        #
+        # A condition is discharged when its text is struck through or opens
+        # with the marker. That convention is the whole contract, and
+        # tools/conditions.py states it in the one other place it is relied on.
         conditions = 0
+        discharged = 0
         section = re.search(r"^##\s*\d*\.?\s*Conditions\b(.*?)(^##\s|\Z)", text, re.M | re.S)
+
         if section:
-            conditions = len(re.findall(r"^\d+\.\s", section.group(1), re.M))
+            for item in re.finditer(
+                    r"^\d+\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
+                conditions += 1
+                body = item.group(1).lstrip()
+
+                if body.startswith("~~") or "DISCHARGED" in body[:200].upper():
+                    discharged += 1
 
         out.append({
             "id": name.split("-")[1],
@@ -76,6 +90,7 @@ def adrs():
             "status": status,
             "confidence": confidence,
             "conditions": conditions,
+            "discharged": discharged,
         })
 
     return out
@@ -250,6 +265,14 @@ def esc(text):
     return html.escape(str(text))
 
 
+def Conditions(adr):
+    """Discharged over total, or blank when an ADR has none."""
+    if not adr["conditions"]:
+        return ""
+
+    return f'{adr["discharged"]}/{adr["conditions"]}'
+
+
 def status_class(status):
     s = status.upper()
     if "REJECTED" in s:
@@ -277,6 +300,7 @@ def build():
     q_blocking = [x for x in q_open if x["blocking"]]
     d_open = [x for x in d if x["open"]]
     conditions = sum(x["conditions"] for x in a)
+    discharged = sum(x["discharged"] for x in a)
     validated = sum(1 for x in s if x["state"].startswith("VALIDATED"))
     total_tests = sum(c for _, c in t)
     generated = git("log", "-1", "--pretty=%ad", "--date=format:%Y-%m-%d %H:%M").strip() or "unknown"
@@ -310,8 +334,9 @@ def build():
         # project is accepted without conditions attached to it.
         "none accepted unconditionally" if plain == 0 else f"{plain} accepted outright",
         "warn" if plain == 0 else ""))
-    parts.append(kpi(conditions, "ADR conditions",
-                     "the largest open commitment", "warn" if conditions > 10 else ""))
+    parts.append(kpi(
+        f"{discharged}/{conditions}", "ADR conditions discharged",
+        "the largest open commitment", "warn" if discharged < conditions / 2 else "good"))
     parts.append(kpi(len(q_open), "open questions",
                      f"{sum(1 for x in q if x['resolved'])} answered"
                      + (f" · {len(q_blocking)} blocking" if q_blocking else "")))
@@ -328,14 +353,14 @@ def build():
     parts.append('<p class="sub">Every architectural decision is an ADR. Status and confidence are read from '
                  'each file\'s own header, so a decision cannot quietly change grade here without changing there.</p>')
     parts.append('<div class="scroll"><table><thead><tr>'
-                 '<th>ADR</th><th>Decision</th><th>Status</th><th>Confidence</th><th class="num">Conditions</th>'
-                 '</tr></thead><tbody>')
+                 '<th>ADR</th><th>Decision</th><th>Status</th><th>Confidence</th>'
+                 '<th class="num">Conditions</th></tr></thead><tbody>')
     for x in a:
         parts.append(
             f'<tr><td class="id">{esc(x["id"])}</td><td>{esc(x["title"])}</td>'
             f'<td><span class="pill {status_class(x["status"])}">{esc(x["status"])}</span></td>'
             f'<td class="muted-t">{esc(x["confidence"])}</td>'
-            f'<td class="num">{x["conditions"] or ""}</td></tr>')
+            f'<td class="num">{Conditions(x)}</td></tr>')
     parts.append('</tbody></table></div></section>')
 
     # ---- questions

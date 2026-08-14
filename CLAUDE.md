@@ -30,11 +30,19 @@ judgement is recorded rather than implied. Of §81's sixteen:
   owes no market case. **This silently removed the validation path for A-003 and
   five other assumptions** — see *carried*.
 - **Carried into Phase 1, and they are debts rather than completions:** the §66
-  review gates (0 of 9 run); the contradiction sweep, `REOPENED` because round 1
-  caught only forward-facing contradictions;
-  [architecture-assessment.md](docs/architecture-assessment.md), which describes
-  an architecture that no longer exists; the ADR conditions, roughly
-  twenty-five, none discharged; **A-003**, the load-bearing assumption under
+  review gates (0 of 9 run); the contradiction sweep — **round 2 run
+  2026-08-15** ([contradiction-sweep-2.md](docs/reviews/contradiction-sweep-2.md)),
+  from the other direction: each decision against the code that now exists.
+  Twelve findings, four of them new, and it stays open because it did not cover
+  the §66 gates, the ADR conditions or A-003;
+  [architecture-assessment.md](docs/architecture-assessment.md), **repaired
+  2026-08-15** — not by rewriting it, which would have erased the record of what
+  was believed before anything was built, but by a header that says section by
+  section which parts are still true and what superseded the rest; the ADR conditions — **counted 2026-08-15 by
+  [tools/conditions.py](tools/conditions.py) rather than estimated: there are
+  63, not "roughly twenty-five", and 13 are discharged, not none**. Both halves
+  of the old sentence were guesses, and a number nobody can reproduce is a
+  number nobody maintains; **A-003**, the load-bearing assumption under
   ADR-007, which now has no validation route; and every finding in
   [independent review 3](docs/reviews/independent-review-3-synthesis.md) not
   removed by the v1 cut.
