@@ -1,6 +1,7 @@
 using System;
 using GisServer.Catalog;
 using GisServer.Geometries;
+using GisServer.Platform.Identity;
 
 namespace GisServer.Platform.Catalog;
 
@@ -20,7 +21,9 @@ public sealed class PublishedLayer
         LayerDefinition definition,
         string dataSourceName,
         string connectionString,
-        GeometryKind geometryType)
+        GeometryKind geometryType,
+        Guid? owner,
+        SharingScope sharing)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -31,6 +34,8 @@ public sealed class PublishedLayer
         DataSourceName = dataSourceName;
         ConnectionString = connectionString;
         GeometryType = geometryType;
+        Owner = owner;
+        Sharing = sharing;
     }
 
     /// <summary>The catalogue identity.</summary>
@@ -54,4 +59,17 @@ public sealed class PublishedLayer
     /// whose query matches nothing still has a type.
     /// </remarks>
     public GeometryKind GeometryType { get; }
+
+    /// <summary>
+    /// Who owns it, or null for a layer registered before ownership existed.
+    /// </summary>
+    /// <remarks>
+    /// Null rather than a default owner. An owner nobody chose is a fact the
+    /// audit trail would then repeat, and a private layer with a wrong owner is
+    /// readable by the wrong person.
+    /// </remarks>
+    public Guid? Owner { get; }
+
+    /// <summary>Who may read it (ADR-018 §3b).</summary>
+    public SharingScope Sharing { get; }
 }

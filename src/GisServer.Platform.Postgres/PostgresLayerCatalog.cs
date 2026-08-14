@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using GisServer.Catalog;
 using GisServer.Geometries;
 using GisServer.Platform.Catalog;
+using GisServer.Platform.Identity;
 using GisServer.Platform.Secrets;
 using Npgsql;
 
@@ -16,7 +17,8 @@ public sealed class PostgresLayerCatalog
     private const string Columns = """
         l.id, l.name, l.schema_name, l.table_name, l.geometry_column, l.srid,
         l.identity_column, l.object_id_column, l.is_hosted, l.geometry_type,
-        d.name, d.connection_secret, d.key_version
+        d.name, d.connection_secret, d.key_version,
+        l.owner_principal_id, l.sharing
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -98,6 +100,31 @@ public sealed class PostgresLayerCatalog
             reader.GetFieldValue<byte[]>(11), reader.GetInt32(12));
 
         return new PublishedLayer(
-            reader.GetGuid(0), definition, reader.GetString(10), connectionString, geometryType);
+            reader.GetGuid(0),
+            definition,
+            reader.GetString(10),
+            connectionString,
+            geometryType,
+            reader.IsDBNull(13) ? null : reader.GetGuid(13),
+            ParseSharing(reader.GetString(14)));
     }
+
+    /// <summary>Reads the sharing scope, refusing an unknown one.</summary>
+    /// <remarks>
+    /// <b>Throws rather than defaulting.</b> The column has a check constraint
+    /// listing exactly three values, so an unknown one means the store was
+    /// written by a different version. Defaulting to <c>Private</c> would be the
+    /// safe direction for that row and would hide a store we do not understand;
+    /// defaulting to anything else would publish data. Refusing is the only
+    /// option that is neither silent nor dangerous.
+    /// </remarks>
+    private static SharingScope ParseSharing(string sharing) => sharing switch
+    {
+        "private" => SharingScope.Private,
+        "organization" => SharingScope.Organization,
+        "public" => SharingScope.Public,
+        _ => throw new InvalidOperationException(
+            $"The sharing scope '{sharing}' is not one this build knows. The platform store has "
+            + "been written by a different version of the server."),
+    };
 }

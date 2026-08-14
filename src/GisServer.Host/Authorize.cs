@@ -6,21 +6,24 @@ using Microsoft.AspNetCore.Http;
 namespace GisServer.Host;
 
 /// <summary>
-/// Refuses a request that lacks a permission.
+/// Refuses a request that lacks a privilege.
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-018 §5. <b>401 and 403 mean different things</b> and the difference is
-/// what an operator acts on: 401 says <em>authenticate</em>, 403 says <em>ask an
-/// administrator</em>. Collapsing them loses the ability to tell a wrong
-/// credential from a wrong grant, which is most of diagnosing an access problem.
+/// ADR-018 §5 of the superseded text, retained: <b>401 and 403 mean different
+/// things</b>, and the difference is what an operator acts on. 401 says
+/// <em>authenticate</em>; 403 says <em>ask an administrator</em>.
+/// </para>
+/// <para>
+/// <b>This governs doing, never reading.</b> Whether a caller may read a layer
+/// is decided by <see cref="LayerAccess"/> from the layer's owner and scope,
+/// because the model adopted in ADR-018 has no read privilege.
 /// </para>
 /// <para>
 /// <b>Called by the endpoint, not by middleware.</b> A middleware table mapping
-/// routes to permissions is a second place the routing lives, and the failure
+/// routes to privileges is a second place the routing lives, and the failure
 /// mode of the two disagreeing is an endpoint reachable with no check at all.
-/// Here, the check is in the handler that needs it, and an endpoint with no
-/// check is visible as an endpoint with no check.
+/// Here, an endpoint with no check is visible as an endpoint with no check.
 /// </para>
 /// </remarks>
 internal static class Authorize
@@ -29,9 +32,9 @@ internal static class Authorize
     /// Whether the request may proceed; writes the refusal if not.
     /// </summary>
     /// <param name="context">The request.</param>
-    /// <param name="permission">What it needs.</param>
+    /// <param name="privilege">What it needs.</param>
     /// <returns>True if allowed. If false, the response has been written.</returns>
-    public static async Task<bool> RequireAsync(HttpContext context, Permission permission)
+    public static async Task<bool> RequireAsync(HttpContext context, Privilege privilege)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -41,25 +44,17 @@ internal static class Authorize
                 + "run before any endpoint, including for anonymous callers — 'no principal' is a "
                 + "wiring bug, not an unauthenticated request.");
 
-        if (current.Authorization.Allows(permission))
+        if (current.Authorization.Allows(privilege))
         {
             return true;
         }
 
-        (int status, string message) = current.Principal.IsAnonymous
-            ? (StatusCodes.Status401Unauthorized,
-                $"This needs the '{Name(permission)}' permission and you are not signed in. "
-                + "Sign in at /rest/auth/login. If this server is meant to serve anonymous "
-                + "callers, an administrator grants the 'viewer' role to 'anonymous'.")
-            : (StatusCodes.Status403Forbidden,
-                $"Your account does not have the '{Name(permission)}' permission. Ask an "
-                + "administrator to grant a role that carries it.");
+        (int status, string message) = Refusal(current, privilege);
 
-        // ADR-018 condition 3, and D-03's rule applied: the refusal names the
-        // permission and nothing about the resource. What the caller may not see,
-        // they may not learn the shape of either.
-        await Results.Json(
-            new { error = new { code = status, message } }, statusCode: status)
+        // The refusal names the privilege and nothing about the resource.
+        // D-03's rule: what the caller may not see, they may not learn the shape
+        // of either.
+        await Results.Json(new { error = new { code = status, message } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
 
@@ -67,24 +62,103 @@ internal static class Authorize
     }
 
     /// <summary>
-    /// The wire name of a permission.
+    /// Writes the refusal for a read that sharing did not permit.
     /// </summary>
     /// <remarks>
-    /// These strings reach operators in refusal messages and logs, so they are
-    /// written out rather than derived from the enum name — which would make
-    /// renaming a C# member silently change what people read.
+    /// <b>404, not 403</b> — the opposite of the choice made for privileges, and
+    /// for a reason that only applies here. A 403 on a named layer confirms the
+    /// layer exists, which turns the endpoint into a directory of everything
+    /// published on the server. For a privilege there is nothing to enumerate;
+    /// for an item name there is.
     /// </remarks>
-    public static string Name(Permission permission) => permission switch
+    public static Task RefuseReadAsync(HttpContext context, string layerName)
     {
-        Permission.LayerRead => "layer.read",
-        Permission.LayerPublishHosted => "layer.publish.hosted",
-        Permission.DataSourceRegister => "datasource.register",
-        Permission.LayerPublishRegistered => "layer.publish.registered",
-        Permission.SharingOverride => "sharing.override",
-        Permission.PrincipalManage => "principal.manage",
-        Permission.RoleGrant => "role.grant",
-        Permission.SessionManage => "session.manage",
-        Permission.ServerOperate => "server.operate",
-        _ => throw new ArgumentOutOfRangeException(nameof(permission), permission, null),
+        ArgumentNullException.ThrowIfNull(context);
+
+        return Results.Json(
+            new
+            {
+                error = new
+                {
+                    code = 404,
+                    message =
+                        $"No layer '{layerName}' is visible to you. It may not exist, or it may "
+                        + "not be shared with you — this response is deliberately the same for "
+                        + "both, so that layer names cannot be discovered by guessing.",
+                },
+            },
+            statusCode: StatusCodes.Status404NotFound).ExecuteAsync(context);
+    }
+
+    /// <summary>
+    /// The status and sentence for a refusal.
+    /// </summary>
+    /// <remarks>
+    /// <b>The middle case is the one worth having.</b> ADR-018 §3a resolves
+    /// capability as role ∩ user type, which creates a failure that reads as a
+    /// bug: <em>I granted publisher and they still cannot publish.</em> Saying
+    /// "you do not have this privilege" would send an administrator to grant a
+    /// role they have already granted. Naming the ceiling sends them to the
+    /// right place.
+    /// </remarks>
+    private static (int Status, string Message) Refusal(
+        RequestPrincipal current, Privilege privilege)
+    {
+        string name = Name(privilege);
+
+        if (current.Principal.IsAnonymous)
+        {
+            return (StatusCodes.Status401Unauthorized,
+                $"This needs the '{name}' privilege and you are not signed in. "
+                + "Sign in at /rest/auth/login.");
+        }
+
+        if (current.Authorization.WithheldByUserType(privilege))
+        {
+            return (StatusCodes.Status403Forbidden,
+                $"Your role grants '{name}', and your user type "
+                + $"'{current.Authorization.UserType}' does not permit it, so it is withheld. "
+                + "Granting the role again will not help — the user type is what an administrator "
+                + "must change.");
+        }
+
+        return (StatusCodes.Status403Forbidden,
+            $"Your account does not have the '{name}' privilege. Ask an administrator to grant a "
+            + "role that carries it.");
+    }
+
+    /// <summary>
+    /// The wire name of a privilege.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Written out rather than derived from the enum name, because these strings
+    /// reach operators in refusal messages and logs — deriving them would make
+    /// renaming a C# member silently change what people read.
+    /// </para>
+    /// <para>
+    /// <b>These are ours, not Esri's.</b> They are shaped to be recognisable to
+    /// someone who knows ArcGIS Portal. The mapping to Portal's own wire
+    /// identifiers belongs in the ArcGIS compatibility layer (ADR-018 §6), so
+    /// that a third party's vocabulary never sits in the middle of our domain.
+    /// </para>
+    /// </remarks>
+    public static string Name(Privilege privilege) => privilege switch
+    {
+        Privilege.ContentCreate => "content:create",
+        Privilege.ContentPublishFeatures => "content:publishFeatures",
+        Privilege.ContentPublishTiles => "content:publishTiles",
+        Privilege.ContentRegisterDataStore => "content:registerDataStore",
+        Privilege.FeaturesEdit => "features:edit",
+        Privilege.FeaturesFullEdit => "features:fullEdit",
+        Privilege.SharingShareToOrganization => "sharing:shareToOrganization",
+        Privilege.SharingShareToPublic => "sharing:shareToPublic",
+        Privilege.AdminManageMembers => "admin:manageMembers",
+        Privilege.AdminManageRoles => "admin:manageRoles",
+        Privilege.AdminViewAllContent => "admin:viewAllContent",
+        Privilege.AdminManageAllContent => "admin:manageAllContent",
+        Privilege.AdminManageSecurity => "admin:manageSecurity",
+        Privilege.AdminManageServer => "admin:manageServer",
+        _ => throw new ArgumentOutOfRangeException(nameof(privilege), privilege, null),
     };
 }

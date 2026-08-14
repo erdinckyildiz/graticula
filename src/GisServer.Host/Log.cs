@@ -50,19 +50,20 @@ internal static partial class Log
     [LoggerMessage(
         EventId = 1008,
         Level = LogLevel.Warning,
-        Message = "Authorization is by role only. The four roles of ADR-018 are enforced on read; "
-                + "per-item ownership and sharing is not designed yet, so a layer is visible to "
-                + "everyone holding 'viewer' or to nobody. The role set is INFERRED and awaits "
-                + "the project owner (ADR-018 condition 1).")]
-    public static partial void AuthorizationIsRoleOnly(ILogger logger);
+        Message = "Authorization follows the ArcGIS Portal model: roles grant privileges, a user "
+                + "type caps them, and reading is governed by each layer's sharing scope rather "
+                + "than by any privilege. Groups are not implemented, so an item is private, "
+                + "organisation-wide, or public.")]
+    public static partial void AuthorizationIsPortalShaped(ILogger logger);
 
     [LoggerMessage(
         EventId = 1011,
         Level = LogLevel.Information,
-        Message = "No principal holds 'viewer', so nothing is readable by anyone yet — including "
-                + "anonymous callers. This is the ADR-018 §3 default. Grant 'viewer' to a "
-                + "principal, or to 'anonymous' to run an open portal.")]
-    public static partial void NothingIsReadable(ILogger logger);
+        Message = "Every published layer is private, so nothing is readable by anyone but its "
+                + "owner. This is the ADR-018 sharing default. If these layers were readable "
+                + "before an upgrade, that is expected and reversible: share them with the "
+                + "organisation, or publicly, through the admin API.")]
+    public static partial void NothingIsShared(ILogger logger);
 
     [LoggerMessage(
         EventId = 1009,
@@ -86,11 +87,11 @@ internal static partial class Log
         EventId = 1012,
         Level = LogLevel.Critical,
         Message = "NO ADMINISTRATOR. This store has user accounts but no principal holds "
-                + "'platform-administrator', so nobody can grant a role, create an account or "
+                + "'administrator', so nobody can grant a role, create an account or "
                 + "operate this server. The setup flow does not run, because setup is for a store "
                 + "with no users at all. Recover with one statement against the platform store: "
                 + "insert into principal_role (principal_id, role_name) select id, "
-                + "'platform-administrator' from principal where name = 'YOUR-ACCOUNT';")]
+                + "'administrator' from principal where name = 'YOUR-ACCOUNT';")]
     public static partial void NoAdministrator(ILogger logger);
 
     [LoggerMessage(

@@ -164,6 +164,19 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         return Task.CompletedTask;
     }
 
+    /// <summary>User types by principal. Defaults to no ceiling.</summary>
+    public Dictionary<Guid, string> UserTypes { get; } = [];
+
+    public Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
+        Guid principalId, CancellationToken cancellationToken) =>
+        Task.FromResult((
+            UserTypes.TryGetValue(principalId, out string? t)
+                ? t
+                : GisServer.Platform.Identity.UserTypes.Unrestricted,
+            (IReadOnlyList<string>)(_roles.TryGetValue(principalId, out HashSet<string>? g)
+                ? [.. g.Order(StringComparer.Ordinal)]
+                : [])));
+
     public Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken) =>
         Task.FromResult(_roles.Values.Any(r => r.Contains(role)));
 

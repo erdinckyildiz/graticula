@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(3);
+    public static SchemaVersion ComponentSchemaVersion => new(5);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -38,6 +38,8 @@ public static class PlatformMigrations
         CatalogueV1,
         IdentityV2,
         RolesV3,
+        AuditV4,
+        SharingV5,
     ]);
 
     /// <summary>
@@ -321,44 +323,159 @@ public static class PlatformMigrations
     /// default is found by someone else.
     /// </para>
     /// </remarks>
-    private static Migration RolesV3 => Migration.Expand(
-        new SchemaVersion(3),
-        "Seed the fixed role set from ADR-018.",
-        RoleSeedStatements());
-
     /// <summary>
-    /// The role rows, generated from <see cref="Roles"/>.
+    /// The role set and user types of ADR-018, which are ArcGIS Portal's.
     /// </summary>
     /// <remarks>
-    /// <b>Generated rather than typed.</b> The role names exist in two places —
-    /// the code that resolves permissions and the rows a grant references — and
-    /// two hand-maintained copies of one fact eventually disagree. When they do,
-    /// a grant names a role the server does not know, and the principal silently
-    /// loses every permission it carried rather than getting an error.
+    /// <para>
+    /// <b>Amended 2026-08-14, one day after it was written</b>, when the owner
+    /// directed that we adopt Portal's role and user-type capability matrix
+    /// rather than the four roles we had invented. The previous version of this
+    /// migration said in as many words that keeping the role seed in its own
+    /// migration meant amending it would touch one place. This is that.
+    /// </para>
+    /// <para>
+    /// Editing a shipped migration is correct before v1.0.0 and the class
+    /// remarks say why: the only stores that have run it are ours.
+    /// </para>
+    /// <para>
+    /// <b>Expand, and <c>minimum_reader_version</c> stays 1.</b> It inserts
+    /// rows and adds one nullable column with a default, so a server built
+    /// against an earlier schema still reads this store.
+    /// </para>
     /// </remarks>
-    private static string[] RoleSeedStatements()
+    private static Migration RolesV3 => Migration.Expand(
+        new SchemaVersion(3),
+        "Seed the ArcGIS Portal role set and user types from ADR-018.",
+        RoleAndUserTypeStatements());
+
+    /// <summary>
+    /// The role and user-type rows, generated from the code that resolves them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Generated rather than typed.</b> The names exist in two places — the
+    /// code that resolves privileges, and the rows a grant references — and two
+    /// hand-maintained copies of one fact eventually disagree. When they do, a
+    /// grant names something the server does not know, and the principal
+    /// silently loses what it carried rather than getting an error.
+    /// </remarks>
+    private static string[] RoleAndUserTypeStatements()
     {
         List<string> statements = [];
 
         foreach (string role in Roles.All)
         {
-            // Literals rather than parameters: a Migration is a list of
-            // statements, not a command with arguments. The values come from our
-            // own constants, and the escape below is here so that adding a role
-            // with an apostrophe fails visibly rather than producing SQL.
             statements.Add(
-                $"insert into role (name, description) values ('{Escape(role)}', "
-                + $"'{Escape(Roles.DescriptionOf(role))}')");
+                $"insert into role (name, description) values ('{Literal(role)}', "
+                + $"'{Literal(Roles.DescriptionOf(role))}')");
         }
+
+        // ADR-018 3a. A ceiling on what any role may confer, enforced so that
+        // importing a Portal deployment (Q-16) cannot silently widen what the
+        // source system granted.
+        statements.Add(
+            """
+            create table user_type (
+                name        text not null primary key,
+                description text not null,
+                constraint user_type_name_not_blank check (length(btrim(name)) > 0)
+            )
+            """);
+
+        foreach (string userType in UserTypes.All)
+        {
+            statements.Add(
+                $"insert into user_type (name, description) values ('{Literal(userType)}', "
+                + $"'{Literal(UserTypes.DescriptionOf(userType))}')");
+        }
+
+        // Nullable with a default rather than not-null: a principal row written
+        // by an older server must remain readable, and the default is the
+        // no-ceiling type so nothing is withheld by accident.
+        statements.Add(
+            $"""
+            alter table principal add column user_type text not null
+              default '{Literal(UserTypes.Unrestricted)}'
+              references user_type (name) on delete restrict
+            """);
 
         return [.. statements];
     }
 
-    private static string Escape(string value) =>
+    private static string Literal(string value) =>
         value.Contains('\'', StringComparison.Ordinal)
             ? throw new InvalidOperationException(
-                $"'{value}' contains a quote. Role names and descriptions are written into "
-                + "migration SQL as literals, so this would need parameterised migrations "
-                + "rather than an escape here.")
+                $"'{value}' contains a quote. These values are written into migration SQL as "
+                + "literals, so this would need parameterised migrations rather than an escape.")
             : value;
+
+    private static Migration AuditV4 => Migration.Expand(
+        new SchemaVersion(4),
+        "Create the administrative audit trail.",
+
+        """
+        create table audit_event (
+            id             uuid        not null primary key,
+            occurred_at    timestamptz not null default now(),
+            principal_id   uuid        null references principal (id) on delete set null,
+            principal_name text        not null,
+            source_address inet        null,
+            action         text        not null,
+            resource       text        null,
+            detail         jsonb       not null default '{}'::jsonb,
+            succeeded      boolean     not null,
+            constraint audit_event_action_not_blank check (length(btrim(action)) > 0)
+        )
+        """,
+
+        // Newest first is the only order anyone reads an audit trail in.
+        "create index audit_event_time_idx on audit_event (occurred_at desc)",
+
+        // "What did this account do" and "what happened to this layer" are the
+        // two questions asked, so both get an index rather than a scan.
+        "create index audit_event_principal_idx on audit_event (principal_id, occurred_at desc)",
+        "create index audit_event_resource_idx on audit_event (resource, occurred_at desc)");
+
+    /// <summary>
+    /// Ownership and sharing on layers (ADR-018 §3b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is how reading works</b>, not an enhancement to it. Portal has no
+    /// read privilege: whether a caller may see an item comes from the item's
+    /// owner and scope. Adopting Portal's matrix therefore made the sharing axis
+    /// due immediately, having been deferred one day earlier.
+    /// </para>
+    /// <para>
+    /// <b>Existing layers become private</b>, which is the safe direction and
+    /// will look like a regression to whoever published them. ADR-018 condition
+    /// 4 requires the upgrade to say so rather than let it be discovered.
+    /// </para>
+    /// <para>
+    /// The scope is text, not an enum type, so Portal's fourth scope — shared
+    /// with a group — arrives as a value rather than a migration.
+    /// </para>
+    /// </remarks>
+    private static Migration SharingV5 => Migration.Expand(
+        new SchemaVersion(5),
+        "Add ownership and sharing scope to layers.",
+
+        // No owner for a layer registered before ownership existed. Null rather
+        // than assigning one arbitrarily: an owner nobody chose is a lie the
+        // audit trail would then repeat.
+        "alter table layer add column owner_principal_id uuid null "
+        + "references principal (id) on delete set null",
+
+        """
+        alter table layer add column sharing text not null default 'private'
+        """,
+
+        """
+        alter table layer add constraint layer_sharing_known
+          check (sharing in ('private', 'organization', 'public'))
+        """,
+
+        // Every read filters on this, and a portal with one public layer among
+        // a thousand private ones should not scan them all to find it.
+        "create index layer_sharing_idx on layer (sharing)");
 }

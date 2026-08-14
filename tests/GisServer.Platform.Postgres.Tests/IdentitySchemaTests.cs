@@ -98,13 +98,18 @@ public sealed class IdentitySchemaTests : PostgresFixture
     [Fact]
     public async Task A_role_grant_cannot_reference_a_role_that_does_not_exist()
     {
-        // Q-59 has not decided what the roles are, so the table ships empty.
-        // The constraint is what stops code inventing one by writing it.
+        // The constraint is what stops code inventing a role by writing it.
+        // Roles.PrivilegesOf answers "nothing" for an unknown name, which is the
+        // safe reading at read time — but the write should never be allowed.
+        //
+        // The name here was 'administrator' until ADR-018 made that a real role,
+        // at which point the test passed by inserting a valid grant and proved
+        // nothing. Now it is a name that will not become one.
         await MigrateAsync();
         Guid principal = await CreateUserAsync("deniz");
 
         await using NpgsqlCommand command = DataSource.CreateCommand(
-            "insert into principal_role (principal_id, role_name) values (@p, 'administrator')");
+            "insert into principal_role (principal_id, role_name) values (@p, 'not-a-role')");
         command.Parameters.AddWithValue("p", principal);
 
         PostgresException error = await Assert.ThrowsAsync<PostgresException>(
@@ -114,16 +119,13 @@ public sealed class IdentitySchemaTests : PostgresFixture
     }
 
     [Fact]
-    public async Task The_role_table_ships_the_four_roles_ADR018_decided()
+    public async Task The_role_table_ships_the_five_portal_roles_ADR018_adopted()
     {
-        // This test used to assert the table was EMPTY, because Q-59 was open and
-        // review O3 warned against inventing roles — a control resting on a term
-        // nobody had defined. ADR-018 defined them, so the old assertion is
-        // replaced rather than adjusted: it encoded a decision that has been
-        // reversed, and editing a number would have hidden that.
-        //
-        // ADR-018's role set is still INFERRED (condition 1, owner confirmation
-        // outstanding). If it changes, this fails, which is the intent.
+        // Third version of this assertion in two days, and each change was a
+        // decision rather than a fix. It asserted EMPTY while Q-59 was open;
+        // then four invented roles; now the five ArcGIS Portal defaults the
+        // owner directed us to adopt. Rewritten rather than adjusted each time,
+        // because editing a list would hide that the model changed underneath.
         await MigrateAsync();
 
         await using NpgsqlCommand command =
@@ -138,7 +140,7 @@ public sealed class IdentitySchemaTests : PostgresFixture
         }
 
         Assert.Equal(
-            ["gis-administrator", "platform-administrator", "publisher", "viewer"],
+            ["administrator", "data_editor", "publisher", "user", "viewer"],
             names);
     }
 

@@ -348,6 +348,44 @@ public sealed class PostgresIdentityStore : IIdentityStore
     }
 
     /// <inheritdoc/>
+    public async Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
+        Guid principalId, CancellationToken cancellationToken)
+    {
+        // A left join, so a principal with no roles still yields its user type.
+        // An inner join would return no rows for exactly the common case — a
+        // brand-new account — and the ceiling would silently read as unknown,
+        // which UserTypes.CeilingOf treats as nothing.
+        const string Sql = """
+            select p.user_type, r.role_name
+            from principal p
+            left join principal_role r on r.principal_id = p.id
+            where p.id = @principal
+            order by r.role_name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("principal", principalId);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        string userType = UserTypes.Unrestricted;
+        List<string> roles = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            userType = reader.GetString(0);
+
+            if (!reader.IsDBNull(1))
+            {
+                roles.Add(reader.GetString(1));
+            }
+        }
+
+        return (userType, roles);
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> AnyPrincipalHoldingAsync(
         string role, CancellationToken cancellationToken)
     {

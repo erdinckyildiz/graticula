@@ -108,10 +108,21 @@ public interface IIdentityStore
     /// </para>
     /// <para>
     /// A role the server does not recognise confers nothing rather than
-    /// throwing — see <see cref="Roles.PermissionsOf"/>.
+    /// throwing — see <see cref="Roles.PrivilegesOf"/>.
     /// </para>
     /// </remarks>
     Task<IReadOnlyList<string>> RolesOfAsync(Guid principalId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads a principal's user type and roles in one round trip.
+    /// </summary>
+    /// <remarks>
+    /// Together, because ADR-018 §3a resolves capability as the intersection of
+    /// the two and there is never a reason to have one without the other. Two
+    /// queries would be two chances to resolve a ceiling against the wrong roles.
+    /// </remarks>
+    Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
+        Guid principalId, CancellationToken cancellationToken);
 
     /// <summary>Grants a role. Idempotent.</summary>
     /// <param name="principalId">Who receives it.</param>

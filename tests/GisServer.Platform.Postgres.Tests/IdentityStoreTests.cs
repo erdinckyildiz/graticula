@@ -359,10 +359,10 @@ public sealed class IdentityStoreTests : PostgresFixture
 
         string token = await setup.IssueAsync(now.AddHours(1), CancellationToken.None);
         Principal? admin = await setup.RedeemAsync(
-            token, "root", null, SomeHash(), Roles.PlatformAdministrator, now, CancellationToken.None);
+            token, "root", null, SomeHash(), Roles.Administrator, now, CancellationToken.None);
 
         Assert.Equal(
-            [Roles.PlatformAdministrator],
+            [Roles.Administrator],
             await Identity().RolesOfAsync(admin!.Id, CancellationToken.None));
     }
 

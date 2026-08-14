@@ -9,6 +9,7 @@ using GisServer.Api.ArcGis;
 using GisServer.Features;
 using GisServer.Geometries;
 using GisServer.Platform.Catalog;
+using GisServer.Platform.Admin;
 using GisServer.Platform.Identity;
 using GisServer.Platform.Postgres;
 using GisServer.Platform.Schema;
@@ -57,6 +58,9 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        builder.Services.AddSingleton<IAuditLog>(services =>
+            new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -97,17 +101,17 @@ public static class Program
         await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
 
         // Two facts an operator needs at every start: what authorization does
-        // cover, and whether anything is currently readable at all.
+        // cover, and whether anything is currently visible at all.
         //
         // The message this replaced said authorization did not exist. It was
         // true for exactly as long as that was true, and then it was a lie the
         // server told at every startup — which is the failure mode of a standing
         // warning nobody re-reads.
-        Log.AuthorizationIsRoleOnly(logger);
+        Log.AuthorizationIsPortalShaped(logger);
 
-        if (!await AnyoneCanReadAsync(app.Services).ConfigureAwait(false))
+        if (!await AnythingIsSharedAsync(app.Services).ConfigureAwait(false))
         {
-            Log.NothingIsReadable(logger);
+            Log.NothingIsShared(logger);
         }
 
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
@@ -287,20 +291,22 @@ public static class Program
         app.MapGet("/rest/services", async (
             HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
         {
-            // The catalogue is a list of what exists, so it needs the same
-            // permission as reading one. ADR-018 has no per-layer grants yet, so
-            // this is all-or-nothing; when the ownership axis arrives (§6) this
-            // becomes a filter rather than a gate.
-            if (!await Authorize.RequireAsync(context, Permission.LayerRead))
-            {
-                return Results.Empty;
-            }
+            // A filter, not a gate. ADR-018 §3b governs reading by sharing, so
+            // the catalogue lists what this caller may see rather than refusing
+            // the whole endpoint — which is what makes two layers with two
+            // audiences possible, and is the thing the superseded model could
+            // not express.
+            RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
             IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation);
 
             return Results.Ok(new
             {
-                services = layers.Select(layer => new
+                services = layers
+                    .Where(layer => LayerAccess
+                        .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
+                        .IsAllowed())
+                    .Select(layer => new
                 {
                     name = layer.Definition.Name,
                     type = "FeatureServer",
@@ -310,6 +316,7 @@ public static class Program
                     // saying so here is the never-degrade-silently principle
                     // applied to a data-shape limitation.
                     arcGisServable = layer.Definition.IsArcGisServable,
+                    sharing = layer.Sharing.ToString().ToLowerInvariant(),
                 }),
             });
         });
@@ -331,48 +338,42 @@ public static class Program
                 name = current.Principal.Name,
                 kind = current.Principal.Kind.ToString(),
                 authenticated = !current.Principal.IsAnonymous,
+                userType = current.Authorization.UserType,
                 roles = current.Authorization.Roles,
-                permissions = current.Authorization.Permissions
+                privileges = current.Authorization.Privileges
                     .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal),
             });
         });
     }
 
+    /// <summary>The audit detail for a read override.</summary>
+    /// <remarks>
+    /// Built with the JSON writer rather than by concatenation, so that a scope
+    /// name containing a quote could never break the column's <c>jsonb</c> parse
+    /// — which would turn an audit write into a failed request.
+    /// </remarks>
+    private static string SharingDetail(SharingScope sharing) =>
+        JsonSerializer.Serialize(new { sharing = sharing.ToString().ToLowerInvariant() });
+
     /// <summary>
-    /// Whether any principal holds a role carrying <see cref="Permission.LayerRead"/>.
+    /// Whether any layer is shared with anybody but its owner.
     /// </summary>
     /// <remarks>
-    /// Asked once at startup so that a server nobody can read from says so,
-    /// rather than presenting as a working server that returns 401 to
-    /// everything. ADR-018 §3's closed default is correct and surprising, and
-    /// the surprise is cheaper here than in a support conversation.
+    /// Asked once at startup so that a server whose layers are all private says
+    /// so, rather than presenting as a working server that 404s everything.
+    /// ADR-018 §3b's private default is correct and surprising — and after an
+    /// upgrade it is surprising to somebody who had published those layers
+    /// openly, which is condition 4.
     /// </remarks>
-    private static async Task<bool> AnyoneCanReadAsync(IServiceProvider services)
+    private static async Task<bool> AnythingIsSharedAsync(IServiceProvider services)
     {
-        IIdentityStore identity = services.GetRequiredService<IIdentityStore>();
         PostgresLayerCatalog catalog = services.GetRequiredService<PostgresLayerCatalog>();
 
-        // Only worth saying if there is something to read in the first place.
-        if ((await catalog.ListAsync(CancellationToken.None).ConfigureAwait(false)).Count == 0)
-        {
-            return true;
-        }
+        IReadOnlyList<PublishedLayer> layers =
+            await catalog.ListAsync(CancellationToken.None).ConfigureAwait(false);
 
-        foreach (string role in Roles.All)
-        {
-            if (!Roles.PermissionsOf(role).Contains(Permission.LayerRead))
-            {
-                continue;
-            }
-
-            if (await identity.AnyPrincipalHoldingAsync(role, CancellationToken.None)
-                .ConfigureAwait(false))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // Only worth saying if there is something to share in the first place.
+        return layers.Count == 0 || layers.Any(l => l.Sharing != SharingScope.Private);
     }
 
     /// <summary>How long a first-start setup token lasts.</summary>
@@ -410,7 +411,7 @@ public static class Program
             // would take a working read-only server down for a problem that does
             // not affect reads. So it is loud, and the fix is one statement.
             if (!await identity
-                .AnyPrincipalHoldingAsync(Roles.PlatformAdministrator, CancellationToken.None)
+                .AnyPrincipalHoldingAsync(Roles.Administrator, CancellationToken.None)
                 .ConfigureAwait(false))
             {
                 Log.NoAdministrator(logger);
@@ -444,21 +445,42 @@ public static class Program
         string layerName,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
+        IAuditLog audit,
         ILoggerFactory loggerFactory,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Permission.LayerRead).ConfigureAwait(false))
+        PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        // One response for "does not exist" and "not shared with you". A 403 on
+        // a named layer confirms it exists, which turns this endpoint into a
+        // directory of everything published on the server.
+        LayerAccess.Reason reason = layer is null
+            ? LayerAccess.Reason.Denied
+            : LayerAccess.Evaluate(
+                layer.Sharing, layer.Owner, current.Principal, current.Authorization);
+
+        if (layer is null || !reason.IsAllowed())
         {
+            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
             return;
         }
 
-        PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
-
-        if (layer is null)
+        if (reason == LayerAccess.Reason.AdministrativeOverride)
         {
-            await Results.NotFound(new { error = new { code = 404, message = $"No layer '{layerName}'." } })
-                .ExecuteAsync(context).ConfigureAwait(false);
-            return;
+            // ADR-018 condition 3. An administrator reading a private layer is
+            // legitimate and must leave a record, or the sharing model is
+            // decorative.
+            await audit.RecordAsync(
+                new AuditEvent(
+                    current.Principal.Id,
+                    current.Principal.Name,
+                    context.Connection.RemoteIpAddress?.ToString(),
+                    "layer.read.override",
+                    layerName,
+                    SharingDetail(layer.Sharing),
+                    Succeeded: true),
+                cancellation).ConfigureAwait(false);
         }
 
         if (!layer.Definition.IsArcGisServable)

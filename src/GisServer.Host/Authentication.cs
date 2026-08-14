@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Platform.Identity;
@@ -69,10 +70,11 @@ internal sealed class Authentication
 
         Principal principal = session?.Principal ?? Principal.Anonymous;
 
-        Authorization authorization = Authorization.FromRoles(
-            await _store.RolesOfAsync(principal.Id, cancellationToken).ConfigureAwait(false));
+        (string userType, IReadOnlyList<string> roles) =
+            await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
-        return new RequestPrincipal(principal, session?.SessionId, authorization);
+        return new RequestPrincipal(
+            principal, session?.SessionId, Authorization.Resolve(userType, roles));
     }
 
     private async Task<AuthenticatedSession?> FindSessionAsync(
