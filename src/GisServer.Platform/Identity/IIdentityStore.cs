@@ -79,6 +79,24 @@ public interface IIdentityStore
     /// <summary>Revokes a session. Idempotent.</summary>
     Task RevokeSessionAsync(Guid sessionId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Revokes every session of a principal except one.
+    /// </summary>
+    /// <param name="principalId">Whose sessions.</param>
+    /// <param name="keep">The session to leave alive, or null to revoke all.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many were revoked.</returns>
+    /// <remarks>
+    /// <b>What a password change is for.</b> If the password was changed because
+    /// it was compromised, leaving the attacker's session alive makes the change
+    /// theatre — ADR-015 §3 chose server-side sessions precisely so revocation
+    /// takes effect on the next request, and this is the case that most needs
+    /// it. The current session is kept so that changing a password does not sign
+    /// you out of the screen you changed it on.
+    /// </remarks>
+    Task<int> RevokeOtherSessionsAsync(
+        Guid principalId, Guid? keep, CancellationToken cancellationToken);
+
     /// <summary>Replaces a principal's stored password.</summary>
     /// <remarks>
     /// Used both to set a password and to re-hash one that verified against

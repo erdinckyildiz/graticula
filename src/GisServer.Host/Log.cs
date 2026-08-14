@@ -68,11 +68,15 @@ internal static partial class Log
     [LoggerMessage(
         EventId = 1009,
         Level = LogLevel.Critical,
+        // {Minimum} rather than a literal: this message stated 12 for a day
+        // after the constant said 8, which is the kind of drift that teaches
+        // people the messages are not worth reading.
         Message = "SETUP REQUIRED. This server has no administrator. One-time setup token, valid "
                 + "for {Minutes} minutes:\n\n    {Token}\n\nPOST it to /rest/setup with a name "
-                + "and a password of at least 12 characters. Everything else is refused until "
-                + "then. It is single-use and is not printed again.")]
-    public static partial void SetupTokenIssued(ILogger logger, string token, int minutes);
+                + "and a password of at least {Minimum} characters. Everything else is refused "
+                + "until then. It is single-use and is not printed again.")]
+    public static partial void SetupTokenIssued(
+        ILogger logger, string token, int minutes, int minimum);
 
     [LoggerMessage(
         EventId = 1010,

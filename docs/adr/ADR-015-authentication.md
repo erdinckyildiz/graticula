@@ -163,6 +163,41 @@ The setup token is single-use, expires, and its use is the first audit entry.
 
 ---
 
+## 6a. Decision — password rules are length only, and the floor is 8
+
+*Added 2026-08-14, when the first password anybody actually tried to set was
+refused.*
+
+**No composition rules.** Requiring an uppercase, a digit and a symbol
+measurably pushes people toward `Password1!`, which is in every wordlist. NIST
+SP 800-63B dropped composition requirements for exactly this reason.
+
+**The minimum is 8, lowered from 12.** 12 was our own number with no reasoning
+recorded behind it — it was not derived from a threat model, a standard, or a
+measurement, and it refused the server's own root password. The alternative on
+the table was a direct write to the store to get around it, which is the
+outcome that matters here: **a rule nobody can justify does not get followed,
+it gets bypassed, and then the stated policy is a lie.** 8 is the floor
+SP 800-63B sets for a user-chosen secret, so it is a number with a source.
+
+**What actually carries the weight, and it is not the length rule.** An
+8-character password is weak against an offline attack on a stolen hash, and it
+was weak at 12 too. The defences that do the work are Argon2id at 19 MiB and 2
+iterations per guess (§3), which makes offline guessing expensive, and
+`LoginService`'s rate limit, which makes online guessing slow. Neither changed.
+
+**What is still missing, and is worth more than any length rule:** a check
+against known-breached passwords. It needs a corpus we do not ship, and until
+it exists `correct horse battery staple` and `Passw0rd!` are treated alike.
+Tracked as [D-23](../architecture-debt.md).
+
+**The rule is stated in exactly one place** — `AuthEndpoints.MinimumPasswordLength`
+— and every message that quotes a number reads it from there. The setup log
+message stated 12 for as long as it took to notice, which is the drift that
+teaches people the messages are not worth reading.
+
+---
+
 ## 7. What this hands to other decisions
 
 - **RLS delegation (§1a)** gets a stable principal name and an

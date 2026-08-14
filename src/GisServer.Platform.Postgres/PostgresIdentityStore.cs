@@ -289,6 +289,30 @@ public sealed class PostgresIdentityStore : IIdentityStore
     }
 
     /// <inheritdoc/>
+    public async Task<int> RevokeOtherSessionsAsync(
+        Guid principalId, Guid? keep, CancellationToken cancellationToken)
+    {
+        // Only the live ones, and coalesce so a session revoked earlier keeps
+        // its original timestamp — the first revocation is the one an audit
+        // trail is about.
+        const string Sql = """
+            update session set revoked_at = coalesce(revoked_at, now())
+            where principal_id = @principal
+              and revoked_at is null
+              and (@keep is null or id <> @keep)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("principal", principalId);
+        command.Parameters.Add(new NpgsqlParameter("keep", NpgsqlDbType.Uuid)
+        {
+            Value = (object?)keep ?? DBNull.Value,
+        });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<string>> RolesOfAsync(
         Guid principalId, CancellationToken cancellationToken)
     {

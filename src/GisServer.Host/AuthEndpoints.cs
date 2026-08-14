@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using GisServer.Platform.Admin;
 using GisServer.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -13,6 +14,11 @@ namespace GisServer.Host;
 /// <param name="Name">The principal name.</param>
 /// <param name="Password">The password.</param>
 internal sealed record LoginRequest(string? Name, string? Password);
+
+/// <summary>What a member sends to change their own password.</summary>
+/// <param name="CurrentPassword">The one they have now.</param>
+/// <param name="NewPassword">The one they want.</param>
+internal sealed record PasswordChangeRequest(string? CurrentPassword, string? NewPassword);
 
 /// <summary>What a client sends to complete first-start setup.</summary>
 /// <param name="Token">The setup token from the server log.</param>
@@ -35,8 +41,24 @@ internal static class AuthEndpoints
     /// exactly this reason. Length is the property that actually helps.
     /// <b>What is missing:</b> a check against known-breached passwords, which
     /// is worth more than either and needs a corpus we do not ship.
+    /// <para>
+    /// <b>Lowered from 12 to 8 on 2026-08-14.</b> 8 is the floor NIST SP 800-63B
+    /// sets for a user-chosen secret; 12 was our own invention with no reasoning
+    /// recorded behind it, and the first real password anybody tried to set was
+    /// refused by it. A rule nobody can state a reason for, that refuses the
+    /// server's own root account, is a rule people route around — and the route
+    /// around this one was going to be a direct write to the store, which would
+    /// have left the policy in place and untrue.
+    /// </para>
+    /// <para>
+    /// <b>The honest cost.</b> 8 characters is weak against an offline attack on
+    /// a stolen hash. What carries that weight here is Argon2id at 19 MiB per
+    /// guess (ADR-015) and the rate limit in
+    /// <see cref="Platform.Identity.LoginService"/> — not the length rule, which
+    /// was never doing that job at 12 either.
+    /// </para>
     /// </remarks>
-    public const int MinimumPasswordLength = 12;
+    public const int MinimumPasswordLength = 8;
 
     /// <summary>Maps login and logout.</summary>
     public static void MapAuth(this WebApplication app)
@@ -45,6 +67,7 @@ internal static class AuthEndpoints
 
         app.MapPost("/rest/auth/login", LoginAsync);
         app.MapPost("/rest/auth/logout", LogoutAsync);
+        app.MapPost("/rest/auth/password", ChangePasswordAsync);
     }
 
     private static async Task LoginAsync(
@@ -124,6 +147,126 @@ internal static class AuthEndpoints
 
         await store.RevokeSessionAsync(sessionId, cancellation).ConfigureAwait(false);
         await Results.Json(new { revoked = true }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Changes the caller's own password.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The current password is required, and a valid session is not enough.</b>
+    /// A stolen session token would otherwise be sufficient to change the
+    /// password and lock the real owner out — turning a temporary compromise
+    /// into a permanent one. Knowing the current password is the thing an
+    /// attacker with a token does not have.
+    /// </para>
+    /// <para>
+    /// <b>Every other session is revoked.</b> If the password was changed
+    /// because it leaked, leaving the attacker signed in makes the change
+    /// theatre. ADR-015 §3 chose server-side sessions so that revocation takes
+    /// effect on the next request, and this is the case that most needs it. The
+    /// current session survives, so changing a password does not sign you out of
+    /// the screen you changed it on.
+    /// </para>
+    /// <para>
+    /// <b>Self-service only.</b> An administrator resetting somebody else's
+    /// password is a different operation with a different risk — it needs
+    /// <c>admin:manageMembers</c> and an audit trail that says who reset whose,
+    /// and it does not exist yet.
+    /// </para>
+    /// </remarks>
+    private static async Task ChangePasswordAsync(
+        HttpContext context,
+        PasswordChangeRequest request,
+        IIdentityStore store,
+        IPasswordHasher hasher,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Sign in before changing a password.").ConfigureAwait(false);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(request.CurrentPassword) || string.IsNullOrEmpty(request.NewPassword))
+        {
+            await Refuse(context, 400, "currentPassword and newPassword are required.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (request.NewPassword.Length < MinimumPasswordLength)
+        {
+            await Refuse(
+                context,
+                400,
+                $"The new password is {request.NewPassword.Length} characters and the minimum is "
+                + $"{MinimumPasswordLength}. Length is the only rule: composition requirements "
+                + "push people toward predictable passwords, so this is the one that is enforced.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        (Principal Principal, PasswordHash? Credential)? found = await store
+            .FindForLoginAsync(current.Principal.Name, cancellation).ConfigureAwait(false);
+
+        if (found is not { Credential: { } credential }
+            || !hasher.Verify(request.CurrentPassword, credential))
+        {
+            await AuditAsync(context, audit, "principal.password", current.Principal.Name,
+                "{\"outcome\":\"wrong-current-password\"}", succeeded: false, cancellation)
+                .ConfigureAwait(false);
+
+            await Refuse(context, 403, "The current password is incorrect.").ConfigureAwait(false);
+            return;
+        }
+
+        await store.SetPasswordAsync(
+            current.Principal.Id, hasher.Hash(request.NewPassword), cancellation).ConfigureAwait(false);
+
+        int revoked = await store.RevokeOtherSessionsAsync(
+            current.Principal.Id, current.SessionId, cancellation).ConfigureAwait(false);
+
+        // The password itself never reaches the audit record, obviously — but
+        // nor does its length, which would narrow a guess.
+        await AuditAsync(context, audit, "principal.password", current.Principal.Name,
+            $"{{\"revokedSessions\":{revoked}}}", succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            changed = true,
+            revokedSessions = revoked,
+            note = revoked > 0
+                ? $"{revoked} other session(s) were signed out. This one is still valid."
+                : "No other sessions were open. This one is still valid.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Records an administrative act.</summary>
+    private static Task AuditAsync(
+        HttpContext context,
+        IAuditLog audit,
+        string action,
+        string resource,
+        string detail,
+        bool succeeded,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return audit.RecordAsync(
+            new AuditEvent(
+                current.Principal.Id,
+                current.Principal.Name,
+                context.Connection.RemoteIpAddress?.ToString(),
+                action,
+                resource,
+                detail,
+                succeeded),
+            cancellation);
     }
 
     /// <summary>Completes first-start setup. Reachable only while setup is pending.</summary>

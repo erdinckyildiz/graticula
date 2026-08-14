@@ -140,6 +140,77 @@ public sealed class IdentityStoreTests : PostgresFixture
     }
 
     [Fact]
+    public async Task Changing_a_password_can_end_every_other_session_and_keep_this_one()
+    {
+        // What a password change is for. If it was changed because it leaked,
+        // leaving the attacker signed in makes the change theatre — and signing
+        // the owner out of the screen they changed it on makes it hostile.
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string[] tokens = [SessionToken.Generate(), SessionToken.Generate(), SessionToken.Generate()];
+        Guid[] ids =
+        [
+            await store.CreateSessionAsync(
+                ada.Id, SessionToken.HashOf(tokens[0]), now.AddHours(1), null, CancellationToken.None),
+            await store.CreateSessionAsync(
+                ada.Id, SessionToken.HashOf(tokens[1]), now.AddHours(1), null, CancellationToken.None),
+            await store.CreateSessionAsync(
+                ada.Id, SessionToken.HashOf(tokens[2]), now.AddHours(1), null, CancellationToken.None),
+        ];
+
+        int revoked = await store.RevokeOtherSessionsAsync(ada.Id, ids[1], CancellationToken.None);
+
+        Assert.Equal(2, revoked);
+        Assert.Null(await store.FindSessionAsync(SessionToken.HashOf(tokens[0]), now, CancellationToken.None));
+        Assert.NotNull(await store.FindSessionAsync(SessionToken.HashOf(tokens[1]), now, CancellationToken.None));
+        Assert.Null(await store.FindSessionAsync(SessionToken.HashOf(tokens[2]), now, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Ending_other_sessions_does_not_reach_another_principal()
+    {
+        // The predicate is on principal_id, and getting that wrong would sign
+        // out the whole organisation when one person changed their password.
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+        Principal bob = await store.CreateUserAsync("bob", null, SomeHash(), CancellationToken.None);
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string bobs = SessionToken.Generate();
+
+        await store.CreateSessionAsync(
+            ada.Id, SessionToken.HashOf(SessionToken.Generate()), now.AddHours(1), null, CancellationToken.None);
+        await store.CreateSessionAsync(
+            bob.Id, SessionToken.HashOf(bobs), now.AddHours(1), null, CancellationToken.None);
+
+        Assert.Equal(1, await store.RevokeOtherSessionsAsync(ada.Id, null, CancellationToken.None));
+        Assert.NotNull(await store.FindSessionAsync(SessionToken.HashOf(bobs), now, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Ending_other_sessions_does_not_move_an_earlier_revocation()
+    {
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+
+        Guid id = await store.CreateSessionAsync(
+            ada.Id, SessionToken.HashOf(SessionToken.Generate()),
+            DateTimeOffset.UtcNow.AddHours(1), null, CancellationToken.None);
+
+        await store.RevokeSessionAsync(id, CancellationToken.None);
+        DateTime first = await RevokedAtAsync(id);
+
+        // Already revoked, so it is not counted again either.
+        Assert.Equal(0, await store.RevokeOtherSessionsAsync(ada.Id, null, CancellationToken.None));
+        Assert.Equal(first, await RevokedAtAsync(id));
+    }
+
+    [Fact]
     public async Task An_expired_session_does_not_resolve()
     {
         await MigrateAsync();

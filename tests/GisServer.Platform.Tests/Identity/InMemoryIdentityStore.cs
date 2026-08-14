@@ -134,6 +134,22 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         return Task.FromResult(principal);
     }
 
+    public Task<int> RevokeOtherSessionsAsync(
+        Guid principalId, Guid? keep, CancellationToken cancellationToken)
+    {
+        int revoked = 0;
+
+        foreach ((Guid id, Guid owner, DateTimeOffset _) in _sessions.Values)
+        {
+            if (owner == principalId && id != keep && _revoked.Add(id))
+            {
+                revoked++;
+            }
+        }
+
+        return Task.FromResult(revoked);
+    }
+
     public Task<IReadOnlyList<string>> RolesOfAsync(
         Guid principalId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<string>>(

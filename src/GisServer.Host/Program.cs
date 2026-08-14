@@ -840,7 +840,11 @@ public static class Program
             .IssueAsync(now + SetupTokenLifetime, CancellationToken.None)
             .ConfigureAwait(false);
 
-        Log.SetupTokenIssued(logger, token, (int)SetupTokenLifetime.TotalMinutes);
+        Log.SetupTokenIssued(
+            logger,
+            token,
+            (int)SetupTokenLifetime.TotalMinutes,
+            AuthEndpoints.MinimumPasswordLength);
     }
 
     private static async Task QueryAsync(
