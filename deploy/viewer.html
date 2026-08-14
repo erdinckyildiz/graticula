@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gis-server viewer</title>
+
+<!--
+  A throwaway client, and the point is that it is not ours.
+
+  esri-leaflet is Esri's own open-source client for ArcGIS feature services. It
+  is pointed at gis-server with no adapter and no configuration beyond the URL:
+  it fetches /rest/services/{layer}/FeatureServer/0, reads the field list, the
+  object-id field and the extent, then issues its own query. If it draws, the
+  compatibility claim is true for a real client rather than for our own curl
+  commands.
+
+  Needs an internet connection for the two CDN scripts and the basemap tiles.
+  The server itself needs neither.
+-->
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
+
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  header {
+    padding: 12px 18px;
+    border-bottom: 1px solid #d7e0dc;
+    background: #f5f8f6;
+    color: #0f1e1b;
+  }
+  header h1 { margin: 0 0 2px; font-size: 16px; font-weight: 600; }
+  header p { margin: 0; font-size: 13px; color: #576a66; }
+  header code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+    background: #eff4f1;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  #map { width: 100%; height: 100%; }
+  #status {
+    position: absolute; z-index: 1000; right: 14px; top: 76px;
+    background: #fff; border: 1px solid #d7e0dc; border-radius: 3px;
+    padding: 10px 13px; max-width: 340px; font-size: 13px;
+    box-shadow: 0 6px 18px -10px rgba(15,30,27,.3);
+  }
+  #status b { display: block; margin-bottom: 4px; }
+  .bad { color: #a63a2b; }
+  .good { color: #2f7a55; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>gis-server — seen by esri-leaflet</h1>
+  <p>Esri's own client, pointed at <code id="url"></code>. Nothing here is ours except the URL.</p>
+</header>
+
+<div id="map"></div>
+<div id="status"><b>Connecting…</b><span id="detail">reading /rest/info</span></div>
+
+<script>
+  // Change these two if you moved the server or want a different layer.
+  const SERVER = "https://localhost:8443";
+  const LAYER = "landmarks";
+
+  const url = `${SERVER}/rest/services/${LAYER}/FeatureServer/0`;
+  document.getElementById("url").textContent = url;
+
+  const map = L.map("map").setView([41.015, 28.98], 13);
+
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(map);
+
+  const status = document.getElementById("status");
+  const detail = document.getElementById("detail");
+
+  const features = L.esri.featureLayer({
+    url,
+    pointToLayer: (geojson, latlng) => L.circleMarker(latlng, {
+      radius: 8, color: "#0b6157", weight: 2, fillColor: "#4fb5a6", fillOpacity: .85,
+    }),
+  });
+
+  features.bindPopup(layer => L.Util.template(
+    "<b>{name}</b><br>{category}", layer.feature.properties));
+
+  let drawn = 0;
+  features.on("createfeature", () => {
+    drawn++;
+    status.innerHTML =
+      `<b class="good">Working.</b>${drawn} feature${drawn === 1 ? "" : "s"} drawn from a live ` +
+      `FeatureServer. Click one.`;
+  });
+
+  // The interesting failure. A self-signed certificate makes the browser refuse
+  // every request from this page until it has been trusted once, and the error
+  // surfaces here as a generic network failure — which looks like the server is
+  // down when it is running perfectly.
+  features.on("requesterror", event => {
+    status.innerHTML =
+      `<b class="bad">Could not reach the server.</b>` +
+      `Most likely the self-signed certificate has not been accepted yet. Open ` +
+      `<a href="${SERVER}/healthz/live" target="_blank">${SERVER}/healthz/live</a> ` +
+      `in a tab, accept the warning, then reload this page.` +
+      `<br><br><small>${(event && event.message) || ""}</small>`;
+  });
+
+  features.addTo(map);
+
+  // Fit to whatever the server said its extent was, rather than to a hard-coded
+  // view — that is the metadata being used for the thing it exists for.
+  features.once("load", () => {
+    const bounds = features.getBounds();
+    if (bounds && bounds.isValid()) {
+      map.fitBounds(bounds.pad(0.4));
+    }
+  });
+
+  detail.textContent = "requesting the layer document…";
+</script>
+</body>
+</html>
