@@ -168,10 +168,21 @@ slotting into it — and it is **Q-93**, not this ADR.
 - **ADR-017 §6 is promoted.** Its degraded surface stops being a robustness
   nicety and becomes the load-bearing test of §4's seam. Its condition 1 —
   *tested by stopping the datastore* — is now this ADR's condition too.
-- **A real coupling is exposed today, and it is ours:**
+- **A real coupling is exposed today, and it is ours.** *(Amended 2026-08-14.)*
   `PostgresLayerCatalog.FindAsync` is called on every feature query, so the
-  request path already depends on the catalogue store. §4's first rule is
-  currently false. Recorded as debt rather than described as a principle.
+  request path depends on the catalogue store. §4's first rule was written as a
+  principle before it was checked, and it was false.
+
+  It is now **half true, and the other half is a decision rather than a debt.**
+  The runtime no longer re-derives the table's shape from the data source on
+  every request — that is cached (D-17, measured: 5.76 ms → 1.64 ms of fixed
+  overhead). The catalogue read stays, because a catalogue entry carries the
+  sharing scope and the started/stopped status, and a runtime that remembered
+  those would keep serving a layer after it was made private. **The seam this
+  ADR wanted would, taken literally, have cached an authorization decision.**
+  So the seam is real for *shape* and deliberately absent for *authorization*,
+  and the availability cost of that — serving stops when the store does — is
+  [Q-95](../open-questions.md) rather than something quietly accepted here.
 - **ADR-012 inherits a second axis.** Its state inventory must now say, for each
   piece of state, not only *node-local or shared* but *catalogue or runtime*.
 - **Q-93 opened** — federation into an existing ArcGIS Portal.

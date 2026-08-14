@@ -26,7 +26,23 @@ namespace GisServer.Host;
 /// nobody has measured — Q-04, still open and still blocking.
 /// </para>
 /// </remarks>
-internal sealed class LayerConnections : IDisposable
+/// <summary>
+/// Where a feature source for a layer comes from.
+/// </summary>
+/// <remarks>
+/// Extracted so <see cref="ServiceContexts"/> can be tested for how many times
+/// it asks, which is the whole of what that class does. Testing it against a
+/// real pool would test PostgreSQL's ability to answer the same question twice.
+/// </remarks>
+internal interface IServiceSources
+{
+    /// <summary>A feature source for one layer.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The source.</returns>
+    IFeatureSource SourceFor(PublishedLayer layer);
+}
+
+internal sealed class LayerConnections : IServiceSources, IDisposable
 {
     /// <summary>How long a single statement may run before PostgreSQL stops it.</summary>
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
@@ -34,7 +50,8 @@ internal sealed class LayerConnections : IDisposable
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _pools = new(StringComparer.Ordinal);
     private bool _disposed;
 
-    /// <summary>A feature source for one layer, over a shared pool.</summary>
+    /// <inheritdoc/>
+    /// <remarks>Over a pool shared by every layer on the same data source.</remarks>
     public IFeatureSource SourceFor(PublishedLayer layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

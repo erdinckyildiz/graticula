@@ -75,6 +75,10 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        builder.Services.AddSingleton(services => new ServiceContexts(
+            services.GetRequiredService<LayerConnections>(),
+            services.GetRequiredService<TimeProvider>()));
+
         builder.Services.AddSingleton<IAdminCatalog>(services => new PostgresAdminCatalog(
             services.GetRequiredService<NpgsqlDataSource>(),
             services.GetRequiredService<SecretProtector>()));
@@ -494,7 +498,7 @@ public static class Program
         HttpContext context,
         string layerName,
         PostgresLayerCatalog catalog,
-        LayerConnections connections,
+        ServiceContexts contexts,
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
@@ -505,8 +509,8 @@ public static class Program
             return;
         }
 
-        LayerDescription description = await connections.SourceFor(layer)
-            .DescribeAsync(cancellation).ConfigureAwait(false);
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
 
         await Results.Ok(FeatureServerMetadataWriter.Service(
             layer.Definition, layer.GeometryType, description.Extent, CapabilitiesFor(context, layer)))
@@ -517,7 +521,7 @@ public static class Program
         HttpContext context,
         string layerName,
         PostgresLayerCatalog catalog,
-        LayerConnections connections,
+        ServiceContexts contexts,
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
@@ -528,8 +532,8 @@ public static class Program
             return;
         }
 
-        LayerDescription description = await connections.SourceFor(layer)
-            .DescribeAsync(cancellation).ConfigureAwait(false);
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
 
         await Results.Ok(FeatureServerMetadataWriter.Layer(
             layer.Definition, layer.GeometryType, description, CapabilitiesFor(context, layer)))
@@ -564,6 +568,7 @@ public static class Program
         string layerName,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
+        ServiceContexts contexts,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -615,8 +620,8 @@ public static class Program
             return;
         }
 
-        IFeatureSource source = connections.SourceFor(layer);
-        LayerDescription description = await source.DescribeAsync(cancellation).ConfigureAwait(false);
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
 
         ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
             adds, updates, deletes,
@@ -851,7 +856,7 @@ public static class Program
         HttpContext context,
         string layerName,
         PostgresLayerCatalog catalog,
-        LayerConnections connections,
+        ServiceContexts contexts,
         IAuditLog audit,
         ILoggerFactory loggerFactory,
         CancellationToken cancellation)
@@ -913,14 +918,14 @@ public static class Program
             return;
         }
 
-        IFeatureSource source = connections.SourceFor(layer);
-
-        // One extra round trip per query, and it buys two things: outFields=*,
-        // and validating a field name against the database before it reaches
-        // SQL. It also makes D-17's coupling worse — the request path now reads
-        // the catalogue and then describes the table. A cached service context
-        // fixes both and is not built.
-        LayerDescription described = await source.DescribeAsync(cancellation).ConfigureAwait(false);
+        // The described shape buys two things — outFields=* and validating a
+        // field name against the database before it reaches SQL — and used to
+        // cost two round trips on every request to buy them again. It is now
+        // remembered for ServiceContexts.Lifetime (D-17). The catalogue read
+        // above is still per request, deliberately: it carries the sharing scope
+        // and the started/stopped status, and those are not safe to remember.
+        (IFeatureSource source, LayerDescription described) = await contexts
+            .GetAsync(layer, cancellation).ConfigureAwait(false);
 
         if (!FeatureServerQueryParameters.TryParse(
                 context.Request.Query,

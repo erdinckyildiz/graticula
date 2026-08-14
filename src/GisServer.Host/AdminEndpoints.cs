@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
 using GisServer.Platform.Catalog;
+using GisServer.Platform.Postgres;
 using GisServer.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -78,6 +79,7 @@ internal static class AdminEndpoints
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Stopped, a, l, t));
         app.MapDelete("/admin/layers/{name}", UnpublishAsync);
+        app.MapPost("/admin/layers/{name}/refresh", RefreshAsync);
     }
 
     /// <summary>
@@ -90,7 +92,10 @@ internal static class AdminEndpoints
     /// tool the administrator has left.
     /// </remarks>
     private static async Task HealthAsync(
-        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+        HttpContext context,
+        IAdminCatalog catalog,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
     {
         string? storeError = null;
         int layers = 0;
@@ -125,6 +130,20 @@ internal static class AdminEndpoints
                 reachable = storeError is null,
                 layers,
                 error = maySeeDetail ? storeError : storeError is null ? null : "redacted",
+            },
+
+            // Not a vanity statistic. This is the one piece of state the request
+            // path carries between requests, and a cache nobody can see is a
+            // cache nobody suspects when the answers go stale. The lifetime is
+            // reported alongside the count so an operator reading a wrong field
+            // list knows exactly how long to wait, or that /refresh exists.
+            describedShapes = new
+            {
+                count = contexts.Count,
+                lifetimeSeconds = (int)ServiceContexts.Lifetime.TotalSeconds,
+                note = "Table shapes remembered from the data source (D-17). Sharing and "
+                     + "started/stopped are deliberately NOT cached and are read per request. "
+                     + "POST /admin/layers/{name}/refresh to forget one immediately.",
             },
 
             // Said explicitly in the degraded case, because an administrator
@@ -516,6 +535,8 @@ internal static class AdminEndpoints
         HttpContext context,
         string name,
         IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -525,7 +546,18 @@ internal static class AdminEndpoints
             return;
         }
 
+        // Read before the delete, because afterwards there is nothing left to
+        // derive the cache key from. Nothing here depends on it succeeding: a
+        // shape left behind expires on its own, and would only ever be reused by
+        // a layer republished onto the very same table.
+        PublishedLayer? going = await layers.FindAsync(name, cancellation).ConfigureAwait(false);
+
         bool removed = await catalog.UnpublishLayerAsync(name, cancellation).ConfigureAwait(false);
+
+        if (removed && going is not null)
+        {
+            contexts.Forget(going);
+        }
 
         await AuditAsync(
             context, audit, "layer.unpublish", name, Detail(new { removed }),
@@ -545,6 +577,70 @@ internal static class AdminEndpoints
             // Said out loud, because "delete" on a layer that reads somebody
             // else's database could reasonably be feared to mean more.
             note = "The registration was removed. The table in the data source was not touched.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Forgets a layer's remembered shape, so the next request re-reads it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This endpoint exists because the cache lifetime is a guess.</b>
+    /// <see cref="ServiceContexts.Lifetime"/> bounds how long a table altered
+    /// underneath us goes unnoticed, and the number was argued for rather than
+    /// measured. An operator who has just added a column and does not want to
+    /// wait it out should not have to restart the server — which is what they
+    /// would do instead, and it would take every other layer down with it.
+    /// </para>
+    /// <para>
+    /// <b>It needs <c>admin:manageServer</c>, not a content privilege.</b>
+    /// Nothing about the layer changes; this is an operational act on the
+    /// process, and the caller is being trusted with a lever over its behaviour.
+    /// </para>
+    /// <para>
+    /// <b>It is local to this process.</b> Two servers over one platform store
+    /// means two caches, and this clears the one that answered the call. That is
+    /// stated in the response rather than left as a surprise — D-17 fixed the
+    /// per-request cost, not the multi-process story, and pretending otherwise
+    /// is how an operator comes to believe they have fixed something.
+    /// </para>
+    /// </remarks>
+    private static async Task RefreshAsync(
+        HttpContext context,
+        string name,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        PublishedLayer? layer = await layers.FindAsync(name, cancellation).ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            await AuditAsync(context, audit, "layer.refresh", name, Detail(new { found = false }),
+                succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        contexts.Forget(layer);
+
+        await AuditAsync(context, audit, "layer.refresh", name, Detail(new { found = true }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            refreshed = true,
+            note = "The next request re-reads this table's columns and extent from the data "
+                 + "source. This clears the cache of the server that answered the call; another "
+                 + "server over the same platform store keeps its own until it expires.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

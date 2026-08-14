@@ -101,7 +101,24 @@ request requires consulting the platform store, a store outage takes everything
 down rather than freezing it in a degraded read-only mode. Authorization data is
 part of the context for this reason, and **anything not already resolved in the
 context fails closed** — an outage must never become an access-control bypass. Publishing a service writes a definition to
-the platform store. It does not create, start or reserve anything in a worker.
+the platform store.
+
+> **CONTRADICTION, recorded 2026-08-14 and not resolved.** The implementation
+> departs from this paragraph. `ServiceContexts` caches the table shape and
+> **deliberately excludes the authorization data** this section requires it to
+> hold: sharing scope, owner and started/stopped are read from the platform
+> store on every request. The reasoning is in [Q-95](../open-questions.md) and
+> comes down to a case §4.3 did not consider — **two servers over one platform
+> store**, where an administrator revokes sharing on node A and node B's bound
+> context knows nothing about it. §4.3's *fails closed* rule protects an outage
+> but not this: the stale value is not missing, it is present and wrong, so
+> nothing fails and the layer stays readable.
+>
+> Both positions are defensible and they cannot both be implemented. §4.3
+> prefers surviving an outage; the implementation prefers a revocation taking
+> effect. **Neither is written here as settled**, and the ADR is left saying
+> what it decided rather than edited to agree with the code that disagrees with
+> it. Q-95 is owed to the owner. It does not create, start or reserve anything in a worker.
 
 This dissolves §26's problem rather than staging around it. A node restart
 brings up N workers with no bound contexts; load re-warms them at the rate real
