@@ -37,6 +37,13 @@ if (args.Length > 0 && args[0] == "q68")
     return;
 }
 
+// A-042: where must the GeometryServer cap sit, and is a safe cap useful?
+if (args.Length > 0 && args[0] == "a042")
+{
+    await A042.RunAsync(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 

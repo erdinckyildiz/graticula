@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>fff97c0</code> · 2026-08-14 18:00</p>
+<p class="stamp">Generated from commit <code>7ef4990</code> · 2026-08-14 19:28</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">60</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
-<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
+<div class="kpi "><div class="kpi-v">50</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/57</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">485</div><div class="kpi-l">tests</div><div class="kpi-n">79 source files, 15,846 lines</div></div>
@@ -197,6 +197,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-94</span><span class="owner">**[OWNER]**</span></div><p>Largely dissolved the same day it was opened, by the owner clarifying that the licence in question is ArcGIS Enterprise, not ArcGIS Pro.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-96</span><span class="owner">Owner</span></div><p>Should the tile path reproject, and how far?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-97</span><span class="owner">Owner</span></div><p>How does GeometryServer offer general overlay without offering a denial of service?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -269,7 +270,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-039</td><td>~~Every provider can clip server-side cheaply enough to avoid shipping whole geometries~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
 <tr><td class="id">A-040</td><td>All three engines can stream BLOBs out of a query without materialising them in our process</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-041</td><td>A bounded separate connection pool is sufficient protection against slow-client exhaustion during attachment streaming</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
-<tr><td class="id">A-042</td><td>Caps on vertex count, batch size and wall clock are sufficient to make a public general-overlay endpoint safe</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-042</td><td>Caps on vertex count, batch size and wall clock are sufficient to make a public general-overlay endpoint safe</td><td><span class="pill bad">INVALIDATED</span></td></tr>
 <tr><td class="id">A-043</td><td>Six geometry engines can be made to agree closely enough that the same query returns the same answer on any provider</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-044</td><td>Certificate rotation can take effect on the next handshake without recycling the listener or the worker</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-045</td><td>Soft-fail revocation checking is an acceptable posture for the air-gapped profile</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
@@ -301,6 +302,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7ef4990</code><time>2026-08-14</time><span>the tile cache: 4x, and the row of ADR-010 I refused to implement</span></li>
 <li><code>fff97c0</code><time>2026-08-14</time><span>tiles in another projection: silently empty, now refused</span></li>
 <li><code>681f78d</code><time>2026-08-14</time><span>a Tiles button in the console, and a capability we were claiming falsely</span></li>
 <li><code>829c890</code><time>2026-08-14</time><span>VectorTileServer, and the reason it could never have served a tile</span></li>
@@ -314,7 +316,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2a163c5</code><time>2026-08-14</time><span>the ArcGIS Maps SDK, and the four parameters that made it impossible</span></li>
 <li><code>7701d24</code><time>2026-08-14</time><span>a console, and what &quot;stop a service&quot; actually means</span></li>
 <li><code>aa5efe6</code><time>2026-08-14</time><span>a viewer, so the compatibility claim can be seen rather than read</span></li>
-<li><code>80da548</code><time>2026-08-14</time><span>applyEdits: the endpoint, and two bugs that made all-or-nothing a lie</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
