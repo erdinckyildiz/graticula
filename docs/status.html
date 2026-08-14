@@ -1,0 +1,315 @@
+<title>Control Room</title>
+<style>
+:root{
+  --ink:#141b1f; --ink-2:#41525c; --ink-3:#74878f;
+  --ground:#f6f4ef; --panel:#ffffff; --line:#e0dcd2;
+  --accent:#0f6d5f; --accent-soft:#e2efeb;
+  --good:#1f6f4a; --good-bg:#e3f1e8;
+  --warn:#8a5a10; --warn-bg:#f8eeda;
+  --bad:#9a3126;  --bad-bg:#f8e4e1;
+  --cond:#4a4694; --cond-bg:#e8e7f6;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#e9e6df; --ink-2:#a8b6bc; --ink-3:#76888f;
+  --ground:#10151a; --panel:#171e24; --line:#2a343c;
+  --accent:#57bda9; --accent-soft:#17322f;
+  --good:#7fcfa4; --good-bg:#182c23;
+  --warn:#e0b36a; --warn-bg:#322714;
+  --bad:#e79187;  --bad-bg:#33201e;
+  --cond:#a5a1e8; --cond-bg:#232145;
+}}
+:root[data-theme="dark"]{
+  --ink:#e9e6df; --ink-2:#a8b6bc; --ink-3:#76888f;
+  --ground:#10151a; --panel:#171e24; --line:#2a343c;
+  --accent:#57bda9; --accent-soft:#17322f;
+  --good:#7fcfa4; --good-bg:#182c23;
+  --warn:#e0b36a; --warn-bg:#322714;
+  --bad:#e79187;  --bad-bg:#33201e;
+  --cond:#a5a1e8; --cond-bg:#232145;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font:16px/1.6 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+main{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+code{font-family:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;font-size:.88em}
+
+.top{padding:64px 0 40px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);font-weight:650}
+h1{font-size:clamp(34px,5.5vw,54px);line-height:1.04;margin:.28em 0 .32em;letter-spacing:-.025em;text-wrap:balance}
+.lede{max-width:64ch;color:var(--ink-2);font-size:17px;margin:0 0 14px}
+.stamp{color:var(--ink-3);font-size:13px;margin:0}
+
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px;font-weight:650}
+.sub{max-width:66ch;color:var(--ink-2);margin:0 0 22px;font-size:15px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-top:20px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.kpi-v{font-size:32px;font-weight:640;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.kpi-l{font-size:13px;color:var(--ink-2);margin-top:8px}
+.kpi-n{font-size:12px;color:var(--ink-3);margin-top:3px}
+.kpi.warn .kpi-v{color:var(--warn)} .kpi.good .kpi-v{color:var(--good)}
+
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+table{width:100%;border-collapse:collapse;font-size:14.5px;min-width:640px}
+th{text-align:left;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+   padding:12px 14px;border-bottom:1px solid var(--line);font-weight:650;white-space:nowrap}
+td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.id{font-family:ui-monospace,Menlo,monospace;color:var(--ink-3);white-space:nowrap;font-size:13px}
+td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.muted-t{color:var(--ink-3);font-size:13.5px}
+tr.done td{opacity:.55}
+
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.cond{background:var(--cond-bg);color:var(--cond)}
+.pill.muted{background:var(--line);color:var(--ink-3)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;
+      border-left:3px solid var(--accent)}
+.card-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:7px}
+.card .id{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--accent);font-weight:650}
+.card .owner{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em}
+.card p{margin:0;font-size:14px;color:var(--ink-2);line-height:1.5}
+.card.blocking{border-left-color:var(--bad)}
+.card.blocking .id{color:var(--bad)}
+.blocking-tag{color:var(--bad)!important;font-weight:700}
+
+.bars{display:flex;flex-direction:column;gap:9px}
+.bar{display:grid;grid-template-columns:190px 1fr 48px;align-items:center;gap:14px}
+.bar-l{font-size:13.5px;color:var(--ink-2);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-t{height:9px;background:var(--line);border-radius:999px;overflow:hidden}
+.bar-f{height:100%;background:var(--accent);border-radius:999px}
+.bar-n{font-variant-numeric:tabular-nums;font-size:13.5px;color:var(--ink-3)}
+
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.log li{display:grid;grid-template-columns:78px 100px 1fr;gap:12px;align-items:baseline;
+        padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.log li:last-child{border-bottom:0}
+.log code{color:var(--accent)}
+.log time{color:var(--ink-3);font-size:12.5px;font-variant-numeric:tabular-nums}
+.log span{color:var(--ink-2)}
+
+footer{padding:36px 0;color:var(--ink-3);font-size:13px}
+@media(max-width:640px){
+  .bar{grid-template-columns:110px 1fr 40px}
+  .log li{grid-template-columns:1fr;gap:2px}
+}
+</style>
+<main>
+
+<header class="top">
+<div class="eyebrow">gis-server · Phase 1 — Implementation</div>
+<h1>Control Room</h1>
+<p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
+<p class="stamp">Generated from commit <code>fea6498</code> · 2026-08-14 16:36</p>
+</header>
+<section><h2>Where it stands</h2><div class="kpis">
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
+<div class="kpi warn"><div class="kpi-v">57</div><div class="kpi-l">ADR conditions</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">45 answered · 5 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">8/55</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi good"><div class="kpi-v">402</div><div class="kpi-l">tests</div><div class="kpi-n">71 source files, 13,968 lines</div></div>
+</div></section>
+<section><h2>Decisions</h2>
+<p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
+<div class="scroll"><table><thead><tr><th>ADR</th><th>Decision</th><th>Status</th><th>Confidence</th><th class="num">Conditions</th></tr></thead><tbody>
+<tr><td class="id">001</td><td>Core Language</td><td><span class="pill cond">**ACCEPTED WITH CONDITIONS** — downgraded 2026-08-13, [independent review 3](../reviews/independent-review-3-synthesis.md) A1/P7. The comparison CLAUDE.md §7 required was not run, and §6&#x27;s first reason for skipping it was voided the same day it was written. See §0</span></td><td class="muted-t">**LOW** — was MEDIUM. The decision may well be right; the *evidence for it* is argument, and one of the three arguments is dead</td><td class="num"></td></tr>
+<tr><td class="id">002</td><td>Primary Data Architecture</td><td><span class="pill warn">REOPENED → re-decided, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
+<tr><td class="id">003</td><td>Geometry Engine</td><td><span class="pill cond">**ACCEPTED WITH CONDITIONS** — single-provider scope. Cross-engine consistency is deferred, see §6d</span></td><td class="muted-t">HIGH for the split, which is measured. LOW for cross-engine consistency, which is not</td><td class="num"></td></tr>
+<tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">DEFERRED — confirmed 2026-08-12 (WMS out of v1) and **re-confirmed 2026-08-13** by the owner, who at the same time recorded a clear preference for the capability this ADR would deliver. See §0.</span></td><td class="muted-t">—</td><td class="num"></td></tr>
+<tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">**REOPENED 2026-08-13 by Q-88** — v1 ships ArcGIS only and OGC API Features moves to v2, which **inverts this ADR&#x27;s central decision**. See §0. Previously: ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
+<tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17b — see §0. Previously:</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">2</td></tr>
+<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">4</td></tr>
+<tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
+<tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17c — see §0. Previously:</span></td><td class="muted-t">MEDIUM</td><td class="num">3</td></tr>
+<tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
+<tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
+<tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
+<tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5</td></tr>
+<tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4</td></tr>
+<tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
+<tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
+<tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">3</td></tr>
+<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4</td></tr>
+<tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">3</td></tr>
+<tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3</td></tr>
+</tbody></table></div></section>
+<section><h2>Open questions</h2>
+<p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
+<div class="cards">
+<article class="card blocking"><div class="card-h"><span class="id">Q-01</span><span class="owner blocking-tag">BLOCKING</span></div><p>Which language, on measured evidence?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Q-04</span><span class="owner blocking-tag">BLOCKING</span></div><p>What is the concrete DB connection budget at 1,000 services, per provider?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Q-18</span><span class="owner blocking-tag">BLOCKING</span></div><p>What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Q-20</span><span class="owner blocking-tag">BLOCKING</span></div><p>How many distinct geometry engines end up evaluating our predicates, and how do we prevent behavioural divergence?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Q-23</span><span class="owner blocking-tag">BLOCKING</span></div><p>Can a PROJ PJ transformation object be used from more than one thread, or is it thread-affine?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-09</span><span class="owner">Council</span></div><p>Should the platform be polyglot (§80.2)?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-11</span><span class="owner">Council</span></div><p>Where does the service catalog&#x27;s identity model come from — who mints stable IDs, and how do renames work (§37)?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-12</span><span class="owner">Council</span></div><p>How is monitoring cardinality bounded at 1,000 services?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-14</span><span class="owner">Council</span></div><p>Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-15</span><span class="owner">Council</span></div><p>What does &quot;air-gapped&quot; concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-19</span><span class="owner">Council</span></div><p>Deferred, not rejected.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-30</span><span class="owner">Council</span></div><p>How is cross-node change notification done without LISTEN/NOTIFY?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-33</span><span class="owner">Council</span></div><p>If a datastore exists, does hosting copy data or replicate it continuously?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-34</span><span class="owner">Council</span></div><p>Are pre-generalised geometry tables per zoom level a datastore-only feature, or attempted on registered sources where we happen to have write access?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-35</span><span class="owner">Council</span></div><p>Which runtime schema changes do we offer, per dialect?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-37</span><span class="owner">Council</span></div><p>What is the contract for a request in flight across a schema change?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-39</span><span class="owner">Council</span></div><p>If a registered source happens to be writable, do we offer hosted-grade capability there automatically or only on explicit opt-in?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-41</span><span class="owner">Council</span></div><p>Do we offer an optional companion schema in a registered database where granted rights, to hold versioning and editor-tracking bookkeeping?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-43</span><span class="owner">Council</span></div><p>What is the schema-drift polling interval, and what does it cost against a large registered database with many layers?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-44</span><span class="owner">Council</span></div><p>What is the write surface?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-45</span><span class="owner">Council</span></div><p>What is the plan-identity stability contract?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-46</span><span class="owner">Council</span></div><p>Can a fast job return its result directly instead of a job identifier and a polling URL?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-52</span><span class="owner">Council</span></div><p>Which file formats are serving providers and which are import sources?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-53</span><span class="owner">Council</span></div><p>Do we ever support data warehouses (Snowflake, Databricks, Redshift)?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-59</span><span class="owner">Council</span></div><p>Re-answered 2026-08-14 by owner direction: adopt the role / user-type capability matrix of ArcGIS Portal.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-60</span><span class="owner">Council</span></div><p>Are groups needed in v1?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-61</span><span class="owner">Council</span></div><p>How are per-user datastore quotas enforced, and what happens at the limit?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-62</span><span class="owner">Council</span></div><p>How do an owner-set sharing scope and an admin-set role compose when they disagree?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-63</span><span class="owner">Council</span></div><p>Where does the routing decision live, given the supervisor is deliberately not on the data path?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-64</span><span class="owner">Council</span></div><p>How is a memory leak distinguished from a legitimately growing cache, with no baseline?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-66</span><span class="owner">Council</span></div><p>Does the provider interface hand back geometry objects on the tile path, or coordinates?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-68</span><span class="owner">Council</span></div><p>Do we keep our own MVT encoder now that every tile source is PostGIS?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-72</span><span class="owner">**[OWNER]**</span></div><p>What is the project&#x27;s governance and maintenance story?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-75</span><span class="owner">**[OWNER]** for the publish-rights half</span></div><p>How is user-supplied Python sandboxed?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-77</span><span class="owner">Council</span></div><p>Does the raster rendering engine get built, and where is the Tier 1 line?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-82</span><span class="owner">**[OWNER]**</span></div><p>Read-only or read/write for MySQL, MariaDB and DuckDB?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-86</span><span class="owner">Council</span></div><p>§82 answer, per newly-scoped capability — sweep S3, severe.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-87</span><span class="owner">Council</span></div><p>Where does DuckDB execute — job worker or request path?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-89</span><span class="owner">Council</span></div><p>Does v1 build ADR-005&#x27;s protocol-neutral internal interface, or the ArcGIS surface directly?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-90</span><span class="owner">Council, direction set by **[OWNER]**</span></div><p>Which geometry vocabulary does the SDK expose — and can it round-trip?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-91</span><span class="owner">Council</span></div><p>How does a streaming response report a failure that happens after bytes are on the wire?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-92</span><span class="owner">Council</span></div><p>Resolved by ADR-018, 2026-08-13.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-93</span><span class="owner">**[OWNER]**</span></div><p>Answered by the owner, 2026-08-14: no.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-94</span><span class="owner">**[OWNER]**</span></div><p>Largely dissolved the same day it was opened, by the owner clarifying that the licence in question is ArcGIS Enterprise, not ArcGIS Pro.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
+</div></section>
+<section><h2>Architecture debt</h2>
+<p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
+<div class="scroll"><table><thead><tr><th>ID</th><th>Debt</th><th>Repay when</th><th>State</th></tr></thead><tbody>
+<tr class=""><td class="id">D-06</td><td>Dependency licensing is deliberately unexamined.</td><td class="muted-t">Before the first binary that bundles a database driver, a GDAL build or a Python wheel set.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-05</td><td>~~A-019 is validated only on PostGIS.~~ Rewritten 2026-08-12 by Q-67 and now much smaller: no engine except PostGIS serves tiles, so the tile half of this debt is gone.</td><td class="muted-t">Before any commitment is made that Oracle or SQL Server layers serve tiles at parity.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-01</td><td>~~RLS delegation and per-data-source pooling are incompatible.~~</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-02</td><td>~~Tenant identity is not part of the cache key.~~</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class=""><td class="id">D-03</td><td>Capability reports and detailed refusals disclose provider type and internal topology to any client that can reach a layer.</td><td class="muted-t">Before the capability report ships</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-07</td><td>A streaming response that fails after its first byte cannot report the failure.</td><td class="muted-t">Before a client is expected to distinguish a truncated page from a short one</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-08</td><td>The statement timeout is 30 seconds because a number was needed.</td><td class="muted-t">When Q-04 is measured</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-09</td><td>~~Publishing a layer means hand-written SQL.~~ RESOLVED 2026-08-14.</td><td class="muted-t">Before anyone but us runs this</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-11</td><td>~~Authorization does not exist.~~ RESOLVED 2026-08-13, and the resolution was replaced on 2026-08-14 when the owner directed that we adopt ArcGIS Portal&#x27;s matrix.</td><td class="muted-t">Q-59, which now blocks rather than merely being open</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-12</td><td>The per-address rate limit uses the socket address, never X-Forwarded-For.</td><td class="muted-t">Before a documented deployment behind a proxy</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-13</td><td>The timing gap between a known and an unknown account name is narrowed, not closed.</td><td class="muted-t">If account enumeration is ever demonstrated against a deployment</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-14</td><td>A server that loses its last platform administrator cannot be recovered in band.</td><td class="muted-t">Before the first deployment that is not ours, or sooner if role revocation reaches the admin API</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-15</td><td>The user-type ceiling is enforced but unreachable from any endpoint.</td><td class="muted-t">The first admin endpoint</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-16</td><td>Portal&#x27;s privilege identifiers and default-role assignments are structural, not verified line by line.</td><td class="muted-t">Before any surface claims Portal compatibility</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-17</td><td>The request path reads the catalogue on every query, and that half is now deliberate.</td><td class="muted-t">Before any performance claim about serving, and before ADR-017 §6&#x27;s degraded surface is called done (ADR-019 condition…</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-18</td><td>/admin/health is anonymous and therefore redacted, which is the wrong trade and the only one available.</td><td class="muted-t">When ADR-017 §6&#x27;s break-glass path is designed (A-051)</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-19</td><td>There is no published image and no release.</td><td class="muted-t">The first release</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58 lands</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-21</td><td>Paging by resultOffset is not stable.</td><td class="muted-t">Before anyone syncs a large layer</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-22</td><td>where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">When the query AST exists</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill warn">OPEN</span></td></tr>
+</tbody></table></div></section>
+<section><h2>Assumptions</h2>
+<p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
+<div class="scroll"><table><thead><tr><th>ID</th><th>Assumption</th><th>State</th></tr></thead><tbody>
+<tr><td class="id">A-001</td><td>The tile path is CPU-bound enough that language performance materially affects capacity</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-002</td><td>Single-binary distribution is genuinely valuable for air-gapped installs, not just aesthetically pleasing</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-003</td><td>Most published services are idle most of the time, making shared workers viable</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-004</td><td>Hot-path geometry overhead is material enough to justify our own primitives</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-005</td><td>Geometry running in the same runtime meaningfully reduces defect resolution time versus FFI</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-006</td><td>One internal geometry representation can serve both the feature path and the tile path without a second conversion</td><td><span class="pill warn">CONTESTED</span></td></tr>
+<tr><td class="id">A-007</td><td>Crash containment is required in practice, not merely in principle — workers really do die (GDAL on malformed input, plugins, OOM)</td><td><span class="pill warn">CONTESTED,</span></td></tr>
+<tr><td class="id">A-008</td><td>Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive</td><td><span class="pill warn">VALIDATING</span></td></tr>
+<tr><td class="id">A-011</td><td>A distinguished central manager process is a robustness and recovery liability, so placement and routing state must be recoverable without one</td><td><span class="pill warn">VALIDATING</span></td></tr>
+<tr><td class="id">A-012</td><td>The sharing question is really about per-service state size, binding cost and neighbour tolerance — not about &quot;shared versus dedicated&quot;</td><td><span class="pill warn">VALIDATING</span></td></tr>
+<tr><td class="id">A-013</td><td>Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-014</td><td>Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-015</td><td>Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-018</td><td>~~A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
+<tr><td class="id">A-019</td><td>In-process MVT encoding can meet our latency targets</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-020</td><td>Cache seeding absorbs the provider performance gap, so an expensive Oracle tile path is acceptable when paid once rather than per request</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-036</td><td>RLS delegation and large streaming reads do not collide often — the layers wanting row-level security are not usually the layers wanting bulk export</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-035</td><td>Data source count stays low relative to service count — many services share one registered database</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-032</td><td>COG range-request traffic is view-proportional, so proxying it costs about what serving tiles costs</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-033</td><td>Target clients can render COG directly, so serving one format suffices</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-034</td><td>Internal ports designed for our own use will be good enough to become a plugin contract later, without a redesign</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-030</td><td>Lease expiry plus checkpoint verification prevents one job running twice across nodes</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-031</td><td>Job rate stays low enough for a database-backed queue — jobs per minute, not messages per second</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-028</td><td>Administrators can and will declare layer volatility usefully, and keep it roughly accurate</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-029</td><td>Tiles, not feature query responses, are where cache reuse actually is</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-026</td><td>OGC API Features Parts 1+2+3 plus additive extensions can express what §28 requires, without bending the standard&#x27;s meaning</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-027</td><td>Optimistic concurrency can be made correct against writes we never see, by relying on database-maintained versioning rather than our own event record</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-025</td><td>A small number of pinned service contexts suffices for real deployments, and administrators will not pin everything</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-024</td><td>A small residual executor plus explicit refusal is acceptable to real users, given a capability report published in advance</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-022</td><td>~~The datastore schema can be created on PostGIS, SQL Server Spatial and Oracle Spatial at acceptable cost~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
+<tr><td class="id">A-023</td><td>A cheap schema fingerprint can be polled often enough to detect drift on registered sources without loading the source database</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-021</td><td>Filter and predicates can be pushed down usefully on all three spatial dialects — narrowed by Q-67: clip and simplify no longer need to be, since only PostGIS serves tiles.</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-017</td><td>Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them</td><td><span class="pill warn">VALIDATING</span></td></tr>
+<tr><td class="id">A-016</td><td>GDAL-backed providers can be made optional, so a PostGIS-only deployment ships as one artefact</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-037</td><td>Allocation rate, not CPU, sets the tile-serving ceiling per worker</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-038</td><td>GDAL is needed for the import formats we care about at all</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-039</td><td>~~Every provider can clip server-side cheaply enough to avoid shipping whole geometries~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
+<tr><td class="id">A-040</td><td>All three engines can stream BLOBs out of a query without materialising them in our process</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-041</td><td>A bounded separate connection pool is sufficient protection against slow-client exhaustion during attachment streaming</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-042</td><td>Caps on vertex count, batch size and wall clock are sufficient to make a public general-overlay endpoint safe</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-043</td><td>Six geometry engines can be made to agree closely enough that the same query returns the same answer on any provider</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-044</td><td>Certificate rotation can take effect on the next handshake without recycling the listener or the worker</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-045</td><td>Soft-fail revocation checking is an acceptable posture for the air-gapped profile</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-046</td><td>An opaque-token session lookup per request is affordable at the concurrency ADR-007 targets</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-047</td><td>Every provider supporting RLS delegation can accept a principal name we generate, through administrator-controlled mapping</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-048</td><td>Expand-and-contract is achievable for every migration we will need, including index and constraint changes on large hosted tables</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-049</td><td>A curated Python wheel set can cover realistic geoprocessing without pip at runtime</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-050</td><td>Per-worker allocation rate and GC pause can be sampled continuously, cheaply enough to be always-on metrics</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-051</td><td>A supervisor-served admin surface can authenticate without the platform store without becoming a bypass</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-010</td><td>The 100–1,000 service target will not shift upward by an order of magnitude after launch</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-019</td><td>In-process MVT encoding meets latency targets — on PostGIS only, see D-05</td><td><span class="pill warn">2026-08-12</span></td></tr>
+<tr><td class="id">A-004</td><td>Hot-path geometry overhead justifies our own primitives</td><td><span class="pill warn">2026-08-12</span></td></tr>
+<tr><td class="id">A-001</td><td>The tile path is CPU-bound enough that language performance materially affects capacity</td><td><span class="pill warn">2026-08-12</span></td></tr>
+<tr><td class="id">A-013</td><td>GDAL, GEOS and PROJ permit a threaded worker model</td><td><span class="pill warn">2026-08-12</span></td></tr>
+<tr><td class="id">A-009</td><td>PostgreSQL/PostGIS is an acceptable hard dependency for the baseline deployment</td><td><span class="pill warn">REINSTATED</span></td></tr>
+</tbody></table></div></section>
+<section><h2>What is verified</h2>
+<p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
+<div class="bars">
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">92</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:96.7%"></div></div><div class="bar-n">89</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:83.7%"></div></div><div class="bar-n">77</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:62.0%"></div></div><div class="bar-n">57</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:48.9%"></div></div><div class="bar-n">45</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:23.9%"></div></div><div class="bar-n">22</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:18.5%"></div></div><div class="bar-n">17</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">3</div></div>
+</div></section>
+<section><h2>Recent work</h2><ol class="log">
+<li><code>fea6498</code><time>2026-08-14</time><span>D-17: cache the table&#x27;s shape, refuse to cache who may read it</span></li>
+<li><code>b4961be</code><time>2026-08-14</time><span>a password could not be changed, and the rule that stopped it had no reason behind it</span></li>
+<li><code>47812c7</code><time>2026-08-14</time><span>five things the real SDK sends that we got wrong, two of them silently</span></li>
+<li><code>1828099</code><time>2026-08-14</time><span>show a layer on the map, and the credential the map did not have</span></li>
+<li><code>2a163c5</code><time>2026-08-14</time><span>the ArcGIS Maps SDK, and the four parameters that made it impossible</span></li>
+<li><code>7701d24</code><time>2026-08-14</time><span>a console, and what &quot;stop a service&quot; actually means</span></li>
+<li><code>aa5efe6</code><time>2026-08-14</time><span>a viewer, so the compatibility claim can be seen rather than read</span></li>
+<li><code>80da548</code><time>2026-08-14</time><span>applyEdits: the endpoint, and two bugs that made all-or-nothing a lie</span></li>
+<li><code>7cff981</code><time>2026-08-14</time><span>the write path: three refusals, and a savepoint bug that made partial application a lie</span></li>
+<li><code>710b14f</code><time>2026-08-14</time><span>ArcGIS geometry reader: the conversion that can merge two polygons into one</span></li>
+<li><code>9ba89b6</code><time>2026-08-14</time><span>WKB writer: the first half of the write path, judged by PostGIS</span></li>
+<li><code>343868d</code><time>2026-08-14</time><span>packaging: a quickstart that was walked from clean, and three defects it found</span></li>
+<li><code>08216e9</code><time>2026-08-14</time><span>conformance: 17 tests that walk what a client walks, verified against a deliberate regression</span></li>
+<li><code>0c45e66</code><time>2026-08-14</time><span>ArcGIS discovery: the surface no client could find, and a market statement I read wrong</span></li>
+</ol></section>
+<footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
+</main>

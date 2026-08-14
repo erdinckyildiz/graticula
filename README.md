@@ -24,6 +24,21 @@ OGC API Features, the other databases, rendering, geoprocessing and the rest of
 the protocol surface are **deferred, not cancelled**; the map is
 [protocol-surface.md](docs/protocol-surface.md).
 
+## Project status
+
+```
+python tools/status-page.py          # writes docs/status.html
+```
+
+Reads the ADR headers, [open-questions.md](docs/open-questions.md),
+[architecture-debt.md](docs/architecture-debt.md),
+[architecture-assumptions.md](docs/architecture-assumptions.md) and git, and
+writes a single self-contained page. **Nothing on it is typed by hand** — the
+two versions that were went stale within a day, and a status page that is wrong
+is worse than none, because it is most confidently wrong about whatever changed
+last. The first run of the generator found five questions still filed as
+blocking a phase that had ended.
+
 ## Quickstart
 
 Docker and Docker Compose. Nothing else — no .NET SDK, no PostgreSQL, no

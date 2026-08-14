@@ -9,7 +9,17 @@ council investigates, prototypes, benchmarks and decides on its own.
 
 ---
 
-## Blocking Phase 0
+## Carried from Phase 0 — these were blocking, and none were answered
+
+*Renamed 2026-08-14. The heading said **Blocking Phase 0** for a day after Phase
+0 ended, which made five questions look retired by a date rather than by an
+answer. They are not answered. Per [CLAUDE.md](../CLAUDE.md) §1, a carried item
+does not become finished by being carried, and Phase 1 does not end with any of
+them still open.*
+
+*Found by [tools/status-page.py](../tools/status-page.py), which reads this
+file's headings rather than trusting them — the first thing the generated page
+reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Resolves in |
 |---|---|---|---|
