@@ -178,12 +178,30 @@ public sealed class PostGisFeatureSource : IFeatureSource
                .Append(')');
         }
 
-        // <b>Ordered by identity when paging.</b> Offset without an order is
-        // meaningless — the provider may return rows in any order, so page two
-        // can repeat or skip rows from page one. Ordering costs an index scan we
-        // would otherwise avoid, so it is applied only when an offset was asked
-        // for; a first page still gets the cheap unordered read.
-        if (query.Offset > 0)
+        // <b>The client's order if it gave one, identity if it is paging, and
+        // nothing otherwise.</b> Ordering costs a sort or an index scan that an
+        // unordered read avoids, so it is not imposed on a plain first page —
+        // but an offset without an order is meaningless, because the provider
+        // may return rows in any order and page two can then repeat page one.
+        if (query.OrderBy.Count > 0)
+        {
+            sql.Append(" order by ");
+
+            for (int i = 0; i < query.OrderBy.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sql.Append(", ");
+                }
+
+                // The field was checked against the layer's real columns before
+                // it reached here, and is quoted as well — the same two-step
+                // that makes the select list safe (ADR-008 §4.6).
+                sql.Append(LayerDefinition.Quote(query.OrderBy[i].Field))
+                   .Append(query.OrderBy[i].Descending ? " desc" : " asc");
+            }
+        }
+        else if (query.Offset > 0)
         {
             sql.Append(" order by ").Append(LayerDefinition.Quote(_layer.IdentityColumn));
         }

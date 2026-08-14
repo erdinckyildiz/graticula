@@ -39,7 +39,7 @@ internal static class FeatureServerQueryParameters
     /// <summary>Parameters that change the answer and that we do not implement.</summary>
     private static readonly string[] RefusedParameters =
     [
-        "orderByFields", "groupByFieldsForStatistics", "outStatistics",
+        "groupByFieldsForStatistics", "outStatistics",
         "returnIdsOnly", "returnDistinctValues", "returnExtentOnly",
         "objectIds", "time", "distance", "relationParam", "having",
     ];
@@ -58,6 +58,16 @@ internal static class FeatureServerQueryParameters
     private static readonly Dictionary<string, string> IgnoredParameters = new(StringComparer.Ordinal)
     {
         ["quantizationParameters"] = "coordinates are returned at full precision",
+
+        // <b>Refused for half an hour, on a misreading.</b> returnCentroid does
+        // not replace the geometry — it asks for a centroid property *alongside*
+        // it, which the ArcGIS SDK uses to place labels on polygons. Refusing it
+        // broke every polygon layer in the SDK to prevent a harm that does not
+        // exist: not returning extra data is not returning wrong data. The
+        // visible consequence of ignoring it is that labels fall back to the
+        // client's own placement, which is a missing capability rather than a
+        // wrong answer.
+        ["returnCentroid"] = "no centroid is computed, so labels use the client's own placement",
         ["maxAllowableOffset"] = "geometry is returned ungeneralised",
         ["returnExceededLimitFeatures"] = "the transfer limit is reported either way",
         ["cacheHint"] = "nothing is cached yet",
@@ -115,14 +125,21 @@ internal static class FeatureServerQueryParameters
         // through the chain that `error` is non-null when any of them returns
         // false — and silencing it with a ! would be asserting exactly the thing
         // worth having checked.
+        if (!TryUnknown(parameters, out error)) { return Fail(out error, error); }
+        if (!TryGeometryType(parameters, out error)) { return Fail(out error, error); }
         if (!TryWhere(parameters, out error)) { return Fail(out error, error); }
         if (!TrySpatialRelationship(parameters, out error)) { return Fail(out error, error); }
         if (!TrySpatialReference(parameters, layerSrid, out error)) { return Fail(out error, error); }
         if (!TryLimit(parameters, out int limit, out error)) { return Fail(out error, error); }
         if (!TryOffset(parameters, out int offset, out error)) { return Fail(out error, error); }
-        if (!TryEnvelope(parameters, out Envelope? boundingBox, out error)) { return Fail(out error, error); }
+        if (!TryEnvelope(parameters, layerSrid, out Envelope? boundingBox, out error)) { return Fail(out error, error); }
 
         if (!TryFields(parameters, objectIdColumn, allFields, out List<string> fields, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryOrderBy(parameters, allFields, out List<GisServer.Features.SortKey> orderBy, out error))
         {
             return Fail(out error, error);
         }
@@ -134,10 +151,161 @@ internal static class FeatureServerQueryParameters
             boundingBox,
             fields,
             offset,
-            includeGeometry: Flag(parameters, "returnGeometry", defaultValue: true));
+            includeGeometry: Flag(parameters, "returnGeometry", defaultValue: true),
+            orderBy);
 
         return true;
     }
+
+
+    /// <summary>Every parameter this class understands, in any capacity.</summary>
+    private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
+    {
+        "where", "geometry", "geometryType", "spatialRel", "outFields", "orderByFields",
+        "resultRecordCount", "resultOffset", "returnGeometry", "returnCountOnly",
+        "returnCentroid", "outSR", "inSR",
+    };
+
+    /// <summary>
+    /// Refuses a parameter this class has never heard of.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The hole this closes.</b> Until now anything absent from the refused
+    /// list passed silently, so <c>returnCentroid</c> — which changes what
+    /// geometry comes back — was accepted and ignored without anybody deciding
+    /// it should be. That is the silent degradation ADR-008 §2 forbids, arrived
+    /// at by omission rather than by choice, and it was invisible precisely
+    /// because nothing complained.
+    /// </para>
+    /// <para>
+    /// <b>The cost is real and accepted.</b> A client sending a harmless
+    /// parameter nobody has catalogued gets refused. That is the trade §2 asks
+    /// for: an unknown parameter might change the answer, we cannot know which,
+    /// and saying so is better than guessing it did not matter.
+    /// </para>
+    /// </remarks>
+    private static bool TryUnknown(IQueryCollection parameters, out string? error)
+    {
+        error = null;
+
+        foreach (string name in parameters.Keys)
+        {
+            if (Known.Contains(name)
+                || IgnoredParameters.ContainsKey(name)
+                || Array.IndexOf(RefusedParameters, name) >= 0)
+            {
+                continue;
+            }
+
+            error =
+                $"'{name}' is not a parameter this server understands, so it is refused rather "
+                + "than ignored: it might change the answer, and assuming it does not is how a "
+                + "client comes to be given a different result than the one it asked for. If it "
+                + "is harmless, it belongs on the accepted-and-ignored list with a reason.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Only an envelope is understood as a spatial filter.</summary>
+    private static bool TryGeometryType(IQueryCollection parameters, out string? error)
+    {
+        error = null;
+
+        if (!parameters.TryGetValue("geometryType", out Microsoft.Extensions.Primitives.StringValues values)
+            || values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
+        {
+            return true;
+        }
+
+        if (values[0]!.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        error =
+            $"'geometryType' of '{values[0]}' is not supported as a spatial filter. Only "
+            + "esriGeometryEnvelope is, because a bounding box is what the spatial index can "
+            + "answer. Filtering by an arbitrary shape needs the geometry engine on the request "
+            + "path (ADR-003).";
+        return false;
+    }
+
+    /// <summary>
+    /// Parses <c>orderByFields</c>, which every ArcGIS client sends.
+    /// </summary>
+    /// <remarks>
+    /// <b>Field names are checked against the layer, never passed through.</b>
+    /// This is the one place a client-supplied identifier reaches an ORDER BY,
+    /// and an identifier cannot be bound as a parameter — so the whitelist is
+    /// the safety, exactly as it is for the select list (ADR-008 §4.6).
+    /// </remarks>
+    private static bool TryOrderBy(
+        IQueryCollection parameters,
+        IReadOnlyList<FieldDescription> allFields,
+        out List<GisServer.Features.SortKey> orderBy,
+        out string? error)
+    {
+        orderBy = [];
+        error = null;
+
+        if (!parameters.TryGetValue("orderByFields", out Microsoft.Extensions.Primitives.StringValues values)
+            || values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
+        {
+            return true;
+        }
+
+        HashSet<string> known = [.. allFields.Select(f => f.Name)];
+
+        foreach (string clause in values[0]!.Split(
+            ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string[] parts = clause.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            bool descending = parts.Length > 1
+                && parts[1].Equals("desc", StringComparison.OrdinalIgnoreCase);
+
+            if (parts.Length > 2
+                || (parts.Length == 2 && !descending
+                    && !parts[1].Equals("asc", StringComparison.OrdinalIgnoreCase)))
+            {
+                error = $"'{clause}' is not a field name with an optional ASC or DESC.";
+                return false;
+            }
+
+            if (!known.Contains(parts[0]))
+            {
+                error =
+                    $"Cannot order by '{parts[0]}': it is not a field of this layer. Fields come "
+                    + "from the database rather than from the request.";
+                return false;
+            }
+
+            orderBy.Add(new GisServer.Features.SortKey(parts[0], descending));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether two spatial-reference identifiers name the same system.
+    /// </summary>
+    /// <remarks>
+    /// <b>102100 is not a mistake for 3857 — it is Esri's own code for the same
+    /// projection</b>, Web Mercator Auxiliary Sphere, and every ArcGIS client
+    /// sends it. Comparing the numbers alone refuses the SDK on every request
+    /// against a 3857 layer, which is exactly what happened. 102113 is the older
+    /// spelling of the same thing.
+    /// </remarks>
+    private static bool SameSpatialReference(int a, int b) => Canonical(a) == Canonical(b);
+
+    private static int Canonical(int wkid) => wkid switch
+    {
+        102100 or 102113 => 3857,
+        _ => wkid,
+    };
 
     /// <summary>Restates a failure so the compiler can see the message is set.</summary>
     private static bool Fail(out string error, string? message)
@@ -240,7 +408,7 @@ internal static class FeatureServerQueryParameters
                 return false;
             }
 
-            if (wkid != layerSrid)
+            if (!SameSpatialReference(wkid, layerSrid))
             {
                 error =
                     $"'{name}' asks for {wkid} and this layer is {layerSrid}. This server does not "
@@ -301,7 +469,7 @@ internal static class FeatureServerQueryParameters
     }
 
     private static bool TryEnvelope(
-        IQueryCollection parameters, out Envelope? boundingBox, out string? error)
+        IQueryCollection parameters, int layerSrid, out Envelope? boundingBox, out string? error)
     {
         boundingBox = null;
         error = null;
@@ -312,7 +480,7 @@ internal static class FeatureServerQueryParameters
             return true;
         }
 
-        if (TryParseEnvelope(geometry[0]!, out boundingBox))
+        if (TryParseEnvelope(geometry[0]!, layerSrid, out boundingBox))
         {
             return true;
         }
@@ -405,7 +573,7 @@ internal static class FeatureServerQueryParameters
     /// is what the ArcGIS SDKs send. Supporting one is a compatibility surface
     /// that works for half of them.
     /// </remarks>
-    private static bool TryParseEnvelope(string value, out Envelope? envelope)
+    private static bool TryParseEnvelope(string value, int layerSrid, out Envelope? envelope)
     {
         envelope = null;
         string text = value.Trim();
@@ -421,6 +589,18 @@ internal static class FeatureServerQueryParameters
                     || !root.TryGetProperty("ymin", out System.Text.Json.JsonElement minY)
                     || !root.TryGetProperty("xmax", out System.Text.Json.JsonElement maxX)
                     || !root.TryGetProperty("ymax", out System.Text.Json.JsonElement maxY))
+                {
+                    return false;
+                }
+
+                // The SDK puts the spatial reference inside the geometry rather
+                // than in inSR. Ignoring it would accept a box stated in one
+                // system and filter with it in another, which returns the wrong
+                // features rather than none.
+                if (root.TryGetProperty("spatialReference", out System.Text.Json.JsonElement reference)
+                    && reference.TryGetProperty("wkid", out System.Text.Json.JsonElement wkid)
+                    && wkid.TryGetInt32(out int declared)
+                    && !SameSpatialReference(declared, layerSrid))
                 {
                     return false;
                 }

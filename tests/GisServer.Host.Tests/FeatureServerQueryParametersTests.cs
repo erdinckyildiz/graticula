@@ -70,7 +70,6 @@ public sealed class FeatureServerQueryParametersTests
 
     [Theory]
     [InlineData("outStatistics")]
-    [InlineData("orderByFields")]
     [InlineData("returnIdsOnly")]
     [InlineData("objectIds")]
     [InlineData("having")]
@@ -95,6 +94,64 @@ public sealed class FeatureServerQueryParametersTests
             "esriSpatialRelIntersects",
             Refuse(("spatialRel", "esriSpatialRelContains")),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Esri_spells_web_mercator_102100_and_that_is_the_same_system()
+    {
+        // Not a typo for 3857 — it is Esri's own code for Web Mercator Auxiliary
+        // Sphere, and every ArcGIS client sends it. Comparing the numbers alone
+        // refused the SDK on every request against a 3857 layer, which is
+        // exactly what happened the first time one was pointed at this.
+        Parse(("outSR", "102100"));
+        Parse(("outSR", "102113"));
+    }
+
+    [Fact]
+    public void An_order_by_is_parsed_with_its_direction()
+    {
+        Assert.Equal(
+            [new GisServer.Features.SortKey("name", false), new GisServer.Features.SortKey("height", true)],
+            Parse(("orderByFields", "name, height DESC")).OrderBy);
+    }
+
+    [Fact]
+    public void Ordering_by_a_column_that_does_not_exist_is_refused()
+    {
+        // The one place a client-supplied identifier reaches an ORDER BY, and an
+        // identifier cannot be a parameter — so the whitelist is the safety.
+        Assert.Contains("not a field", Refuse(("orderByFields", "nope")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unknown_parameter_is_refused_rather_than_passing_in_silence()
+    {
+        // The hole this closes: anything absent from the refused list used to
+        // pass unnoticed, so returnCentroid was accepted and ignored without
+        // anybody deciding it should be.
+        string error = Refuse(("somethingNew", "1"));
+
+        Assert.Contains("somethingNew", error, StringComparison.Ordinal);
+        Assert.Contains("refused rather than ignored", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_geometry_type_other_than_an_envelope_is_refused()
+    {
+        Assert.Contains(
+            "esriGeometryEnvelope",
+            Refuse(("geometryType", "esriGeometryPolygon")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_envelope_stated_in_another_spatial_reference_is_refused()
+    {
+        // The SDK puts the spatial reference inside the geometry rather than in
+        // inSR. Ignoring it accepts a box stated in one system and filters with
+        // it in another, which returns the wrong features rather than none.
+        Refuse(("geometry", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4,"
+            + "\"spatialReference\":{\"wkid\":4326}}"));
     }
 
     [Fact]
@@ -229,6 +286,7 @@ public sealed class FeatureServerQueryParametersTests
     [InlineData("quantizationParameters")]
     [InlineData("maxAllowableOffset")]
     [InlineData("cacheHint")]
+    [InlineData("returnCentroid")]
     [InlineData("f")]
     public void A_parameter_that_cannot_lose_data_is_accepted_and_declares_itself_ignored(string name)
     {

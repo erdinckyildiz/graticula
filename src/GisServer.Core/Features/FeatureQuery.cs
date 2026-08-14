@@ -52,12 +52,17 @@ public sealed class FeatureQuery
     /// which for a layer of large polygons is the difference between a table and
     /// a download.
     /// </param>
+    /// <param name="orderBy">
+    /// How to order results, outermost key first. Field names must already have
+    /// been checked against the layer's columns — see <see cref="OrderBy"/>.
+    /// </param>
     public FeatureQuery(
         int limit,
         Envelope? boundingBox = null,
         IReadOnlyList<string>? fields = null,
         int offset = 0,
-        bool includeGeometry = true)
+        bool includeGeometry = true,
+        IReadOnlyList<SortKey>? orderBy = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumLimit);
@@ -67,6 +72,7 @@ public sealed class FeatureQuery
         BoundingBox = boundingBox;
         Offset = offset;
         IncludeGeometry = includeGeometry;
+        OrderBy = orderBy is null ? Array.Empty<SortKey>() : [.. orderBy];
 
         if (fields is null || fields.Count == 0)
         {
@@ -113,7 +119,24 @@ public sealed class FeatureQuery
 
     /// <summary>Whether to read the geometry.</summary>
     public bool IncludeGeometry { get; }
+
+    /// <summary>
+    /// How to order results, outermost key first.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ordering is what makes <see cref="Offset"/> mean anything.</b> An
+    /// offset against an unordered result can repeat or skip rows between
+    /// pages; against a unique key it cannot. So a client that orders by its
+    /// object id and pages gets correct pages — which is exactly what the
+    /// ArcGIS SDK does, and why it sends <c>orderByFields</c> on every request.
+    /// </remarks>
+    public IReadOnlyList<SortKey> OrderBy { get; }
 }
+
+/// <summary>One ordering key.</summary>
+/// <param name="Field">The column, already checked against the layer's columns.</param>
+/// <param name="Descending">Whether to reverse it.</param>
+public readonly record struct SortKey(string Field, bool Descending);
 
 /// <summary>Reads features from a layer.</summary>
 /// <remarks>
