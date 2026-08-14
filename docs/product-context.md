@@ -16,6 +16,24 @@ they are trying to do.
 This document holds the answer. It is an input to every ADR and the yardstick
 for every review gate.
 
+
+## What this product is, in one sentence
+
+**gis-server is ArcGIS Portal, ArcGIS Server and ArcGIS Data Store fused into a
+single deployable**, decided in [ADR-019](adr/ADR-019-portal-server-split.md).
+
+Calling it *a GIS server* understated it and made several decisions look
+arbitrary that are in fact structural: the datastore is mandatory (Q-69, Q-70)
+because the Data Store tier is fused in; items, owners, sharing, roles and user
+types exist (ADR-018) because the Portal tier is fused in; and the admin API
+manages members and certificates as well as layers because it is both admin
+surfaces at once.
+
+**The baseline deployment is still one process against one PostgreSQL**
+(CLAUDE.md §6). Fusion is what makes that possible — and what it spends is
+isolation, which ADR-019 §4 keeps as an internal seam and ADR-019 §7 records as
+not yet true.
+
 ## Decisions taken by the project owner
 
 > **Read [v1-scope.md](v1-scope.md) first.** It is the authoritative statement of v1 and
