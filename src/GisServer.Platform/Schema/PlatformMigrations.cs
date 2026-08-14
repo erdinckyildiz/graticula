@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(6);
+    public static SchemaVersion ComponentSchemaVersion => new(7);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -41,6 +41,7 @@ public static class PlatformMigrations
         AuditV4,
         SharingV5,
         StatusV6,
+        DatastoreV7,
     ]);
 
     /// <summary>
@@ -507,5 +508,49 @@ public static class PlatformMigrations
         """
         alter table layer add constraint layer_status_known
           check (status in ('started', 'stopped'))
+        """);
+
+    /// <summary>
+    /// Marks which registered source is the datastore, so <c>is_hosted</c> can
+    /// stop being a column nobody ever sets.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The bug this repairs.</b> <c>layer.is_hosted</c> has existed since
+    /// version 1 and every insert wrote <c>false</c>. Nothing could ever be
+    /// hosted, which made [Q-67]'s rule — vector tiles come only from hosted
+    /// data — refuse every layer in existence. The VectorTileServer surface was
+    /// built, correct, and unreachable.
+    /// </para>
+    /// <para>
+    /// <b>Hosted is derived, not declared.</b> A layer is hosted when its data
+    /// lives in the datastore, and the datastore is a specific registered
+    /// source rather than a property somebody ticks at publish time. Deriving it
+    /// means the two facts cannot drift: there is no way to publish against an
+    /// external Oracle and mark it hosted, and no way to move a table into the
+    /// datastore and forget to.
+    /// </para>
+    /// <para>
+    /// <b>At most one.</b> The partial unique index is the whole guarantee —
+    /// [ADR-019](../../../docs/adr/ADR-019-portal-server-split.md) fuses one
+    /// datastore into the product and [Q-69] makes it mandatory, so two would
+    /// mean *hosted* had two answers and Q-67's rule had none.
+    /// </para>
+    /// <para>
+    /// <b>Expand, so the reader floor does not move.</b> The column has a
+    /// default and the index is partial; a version 6 reader ignores both and
+    /// keeps working, which is what makes this safe to apply before every node
+    /// is upgraded.
+    /// </para>
+    /// </remarks>
+    private static Migration DatastoreV7 => Migration.Expand(
+        new SchemaVersion(7),
+        "Mark which registered source is the datastore, so hosted data can exist.",
+
+        "alter table data_source add column is_datastore boolean not null default false",
+
+        """
+        create unique index data_source_one_datastore
+          on data_source ((true)) where is_datastore
         """);
 }

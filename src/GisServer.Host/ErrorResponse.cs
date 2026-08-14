@@ -98,6 +98,27 @@ internal static class ErrorResponse
             + "diverged — this is a catalogue problem, not a transient one, and retrying will not "
             + "help."),
 
+        // <b>42883 and 42703 are a schema problem wearing a connectivity
+        // costume.</b> Both fell through to the NpgsqlException case below and
+        // were answered "a database this server depends on is unreachable" —
+        // which sends an operator to check the network and the health endpoints
+        // while the database is up, connected, and simply missing the thing we
+        // asked for. Found when a vector tile request hit a datastore whose
+        // search_path excluded the schema PostGIS is installed in: every
+        // spatial function was undefined, and the server blamed the network.
+        PostgresException { SqlState: "42883" } => (
+            StatusCodes.Status500InternalServerError,
+            "The database is reachable but does not have a function this server needs. The usual "
+            + "cause is PostGIS not being installed in that database, or being installed in a "
+            + "schema outside the connection's search_path. Check /admin/datasources/{id}/capability, "
+            + "which reports the PostGIS version the server can actually see."),
+
+        PostgresException { SqlState: "42703" } => (
+            StatusCodes.Status500InternalServerError,
+            "The database is reachable but a column this layer was registered with does not exist. "
+            + "The registration and the table have diverged. Retrying will not help; the layer "
+            + "needs republishing against the columns the table actually has."),
+
         PostgresException { SqlState: "42501" } or PostgresException { SqlState: "28P01" } => (
             StatusCodes.Status503ServiceUnavailable,
             "The server could not authenticate against the layer's database, or lacks permission "

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using GisServer.Features;
 using GisServer.Platform.Catalog;
 using GisServer.Providers.PostGis;
+using GisServer.Tiles;
 using Npgsql;
 
 namespace GisServer.Host;
@@ -115,6 +116,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         return new PostGisFeatureWriter(
             _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, fields);
+    }
+
+    /// <summary>A tile source for one layer, over the same shared pool.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="attributes">
+    /// The columns to carry into the tile, already checked against the table's
+    /// real columns — the same identifier whitelist ADR-008 §4.6 requires of the
+    /// select list, for the same reason.
+    /// </param>
+    /// <returns>The tile source.</returns>
+    public ITileSource TileSourceFor(PublishedLayer layer, IReadOnlyList<string> attributes)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        return new PostGisTileSource(
+            _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, attributes);
     }
 
     /// <inheritdoc/>

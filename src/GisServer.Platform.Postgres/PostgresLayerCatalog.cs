@@ -16,7 +16,15 @@ public sealed class PostgresLayerCatalog
 {
     private const string Columns = """
         l.id, l.name, l.schema_name, l.table_name, l.geometry_column, l.srid,
-        l.identity_column, l.object_id_column, l.is_hosted, l.geometry_type,
+        l.identity_column, l.object_id_column,
+
+        -- Derived, never read from l.is_hosted. That column was written false by
+        -- every insert since version 1, so anything trusting it concluded that
+        -- nothing in the world was hosted — which silently disabled every vector
+        -- tile service (Q-67). Hosted means the data lives in the datastore, and
+        -- the datastore is a registered source flagged as such, so the fact has
+        -- exactly one home and cannot drift from the other one.
+        d.is_datastore, l.geometry_type,
         d.name, d.connection_secret, d.key_version,
         l.owner_principal_id, l.sharing, l.status
         """;

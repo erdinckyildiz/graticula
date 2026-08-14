@@ -96,6 +96,31 @@ public interface IAdminCatalog
     Task<Guid> RegisterDataSourceAsync(
         string name, string kind, string connectionString, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Makes sure the datastore is registered as a source, and returns it.
+    /// </summary>
+    /// <param name="connectionString">The datastore's connection, in the clear.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The datastore source's id.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Registered by the server at startup, not by an administrator.</b>
+    /// [ADR-019](../../../docs/adr/ADR-019-portal-server-split.md) fuses the
+    /// datastore into the product and [Q-69] makes it mandatory, so it is not a
+    /// thing somebody chooses to add — it is already there, and asking them to
+    /// register it would be asking them to re-enter a credential the server
+    /// already holds.
+    /// </para>
+    /// <para>
+    /// <b>Idempotent, and it re-seals the credential each time.</b> The
+    /// connection can change between restarts — a new password, a new host in a
+    /// container rebuild — and a datastore row pointing at yesterday's address
+    /// would make every hosted layer unreadable while looking correctly
+    /// registered.
+    /// </para>
+    /// </remarks>
+    Task<Guid> EnsureDatastoreAsync(string connectionString, CancellationToken cancellationToken);
+
     /// <summary>Lists registered data sources, without their credentials.</summary>
     Task<IReadOnlyList<RegisteredDataSource>> ListDataSourcesAsync(
         CancellationToken cancellationToken);

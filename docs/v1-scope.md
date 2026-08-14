@@ -24,7 +24,7 @@ process converts an honest observation into a cut."* **This is the cut.**
 |---|---|
 | **Database** | **PostGIS only.** Both modes: hosted in our managed datastore (mandatory, Q-69) and **registered** in the customer's existing PostGIS, read/write where rights allow |
 | **ArcGIS FeatureServer** | Query and `applyEdits`, attachments, related records (ADR-013). **The primary API surface** — see §4 |
-| **ArcGIS VectorTileServer** | Vector tiles from hosted data (Q-67). Three benchmark rounds already banked |
+| **ArcGIS VectorTileServer** | Vector tiles from hosted data (Q-67). **Built 2026-08-14** — service document, style, tile endpoint, hosted-only rule enforced, verified by rendering a served tile against its source. Encoding is `ST_AsMVT` ([ADR-021](adr/ADR-021-tile-encoding.md)) after four benchmark rounds |
 | **ArcGIS GeometryServer** | Owner: crucial. A thin surface over PROJ and NetTopologySuite — with the caps A11 demands, see §6 |
 | **Admin API** | ADR-017's shape. The GIS administrator is the primary user (Q-06a) |
 | **TLS, authentication, packaging** | ADR-014, ADR-015, ADR-016 |

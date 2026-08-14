@@ -156,6 +156,45 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<Guid> EnsureDatastoreAsync(
+        string connectionString, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        // The partial unique index on (true) where is_datastore is what makes
+        // the conflict target work: at most one row can ever carry the flag, so
+        // "insert the datastore" and "update the datastore" are the same
+        // statement and cannot race into two.
+        const string Sql = """
+            insert into data_source (id, name, kind, connection_secret, key_version, is_datastore)
+            values (@id, @name, 'postgis', @secret, @version, true)
+            on conflict ((true)) where is_datastore do update
+              set connection_secret = excluded.connection_secret,
+                  key_version       = excluded.key_version,
+                  updated_at        = now()
+            returning id
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", Guid.NewGuid());
+        command.Parameters.AddWithValue("name", DatastoreName);
+        command.Parameters.AddWithValue(
+            "secret", NpgsqlDbType.Bytea, _secrets.Protect(connectionString));
+        command.Parameters.AddWithValue("version", _secrets.KeyVersion);
+
+        return (Guid)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+    }
+
+    /// <summary>
+    /// The reserved name of the datastore source.
+    /// </summary>
+    /// <remarks>
+    /// Reserved so an administrator cannot register an unrelated database under
+    /// the same name and have it appear, in every listing, to be the datastore.
+    /// </remarks>
+    public const string DatastoreName = "datastore";
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<AdminLayer>> ListLayersAsync(CancellationToken cancellationToken)
     {
         const string Sql = """

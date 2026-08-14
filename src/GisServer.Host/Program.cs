@@ -127,6 +127,14 @@ public static class Program
 
         await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
 
+        // After the handshake, so the schema is known to be at least version 7,
+        // and after bootstrap, so a first start has already refused everything
+        // if it needs setup. Registering the datastore is not an administrative
+        // act — ADR-019 fused it into the product and Q-69 made it mandatory, so
+        // it is already present and asking an operator to register it would be
+        // asking them to re-enter a credential the server is holding.
+        await EnsureDatastoreAsync(app.Services, settings, logger).ConfigureAwait(false);
+
         // Two facts an operator needs at every start: what authorization does
         // cover, and whether anything is currently visible at all.
         //
@@ -397,6 +405,8 @@ public static class Program
         app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
         app.MapPost("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
         app.MapPost("/rest/services/{layerName}/FeatureServer/0/applyEdits", ApplyEditsAsync);
+
+        VectorTileEndpoints.Map(app);
 
         app.MapAuth();
         app.MapAdmin();
@@ -799,6 +809,62 @@ public static class Program
     /// Runs after the schema handshake, so a server that is about to refuse to
     /// start does not first print a credential into the log.
     /// </remarks>
+    /// <summary>
+    /// Registers the datastore as a data source, so hosted data can exist.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This repairs a feature that was never reachable.</b> <c>is_hosted</c>
+    /// has been a column since schema version 1 and every insert wrote
+    /// <c>false</c>, so no layer was ever hosted, so Q-67's rule — vector tiles
+    /// come only from hosted data — refused every layer that has ever existed.
+    /// The gap was invisible because the tile surface did not exist to be
+    /// refused by it.
+    /// </para>
+    /// <para>
+    /// <b>A failure here is loud and not fatal.</b> Feature services do not need
+    /// the datastore registered; only tiles do. Refusing to start would take a
+    /// working server down over a capability the deployment may never use.
+    /// </para>
+    /// </remarks>
+    private static async Task EnsureDatastoreAsync(
+        IServiceProvider services, HostSettings settings, ILogger logger)
+    {
+        try
+        {
+            await services.GetRequiredService<IAdminCatalog>()
+                .EnsureDatastoreAsync(DatastoreConnection(settings.PlatformStore), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (NpgsqlException e)
+        {
+            Log.DatastoreNotRegistered(logger, e.Message);
+        }
+    }
+
+    /// <summary>
+    /// The datastore connection, derived from the platform store's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The search path is deliberately dropped, and this was a real bug.</b>
+    /// The platform store's connection sets <c>SearchPath</c> to the schema
+    /// holding <c>layer</c>, <c>principal</c> and the rest. Reusing that string
+    /// verbatim for the datastore inherits it — and PostGIS is installed
+    /// somewhere else, usually <c>public</c>. Every spatial function then
+    /// resolves to nothing: the first vector tile request came back
+    /// <c>42883 function st_tileenvelope does not exist</c>, against a database
+    /// that was up, connected and had PostGIS installed the whole time.
+    /// </para>
+    /// <para>
+    /// Cleared rather than set to something: the empty value restores
+    /// PostgreSQL's default of <c>"$user", public</c>, which finds a normally
+    /// installed PostGIS without this code having to guess where it went.
+    /// </para>
+    /// </remarks>
+    private static string DatastoreConnection(string platformStore) =>
+        new NpgsqlConnectionStringBuilder(platformStore) { SearchPath = null }.ConnectionString;
+
     private static async Task BootstrapAsync(IServiceProvider services, ILogger logger)
     {
         IIdentityStore identity = services.GetRequiredService<IIdentityStore>();

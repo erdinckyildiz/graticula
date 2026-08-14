@@ -66,6 +66,15 @@ internal static partial class Log
     public static partial void NothingIsShared(ILogger logger);
 
     [LoggerMessage(
+        EventId = 1014,
+        Level = LogLevel.Error,
+        Message = "The datastore could not be registered as a data source: {Reason}. Feature "
+                + "services are unaffected. Vector tile services are NOT available until this "
+                + "succeeds, because tiles are served only from hosted data (Q-67) and 'hosted' "
+                + "means 'in the datastore'.")]
+    public static partial void DatastoreNotRegistered(ILogger logger, string reason);
+
+    [LoggerMessage(
         EventId = 1009,
         Level = LogLevel.Critical,
         // {Minimum} rather than a literal: this message stated 12 for a day

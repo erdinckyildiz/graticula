@@ -116,7 +116,9 @@ zero — but the cost of *reversing* Q-67 has gone up, and this ADR is part of w
 ## 5. Consequences
 
 - **VectorTileServer is a much smaller piece of work than planned**, and it is
-  now mostly catalogue, cache and metadata rather than geometry.
+  now mostly catalogue, cache and metadata rather than geometry. *(Built
+  2026-08-14: the service document, the style, and the tile endpoint. The
+  provider is 140 lines and parses no geometry.)*
 - **The tile cache becomes more important, not less.** With encoding in the
   database, every cache miss is datastore load — see §7.
 - **`/benchmarks/harness` stays exactly where it is**, as the evidence for this
