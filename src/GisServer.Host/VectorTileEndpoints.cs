@@ -40,15 +40,23 @@ internal static class VectorTileEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet("/rest/services/{layerName}/VectorTileServer", ServiceAsync);
-        app.MapGet("/rest/services/{layerName}/VectorTileServer/resources/styles", StyleAsync);
-        app.MapGet("/rest/services/{layerName}/VectorTileServer/resources/styles/root.json", StyleAsync);
+        // Tiles come only from hosted data (Q-67), so the natural home is the
+        // hosted folder — but the root path is mapped too, and answers with the
+        // redirect in TileableAsync rather than a 404. A client that built a URL
+        // before the folder existed gets told where the service moved.
+        foreach (string prefix in (string[])
+            ["/rest/services", $"/rest/services/{Api.ArcGis.FeatureServerMetadataWriter.HostedFolder}"])
+        {
+            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer", ServiceAsync);
+            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/resources/styles", StyleAsync);
+            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/resources/styles/root.json", StyleAsync);
 
-        // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and it
-        // is the reverse of almost every other tile scheme. Written once, here,
-        // where the swap into TileAddress is visible on one line.
-        app.MapGet("/rest/services/{layerName}/VectorTileServer/tile/{z:int}/{y:int}/{x:int}.pbf",
-            TileAsync);
+            // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and
+            // it is the reverse of almost every other tile scheme. Written once,
+            // here, where the swap into TileAddress is visible on one line.
+            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/tile/{{z:int}}/{{y:int}}/{{x:int}}.pbf",
+                TileAsync);
+        }
     }
 
     /// <summary>
@@ -69,6 +77,13 @@ internal static class VectorTileEndpoints
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+
+        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        {
+            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
+            return null;
+        }
+
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (layer is null
@@ -158,7 +173,7 @@ internal static class VectorTileEndpoints
     /// decision and it is [Q-96], not something to slip in behind a constant.
     /// </para>
     /// </remarks>
-    private const int WebMercator = 3857;
+    public const int WebMercator = 3857;
 
     /// <summary>The service document.</summary>
     private static async Task ServiceAsync(

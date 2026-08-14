@@ -425,37 +425,35 @@ public static class Program
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/auth/login")));
 
-        app.MapGet("/rest/services", async (
+        // The root: registered services, and the folder hosted ones live in.
+        app.MapGet("/rest/services", (
             HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
+            CatalogueAsync(context, catalog, folder: null, cancellation));
+
+        // Everything the datastore owns. The literal segment is more specific
+        // than {layerName}, so routing prefers it — and it is matched
+        // case-insensitively, which is why a client sending ArcGIS's own
+        // capitalised "Hosted" reaches the same place.
+        app.MapGet($"/rest/services/{FeatureServerMetadataWriter.HostedFolder}", (
+            HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
+            CatalogueAsync(
+                context, catalog, FeatureServerMetadataWriter.HostedFolder, cancellation));
+
+        // <b>Two URL spaces, and a layer answers on exactly one.</b> Hosted
+        // services live under the folder; registered ones live at the root. A
+        // hosted layer asked for at the root is redirected rather than served,
+        // so the separation is a fact about the server and not a convention
+        // clients may ignore.
+        string hosted = FeatureServerMetadataWriter.HostedFolder;
+
+        foreach (string prefix in (string[])["/rest/services", $"/rest/services/{hosted}"])
         {
-            // A filter, not a gate. ADR-018 §3b governs reading by sharing, so
-            // the catalogue lists what this caller may see rather than refusing
-            // the whole endpoint — which is what makes two layers with two
-            // audiences possible.
-            RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-            IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation);
-
-            // A stopped service is listed for somebody who can administer it and
-            // hidden from everybody else: to a data consumer it is
-            // indistinguishable from an absent one, and listing it would offer a
-            // service that answers 503 to every click.
-            bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
-
-            return Results.Ok(FeatureServerMetadataWriter.Catalogue(
-                layers
-                    .Where(layer => (layer.IsRunning || seesStopped)
-                        && LayerAccess
-                            .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                            .IsAllowed())
-                    .Select(layer => layer.Definition.Name)));
-        });
-
-        app.MapGet("/rest/services/{layerName}/FeatureServer", ServiceMetadataAsync);
-        app.MapGet("/rest/services/{layerName}/FeatureServer/0", LayerMetadataAsync);
-        app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
-        app.MapPost("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
-        app.MapPost("/rest/services/{layerName}/FeatureServer/0/applyEdits", ApplyEditsAsync);
+            app.MapGet($"{prefix}/{{layerName}}/FeatureServer", ServiceMetadataAsync);
+            app.MapGet($"{prefix}/{{layerName}}/FeatureServer/0", LayerMetadataAsync);
+            app.MapGet($"{prefix}/{{layerName}}/FeatureServer/0/query", QueryAsync);
+            app.MapPost($"{prefix}/{{layerName}}/FeatureServer/0/query", QueryAsync);
+            app.MapPost($"{prefix}/{{layerName}}/FeatureServer/0/applyEdits", ApplyEditsAsync);
+        }
 
         VectorTileEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
@@ -483,6 +481,66 @@ public static class Program
                     .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal),
             });
         });
+    }
+
+    /// <summary>
+    /// Lists the services a caller may see, in one folder or at the root.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A filter, not a gate.</b> ADR-018 §3b governs reading by sharing, so
+    /// the catalogue lists what this caller may see rather than refusing the
+    /// whole endpoint — which is what makes two layers with two audiences
+    /// possible.
+    /// </para>
+    /// <para>
+    /// <b>A stopped service is listed for somebody who can administer it and
+    /// hidden from everybody else.</b> To a data consumer a stopped service is
+    /// indistinguishable from an absent one, and listing it would offer a
+    /// service that answers 503 to every click.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> CatalogueAsync(
+        HttpContext context,
+        PostgresLayerCatalog catalog,
+        string? folder,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation)
+            .ConfigureAwait(false);
+
+        bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
+        bool wantHosted = folder is not null;
+
+        List<PublishedLayer> visible =
+        [
+            .. layers.Where(layer =>
+                layer.Definition.IsHosted == wantHosted
+                && (layer.IsRunning || seesStopped)
+                && LayerAccess
+                    .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
+                    .IsAllowed()),
+        ];
+
+        // The folder is advertised at the root whether or not anything in it is
+        // visible to this caller. Hiding an empty folder would make its
+        // emptiness depend on who is asking, and a client that caches the root
+        // would then never look inside it again.
+        string[] folders = folder is null ? [FeatureServerMetadataWriter.HostedFolder] : [];
+
+        return Results.Ok(FeatureServerMetadataWriter.Catalogue(
+            visible.Select(layer => layer.Definition.Name),
+            folders,
+            folder,
+
+            // Only hosted layers have tile services (Q-67), and only those in
+            // Web Mercator can actually serve one.
+            visible
+                .Where(layer => layer.Definition.IsHosted
+                    && layer.Definition.Srid == VectorTileEndpoints.WebMercator)
+                .Select(layer => layer.Definition.Name)));
     }
 
     /// <summary>The audit detail for a read override.</summary>
@@ -532,6 +590,12 @@ public static class Program
     {
         PublishedLayer? layer =
             await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+
+        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        {
+            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
+            return null;
+        }
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -984,6 +1048,19 @@ public static class Program
         CancellationToken cancellation)
     {
         PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+
+        // <b>This endpoint resolves the layer itself rather than through
+        // VisibleLayerAsync</b>, because its refusals differ — and that is
+        // exactly how it came to be the one path where the hosted/registered URL
+        // split was not enforced. A conformance test caught it: metadata and
+        // applyEdits redirected, and query, the most-used endpoint of the three,
+        // served happily from the wrong folder.
+        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        {
+            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
+            return;
+        }
+
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         // One response for "does not exist" and "not shared with you". A 403 on

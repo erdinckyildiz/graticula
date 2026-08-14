@@ -269,7 +269,7 @@ async function showTiles(name) {
   const mapView = await ensureMap();
 
   const layer = new VectorTileLayer({
-    url: `${location.origin}/rest/services/${encodeURIComponent(name)}/VectorTileServer`,
+    url: `${serviceRoot(layerNamed(name))}/VectorTileServer`,
     title: `${name} (tiles)`,
   });
 
@@ -290,6 +290,15 @@ async function showTiles(name) {
 const tileKey = name => `${name} · tiles`;
 const TILE_COLOUR = "#8fb8cc";
 
+// Hosted services live under /rest/services/hosted and registered ones do
+// not. The server redirects the wrong path, so building the wrong URL still
+// works — but it costs a round trip on every request, and a console that
+// relies on a compatibility redirect is a console teaching the wrong shape.
+function serviceRoot(layer) {
+  const folder = layer.hosted ? "hosted/" : "";
+  return `${location.origin}/rest/services/${folder}${encodeURIComponent(layer.name)}`;
+}
+
 async function show(name, geometryType) {
   const { FeatureLayer } = await loadEsri();
   const mapView = await ensureMap();
@@ -297,7 +306,7 @@ async function show(name, geometryType) {
   const colour = PALETTE[shown.size % PALETTE.length];
 
   const layer = new FeatureLayer({
-    url: `${location.origin}/rest/services/${encodeURIComponent(name)}/FeatureServer/0`,
+    url: `${serviceRoot(layerNamed(name))}/FeatureServer/0`,
     title: name,
     outFields: ["*"],
     renderer: { type: "simple", symbol: symbolFor(geometryType, colour) },
@@ -358,8 +367,14 @@ async function whoami() {
 
 const pill = value => `<span class="pill p-${value}">${value}</span>`;
 
+// The last listing, so serviceRoot can tell hosted from registered without a
+// second request. Refreshed by every loadLayers, which runs after any change.
+let known = [];
+const layerNamed = name => known.find(l => l.name === name) || { name, hosted: false };
+
 async function loadLayers() {
   const { layers } = await api("/admin/layers");
+  known = layers;
 
   $("layers").innerHTML = layers.map(l => {
     const isShown = shown.has(l.name);
@@ -436,7 +451,8 @@ document.addEventListener("click", async event => {
     try {
       // The geometry type comes from the layer document, which is what the SDK
       // will read anyway — asking first only chooses the symbol.
-      const doc = await api(`/rest/services/${encodeURIComponent(showName)}/FeatureServer/0?f=json`);
+      const doc = await api(
+        `${serviceRoot(layerNamed(showName)).replace(location.origin, "")}/FeatureServer/0?f=json`);
       await show(showName, doc.geometryType);
     } catch (e) { toast(e.message); }
     await loadLayers();

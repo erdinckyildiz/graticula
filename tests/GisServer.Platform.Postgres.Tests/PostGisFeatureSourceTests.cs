@@ -164,13 +164,22 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
     }
 
     /// <remarks>
-    /// <b>Failed once, on 2026-08-14, and was not reproduced.</b> It went red in
-    /// a full-suite run where a live server, the conformance suite and this
-    /// project were all working the same PostGIS, and passed in five subsequent
-    /// runs including two more full ones. The cause is unknown — the failure
-    /// message was not captured, which is the actual mistake here. Recorded
-    /// rather than forgotten: a test that fails once and is never chased is how
-    /// a suite becomes one people re-run instead of read.
+    /// <para>
+    /// <b>This was flaky twice and the cause was in the test.</b> Its guard
+    /// asserted that fewer than a quarter of the first 20,000 rows fall in the
+    /// Istanbul box — which is a claim about <em>physical row order</em>, not
+    /// about the data. A read with no <c>order by</c> returns whatever the heap
+    /// offers, PostgreSQL is free to change that, and this corpus was loaded by
+    /// osm2pgsql roughly in id order, which correlates with geography. Both
+    /// failures came after a run that had done DDL against the same database.
+    /// </para>
+    /// <para>
+    /// The guard is now a question about the corpus, asked of the corpus:
+    /// <em>is a city box a small fraction of this table?</em> That is what the
+    /// comparison needs to be true and it is deterministic. The unordered read
+    /// is still what the test measures — it just no longer asserts anything
+    /// about which rows the heap handed over.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task Filtering_in_the_database_is_what_makes_a_bbox_query_possible_at_all()
@@ -211,13 +220,28 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
 
         Assert.Equal(500, matched);
 
-        // The corpus is national; a city box matches a small fraction of any
-        // arbitrary slice of it. If this ever fails, the sample has stopped
-        // being arbitrary and the comparison has stopped meaning anything.
+        // <b>Asked of the corpus, not of the heap.</b> The comparison only means
+        // something if a city box is a small part of a national table — that is
+        // a fact about the data and stays true however the rows are physically
+        // ordered. Asserting it about the first 20,000 rows instead is what made
+        // this test flaky.
+        await using NpgsqlCommand fraction = DataSource.CreateCommand(
+            $"""
+             select count(*) filter (
+                      where way && ST_MakeEnvelope({Istanbul.MinX}, {Istanbul.MinY},
+                                                   {Istanbul.MaxX}, {Istanbul.MaxY}, 3857))::float8
+                    / count(*)::float8
+             from public.planet_osm_polygon
+             """);
+
+        double share = (double)(await fraction.ExecuteScalarAsync())!;
+
+        _output.WriteLine($"the Istanbul box holds {share:P2} of the corpus.");
+
         Assert.True(
-            inIstanbul < sample / 4,
-            $"{inIstanbul} of {sample} arbitrary features fell in the Istanbul box, so this "
-            + "sample is not representative and the comparison shows nothing.");
+            share < 0.25,
+            $"the Istanbul box holds {share:P1} of this corpus, so it is not the national "
+            + "dataset this comparison assumes and the result shows nothing.");
     }
 
     [Fact]

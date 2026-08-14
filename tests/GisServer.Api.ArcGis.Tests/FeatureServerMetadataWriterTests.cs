@@ -186,15 +186,60 @@ public sealed class FeatureServerMetadataWriterTests
     }
 
     [Fact]
-    public void The_catalogue_is_flat_and_types_every_service()
+    public void The_root_catalogue_types_every_service_and_advertises_the_hosted_folder()
     {
-        JsonElement catalogue = Json(FeatureServerMetadataWriter.Catalogue(["a", "b"]));
+        JsonElement catalogue = Json(FeatureServerMetadataWriter.Catalogue(
+            ["a", "b"], [FeatureServerMetadataWriter.HostedFolder]));
 
-        Assert.Empty(catalogue.GetProperty("folders").EnumerateArray());
+        Assert.Equal(
+            [FeatureServerMetadataWriter.HostedFolder],
+            catalogue.GetProperty("folders").EnumerateArray().Select(f => f.GetString()));
+
         Assert.Equal(2, catalogue.GetProperty("services").GetArrayLength());
         Assert.All(
             catalogue.GetProperty("services").EnumerateArray(),
             s => Assert.Equal("FeatureServer", s.GetProperty("type").GetString()));
+    }
+
+    [Fact]
+    public void A_service_inside_a_folder_reports_its_name_with_the_folder_on_the_front()
+    {
+        // A client builds its request URL from this string. Returning the bare
+        // name produces a catalogue whose every entry 404s.
+        JsonElement catalogue = Json(FeatureServerMetadataWriter.Catalogue(
+            ["roads"], [], FeatureServerMetadataWriter.HostedFolder));
+
+        Assert.Equal(
+            $"{FeatureServerMetadataWriter.HostedFolder}/roads",
+            catalogue.GetProperty("services")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public void A_folder_listing_advertises_no_folders_of_its_own()
+    {
+        // One level. Nested folders would need a path in every service
+        // reference, and nothing in this product has asked for one.
+        Assert.Empty(
+            Json(FeatureServerMetadataWriter.Catalogue(["a"], [], "hosted"))
+                .GetProperty("folders").EnumerateArray());
+    }
+
+    [Fact]
+    public void A_layer_with_both_services_is_listed_twice_with_different_types()
+    {
+        // ArcGIS lists them as two entries of the same name. Omitting the tile
+        // entry means a client browsing the catalogue never finds it.
+        JsonElement services = Json(FeatureServerMetadataWriter.Catalogue(
+            ["roads"], [], "hosted", ["roads"])).GetProperty("services");
+
+        Assert.Equal(2, services.GetArrayLength());
+        Assert.Equal(
+            ["FeatureServer", "VectorTileServer"],
+            services.EnumerateArray().Select(s => s.GetProperty("type").GetString()));
+
+        Assert.All(
+            services.EnumerateArray(),
+            s => Assert.Equal("hosted/roads", s.GetProperty("name").GetString()));
     }
 
     [Fact]

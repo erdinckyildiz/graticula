@@ -143,6 +143,102 @@ public sealed class PostGisImporter
         return new ImportResult(HostedSchema, table, rows, dataset.Srid, StoredSrid, engine);
     }
 
+    /// <summary>
+    /// Creates an empty feature class from a schema somebody designed.
+    /// </summary>
+    /// <param name="fields">The columns, already validated.</param>
+    /// <param name="geometryType">What the layer will hold.</param>
+    /// <param name="srid">The spatial reference to store in.</param>
+    /// <param name="requestedName">The name the caller asked for.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Where it went.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Hosted means the datastore holds it, not that a file produced it.</b>
+    /// Importing a file is one way to fill a hosted feature class and designing
+    /// its schema is another — a survey layer, an incident log, anything
+    /// collected rather than converted starts empty and is filled through
+    /// <c>applyEdits</c>. Both end in the same place, which is why they share
+    /// this file rather than being two subsystems that happen to make tables.
+    /// </para>
+    /// <para>
+    /// <b>Empty is a complete layer, not a half-finished one.</b> Its extent is
+    /// unknown until it has a feature, which the metadata handles by falling
+    /// back to the world — so a client can add it, draw nothing, and start
+    /// editing.
+    /// </para>
+    /// </remarks>
+    public async Task<ImportResult> DefineAsync(
+        IReadOnlyList<FieldDescription> fields,
+        GeometryKind geometryType,
+        int srid,
+        string requestedName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedName);
+
+        string table = TableNameFor(requestedName);
+
+        StringBuilder sql = new();
+        sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (")
+           .Append(" objectid integer generated always as identity primary key,")
+           .Append(CultureInfo.InvariantCulture,
+               $" geom geometry({GeometryTypeName(geometryType)}, {srid})");
+
+        foreach (FieldDescription field in fields)
+        {
+            sql.Append(", ")
+               .Append(LayerDefinition.Quote(ColumnNameFor(field.Name)))
+               .Append(' ')
+               .Append(SqlTypeForField(field.Type))
+               .Append(field.Nullable ? string.Empty : " not null");
+        }
+
+        sql.Append(')');
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
+        {
+            await ExecuteAsync(
+                connection, transaction,
+                $"create schema if not exists {LayerDefinition.Quote(HostedSchema)}",
+                cancellationToken).ConfigureAwait(false);
+
+            await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken)
+                .ConfigureAwait(false);
+
+            await ExecuteAsync(
+                connection, transaction,
+                $"create index on {Qualified(table)} using gist (geom)",
+                cancellationToken).ConfigureAwait(false);
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // No ANALYZE: there is nothing to analyse, and running it on an empty
+        // table would record statistics saying the layer is empty — which stay
+        // recorded until autovacuum notices otherwise, so the first thousand
+        // features would be queried against a plan built for none.
+        return new ImportResult(HostedSchema, table, 0, srid, srid, null);
+    }
+
+    private static string SqlTypeForField(FieldType type) => type switch
+    {
+        FieldType.Boolean => "boolean",
+        FieldType.SmallInteger => "smallint",
+        FieldType.Integer => "integer",
+        FieldType.BigInteger => "bigint",
+        FieldType.Single => "real",
+        FieldType.Double => "double precision",
+        FieldType.Date => "timestamptz",
+        FieldType.Guid => "uuid",
+        _ => "text",
+    };
+
     /// <summary>Drops a hosted table.</summary>
     /// <param name="schemaName">Its schema.</param>
     /// <param name="tableName">Its name.</param>

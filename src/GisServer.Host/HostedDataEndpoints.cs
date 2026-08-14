@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using GisServer.Api.ArcGis;
+using GisServer.Features;
 using GisServer.Formats;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
@@ -18,15 +20,26 @@ using Microsoft.AspNetCore.Routing;
 namespace GisServer.Host;
 
 /// <summary>
-/// Uploading data and getting a service back.
+/// Making hosted feature classes: from a file, or from a schema.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This is what "hosted" was always supposed to mean.</b> Until now a hosted
-/// layer meant a table that already existed in the datastore, which requires the
-/// person publishing it to have already got their data into PostgreSQL — the
-/// exact step the product exists to remove for somebody who has a GeoJSON file
-/// and no DBA.
+/// <b>Hosted means the datastore holds the data.</b> It is a statement about
+/// where a feature class lives and who owns it — not about how it got there.
+/// There are two ways in and both end in the same place:
+/// </para>
+/// <list type="bullet">
+/// <item><c>POST /admin/hosted/import</c> — a file becomes a feature class.</item>
+/// <item><c>POST /admin/hosted/define</c> — a schema becomes an empty one, filled
+/// afterwards through <c>applyEdits</c>. A survey layer, an incident log,
+/// anything collected rather than converted starts this way.</item>
+/// </list>
+/// <para>
+/// The distinction that matters is not file-versus-form, it is <b>hosted versus
+/// registered</b>: a hosted feature class is ours to create, alter and drop; a
+/// registered one points at a table in somebody else's database and must never
+/// be touched. That is why hosted services live under
+/// <c>/rest/services/hosted</c> and registered ones do not.
 /// </para>
 /// <para>
 /// <b>One call, not two.</b> ArcGIS separates uploading an item from publishing
@@ -64,6 +77,11 @@ internal static class HostedDataEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        app.MapPost("/admin/hosted/import", ImportAsync).DisableAntiforgery();
+        app.MapPost("/admin/hosted/define", DefineAsync);
+
+        // The original path, kept working. It was only ever the import, and
+        // moving it silently would break the one thing already built against it.
         app.MapPost("/admin/hosted", ImportAsync).DisableAntiforgery();
     }
 
@@ -290,11 +308,7 @@ internal static class HostedDataEndpoints
                       + "way in, so the layer can serve vector tiles. EPSG:4326 to EPSG:3857 is a "
                       + "closed formula with no datum shift, so nothing was lost.",
             },
-            services = new
-            {
-                feature = $"/rest/services/{name}/FeatureServer",
-                tiles = $"/rest/services/{name}/VectorTileServer",
-            },
+            services = Services(name),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -313,6 +327,226 @@ internal static class HostedDataEndpoints
 
         return false;
     }
+
+    /// <summary>What a caller sends to design a feature class.</summary>
+    /// <param name="Name">The service name.</param>
+    /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms.</param>
+    /// <param name="Fields">Its attribute columns.</param>
+    /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
+    internal sealed record LayerDesign(
+        string? Name, string? GeometryType, IReadOnlyList<FieldDesign>? Fields, string? Sharing);
+
+    /// <summary>One designed column.</summary>
+    /// <param name="Name">Its name.</param>
+    /// <param name="Type">Its type.</param>
+    /// <param name="Nullable">Whether it may be empty. True unless said otherwise.</param>
+    internal sealed record FieldDesign(string? Name, string? Type, bool? Nullable);
+
+    /// <summary>
+    /// Creates an empty hosted feature class from a schema.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the half of hosting that has nothing to do with files.</b> A
+    /// team collecting inspections has no data to upload — they have a shape in
+    /// mind and need somewhere to put what they gather. The result is a complete
+    /// layer with no features: a client can add it, draw nothing, and edit.
+    /// </remarks>
+    private static async Task DefineAsync(
+        HttpContext context,
+        LayerDesign design,
+        PostGisImporter importer,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(design.Name))
+        {
+            await Fail(context, 400, "'name' is required and becomes the service name.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!Enum.TryParse(design.GeometryType, ignoreCase: true, out GeometryKind kind)
+            || !Enum.IsDefined(kind))
+        {
+            await Fail(context, 400,
+                "'geometryType' must be one of Point, MultiPoint, LineString, MultiLineString, "
+                + "Polygon or MultiPolygon.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryFields(design.Fields, out List<FieldDescription> fields, out string? fieldError))
+        {
+            await Fail(context, 400, fieldError!).ConfigureAwait(false);
+            return;
+        }
+
+        SharingScope sharing = ParseSharing(design.Sharing);
+
+        if (sharing == SharingScope.Public
+            && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await NameTakenAsync(catalog, design.Name, cancellation).ConfigureAwait(false))
+        {
+            await Fail(context, 409, $"A layer named '{design.Name}' already exists.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Guid datastore = await DatastoreIdAsync(catalog, cancellation).ConfigureAwait(false);
+
+        if (datastore == Guid.Empty)
+        {
+            await Fail(context, 503, "The datastore is not registered as a data source.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        ImportResult result = await importer.DefineAsync(
+            fields, kind, PostGisImporter.StoredSrid, design.Name, cancellation)
+            .ConfigureAwait(false);
+
+        Guid layerId;
+
+        try
+        {
+            layerId = await catalog.PublishLayerAsync(
+                new LayerPublication(
+                    design.Name, datastore, result.SchemaName, result.TableName,
+                    "geom", "objectid", "objectid", result.StoredSrid, kind, sharing),
+                current.Principal.Id,
+                cancellation).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            await importer.DropAsync(result.SchemaName, result.TableName, CancellationToken.None)
+                .ConfigureAwait(false);
+            throw;
+        }
+
+        await audit.RecordAsync(
+            new AuditEvent(
+                current.Principal.Id, current.Principal.Name,
+                context.Connection.RemoteIpAddress?.ToString(),
+                "layer.define", design.Name,
+                JsonSerializer.Serialize(new
+                {
+                    table = $"{result.SchemaName}.{result.TableName}",
+                    fields = fields.Count,
+                    geometryType = kind.ToString(),
+                }),
+                true),
+            cancellation).ConfigureAwait(false);
+
+        context.Response.StatusCode = StatusCodes.Status201Created;
+
+        await Results.Json(new
+        {
+            id = layerId,
+            name = design.Name,
+            table = $"{result.SchemaName}.{result.TableName}",
+            rows = 0,
+            geometryType = kind.ToString(),
+            fields = fields.Select(f => new { f.Name, type = f.Type.ToString(), f.Nullable }),
+            sharing = sharing.ToString().ToLowerInvariant(),
+            services = Services(design.Name),
+            note = "The feature class is empty. Add features through the FeatureServer's "
+                 + "applyEdits. Its extent is unknown until it has one, so a client will show it "
+                 + "as covering the world.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Validates the designed columns.</summary>
+    /// <remarks>
+    /// <b>Names are checked here and quoted later, which is two defences.</b> A
+    /// designed column name reaches DDL as an identifier and cannot be a bound
+    /// parameter, so the check is the safety — and the sanitiser in the importer
+    /// is what makes it survivable if this ever misses one.
+    /// </remarks>
+    private static bool TryFields(
+        IReadOnlyList<FieldDesign>? designs, out List<FieldDescription> fields, out string? error)
+    {
+        fields = [];
+        error = null;
+
+        if (designs is null || designs.Count == 0)
+        {
+            // Allowed. A layer with geometry and no attributes is an ordinary
+            // thing to collect, and demanding a dummy column would be ceremony.
+            return true;
+        }
+
+        if (designs.Count > MaximumFields)
+        {
+            error = $"A layer may have at most {MaximumFields} fields.";
+            return false;
+        }
+
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Ours. A designed column of either name would collide with the
+            // identity or the geometry, and the collision would surface as a
+            // database error rather than as this sentence.
+            "objectid",
+            "geom",
+        };
+
+        foreach (FieldDesign design in designs)
+        {
+            if (string.IsNullOrWhiteSpace(design.Name))
+            {
+                error = "Every field needs a name.";
+                return false;
+            }
+
+            if (!seen.Add(design.Name))
+            {
+                error =
+                    $"'{design.Name}' is either duplicated or reserved. 'objectid' and 'geom' are "
+                    + "created for you.";
+                return false;
+            }
+
+            if (!Enum.TryParse(design.Type, ignoreCase: true, out FieldType type)
+                || type == FieldType.Unknown)
+            {
+                error =
+                    $"Field '{design.Name}' has type '{design.Type}'. Use one of SmallInteger, "
+                    + "Integer, BigInteger, Single, Double, Text, Boolean, Date or Guid.";
+                return false;
+            }
+
+            fields.Add(new FieldDescription(design.Name, type, design.Nullable ?? true, null));
+        }
+
+        return true;
+    }
+
+    /// <summary>How many attribute columns a designed layer may have.</summary>
+    /// <remarks>
+    /// PostgreSQL refuses past 1,600 and does it less politely. This is well
+    /// inside that and past anything a person designs by hand.
+    /// </remarks>
+    private const int MaximumFields = 250;
+
+    /// <summary>Where a hosted layer's services live.</summary>
+    private static object Services(string name) => new
+    {
+        feature = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{name}/FeatureServer",
+        tiles = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{name}/VectorTileServer",
+    };
 
     /// <summary>The datastore's data source id, or empty when it is not registered.</summary>
     private static async Task<Guid> DatastoreIdAsync(

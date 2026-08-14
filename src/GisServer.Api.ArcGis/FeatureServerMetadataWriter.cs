@@ -71,22 +71,74 @@ public static class FeatureServerMetadataWriter
         },
     };
 
-    /// <summary>The service catalogue at <c>/rest/services</c>.</summary>
-    /// <param name="serviceNames">The layers this caller may see.</param>
-    public static object Catalogue(IEnumerable<string> serviceNames)
+    /// <summary>The service catalogue, at the root or inside a folder.</summary>
+    /// <param name="serviceNames">The layers this caller may see, unqualified.</param>
+    /// <param name="folders">Folder names to advertise. Empty inside a folder.</param>
+    /// <param name="folder">
+    /// Which folder is being listed, or null for the root. Service names are
+    /// reported prefixed with it, because that is what a client builds its URL
+    /// from.
+    /// </param>
+    /// <param name="tileServices">
+    /// Layers that also have a VectorTileServer. ArcGIS lists a layer with two
+    /// services as two entries of the same name and different types; omitting
+    /// the second means a client browsing the catalogue never finds it.
+    /// </param>
+    /// <returns>The catalogue document.</returns>
+    public static object Catalogue(
+        IEnumerable<string> serviceNames,
+        IEnumerable<string> folders,
+        string? folder = null,
+        IEnumerable<string>? tileServices = null)
     {
         ArgumentNullException.ThrowIfNull(serviceNames);
+        ArgumentNullException.ThrowIfNull(folders);
+
+        // <b>A service inside a folder reports its name with the folder on the
+        // front.</b> That is what ArcGIS does, and a client builds its request
+        // URL from this string — so returning the bare name here produces a
+        // catalogue whose every entry 404s.
+        string Qualify(string name) => folder is null ? name : $"{folder}/{name}";
+
+        List<object> services =
+            [.. serviceNames.Select(name => new { name = Qualify(name), type = "FeatureServer" })];
+
+        // A layer can have two services and ArcGIS lists them as two entries
+        // with the same name and different types. Omitting the tile entry means
+        // a client browsing the catalogue never finds the tile service at all.
+        if (tileServices is not null)
+        {
+            services.AddRange(
+                tileServices.Select(name => new { name = Qualify(name), type = "VectorTileServer" }));
+        }
 
         return new
         {
             currentVersion = CurrentVersion,
-
-            // Flat. ArcGIS supports folders and we have none: a layer name is
-            // unique across the server, which is the model ADR-013 chose.
-            folders = Array.Empty<string>(),
-            services = serviceNames.Select(name => new { name, type = "FeatureServer" }),
+            folders = folders.ToArray(),
+            services,
         };
     }
+
+    /// <summary>
+    /// The folder hosted services live in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Hosted and registered services are separated by URL, not only by a
+    /// flag.</b> This is the ArcGIS Enterprise shape — hosted feature services
+    /// live under a <c>Hosted</c> folder and referenced ones do not — and it
+    /// matters beyond convention: the two have different lifecycles. A hosted
+    /// service owns its table and unpublishing may drop it; a registered service
+    /// points at somebody else's table and must never. Keeping them in one
+    /// namespace means every operation has to re-derive which kind it is holding.
+    /// </para>
+    /// <para>
+    /// Lower case, and routing is case-insensitive, so a client sending
+    /// <c>Hosted</c> reaches the same place.
+    /// </para>
+    /// </remarks>
+    public const string HostedFolder = "hosted";
 
     /// <summary>The service document at <c>/rest/services/{name}/FeatureServer</c>.</summary>
     /// <param name="layer">The layer definition.</param>
