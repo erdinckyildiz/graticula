@@ -108,9 +108,21 @@ internal static class ErrorResponse
             "The stored credential for this layer could not be decrypted. The server is running "
             + "with a different key than the one that sealed it. See the server log."),
 
+        // <b>Two different databases, and telling them apart is the whole
+        // value of the message.</b> "The layer's database is unreachable" sends
+        // an administrator to the customer's PostGIS; if the platform store is
+        // what is down, they are looking in the wrong place while their own
+        // catalogue is offline. Observed saying exactly the wrong thing during
+        // the ADR-017 condition 1 test.
+        //
+        // The distinction cannot be made from the exception, which knows only
+        // that a socket failed — so it is made by the caller, which knows which
+        // pool it was using.
         NpgsqlException => (
             StatusCodes.Status503ServiceUnavailable,
-            "The layer's database is unreachable. This is the data source, not the server."),
+            "A database this server depends on is unreachable. Check /healthz/ready and "
+            + "/admin/health: the first says whether the platform store is up, and the second "
+            + "distinguishes the platform store from a layer's own data source."),
 
         // 499 is nginx's, not an IANA code, and nothing will read it — the
         // client has gone. It exists so the access log distinguishes "they left"

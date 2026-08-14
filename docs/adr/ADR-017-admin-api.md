@@ -220,11 +220,39 @@ administrator has left.
 
 1. **The degraded surface is tested by stopping the datastore**, and the API must
    answer usefully rather than 500.
+   **DISCHARGED 2026-08-14, and it failed the first time in three ways.** The
+   test was run by `docker stop` on the PostGIS container. What it found:
+   *(a)* **`/healthz/live` returned 503** — a liveness probe that depends on the
+   database tells an orchestrator to kill the container during a database
+   outage, turning an outage into a restart loop and destroying the only process
+   still able to answer anything. Liveness is now ahead of all middleware and
+   touches nothing; readiness is a separate endpoint that does depend on the
+   store, because the two must be allowed to disagree.
+   *(b)* **`/admin/health` never ran at all.** The authentication middleware
+   queries the store for every request, including anonymous ones, so it failed
+   before any endpoint was reached — taking down precisely the surface that
+   exists to be reachable when the store is not. It now yields anonymous with no
+   grants on an unreachable store, which fails *closed*: an unvalidatable token
+   is not honoured and anonymous holds no privilege.
+   *(c)* **The 503 blamed the wrong database**, saying *the layer's data source,
+   not the server* while the platform store was what had failed. It now names
+   the two endpoints that distinguish them.
+   Verified after the fixes: liveness 200, readiness 503 with a reason,
+   `/admin/health` reporting `degraded` and why.
 2. **Every §3 scenario is walkable against the built skeleton**, in order, with
    no step requiring a log file. A step that needs `docker logs` is a missing
    endpoint.
 3. **The break-glass path in §6 cannot be used while the platform store is
    reachable**, tested — otherwise it is an authentication bypass.
+   **NOT YET APPLICABLE: the break-glass path is not built** (A-051), so there
+   is nothing to bypass. The consequence, found while discharging condition 1,
+   is that `/admin/health` must be anonymous — sessions live in the store, so
+   during the outage it exists for, nobody can authenticate. That made its error
+   detail a disclosure to anyone who could reach the port, and it named the
+   store's host and port until it was noticed. The detail is now shown only to a
+   caller holding `admin:manageServer`, which during an outage is nobody.
+   **That is a real reduction in the endpoint's usefulness, and it is what the
+   break-glass path is for.**
 
 ## 10. Assumptions
 

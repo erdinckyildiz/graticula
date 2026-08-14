@@ -58,6 +58,12 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        builder.Services.AddSingleton<IAdminCatalog>(services => new PostgresAdminCatalog(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<SecretProtector>()));
+
+        builder.Services.AddSingleton<IDataSourceProbe>(_ => new PostgresDataSourceProbe());
+
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -122,6 +128,18 @@ public static class Program
                 context.Features.Get<IExceptionHandlerFeature>()?.Error
                     ?? new InvalidOperationException("An error was reported with no exception."),
                 logger)));
+
+        // BEFORE authentication, and it touches nothing. A liveness probe that
+        // depends on the database tells an orchestrator to kill the container
+        // during a database outage — turning an outage into a restart loop, and
+        // destroying the running process that was the only thing still able to
+        // answer questions. Found by stopping the datastore (ADR-017 condition
+        // 1), which is also how it was found to be returning 503.
+        //
+        // Liveness answers "is this process alive". Readiness answers "can it
+        // serve", needs the store, and is a separate endpoint precisely because
+        // the two must be allowed to disagree.
+        app.MapGet("/healthz/live", () => Results.Ok(new { status = "live" }));
 
         app.Use(async (context, next) =>
         {
@@ -286,7 +304,24 @@ public static class Program
 
     private static void MapEndpoints(WebApplication app)
     {
-        app.MapGet("/healthz/live", () => Results.Ok(new { status = "live" }));
+        app.MapGet("/healthz/ready", async (
+            IAdminCatalog catalog, CancellationToken cancellation) =>
+        {
+            // Readiness DOES depend on the store, which is the whole difference
+            // from liveness. A load balancer should stop sending traffic here;
+            // an orchestrator should not kill the process.
+            try
+            {
+                await catalog.ListLayersAsync(cancellation);
+                return Results.Ok(new { status = "ready" });
+            }
+            catch (NpgsqlException e)
+            {
+                return Results.Json(
+                    new { status = "not-ready", reason = e.Message },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        });
 
         app.MapGet("/rest/services", async (
             HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
@@ -324,6 +359,7 @@ public static class Program
         app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
 
         app.MapAuth();
+        app.MapAdmin();
         app.MapPost("/rest/setup", AuthEndpoints.SetupAsync);
 
         app.MapGet("/rest/whoami", (HttpContext context) =>

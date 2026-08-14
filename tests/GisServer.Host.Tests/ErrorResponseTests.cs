@@ -70,13 +70,20 @@ public sealed class ErrorResponseTests
     [Fact]
     public void An_unknown_postgres_error_is_503_rather_than_falling_through_to_500()
     {
-        // 23505 has no case of its own. It must still be attributed to the data
-        // source rather than to us — the NpgsqlException arm is what does that,
-        // and it only works because it is ordered after the specific ones.
+        // 23505 has no case of its own. It must still be a 503 attributed to a
+        // database rather than to our own logic — the NpgsqlException arm does
+        // that, and it only works because it is ordered after the specific ones.
+        //
+        // The message used to say "the layer's data source, not the server".
+        // Stopping the datastore for the ADR-017 condition 1 test showed it
+        // saying exactly that while the *platform store* was what had failed,
+        // which sends an administrator to the wrong database during an outage.
+        // It now names the two endpoints that can tell them apart.
         (int status, string message) = ErrorResponse.Classify(WithSqlState("23505"));
 
         Assert.Equal(503, status);
-        Assert.Contains("data source, not the server", message, StringComparison.Ordinal);
+        Assert.Contains("/healthz/ready", message, StringComparison.Ordinal);
+        Assert.Contains("/admin/health", message, StringComparison.Ordinal);
     }
 
     [Fact]

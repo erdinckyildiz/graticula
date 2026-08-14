@@ -65,16 +65,34 @@ internal sealed class Authentication
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        AuthenticatedSession? session =
-            await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
+        // <b>An unreachable store yields anonymous, not an error.</b> ADR-017 §6
+        // requires a minimal admin surface to answer during a datastore outage,
+        // and this middleware runs before every endpoint — so a throw here takes
+        // down the surface that exists to be reachable when everything else is
+        // not. Found by stopping the datastore: /admin/health never ran, and
+        // neither did anything else.
+        //
+        // <b>It fails closed, not open.</b> A token that cannot be validated is
+        // not honoured, and anonymous-with-no-grants holds no privilege at all.
+        // The endpoints that need the store still refuse; the ones that do not,
+        // answer.
+        try
+        {
+            AuthenticatedSession? session =
+                await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
 
-        Principal principal = session?.Principal ?? Principal.Anonymous;
+            Principal principal = session?.Principal ?? Principal.Anonymous;
 
-        (string userType, IReadOnlyList<string> roles) =
-            await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
+            (string userType, IReadOnlyList<string> roles) =
+                await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
-        return new RequestPrincipal(
-            principal, session?.SessionId, Authorization.Resolve(userType, roles));
+            return new RequestPrincipal(
+                principal, session?.SessionId, Authorization.Resolve(userType, roles));
+        }
+        catch (Npgsql.NpgsqlException)
+        {
+            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
+        }
     }
 
     private async Task<AuthenticatedSession?> FindSessionAsync(
