@@ -52,3 +52,4 @@ secrets/
 Thumbs.db
 desktop.ini
 benchmarks/_tmp/
+TestResults/
