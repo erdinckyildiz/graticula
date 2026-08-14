@@ -157,10 +157,23 @@ zero — but the cost of *reversing* Q-67 has gone up, and this ADR is part of w
 2. **Measured on one machine, one dataset, one city, one polygon table.** No line
    layers, no mixed geometry, no attribute-heavy table where the tag dictionary
    dominates the tile. Widen before treating the numbers as general.
-3. **Nobody has looked at a rendered tile.** Four rounds of measurement across
-   two days and the only verification has been structural — rings closed,
-   coordinates in range, features decoded. This is now the longest-standing gap
-   in the tile work and it must close before VectorTileServer ships.
+3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
+   same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
+   in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent
+   read straight from PostGIS are the same picture — correct orientation, no
+   y-flip, no scale error, interior rings present, and the six-feature difference
+   is the boundary buffer.
+
+   Two things about how it was checked. **The MVT decoder was written from the
+   spec rather than taken from a library**, because a library that shares
+   assumptions with the encoder agrees with it about any mistake they both make.
+   And **the comparison is against the source, not against a reference image** —
+   a picture on its own only proves something was drawn.
+
+   The first attempt filled every polygon and produced two identical solid
+   rectangles. That was finding 11 arriving as a picture: the Marmara sea
+   feature covers the whole tile and painted over every building in it. Outlines
+   instead of fills, largest ring first.
 
 ---
 
