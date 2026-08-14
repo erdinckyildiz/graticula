@@ -51,6 +51,17 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
 
     private PostGisFeatureSource Source() => new(DataSource, OsmPolygons);
 
+    /// <summary>The small materialised layer, which has an integer object id.</summary>
+    private static LayerDefinition Buildings => new(
+        name: "buildings",
+        schemaName: "public",
+        tableName: "osm_buildings",
+        geometryColumn: "way",
+        srid: 3857,
+        identityColumn: "objectid",
+        objectIdColumn: "objectid",
+        isHosted: false);
+
     [Fact]
     public async Task Features_stream_with_geometry_and_identity()
     {
@@ -302,5 +313,57 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         }
 
         return count;
+    }
+    [Fact]
+    public async Task Describe_reports_the_columns_a_client_needs_and_excludes_the_geometry()
+    {
+        // A geometry column in the field list makes an ArcGIS client offer to
+        // label features with WKB.
+        await RequireCorpusAsync();
+
+        LayerDescription description = await new PostGisFeatureSource(DataSource, Buildings)
+            .DescribeAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(description.Fields, f => f.Name == "way");
+        Assert.Contains(description.Fields, f => f.Name == "objectid" && f.Type == FieldType.Integer);
+        Assert.Contains(description.Fields, f => f.Name == "osm_id" && f.Type == FieldType.BigInteger);
+    }
+
+    [Fact]
+    public async Task Describe_reports_an_extent_that_actually_contains_the_data()
+    {
+        // Null means unknown and a client zooms to the origin, so an extent that
+        // is merely present is not enough — it has to be near the features.
+        await RequireCorpusAsync();
+
+        LayerDescription description = await new PostGisFeatureSource(DataSource, Buildings)
+            .DescribeAsync(CancellationToken.None);
+
+        Assert.NotNull(description.Extent);
+
+        Envelope extent = description.Extent!.Value;
+        Assert.True(extent.MinX > 3_000_000 && extent.MaxX < 3_500_000, $"x out of range: {extent}");
+        Assert.True(extent.MinY > 4_900_000 && extent.MaxY < 5_200_000, $"y out of range: {extent}");
+    }
+
+    [Fact]
+    public async Task Describe_on_a_table_that_does_not_exist_reports_no_fields_rather_than_throwing()
+    {
+        // information_schema simply has no rows for it. A metadata request for a
+        // layer whose table was dropped should degrade to "nothing to see",
+        // because the alternative is a 500 on the endpoint an administrator
+        // would use to diagnose exactly that.
+        await RequireCorpusAsync();
+
+        LayerDefinition missing = new(
+            name: "ghost", schemaName: "public", tableName: "no_such_table_here",
+            geometryColumn: "way", srid: 3857, identityColumn: "id",
+            objectIdColumn: "id", isHosted: false);
+
+        LayerDescription description =
+            await new PostGisFeatureSource(DataSource, missing).DescribeAsync(CancellationToken.None);
+
+        Assert.Empty(description.Fields);
+        Assert.Null(description.Extent);
     }
 }

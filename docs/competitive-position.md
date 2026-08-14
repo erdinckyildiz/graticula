@@ -251,7 +251,35 @@ exit path, the project is still worth building and giving away — it is simply
 built in the wrong order.
 
 
+## 6c. §6b was written on a misreading, and is corrected here
+
+**§6b below is retained and is substantially wrong.** It read the owner's
+*cannot pay for ArcGIS licences* as *has never used ArcGIS*, concluded that the
+larger market was QGIS shops, and therefore that we were entering GeoServer's
+market with fewer capabilities than GeoServer. The owner clarified the same day:
+**the licence is ArcGIS Enterprise, not ArcGIS Pro.**
+
+That changes the comparison set back:
+
+- **The competitor is ArcGIS Enterprise**, on price. We are not trying to be a
+  better GIS than Esri's — we are trying to be the one an organisation can still
+  run when the Enterprise renewal is refused.
+- **GeoServer is not the incumbent for this user; it is the alternative they
+  already rejected**, and the reason is usually that their Pro users and their
+  existing web apps speak ArcGIS REST and GeoServer does not. That is our
+  differentiator and it is a large one.
+- **The ArcGIS FeatureServer work, which §6b called the largest body of work in
+  v1 that does not differentiate us, is the differentiator.**
+
+§6b is kept rather than deleted because the reasoning was sound given its
+premise, and because a document that quietly rewrites its conclusions is one
+nobody can audit. What it demonstrates is how much of a strategy hangs on one
+word — *Enterprise* rather than *Pro*.
+
 ## 6b. The 2026-08-14 positioning makes this document harder, not easier
+
+> **Superseded by §6c**, written on a misreading of the market statement.
+
 
 The owner's target is *people who cannot or will not pay for ArcGIS licences*
 ([product-context.md](product-context.md)). That sounds like it aims away from

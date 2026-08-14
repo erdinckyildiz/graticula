@@ -37,24 +37,24 @@ narrower and is marked as such in §5.
 
 Three independent reasons, and the first is the weakest:
 
-- ~~**Recognition.** Q-06a made the GIS administrator our primary user. They
+- **Recognition.** Q-06a made the GIS administrator our primary user. They
   already hold a mental model of Viewer / Data Editor / Publisher /
   Administrator, and a product that invents four different names makes them
-  translate on every screen.~~ **Weakened the following day, 2026-08-14**, by the
-  owner's market statement: the target is people who cannot or will not pay for
-  ArcGIS licences, and the larger half of that group has never used ArcGIS. They
-  hold no mental model of Portal's roles, so recognition argues for nothing —
-  and for a QGIS user, `data_editor` and `user` as distinct roles are more
-  puzzling than four plain names would have been. **Recorded rather than
-  deleted: the decision stands on the two reasons below, and a decision resting
-  partly on a reason that has since failed should say so.**
+  translate on every screen.
+  **Struck through on 2026-08-14 and reinstated the same day.** It was struck on
+  a misreading of the owner's market statement — *cannot pay for ArcGIS
+  licences* was taken to mean *has never used ArcGIS*. The licence in question
+  is ArcGIS **Enterprise**, not ArcGIS Pro, so the target is an organisation
+  that already works in ArcGIS and cannot afford the server. They know these
+  role names. **This is the strongest of the three reasons, not the weakest.**
 - **Migration (Q-16) becomes possible rather than approximate.** Importing an
   existing deployment's role model is only meaningful if the target has
   somewhere to put it. Four invented roles would force every import to be a
   lossy mapping, and lossy in the *widening* direction — see §4.
-- **It is a better model than ours was.** §2. **This is now the load-bearing
-  reason**, and it is independent of who the user is: ours could not express
-  *two layers with two audiences*, which is the second thing anybody does.
+- **It is a better model than ours was.** §2 — ours could not express *two
+  layers with two audiences*, which is the second thing anybody does. This one
+  holds regardless of who the user is, which is why it survived the misreading
+  above intact.
 
 **Clean room (CLAUDE.md §5) permits this and constrains how.** ArcGIS Portal's
 privilege and role model is publicly documented behaviour, which is precisely
@@ -121,13 +121,12 @@ So the ceiling is enforced, and it costs nothing in a fresh install: the default
 user type, `unrestricted`, contains every privilege. Nothing is withheld unless
 somebody deliberately assigns a narrower type.
 
-**2026-08-14: this justification narrowed too.** It rests on Q-16 import safety,
-and the owner's positioning removes voluntary migrators from the market — so
-imports come only from the *can-no-longer-pay* population, which is the smaller
-half. The reason survives because that population is exactly the one that
-arrives with an existing Portal role model, under time pressure, not shopping.
-But it is now one population's safety property rather than a general one, and
-§10's dissent applies with more force than when it was written.
+**2026-08-14, after a correction.** This was briefly recorded as narrowed, on
+the reading that most of the market had never used ArcGIS and would never import
+anything. With the licence clarified as ArcGIS **Enterprise**, the opposite
+holds: the target arrives *with* an existing deployment to bring across, so
+Q-16 import safety is a mainstream concern rather than an edge one, and this
+justification is stronger than when it was written.
 
 ### 3b. Sharing governs reading
 

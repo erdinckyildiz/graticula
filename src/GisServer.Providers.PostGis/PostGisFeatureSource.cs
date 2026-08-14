@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using GisServer.Catalog;
 using GisServer.Features;
 using GisServer.Geometries;
@@ -180,4 +181,197 @@ public sealed class PostGisFeatureSource : IFeatureSource
             command.Parameters.AddWithValue("maxy", box.MaxY);
         }
     }
+
+    /// <inheritdoc/>
+    public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)
+    {
+        return new LayerDescription(
+            await ReadFieldsAsync(cancellationToken).ConfigureAwait(false),
+            await ReadExtentAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The attribute columns, geometry excluded.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from <c>information_schema.columns</c>, which is privilege-filtered
+    /// — so it shows what this credential may actually see, not what exists.
+    /// That is the honest answer for a capability report.
+    /// </para>
+    /// <para>
+    /// <b>The geometry column is excluded because it is the shape, not a
+    /// field.</b> An ArcGIS client that finds <c>way</c> in the field list will
+    /// offer to label features with WKB.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<FieldDescription>> ReadFieldsAsync(
+        CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            select column_name, udt_name, is_nullable, character_maximum_length
+            from information_schema.columns
+            where table_schema = @schema and table_name = @table
+              and column_name <> @geometry
+            order by ordinal_position
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("schema", _layer.SchemaName);
+        command.Parameters.AddWithValue("table", _layer.TableName);
+        command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
+
+        List<FieldDescription> fields = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            string type = reader.GetString(1);
+
+            // A second geometry or geography column is not an attribute either.
+            // Rare, and the failure is the same one the doc comment describes.
+            if (type is "geometry" or "geography")
+            {
+                continue;
+            }
+
+            fields.Add(new FieldDescription(
+                reader.GetString(0),
+                MapType(type),
+                string.Equals(reader.GetString(2), "YES", StringComparison.Ordinal),
+                reader.IsDBNull(3) ? null : reader.GetInt32(3)));
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// Where the features are, from statistics where possible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>ST_EstimatedExtent</c> first, and it is the right default.</b> It
+    /// reads the planner's statistics and returns instantly; <c>ST_Extent</c>
+    /// reads every geometry, which on this project's 6.5-million-row corpus is
+    /// not something to do while somebody waits for a layer to appear.
+    /// </para>
+    /// <para>
+    /// It returns null when the table has never been analysed, and for a view it
+    /// does not apply at all — so there is a fallback, and the fallback is
+    /// bounded rather than exact: it reads the extent of a sample. An extent
+    /// that is slightly small costs a pan. An extent that costs a table scan
+    /// costs the layer.
+    /// </para>
+    /// </remarks>
+    private async Task<Envelope?> ReadExtentAsync(CancellationToken cancellationToken)
+    {
+        Envelope? estimated = await TryExtentAsync(
+            $"select st_estimatedextent({Literal(_layer.SchemaName)}, {Literal(_layer.TableName)}, "
+            + $"{Literal(_layer.GeometryColumn)})::text",
+            cancellationToken).ConfigureAwait(false);
+
+        if (estimated is not null)
+        {
+            return estimated;
+        }
+
+        return await TryExtentAsync(
+            $"select st_extent(g)::text from (select {LayerDefinition.Quote(_layer.GeometryColumn)} "
+            + $"as g from {_layer.QuotedTable} limit 10000) s",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Envelope?> TryExtentAsync(string sql, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+
+            object? value =
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+            // <b>Cast to text in SQL, not read as a type.</b> Npgsql has no
+            // mapping for PostGIS's box2d, so reading it directly yields
+            // something this code silently failed to recognise — the extent came
+            // back null while the same query in psql returned a box. Adding a
+            // type mapping to read four numbers would be more machinery than the
+            // numbers are worth; ::text makes the contract explicit.
+            return value is string text ? ParseBox(text) : null;
+        }
+        catch (PostgresException)
+        {
+            // A view, a missing statistic, or no privilege on the statistics.
+            // Unknown is a legitimate answer here — LayerDescription says so —
+            // and it must not take down a metadata request.
+            return null;
+        }
+    }
+
+    private static Envelope? ParseBox(string box)
+    {
+        int open = box.IndexOf('(', StringComparison.Ordinal);
+        int close = box.IndexOf(')', StringComparison.Ordinal);
+
+        if (open < 0 || close < open)
+        {
+            return null;
+        }
+
+        string[] corners = box[(open + 1)..close].Split(',');
+
+        if (corners.Length != 2)
+        {
+            return null;
+        }
+
+        string[] low = corners[0].Split(' ');
+        string[] high = corners[1].Split(' ');
+
+        if (low.Length != 2 || high.Length != 2
+            || !double.TryParse(low[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double minX)
+            || !double.TryParse(low[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double minY)
+            || !double.TryParse(high[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double maxX)
+            || !double.TryParse(high[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double maxY))
+        {
+            return null;
+        }
+
+        return new Envelope(minX, minY, maxX, maxY);
+    }
+
+    /// <summary>A single-quoted SQL literal.</summary>
+    /// <remarks>
+    /// <c>st_estimatedextent</c> takes its schema, table and column as text
+    /// arguments rather than identifiers, and the values come from
+    /// <see cref="LayerDefinition"/>, which has already validated them against
+    /// an identifier pattern. The doubling is belt and braces.
+    /// </remarks>
+    private static string Literal(string value) =>
+        "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
+
+    /// <summary>
+    /// PostgreSQL's type names, mapped into ours.
+    /// </summary>
+    /// <remarks>
+    /// The one place a provider type name is allowed to appear. Anything
+    /// unrecognised becomes <see cref="FieldType.Unknown"/>, which surfaces are
+    /// expected to render as text — an unfamiliar type is a reason to be
+    /// cautious, never a reason to fail a metadata request.
+    /// </remarks>
+    private static FieldType MapType(string udtName) => udtName switch
+    {
+        "int2" => FieldType.SmallInteger,
+        "int4" => FieldType.Integer,
+        "int8" => FieldType.BigInteger,
+        "float4" => FieldType.Single,
+        "float8" or "numeric" => FieldType.Double,
+        "bool" => FieldType.Boolean,
+        "uuid" => FieldType.Guid,
+        "bytea" => FieldType.Binary,
+        "date" or "timestamp" or "timestamptz" or "time" or "timetz" => FieldType.Date,
+        "text" or "varchar" or "bpchar" or "name" or "citext" => FieldType.Text,
+        _ => FieldType.Unknown,
+    };
 }

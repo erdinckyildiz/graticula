@@ -323,39 +323,35 @@ public static class Program
             }
         });
 
+        // ADR-015 §4 has clients discovering how to authenticate here. The
+        // token URL is advertised even though /generateToken is unbuilt, because
+        // a client that cannot find it assumes anonymous and fails later, less
+        // clearly.
+        app.MapGet("/rest/info", (HttpContext context) => Results.Ok(
+            FeatureServerMetadataWriter.ServerInfo(
+                $"{context.Request.Scheme}://{context.Request.Host}/rest/auth/login")));
+
         app.MapGet("/rest/services", async (
             HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
         {
             // A filter, not a gate. ADR-018 §3b governs reading by sharing, so
             // the catalogue lists what this caller may see rather than refusing
             // the whole endpoint — which is what makes two layers with two
-            // audiences possible, and is the thing the superseded model could
-            // not express.
+            // audiences possible.
             RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
             IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation);
 
-            return Results.Ok(new
-            {
-                services = layers
+            return Results.Ok(FeatureServerMetadataWriter.Catalogue(
+                layers
                     .Where(layer => LayerAccess
                         .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
                         .IsAllowed())
-                    .Select(layer => new
-                {
-                    name = layer.Definition.Name,
-                    type = "FeatureServer",
-
-                    // ADR-013 §2a made physical. A layer without an integer
-                    // identity is servable natively and not through ArcGIS, and
-                    // saying so here is the never-degrade-silently principle
-                    // applied to a data-shape limitation.
-                    arcGisServable = layer.Definition.IsArcGisServable,
-                    sharing = layer.Sharing.ToString().ToLowerInvariant(),
-                }),
-            });
+                    .Select(layer => layer.Definition.Name)));
         });
 
+        app.MapGet("/rest/services/{layerName}/FeatureServer", ServiceMetadataAsync);
+        app.MapGet("/rest/services/{layerName}/FeatureServer/0", LayerMetadataAsync);
         app.MapGet("/rest/services/{layerName}/FeatureServer/0/query", QueryAsync);
 
         app.MapAuth();
@@ -410,6 +406,84 @@ public static class Program
 
         // Only worth saying if there is something to share in the first place.
         return layers.Count == 0 || layers.Any(l => l.Sharing != SharingScope.Private);
+    }
+
+
+    /// <summary>
+    /// Resolves a layer for a metadata request, or writes the refusal.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the service and layer documents so that both apply ADR-018
+    /// §3b's sharing rule identically. A metadata endpoint that leaks the
+    /// existence of a private layer undoes the query endpoint's care.
+    /// </remarks>
+    private static async Task<PublishedLayer?> VisibleLayerAsync(
+        HttpContext context,
+        string layerName,
+        PostgresLayerCatalog catalog,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer =
+            await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (layer is not null
+            && LayerAccess
+                .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
+                .IsAllowed())
+        {
+            return layer;
+        }
+
+        await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
+        return null;
+    }
+
+    private static async Task ServiceMetadataAsync(
+        HttpContext context,
+        string layerName,
+        PostgresLayerCatalog catalog,
+        LayerConnections connections,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        LayerDescription description = await connections.SourceFor(layer)
+            .DescribeAsync(cancellation).ConfigureAwait(false);
+
+        await Results.Ok(FeatureServerMetadataWriter.Service(
+            layer.Definition, layer.GeometryType, description.Extent))
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task LayerMetadataAsync(
+        HttpContext context,
+        string layerName,
+        PostgresLayerCatalog catalog,
+        LayerConnections connections,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        LayerDescription description = await connections.SourceFor(layer)
+            .DescribeAsync(cancellation).ConfigureAwait(false);
+
+        await Results.Ok(FeatureServerMetadataWriter.Layer(
+            layer.Definition, layer.GeometryType, description))
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>How long a first-start setup token lasts.</summary>

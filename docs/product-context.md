@@ -21,32 +21,54 @@ for every review gate.
 
 > *"I don't want to change existing ArcGIS users. I want to reach people who
 > don't want to pay, or cannot pay, for ArcGIS licences."*
+>
+> **Clarified the same day: the licence in question is ArcGIS *Enterprise*, not
+> ArcGIS Pro.**
 
-**The target is the person for whom the licence is the blocker.** That includes
-two populations who look different and share one constraint:
+That clarification is the whole of the positioning, and reading it wrongly the
+first time produced three wrong conclusions elsewhere — see the note at the end
+of this section.
 
-| | Who | What they have | What they need from us |
-|---|---|---|---|
-| **Never could** | NGOs, small municipalities, academic groups, agencies in developing economies, startups, individuals | QGIS, PostGIS, and no ArcGIS anything | A server that is free, small, and easy to stand up |
-| **Can no longer** | A department after a budget cut, a licence audit, or a renewal it cannot fund | ArcGIS data, ArcGIS skills, ArcGIS clients, and a deadline | A place to land that keeps their work working |
+**ArcGIS Enterprise is the server stack**: Portal, Server and Data Store,
+licensed for the deployment. **ArcGIS Pro is the desktop client**, licensed per
+named user and an order of magnitude cheaper. The target is an organisation that
+has, or can afford, the *clients* — and cannot afford the *server*.
 
-**What this excludes is the happy paying customer.** We are not trying to win a
-competitive evaluation against Esri for an organisation with budget. That is not
-modesty — it changes the roadmap, because the features that win a bake-off
-against ArcGIS Enterprise are not the features that rescue somebody whose
-licence lapses in ninety days.
+So the target user:
 
-**Three consequences, taken immediately:**
+- **Already works in ArcGIS.** Pro on the desktop, ArcGIS-shaped data, staff
+  trained on ArcGIS terminology, and very likely web maps and apps built against
+  ArcGIS REST.
+- **Cannot justify the Enterprise deployment licence**, which is the single
+  largest line item and the one that scales with cores rather than people.
+- **Is not shopping for a GIS.** They have one. They need somewhere for the
+  server half of it to live.
 
-- **[Q-93](open-questions.md) is answered: no.** Federating into somebody's
-  existing Portal means the customer is still paying Esri for the Portal. That
-  is the one shape of deployment this positioning rules out by definition.
-- **Q-49's switch motive is corrected.** It read *everything an ArcGIS Server
-  shop needs in order to leave* — as though the job were persuasion. The motive
-  is the invoice. We are not arguing anybody out of ArcGIS; we are catching the
-  ones already falling.
-- **The comparison set moves, and not in our favour.** See
-  [competitive-position.md](competitive-position.md) §6b.
+**What we are, stated plainly: ArcGIS Enterprise for people who cannot afford
+ArcGIS Enterprise.** Their desktop stays. Their clients stay. Their skills stay.
+The server bill goes.
+
+This makes [ADR-019](adr/ADR-019-portal-server-split.md) the most load-bearing
+decision in the project rather than a curiosity. We fused Portal, Server and Data
+Store into one deployable because that was the right engineering shape — and it
+turns out to be exactly the product shape the target needs, because the thing
+they cannot afford is precisely those three sold together.
+
+### What this corrected
+
+The first reading of the statement took *cannot pay for ArcGIS licences* to mean
+*has never used ArcGIS*, and pushed three conclusions the same day that the
+clarification reverses:
+
+| Wrongly concluded | Actually |
+|---|---|
+| QGIS is the primary client, so OGC may need to return to v1 (Q-94) | **ArcGIS Pro is a likely primary client.** Q-88's ArcGIS-first ordering is strongly right, not questionable |
+| ADR-018's *recognition* argument fails, because the market has never seen Portal's roles | **Reinstated.** An ArcGIS shop knows Viewer / Editor / Publisher / Administrator |
+| We are entering GeoServer's market with fewer capabilities than GeoServer ([competitive-position.md](competitive-position.md) §6b) | **Largely wrong.** We are entering ArcGIS Enterprise's market, where GeoServer is a poor substitute precisely because it does not speak ArcGIS REST |
+
+**What survives unchanged:** [Q-93](open-questions.md) is still no — an
+organisation running Portal has already bought Enterprise — and Q-49's motive is
+still the invoice rather than persuasion.
 
 ## What this product is, in one sentence
 

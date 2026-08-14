@@ -110,4 +110,24 @@ public interface IFeatureSource
     IAsyncEnumerable<Feature> ReadAsync(
         FeatureQuery query,
         System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Describes the layer: its attribute columns and where its features are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every client needs this before it can ask a question.</b> An ArcGIS
+    /// client reads the field list, the object-id field and the extent in order
+    /// to add a layer at all — a server that can answer <c>query</c> and cannot
+    /// answer this is one no client can reach.
+    /// </para>
+    /// <para>
+    /// Separate from <see cref="SchemaFor"/>, which answers <em>what will this
+    /// query return</em> without touching the database. This one asks the
+    /// database, so it costs a round trip and is not for the request path of a
+    /// query.
+    /// </para>
+    /// </remarks>
+    System.Threading.Tasks.Task<LayerDescription> DescribeAsync(
+        System.Threading.CancellationToken cancellationToken);
 }
