@@ -131,6 +131,61 @@ internal static class GeometryPage
         new("union",
             "One geometry covering all of them. Runs in a worker process with a deadline.",
             [Sr, Geometries]),
+
+        new("cut",
+            "The pieces the target splits into along the cutter. A cutter that misses returns "
+            + "the target unchanged, as one piece. Runs in a worker process with a deadline.",
+            [Sr,
+             new("target", "Target", "The single ArcGIS geometry to cut.", Rows: 5),
+             new("cutter", "Cutter",
+                 "A single ArcGIS geometry, usually a polyline, to cut it along.", Rows: 5)]),
+
+        new("buffer",
+            "Everything within a distance of each geometry. A negative distance shrinks a "
+            + "polygon and may empty it. Planar, in the units of the spatial reference — this "
+            + "is not the geodesic buffer ArcGIS also offers.",
+            [Sr, Geometries,
+             new("distances", "Distance",
+                 "One distance, in the units of the spatial reference. ArcGIS accepts a list "
+                 + "and returns a ring per value; this server buffers once.", Default: "100")]),
+
+        new("offset",
+            "Each geometry's boundary moved sideways by a distance, as a line. The sign chooses "
+            + "the side.",
+            [Sr, Geometries,
+             new("offsetDistance", "Offset distance",
+                 "How far to move the curve, in the units of the spatial reference. Negative "
+                 + "puts it on the other side.", Default: "10")]),
+
+        new("simplify",
+            "Makes each geometry valid — repairs self-intersections, closes rings, drops "
+            + "zero-area slivers, fixes ring orientation. This is ArcGIS 'simplify' and it is "
+            + "not vertex reduction; that is 'generalize', above.",
+            [Sr, Geometries]),
+
+        new("relation",
+            "Which pairs out of two sets satisfy a topological relation. The answer is index "
+            + "pairs into the two lists, and the comparison happens in one round trip rather "
+            + "than one per pair.",
+            [Sr,
+             new("geometries1", "First geometries", GeometriesHint, Rows: 6),
+             new("geometries2", "Second geometries", GeometriesHint, Rows: 6),
+             new("relation", "Relation",
+                 "esriGeometryRelationDisjoint, esriGeometryRelationIntersection, "
+                 + "esriGeometryRelationWithin, esriGeometryRelationTouch, "
+                 + "esriGeometryRelationCross or esriGeometryRelationOverlap. Esri's four "
+                 + "refinements of these are refused rather than approximated.",
+                 Default: "esriGeometryRelationIntersection"),
+             new("relationParam", "DE-9IM pattern",
+                 "A nine-character DE-9IM pattern, used instead of a named relation. "
+                 + "<code>T********</code> is \"the interiors meet\".")]),
+
+        new("distance",
+            "The shortest planar distance between two geometries, zero when they touch or one "
+            + "contains the other.",
+            [Sr,
+             new("geometry1", "First geometry", "A single ArcGIS geometry.", Rows: 5),
+             new("geometry2", "Second geometry", "A single ArcGIS geometry.", Rows: 5)]),
     ];
 
     private static Parameter Operand(string role) =>
@@ -160,9 +215,31 @@ internal static class GeometryPage
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return string.IsNullOrWhiteSpace(request.Query["geometries"])
-            && string.IsNullOrWhiteSpace(request.Query["geometry"]);
+        foreach (string field in GeometryFields)
+        {
+            if (!string.IsNullOrWhiteSpace(request.Query[field]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
+
+    /// <summary>
+    /// Every field name a geometry can arrive under, on any operation.
+    /// </summary>
+    /// <remarks>
+    /// <b>This list was two names and six operations arrived that use none of
+    /// them.</b> ArcGIS spells the operands per operation — <c>target</c> and
+    /// <c>cutter</c>, <c>geometry1</c> and <c>geometry2</c>, <c>geometries1</c>
+    /// and <c>geometries2</c> — and with only "geometries" and "geometry"
+    /// checked, submitting the cut form would have rendered the form back at the
+    /// caller forever, with no error and nothing to indicate why.
+    /// </remarks>
+    private static readonly string[] GeometryFields =
+        ["geometries", "geometry", "target", "cutter",
+         "geometry1", "geometry2", "geometries1", "geometries2"];
 
     /// <summary>Renders the form for an operation.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>

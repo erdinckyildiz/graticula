@@ -148,13 +148,13 @@ public static class Program
         // cost, so the bound is a deadline on a process rather than a cap on a
         // number. NetTopologySuite is referenced by that worker and by nothing
         // in this assembly, so an overlay cannot allocate a byte in this heap.
-        builder.Services.AddSingleton(services => new OverlayWorkerPool(
-            OverlayWorkerPool.ExecutableBesideThisOne(),
+        builder.Services.AddSingleton(services => new GeometryWorkerPool(
+            GeometryWorkerPool.ExecutableBesideThisOne(),
             settings.OverlayWorkers,
             services.GetRequiredService<ILoggerFactory>()));
 
-        builder.Services.AddSingleton<IOverlay>(services =>
-            services.GetRequiredService<OverlayWorkerPool>());
+        builder.Services.AddSingleton<IGeometryEngine>(services =>
+            services.GetRequiredService<GeometryWorkerPool>());
 
         builder.Services.AddSingleton<ITileCache>(services => new FileSystemTileCache(
             settings.TileCachePath,

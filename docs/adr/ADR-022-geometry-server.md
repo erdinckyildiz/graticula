@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Status** | `ACCEPTED WITH CONDITIONS` · **§2 SUPERSEDED by §2b, 2026-08-15** |
 | **Confidence** | `HIGH` for the split · `HIGH` for the engine · `MEDIUM` for the vertex cap |
 | **Decided** | 2026-08-14 |
 | **Rests on** | [A-042's invalidation](../architecture-assumptions.md) · [benchmarks/geometry-overlay](../../benchmarks/geometry-overlay/RESULTS.md) |
@@ -30,6 +30,11 @@ can ship without a known way to take the server down.
 
 ## 2. Decision — the surface splits by cost shape, not by usefulness
 
+> **Superseded on 2026-08-15 by [§2b](#2b-decision-reversed-by-the-owner--the-server-bounds-cost-it-does-not-decide-usefulness).**
+> The reasoning below is left intact rather than rewritten: it is what was
+> believed before the question was put to the owner, and the ADR is worth less
+> if it only ever records the answer that survived.
+
 **Shipped:** `project`, `areasAndLengths`, `lengths`, `labelPoints`.
 
 **Refused with 501, pending Q-97:** `intersect`, `difference`, `union`, `cut`,
@@ -51,6 +56,110 @@ measurement rather than an argument about asymptotics.
 **Refused, not absent.** A missing route answers 404, which a client reads as
 *this server has no GeometryServer*. The 501 names the operation, states the
 measurement, and points at Q-97.
+
+---
+
+## 2b. Decision reversed by the owner — the server bounds cost, it does not decide usefulness
+
+**Decided 2026-08-15 by the project owner, in their own words:**
+
+> *tehlikeli ya da değil. Sen onu kullanıcıya bırak. öyle saçma bir şey
+> yapacaksa yapsın. timeout koyarız her bir servise. bir request o süreyi
+> geçerse timeout olur.*
+>
+> ("Dangerous or not — leave that to the user. If they want to do something
+> absurd, let them. We put a timeout on each service; a request that runs past it
+> times out.")
+
+§2 drew its line at *whether the work is linear in the input*, and refused nine
+operations on the grounds that they might be expensive. **That is a judgement
+about what a caller should want, dressed as a safety property.** The owner's
+ruling is that it is not the server's to make. What the server owes its operator
+is a bound on cost. What it owes its caller is the operation.
+
+### What actually changed, and what did not
+
+**The bound did not change, because the bound was never about which operation it
+was.** Q-97 built a worker process with a ten-second deadline and a 1 GB heap
+ceiling, and both hold for a buffer exactly as they hold for an intersection. Six
+operations were sitting outside a door that was already unlocked.
+
+**Six moved from refused to supported**, all through that worker:
+
+| | |
+|---|---|
+| `cut` | Polygonised from the target's boundary noded with the cutter; faces outside the target dropped |
+| `buffer`, `offset` | NTS `Buffer` and `OffsetCurve` |
+| `simplify` | NTS `GeometryFixer` — ArcGIS `simplify` is *make this valid*, which is what this is. Vertex reduction stays `generalize` |
+| `relation` | DE-9IM, and Esri's named relations where NTS has the predicate |
+| `distance` | `DistanceOp` |
+
+**The pre-flight is off by default.** It counted candidate segment pairs and
+refused above 100,000. It was measured leaky when it was introduced — finding 16
+had it under-predicting an adversarial input by fourteen times — so it was never
+the bound, and a filter that both leaks *and* turns real work away is the worst
+of the two options. It survives as a constructor argument for an operator who
+would rather refuse a heavy request in 80 ms than spend ten seconds on it. That
+is a cost optimisation and is now labelled as one.
+
+**Ten seconds of a worker is the price**, and it is worth stating plainly. The
+adversarial comb pair used to be refused in 80 ms and is now attempted and
+killed. The conformance test that asserted `400 TooLarge` now asserts
+`503 Deadline` and that the server is still serving. Both properties that matter
+survived; what changed is who pays for the caller's choice, and the owner chose.
+
+### The one thing a timeout does not do
+
+**A deadline answers 153 seconds. It does not answer 16.7 GB.** That figure is
+not slowness — it is an allocation the host cannot survive, and the run that
+produced it took the machine into swap and killed the Docker daemon. A request
+can exhaust memory well inside any timeout worth having.
+
+This is recorded because the instruction was *"we put a timeout on it"*, and a
+timeout alone would not have been enough. It is implementable today only because
+Q-97 already built the other half: the work runs in a process with a hard heap
+limit, and that process dies instead of the machine. **Both bounds, or neither.**
+
+### Verified rather than asserted
+
+NetTopologySuite being mature is evidence about NetTopologySuite, not about the
+code in this repository that calls it — and that is where both defects found on
+the way here lived. Five oracle tests check the new operations against PostGIS on
+real geometry from the datastore: `ST_Distance` exactly, `ST_Buffer` by area
+within one per cent, `ST_IsValid` on a repaired bow-tie, area conservation across
+the pieces of a cut, and `ST_Intersects` on every pair of a cross product
+including the ones that must not match.
+
+**The two defects, both found by running the thing rather than by reading it:**
+
+- **A cut returned one geometry instead of two.** `BuildGeometry` turns a list of
+  polygons into a MultiPolygon, which the worker's flattening step deliberately
+  keeps whole — so a square cut in half came back as one shape with two rings. A
+  cut's entire output is the separateness of the pieces.
+- **A named relation was sent to the topology engine as a DE-9IM pattern**, which
+  answered `Should be length 9: esriGeometryRelationIntersection`. Esri's names
+  are now resolved to NTS predicates, and three of them — intersects, touches,
+  crosses — have no single DE-9IM pattern at all, so writing them out as one each
+  would have been wrong in exactly the cases the predicate exists to catch.
+
+**Four of Esri's relation names are refused rather than approximated.**
+`InteriorIntersection`, `LineCoincidence`, `LineTouch` and `PointTouch` are
+refinements whose exact semantics are Esri's rather than OGC's. A wrong spatial
+predicate is not a degraded answer — it is a caller filtering the wrong features
+and never finding out. They point at `esriGeometryRelationRelation` with an
+explicit pattern.
+
+### What is still refused, and it is no longer about cost
+
+`autoComplete`, `reshape` and `trimExtend`. All three edit existing features
+rather than calculating on the geometry the request carries, and whether they
+belong on GeometryServer or on FeatureServer is an open design question —
+[Q-99](../open-questions.md). Saying "too expensive" about them would be the same
+lie in a new place.
+
+**16 of 22 supported, 3 refused with reasons, 3 discovered missing** — see §4b for
+`toGeoCoordinateString`, `fromGeoCoordinateString` and `findTransformations`,
+which were not on any list until the owner compared this service with a real one.
 
 ---
 
@@ -288,7 +397,14 @@ Recorded as **D-31**.
    ring, and a collapse floor that resolved ties to one corner and returned a
    triangle with half the area. `distance` is still refused, now with its own
    reason rather than the overlay sentence that had been pasted onto it.
-3. **The vertex cap is not validated, only argued.** 500,000 comes from the
+3. **The six operations added in §2b have no measured cost profile.** They are
+   verified for *correctness* against PostGIS, and bounded by the deadline and
+   the heap limit — but nobody has measured what a realistic `buffer` or
+   `relation` costs, so the ten-second deadline and the two-worker pool are
+   sized from overlay's numbers alone. A `relation` over two sets of thirty is
+   nine hundred comparisons in one worker slot, and that shape did not exist
+   when the pool was sized.
+4. **The vertex cap is not validated, only argued.** 500,000 comes from the
    corpus and a JSON size estimate, not from a measurement of what a request at
    that size actually costs this server under concurrency.
 

@@ -69,14 +69,29 @@ internal static class GeometryServerEndpoints
         ["project", "areasAndLengths", "lengths", "labelPoints",
          "convexHull", "densify", "generalize"];
 
-    /// <summary>Overlay, which runs in a worker process it can be killed in.</summary>
+    /// <summary>
+    /// What runs in a worker process that can be killed.
+    /// </summary>
     /// <remarks>
-    /// <b>These were refused until Q-97 was answered.</b> The answer is not a
-    /// cap — measurement showed no property of the input predicts the cost — it
-    /// is a process with a deadline and a heap ceiling. See
-    /// <see cref="OverlayWorkerPool"/>.
+    /// <para>
+    /// <b>Three of these were refused until Q-97 was answered, and six more until
+    /// 2026-08-15.</b> The answer is not a cap — measurement showed no property
+    /// of the input predicts the cost — it is a process with a deadline and a
+    /// heap ceiling. See <see cref="GeometryWorkerPool"/>.
+    /// </para>
+    /// <para>
+    /// <b>The owner removed the rule that kept the other six out.</b> They were
+    /// refused because they <em>could</em> be expensive, and the instruction was
+    /// that this is not the server's judgement to make: if a caller wants to do
+    /// something absurd, let them, and put a timeout on it. The bound was already
+    /// built — the same deadline and heap limit hold for a buffer as for an
+    /// intersection — so the only thing standing between the caller and these
+    /// operations was a policy nobody had asked for.
+    /// </para>
     /// </remarks>
-    private static readonly string[] Overlay = ["intersect", "difference", "union"];
+    private static readonly string[] Engine =
+        ["intersect", "difference", "union",
+         "cut", "buffer", "offset", "simplify", "relation", "distance"];
 
     /// <summary>
     /// Operations not implemented, each with the reason it is not.
@@ -92,56 +107,37 @@ internal static class GeometryServerEndpoints
     /// why they cannot have a thing is worse than the missing thing.
     /// </para>
     /// <para>
-    /// <b>The list shrank on 2026-08-15</b> — <c>convexHull</c>, <c>densify</c>
-    /// and <c>generalize</c> moved to <see cref="Supported"/>, computed in
-    /// process. They were refused on an argument about asymptotics that
-    /// ADR-022 condition 2 had already flagged as the kind of reasoning
-    /// measurement overturns.
+    /// <b>The list went from twelve to three on 2026-08-15.</b> <c>convexHull</c>,
+    /// <c>densify</c> and <c>generalize</c> moved to <see cref="Supported"/>,
+    /// computed in process — they had been refused on an argument about
+    /// asymptotics that ADR-022 condition 2 already called the kind of reasoning
+    /// measurement overturns. <c>cut</c>, <c>buffer</c>, <c>offset</c>,
+    /// <c>simplify</c>, <c>relation</c> and <c>distance</c> moved to
+    /// <see cref="Engine"/> when the owner ruled that the server bounds cost and
+    /// does not decide usefulness.
+    /// </para>
+    /// <para>
+    /// <b>What is left is not refused on cost at all.</b> All three are editing
+    /// operations over existing features rather than calculations on the geometry
+    /// sent, and the open question is whether they belong on this service or on
+    /// FeatureServer. That is a design question, and it has not been answered.
     /// </para>
     /// </remarks>
     private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
     {
-        ["cut"] =
-            "It splits a polygon by a line, which is general overlay: measurement found no cap "
-            + "on input size bounds that work \u2014 a 6,408-vertex adversarial input cost 153 "
-            + "seconds and 16.7 GB where a real 72,919-vertex polygon cost 312 ms. It belongs in "
-            + "the overlay worker beside intersect, union and difference, and is not there yet.",
-
-        ["buffer"] =
-            "Offsetting a boundary needs curve construction and self-intersection repair. It is "
-            + "bounded by the input, unlike overlay, so this is a matter of not having written "
-            + "it rather than of it being unsafe to offer.",
-
-        ["offset"] =
-            "Same as buffer: curve offsetting, bounded by the input, not yet written.",
-
-        ["simplify"] =
-            "ArcGIS 'simplify' repairs topology \u2014 it makes a geometry valid \u2014 which is a "
-            + "different and much harder operation than reducing vertices. Reducing vertices is "
-            + "'generalize', and that is available. Offering topology repair under this name "
-            + "when it only generalised would be the worst kind of compatibility.",
-
-        ["relation"] =
-            "It evaluates a DE-9IM pattern between two geometries, which needs a topology engine. "
-            + "One exists in the overlay worker; wiring this to it is work nobody has done.",
-
-        ["distance"] =
-            "Minimum distance between two geometries is O(n\u00d7m) over segment pairs in the "
-            + "general case, which is bounded but not cheap, and the containment case needs a "
-            + "point-in-polygon test to answer zero correctly. Not written, and not refused for "
-            + "any deeper reason than that.",
-
         ["autoComplete"] =
             "It closes a polygon against its neighbours, which is an editing operation over a "
             + "set of existing features rather than a calculation on the geometry sent.",
 
         ["reshape"] =
-            "An editing operation: it replaces part of a boundary with a supplied line. Needs the "
-            + "same topology engine as relation.",
+            "An editing operation: it replaces part of a boundary with a supplied line. The "
+            + "topology engine it needs is already running — this is a question of whether "
+            + "editing an existing feature belongs on this service or on FeatureServer, and that "
+            + "has not been answered.",
 
         ["trimExtend"] =
-            "An editing operation on lines against a trimming geometry. Needs the same topology "
-            + "engine.",
+            "An editing operation on lines against a trimming geometry. Same open question as "
+            + "reshape: it edits features rather than calculating on the geometry sent.",
     };
 
     /// <summary>Maps the surface.</summary>
@@ -187,12 +183,12 @@ internal static class GeometryServerEndpoints
         geometry.MapMethods("/densify", GetOrPost, Densify);
         geometry.MapMethods("/generalize", GetOrPost, Generalize);
 
-        foreach (string operation in Overlay)
+        foreach (string operation in Engine)
         {
             string name = operation;
             geometry.MapMethods($"/{name}", GetOrPost, (
-                HttpContext context, IOverlay overlay, CancellationToken cancellation) =>
-                OverlayAsync(context, overlay, name, cancellation));
+                HttpContext context, IGeometryEngine engine, CancellationToken cancellation) =>
+                EngineAsync(context, engine, name, cancellation));
         }
 
         foreach (string operation in Blocked.Keys)
@@ -320,22 +316,25 @@ internal static class GeometryServerEndpoints
         var document = new
         {
         currentVersion = FeatureServerMetadataWriter.CurrentVersion,
-        serviceDescription = "Geometry operations that are linear in the size of their input.",
+        serviceDescription =
+            "Geometry operations. Those linear in their input run in process; those that need a "
+            + "topology engine run in a worker process with a deadline.",
 
         // <b>What is here, said as a list.</b> ArcGIS clients probe by calling;
         // saying so up front turns a series of 501s into one document.
-        supportedOperations = Supported.Concat(Overlay).ToArray(),
+        supportedOperations = Supported.Concat(Engine).ToArray(),
         unsupportedOperations = Blocked.Keys,
         maximumVertices = MaximumVertices,
-        maximumCandidatePairs = OverlayWorkerPool.MaximumCandidatePairs,
-        overlayDeadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
-        note = "Overlay operations run in a separate worker process with a "
-             + $"{OverlayWorkerPool.Deadline.TotalSeconds:0}-second deadline and a "
-             + "1 GB heap ceiling, and a pre-flight refuses inputs whose estimated crossing count "
-             + "exceeds maximumCandidatePairs. Measurement (benchmarks/geometry-overlay) found a "
-             + "6,408-vertex input costing 153 seconds and 16.7 GB where a real 72,919-vertex "
-             + "polygon cost 312 ms, so no cap on input size bounds the work — the bound is the "
-             + "process, not the input. Q-97.",
+        maximumCandidatePairs = GeometryWorkerPool.MaximumCandidatePairs,
+        deadlineSeconds = GeometryWorkerPool.Deadline.TotalSeconds,
+        note = $"{string.Join(", ", Engine)} run in a separate worker process with a "
+             + $"{GeometryWorkerPool.Deadline.TotalSeconds:0}-second deadline and a "
+             + "1 GB heap ceiling. That, and nothing about the input, is the bound: measurement "
+             + "(benchmarks/geometry-overlay) found a 6,408-vertex input costing 153 seconds and "
+             + "16.7 GB where a real 72,919-vertex polygon cost 312 ms. maximumCandidatePairs is "
+             + "an optional pre-flight, zero here meaning off — it was measured "
+             + "under-predicting by fourteen times, and the server does not decide on the "
+             + "caller's behalf what is worth attempting. Q-97.",
         };
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -381,7 +380,7 @@ internal static class GeometryServerEndpoints
                     + (Blocked.TryGetValue(operation, out string? why)
                         ? why
                         : "No reason is recorded, which is itself a defect.")
-                    + " Available: " + string.Join(", ", Supported.Concat(Overlay)) + ".",
+                    + " Available: " + string.Join(", ", Supported.Concat(Engine)) + ".",
             },
         };
 
@@ -398,18 +397,23 @@ internal static class GeometryServerEndpoints
             .ExecuteAsync(context);
     }
 
-    // ---------- overlay ----------
+    // ---------- the worker-backed operations ----------
 
     /// <summary>
-    /// intersect, union and difference, in a process with a deadline.
+    /// Everything that needs a topology engine, in a process with a deadline.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>The endpoint is thin because the interesting part is elsewhere.</b>
-    /// All this does is read two sets of geometries and hand them to
-    /// <see cref="IOverlay"/>; the bound that makes the operation safe to offer
-    /// is a worker process being killed, and that lives in
-    /// <see cref="OverlayWorkerPool"/>.
+    /// All this does is read operands and hand them to
+    /// <see cref="IGeometryEngine"/>; the bound that makes these operations safe
+    /// to offer is a worker process being killed, and that lives in
+    /// <see cref="GeometryWorkerPool"/>.
+    /// </para>
+    /// <para>
+    /// <b>Nine operations rather than three since 2026-08-15.</b> The bound is
+    /// what makes any of them offerable, and the bound does not care which one it
+    /// is. See <see cref="Engine"/> for the decision that changed.
     /// </para>
     /// <para>
     /// <b>Every refusal is its own status.</b> A pre-flight refusal is a 400 —
@@ -419,8 +423,11 @@ internal static class GeometryServerEndpoints
     /// saying "try in 30 seconds" would be a lie.
     /// </para>
     /// </remarks>
-    private static async Task OverlayAsync(
-        HttpContext context, IOverlay overlay, string operation, CancellationToken cancellation)
+    private static async Task EngineAsync(
+        HttpContext context,
+        IGeometryEngine engine,
+        string operation,
+        CancellationToken cancellation)
     {
         if (!TryForm(context, out IFormCollection form, out string? formError))
         {
@@ -434,41 +441,21 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        if (!TryGeometries(form, srid, out List<Geometry> left, out _, out string? error))
+        if (!TryOperands(form, operation, srid, out EngineRequest request, out string? error))
         {
             await Fail(context, error!).ConfigureAwait(false);
             return;
         }
 
-        List<Geometry> right = [];
-
-        // union takes one set; intersect and difference take a second operand,
-        // which ArcGIS spells "geometry" beside the "geometries" list.
-        if (!string.Equals(operation, "union", StringComparison.Ordinal))
-        {
-            if (!TrySingleGeometry(form, srid, out right, out error))
-            {
-                await Fail(context, error!).ConfigureAwait(false);
-                return;
-            }
-        }
-
-        OverlayOperation kind = operation switch
-        {
-            "intersect" => OverlayOperation.Intersect,
-            "difference" => OverlayOperation.Difference,
-            _ => OverlayOperation.Union,
-        };
-
-        OverlayResult result = await overlay
-            .ComputeAsync(kind, left, right, srid, cancellation)
+        EngineResult result = await engine
+            .ComputeAsync(request, cancellation)
             .ConfigureAwait(false);
 
-        if (result.Refusal is not OverlayRefusal.None)
+        if (result.Refusal is not EngineRefusal.None)
         {
             int status = result.Refusal switch
             {
-                OverlayRefusal.TooLarge or OverlayRefusal.Invalid => 400,
+                EngineRefusal.TooLarge or EngineRefusal.Invalid => 400,
                 _ => 503,
             };
 
@@ -487,22 +474,348 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        // <b>Reported, because a caller cannot otherwise tell a cheap request
+        // from one that nearly hit the deadline.</b> Somebody batching these
+        // needs to know they are close to the edge before they cross it.
+        object cost = new
+        {
+            candidatePairs = result.CandidatePairs,
+            milliseconds = result.Milliseconds,
+            candidatePairLimit = GeometryWorkerPool.MaximumCandidatePairs,
+            deadlineSeconds = GeometryWorkerPool.Deadline.TotalSeconds,
+        };
+
+        if (result.Scalar is double scalar)
+        {
+            await Respond(context, operation, new { distance = scalar, cost, note = PlanarNote })
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (result.Pairs is not null)
+        {
+            await Respond(context, operation, new
+            {
+                relations = result.Pairs
+                    .Select(pair => new { geometry1Index = pair[0], geometry2Index = pair[1] })
+                    .ToArray(),
+
+                // The first pair's DE-9IM, so a caller whose predicate matched
+                // nothing can see what the relation actually was instead of
+                // guessing at their pattern.
+                firstMatrix = result.Matrix,
+                cost,
+            }).ConfigureAwait(false);
+            return;
+        }
+
         await Respond(context, operation, new
         {
             geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
-
-            // <b>Reported, because a caller cannot otherwise tell a cheap
-            // overlay from one that nearly hit the deadline.</b> Somebody
-            // batching these needs to know they are close to the edge before
-            // they cross it.
-            cost = new
-            {
-                candidatePairs = result.CandidatePairs,
-                milliseconds = result.Milliseconds,
-                candidatePairLimit = OverlayWorkerPool.MaximumCandidatePairs,
-                deadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
-            },
+            cost,
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads whatever operands the named operation takes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Nine operations spell their operands nine ways, and this is where that
+    /// lives.</b> ArcGIS names them per operation — <c>target</c> and
+    /// <c>cutter</c> for cut, <c>geometry1</c> and <c>geometry2</c> for distance,
+    /// <c>geometries1</c> and <c>geometries2</c> for relation — and a caller
+    /// following Esri's documentation should not have to translate. The
+    /// generic <c>geometries</c> is accepted everywhere as well, because it is
+    /// what the form pages on this server send.
+    /// </para>
+    /// <para>
+    /// <b>A missing distance is an error rather than a zero.</b> A zero buffer
+    /// returns the input and a zero offset returns nothing, and either would look
+    /// to a caller like the operation silently doing nothing.
+    /// </para>
+    /// </remarks>
+    private static bool TryOperands(
+        IFormCollection form,
+        string operation,
+        int srid,
+        out EngineRequest request,
+        out string? error)
+    {
+        request = default;
+        error = null;
+
+        List<Geometry> left;
+        List<Geometry> right = [];
+        double distance = 0;
+        string? pattern = null;
+
+        switch (operation)
+        {
+            case "cut":
+                if (!TryNamedGeometry(form, "target", srid, out left, out error)
+                    || !TryNamedGeometry(form, "cutter", srid, out right, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            case "distance":
+                if (!TryNamedGeometry(form, "geometry1", srid, out left, out error)
+                    || !TryNamedGeometry(form, "geometry2", srid, out right, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            case "relation":
+                if (!TryGeometries(form, srid, out left, out _, out error, "geometries1")
+                    || !TryGeometries(form, srid, out right, out _, out error, "geometries2"))
+                {
+                    return false;
+                }
+
+                if (!TryRelation(form, out pattern, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            case "buffer":
+            case "offset":
+            case "simplify":
+            case "union":
+                if (!TryGeometries(form, srid, out left, out _, out error))
+                {
+                    return false;
+                }
+
+                if (operation is "buffer" or "offset")
+                {
+                    string field = operation == "buffer" ? "distances" : "offsetDistance";
+
+                    if (!TryDistance(form, field, out distance, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            default:
+                // intersect and difference: a list against one shape, which
+                // ArcGIS spells "geometry" beside "geometries".
+                if (!TryGeometries(form, srid, out left, out _, out error)
+                    || !TrySingleGeometry(form, srid, out right, out error))
+                {
+                    return false;
+                }
+
+                break;
+        }
+
+        EngineOperation kind = operation switch
+        {
+            "intersect" => EngineOperation.Intersect,
+            "difference" => EngineOperation.Difference,
+            "cut" => EngineOperation.Cut,
+            "buffer" => EngineOperation.Buffer,
+            "offset" => EngineOperation.Offset,
+            "simplify" => EngineOperation.Simplify,
+            "relation" => EngineOperation.Relate,
+            "distance" => EngineOperation.Distance,
+            _ => EngineOperation.Union,
+        };
+
+        request = new EngineRequest(kind, left, right, srid)
+        {
+            Distance = distance,
+            Pattern = pattern,
+        };
+
+        return true;
+    }
+
+    /// <summary>
+    /// The Esri relation name, or the DE-9IM pattern it stands for.
+    /// </summary>
+    /// <remarks>
+    /// <b>Four of Esri's relation names are refused rather than approximated.</b>
+    /// <c>InteriorIntersection</c>, <c>LineCoincidence</c>, <c>LineTouch</c> and
+    /// <c>PointTouch</c> are refinements of the standard predicates whose exact
+    /// semantics are Esri's, and mapping them to the nearest DE-9IM pattern would
+    /// produce answers that are right most of the time. A wrong spatial predicate
+    /// is not a degraded answer — it is a caller filtering the wrong features and
+    /// never finding out.
+    /// </remarks>
+    private static bool TryRelation(IFormCollection form, out string? pattern, out string? error)
+    {
+        pattern = null;
+        error = null;
+
+        string relation = Field(form, "relation") ?? string.Empty;
+        string parameter = Field(form, "relationParam") ?? string.Empty;
+
+        if (relation.Length == 0 && parameter.Length == 0)
+        {
+            error =
+                "'relation' is required — one of esriGeometryRelationDisjoint, "
+                + "esriGeometryRelationIntersection, esriGeometryRelationWithin, "
+                + "esriGeometryRelationTouch, esriGeometryRelationCross, "
+                + "esriGeometryRelationOverlap, or esriGeometryRelationRelation with a DE-9IM "
+                + "pattern in 'relationParam'.";
+            return false;
+        }
+
+        if (relation is "esriGeometryRelationRelation" or "" || parameter.Length > 0)
+        {
+            if (parameter.Length == 0)
+            {
+                error = "'relationParam' is required: it carries the DE-9IM pattern to match.";
+                return false;
+            }
+
+            pattern = parameter;
+            return true;
+        }
+
+        switch (relation)
+        {
+            case "esriGeometryRelationInteriorIntersection":
+            case "esriGeometryRelationLineCoincidence":
+            case "esriGeometryRelationLineTouch":
+            case "esriGeometryRelationPointTouch":
+                error =
+                    $"'{relation}' is not offered. It is a refinement of a standard predicate "
+                    + "whose exact meaning is Esri's rather than OGC's, and approximating it "
+                    + "would return answers that are wrong in the cases it exists to "
+                    + "distinguish. Send esriGeometryRelationRelation with the DE-9IM pattern "
+                    + "you want in 'relationParam'.";
+                return false;
+
+            case "esriGeometryRelationDisjoint":
+            case "esriGeometryRelationIntersection":
+            case "esriGeometryRelationIn":
+            case "esriGeometryRelationWithin":
+            case "esriGeometryRelationTouch":
+            case "esriGeometryRelationCross":
+            case "esriGeometryRelationOverlap":
+                pattern = relation;
+                return true;
+
+            default:
+                // <b>Checked here rather than in the engine.</b> Anything that is
+                // not a name we know has to be a DE-9IM pattern, and letting a
+                // misspelt relation name travel to the worker produced
+                // "Should be length 9: esriGeometryRelationIntersection" — the
+                // topology library's complaint about a string it was never meant
+                // to see.
+                if (!IsDe9im(relation))
+                {
+                    error =
+                        $"'{relation}' is neither a relation this server knows nor a DE-9IM "
+                        + "pattern. A DE-9IM pattern is nine characters of 0, 1, 2, T, F or *.";
+                    return false;
+                }
+
+                pattern = relation;
+                return true;
+        }
+    }
+
+    /// <summary>Whether a string is shaped like a DE-9IM pattern.</summary>
+    private static bool IsDe9im(string value)
+    {
+        if (value.Length != 9)
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            if (c is not ('0' or '1' or '2' or 'T' or 'F' or '*'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Reads a required distance, which may be negative.</summary>
+    private static bool TryDistance(
+        IFormCollection form, string field, out double distance, out string? error)
+    {
+        distance = 0;
+        error = null;
+
+        string raw = Field(form, field) ?? string.Empty;
+
+        // ArcGIS's buffer takes a comma-separated list, one distance per ring.
+        // We buffer at one distance and say so rather than silently using the
+        // first of several a caller meant as several.
+        if (raw.Contains(',', StringComparison.Ordinal))
+        {
+            error =
+                $"'{field}' takes one distance here. ArcGIS accepts a list and returns a ring "
+                + "per distance; this server buffers once, so send one value and repeat the "
+                + "request for the others.";
+            return false;
+        }
+
+        if (raw.Length == 0)
+        {
+            error = $"'{field}' is required, in the units of the spatial reference.";
+            return false;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out distance)
+            || double.IsNaN(distance) || double.IsInfinity(distance))
+        {
+            error = $"'{field}' must be a number.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>One geometry under a name this operation chose.</summary>
+    private static bool TryNamedGeometry(
+        IFormCollection form, string field, int srid,
+        out List<Geometry> geometries, out string? error)
+    {
+        geometries = [];
+        error = null;
+
+        string raw = Field(form, field) ?? string.Empty;
+
+        if (raw.Length == 0)
+        {
+            error = $"'{field}' is required.";
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+
+            if (!ArcGisGeometryReader.TryRead(
+                    document.RootElement, srid, out Geometry? geometry, out error))
+            {
+                return false;
+            }
+
+            geometries = [geometry!];
+            return true;
+        }
+        catch (JsonException e)
+        {
+            error = $"'{field}' is not valid JSON: {e.Message}";
+            return false;
+        }
     }
 
     /// <summary>The single-geometry operand, which ArcGIS calls "geometry".</summary>
@@ -954,18 +1267,22 @@ internal static class GeometryServerEndpoints
         int srid,
         out List<Geometry> geometries,
         out GeometryKind kind,
-        out string? error)
+        out string? error,
+        string field = "geometries")
     {
         geometries = [];
         kind = GeometryKind.Point;
         error = null;
 
-        string? raw = Field(form, "geometries");
+        // <b>The field name is a parameter because 'relation' has two lists.</b>
+        // ArcGIS spells them geometries1 and geometries2, and every other
+        // operation on this service spells its list 'geometries'.
+        string? raw = Field(form, field);
 
         if (string.IsNullOrWhiteSpace(raw))
         {
-            error = "'geometries' is required: {\"geometryType\":\"esriGeometryPolygon\","
-                  + "\"geometries\":[ ... ]}.";
+            error = $"'{field}' is required: {{\"geometryType\":\"esriGeometryPolygon\","
+                  + $"\"{field}\":[ ... ]}}.";
             return false;
         }
 
@@ -977,18 +1294,19 @@ internal static class GeometryServerEndpoints
         }
         catch (JsonException e)
         {
-            error = $"'geometries' is not valid JSON: {e.Message}";
+            error = $"'{field}' is not valid JSON: {e.Message}";
             return false;
         }
 
         // Both shapes are sent: a bare array, and the documented wrapper object.
         JsonElement array = root.ValueKind == JsonValueKind.Array
             ? root
-            : root.TryGetProperty("geometries", out JsonElement inner) ? inner : default;
+            : root.TryGetProperty(field, out JsonElement inner)
+                || root.TryGetProperty("geometries", out inner) ? inner : default;
 
         if (array.ValueKind != JsonValueKind.Array)
         {
-            error = "'geometries' must be an array, or an object with a 'geometries' array.";
+            error = $"'{field}' must be an array, or an object with a '{field}' array.";
             return false;
         }
 

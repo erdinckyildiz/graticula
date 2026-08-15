@@ -11,6 +11,10 @@ using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.IO;
 using NetTopologySuite.Operation.Overlay;
 using NetTopologySuite.Operation.OverlayNG;
+using NetTopologySuite.Operation.Buffer;
+using NetTopologySuite.Operation.Distance;
+using NetTopologySuite.Operation.Polygonize;
+using NetTopologySuite.Geometries.Utilities;
 
 namespace GisServer.Overlay.Worker;
 
@@ -202,14 +206,125 @@ internal static class Program
             };
         }
 
-        NetTopologySuite.Geometries.Geometry result = request.Operation switch
+        // <b>Two operations answer with a number rather than a shape,</b> and
+        // they return before the geometry path below rather than pretending to
+        // produce one.
+        if (request.Operation == "Distance")
         {
-            "Intersect" => OverlayNGRobust.Overlay(first, second, SpatialFunction.Intersection),
-            "Difference" => OverlayNGRobust.Overlay(first, second, SpatialFunction.Difference),
-            _ => second is null
-                ? OverlayNGRobust.Union(first)
-                : OverlayNGRobust.Overlay(first, second, SpatialFunction.Union),
-        };
+            if (second is null)
+            {
+                return Refuse("Distance needs two geometries.");
+            }
+
+            return new OverlayResponse
+            {
+                Scalar = DistanceOp.Distance(first, second),
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
+        if (request.Operation == "Relate")
+        {
+            if (right.Count == 0)
+            {
+                return Refuse("Relate needs a second set of geometries.");
+            }
+
+            // <b>The cross product happens here, not in the server.</b> ArcGIS's
+            // 'relation' asks which pairs out of two sets satisfy a predicate,
+            // and doing that a pair at a time would be one process round trip
+            // per pair — for two sets of thirty, nine hundred of them. The
+            // geometries are already decoded in this process; comparing them
+            // here costs nothing extra.
+            List<int[]> pairs = [];
+
+            string? matrix = null;
+
+            for (int i = 0; i < left.Count; i++)
+            {
+                for (int j = 0; j < right.Count; j++)
+                {
+                    IntersectionMatrix relation = left[i].Relate(right[j]);
+
+                    // The first pair's matrix is reported whatever the pattern
+                    // does, because a caller debugging a predicate that returns
+                    // nothing needs to see what the relation actually was.
+                    matrix ??= relation.ToString();
+
+                    if (Satisfies(left[i], right[j], relation, request.Pattern))
+                    {
+                        pairs.Add([i, j]);
+                    }
+                }
+            }
+
+            return new OverlayResponse
+            {
+                Matrix = matrix,
+                Pairs = pairs,
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
+        NetTopologySuite.Geometries.Geometry result;
+
+        switch (request.Operation)
+        {
+            case "Intersect":
+                result = OverlayNGRobust.Overlay(first, second, SpatialFunction.Intersection);
+                break;
+
+            case "Difference":
+                result = OverlayNGRobust.Overlay(first, second, SpatialFunction.Difference);
+                break;
+
+            case "Union":
+                result = second is null
+                    ? OverlayNGRobust.Union(first)
+                    : OverlayNGRobust.Overlay(first, second, SpatialFunction.Union);
+                break;
+
+            case "Buffer":
+                result = first.Buffer(request.Distance);
+                break;
+
+            case "Offset":
+                // <b>An offset curve is a line, and of one geometry at a
+                // time.</b> OffsetCurve takes a single geometry rather than a
+                // collection, so a caller sending several gets several curves --
+                // handled here rather than by combining first, which would
+                // offset the outline of the whole set instead.
+                result = Offsets(left, request.Distance, factory);
+                break;
+
+            case "Simplify":
+                // <b>ArcGIS 'simplify' is 'make this valid'.</b> GeometryFixer
+                // is NTS's implementation of exactly that: it repairs
+                // self-intersections, closes rings, drops zero-area slivers and
+                // fixes ring orientation. It is not Douglas-Peucker, and the
+                // server offers Douglas-Peucker under its own name.
+                result = GeometryFixer.Fix(first);
+                break;
+
+            case "Cut":
+                if (second is null)
+                {
+                    return Refuse("Cut needs a cutting geometry.");
+                }
+
+                result = Cut(first, second, factory);
+                break;
+
+            default:
+                // <b>This used to be the union branch.</b> An operation the
+                // worker did not recognise fell through to the discard pattern
+                // and was silently computed as a union -- a typo in the server
+                // would have returned a plausible wrong shape rather than an
+                // error. Found while adding the operations above.
+                return Refuse($"'{request.Operation}' is not an operation this worker knows.");
+        }
 
         WKBWriter writer = new();
 
@@ -235,6 +350,116 @@ internal static class Program
             CandidatePairs = candidates,
             Milliseconds = clock.ElapsedMilliseconds,
         };
+    }
+
+    private static OverlayResponse Refuse(string message) =>
+        new() { Refusal = "Invalid", Message = message };
+
+    /// <summary>
+    /// Whether a pair satisfies an Esri relation name or a DE-9IM pattern.
+    /// </summary>
+    /// <remarks>
+    /// <b>Three of Esri's names have no single DE-9IM pattern, which is why this
+    /// is a switch and not a lookup table.</b> "Intersects" is the negation of
+    /// disjoint and needs four patterns OR-ed; "touches" needs three. Writing
+    /// them out as one pattern each would have been wrong in exactly the cases
+    /// the predicate exists to catch, and NTS already implements all of them
+    /// correctly.
+    /// </remarks>
+    private static bool Satisfies(
+        NetTopologySuite.Geometries.Geometry a,
+        NetTopologySuite.Geometries.Geometry b,
+        IntersectionMatrix relation,
+        string? pattern) => pattern switch
+        {
+            null or "" => true,
+            "esriGeometryRelationDisjoint" => a.Disjoint(b),
+            "esriGeometryRelationIntersection" => a.Intersects(b),
+            "esriGeometryRelationIn" or "esriGeometryRelationWithin" => a.Within(b),
+            "esriGeometryRelationTouch" => a.Touches(b),
+            "esriGeometryRelationCross" => a.Crosses(b),
+            "esriGeometryRelationOverlap" => a.Overlaps(b),
+            _ => relation.Matches(pattern),
+        };
+
+    /// <summary>
+    /// The pieces <paramref name="target"/> splits into along <paramref name="cutter"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Polygons are cut by re-polygonising, lines by difference.</b> Noding
+    /// the target's boundary together with the cutter and running the
+    /// polygonizer produces every face the two together enclose; the faces that
+    /// lie inside the original are the pieces, and the ones outside are what the
+    /// cutter closed off against nothing and must be dropped.
+    /// </para>
+    /// <para>
+    /// <b>An interior point decides membership, not a centroid.</b> The centroid
+    /// of a C-shaped piece can fall outside the piece, and the containment test
+    /// would then reject a real one. <c>InteriorPoint</c> is guaranteed to be
+    /// inside.
+    /// </para>
+    /// <para>
+    /// <b>A cutter that misses returns the target unchanged, as one piece.</b>
+    /// ArcGIS reports that case through cut indexes we do not model; returning
+    /// the input says the same thing in a shape the caller already reads.
+    /// </para>
+    /// </remarks>
+    private static NetTopologySuite.Geometries.Geometry Cut(
+        NetTopologySuite.Geometries.Geometry target,
+        NetTopologySuite.Geometries.Geometry cutter,
+        GeometryFactory factory)
+    {
+        if (target.Dimension != Dimension.Surface)
+        {
+            // Lines and points: what is left after removing the cutter, which is
+            // what ArcGIS does to them.
+            return target.Difference(cutter);
+        }
+
+        Polygonizer polygonizer = new();
+
+        polygonizer.Add(target.Boundary.Union(cutter));
+
+        List<NetTopologySuite.Geometries.Geometry> pieces = [];
+
+        foreach (NetTopologySuite.Geometries.Geometry piece in polygonizer.GetPolygons())
+        {
+            if (target.Contains(piece.InteriorPoint))
+            {
+                pieces.Add(piece);
+            }
+        }
+
+        // <b>A collection, not BuildGeometry.</b> BuildGeometry turns a list of
+        // polygons into a MultiPolygon, which Flatten deliberately keeps whole —
+        // so a square cut in two came back as one geometry with two rings, and
+        // the caller had no way to tell the pieces apart. A cut's whole output is
+        // the separateness of the pieces.
+        return pieces.Count == 0
+            ? target
+            : factory.CreateGeometryCollection([.. pieces]);
+    }
+
+    /// <summary>One offset curve per input geometry.</summary>
+    private static NetTopologySuite.Geometries.Geometry Offsets(
+        List<NetTopologySuite.Geometries.Geometry> inputs,
+        double distance,
+        GeometryFactory factory)
+    {
+        List<NetTopologySuite.Geometries.Geometry> curves = [];
+
+        foreach (NetTopologySuite.Geometries.Geometry input in inputs)
+        {
+            NetTopologySuite.Geometries.Geometry curve = OffsetCurve.GetCurve(input, distance);
+
+            if (!curve.IsEmpty)
+            {
+                curves.Add(curve);
+            }
+        }
+
+        return curves.Count == 1 ? curves[0] : factory.BuildGeometry(curves);
     }
 
     /// <summary>
@@ -399,7 +624,7 @@ internal static class Program
 /// <summary>One request, as the server writes it.</summary>
 internal sealed class OverlayRequest
 {
-    /// <summary>Intersect, Union or Difference.</summary>
+    /// <summary>The member name of <c>EngineOperation</c>.</summary>
     public string Operation { get; set; } = "Intersect";
 
     /// <summary>The first operand, WKB in base64.</summary>
@@ -413,6 +638,12 @@ internal sealed class OverlayRequest
 
     /// <summary>The pre-flight threshold, or zero for none.</summary>
     public long MaximumCandidatePairs { get; set; }
+
+    /// <summary>Buffer and offset distance, in the reference's units.</summary>
+    public double Distance { get; set; }
+
+    /// <summary>A DE-9IM pattern for Relate, or null for the matrix.</summary>
+    public string? Pattern { get; set; }
 }
 
 /// <summary>One response, as the server reads it.</summary>
@@ -432,4 +663,15 @@ internal sealed class OverlayResponse
 
     /// <summary>How long it took inside the worker.</summary>
     public long Milliseconds { get; set; }
+
+    /// <summary>The distance, when that is what was asked for.</summary>
+    public double? Scalar { get; set; }
+
+    /// <summary>The DE-9IM matrix, when that is what was asked for.</summary>
+    public string? Matrix { get; set; }
+
+    /// <summary>
+    /// Index pairs into Left and Right that satisfied the pattern.
+    /// </summary>
+    public List<int[]>? Pairs { get; set; }
 }

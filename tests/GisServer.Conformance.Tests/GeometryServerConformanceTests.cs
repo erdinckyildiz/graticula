@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
@@ -219,20 +220,25 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     // ---------- the refusals ----------
 
     [Theory]
-    [InlineData("cut")]
-    [InlineData("buffer")]
-    [InlineData("relation")]
-    [InlineData("simplify")]
+    [InlineData("autoComplete")]
+    [InlineData("reshape")]
+    [InlineData("trimExtend")]
     public async Task An_unimplemented_operation_answers_501_rather_than_404(string operation)
     {
         // 501 says the server made a decision. 404 says it has no
         // GeometryServer, which is a different and wrong thing to conclude.
         //
-        // <b>intersect, difference and union left this list on 2026-08-15</b>,
-        // when Q-97 was answered and they were implemented. <b>convexHull,
-        // densify and generalize left it the same day</b>, computed in process
-        // — they had been refused on an argument about asymptotics that
-        // ADR-022 condition 2 already called the kind measurement overturns.
+        // <b>This list went from twelve to three on 2026-08-15.</b> intersect,
+        // difference and union left when Q-97 was answered; convexHull, densify
+        // and generalize left the same day, computed in process; and cut,
+        // buffer, offset, simplify, relation and distance left when the owner
+        // ruled that the server bounds cost and does not decide usefulness —
+        // the deadline and heap limit that made overlay offerable were never
+        // specific to overlay.
+        //
+        // <b>What is left is not refused on cost.</b> All three are editing
+        // operations over existing features, and whether they belong on this
+        // service or on FeatureServer is an open design question.
         Assert.Equal(501, await StatusOfPostAsync(operation));
     }
 
@@ -246,33 +252,36 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     /// over segment pairs and does no overlay at all. The owner found it by
     /// putting a real ArcGIS GeometryServer beside this one. Telling a caller
     /// something untrue about why they cannot have a thing is worse than the
-    /// missing thing, so each refusal now carries its own reason and this test
+    /// missing thing, so each refusal carries its own reason and this test
     /// asserts they differ.
     /// </remarks>
     [Fact]
     public async Task Each_refusal_gives_its_own_reason()
     {
-        string cut = await ReasonAsync("cut");
-        string distance = await ReasonAsync("distance");
-        string simplify = await ReasonAsync("simplify");
+        string autoComplete = await ReasonAsync("autoComplete");
+        string reshape = await ReasonAsync("reshape");
+        string trimExtend = await ReasonAsync("trimExtend");
 
-        // cut is genuinely the overlay case, and says so.
-        Assert.Contains("overlay", cut, StringComparison.OrdinalIgnoreCase);
+        // Distinct sentences, not one sentence with the name swapped in. This
+        // is the assertion that would have caught the original defect.
+        Assert.Equal(3, new HashSet<string>([autoComplete, reshape, trimExtend]).Count);
 
-        // distance is not, and must not claim to be.
-        Assert.DoesNotContain("overlay", distance, StringComparison.OrdinalIgnoreCase);
+        // Each names what it actually does.
+        Assert.Contains("neighbours", autoComplete, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("boundary", reshape, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("lines", trimExtend, StringComparison.OrdinalIgnoreCase);
 
-        // simplify is refused because it means topology repair, not because it
-        // is expensive — and the message has to say so, or a caller reads it as
-        // "generalize by another name".
-        Assert.Contains("topology", simplify, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("generalize", simplify, StringComparison.OrdinalIgnoreCase);
-
-        // And every one of them says what is available instead.
-        foreach (string message in (string[])[cut, distance, simplify])
+        // <b>None of them may blame cost.</b> The three that are left are open
+        // design questions, not expensive operations, and saying "too expensive"
+        // would be the same lie in a new place.
+        foreach (string message in (string[])[autoComplete, reshape, trimExtend])
         {
+            Assert.Contains("editing", message, StringComparison.OrdinalIgnoreCase);
+
+            // And every one says what is available instead.
             Assert.Contains("project", message, StringComparison.Ordinal);
             Assert.Contains("convexHull", message, StringComparison.Ordinal);
+            Assert.Contains("buffer", message, StringComparison.Ordinal);
         }
     }
 
@@ -363,16 +372,31 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     /// The input that took the machine down is refused, and the server lives.
     /// </summary>
     /// <remarks>
-    /// <b>This is the whole of \"-97 in one test.</b> benchmarks/geometry-overlay
+    /// <b>This is the whole of Q-97 in one test.</b> benchmarks/geometry-overlay
     /// measured a 6,408-vertex comb pair costing 153 seconds and 16.7 GB — the
     /// run pushed the host into swap and killed the Docker daemon with it, and
     /// the finding was recorded as: one unauthenticated request would have done
-    /// that. The same shape now answers 400 in well under a second, and the
-    /// assertion after it is that the server is still answering at all.
+    /// that. The same shape is now stopped, and the assertion after it is that
+    /// the server is still answering at all.
+    /// </remarks>
+    /// <remarks>
+    /// <b>It used to answer 400 and now answers 503, and that is the owner's
+    /// decision arriving in a test.</b> The pre-flight caught this input before
+    /// any arithmetic, which was cheap — and it was also measured
+    /// under-predicting an adversarial case by fourteen times, so it was never
+    /// the bound. On 2026-08-15 the owner ruled that the server does not decide
+    /// on the caller's behalf what is worth attempting, and the pre-flight was
+    /// turned off by default. The request is now attempted and killed on the
+    /// deadline. <b>What matters did not change:</b> the work stops, and the
+    /// server is still serving afterwards. What changed is that it costs ten
+    /// seconds of one worker instead of eighty milliseconds — the price of not
+    /// refusing work on a guess.
     /// </remarks>
     [Fact]
     public async Task The_adversarial_input_that_took_the_host_down_is_refused()
     {
+        Stopwatch clock = Stopwatch.StartNew();
+
         JsonElement result = await PostAsync(
             "intersect",
             ("sr", "3857"),
@@ -381,18 +405,43 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
             ("f", "json"));
 
         JsonElement error = Require(
-            result, "error", "The 6,408-vertex comb pair was computed rather than refused.");
+            result, "error", "The 6,408-vertex comb pair was computed rather than stopped.");
 
-        Assert.Equal(400, error.GetProperty("code").GetInt32());
-        Assert.Equal("TooLarge", error.GetProperty("reason").GetString());
+        // 503, not 400: the caller sent something the server was willing to
+        // attempt and could not finish, which is a different statement from
+        // "your request was malformed".
+        Assert.Equal(503, error.GetProperty("code").GetInt32());
+        Assert.Equal("Deadline", error.GetProperty("reason").GetString());
 
+        // <b>The deadline is ten seconds and the measured cost was 153.</b> If
+        // this ever takes minutes, the process is not being killed and the only
+        // thing standing between this server and the Docker daemon is gone.
         Assert.True(
-            error.GetProperty("candidatePairs").GetInt64() > 1_000_000,
-            "The pre-flight did not see a large crossing count, so this input is no longer the "
-            + "adversarial case.");
+            clock.Elapsed < TimeSpan.FromSeconds(40),
+            $"the refusal took {clock.Elapsed.TotalSeconds:0.#} seconds, so the worker is not "
+            + "being killed on its deadline.");
 
         // Still serving, which is the property the whole design exists for.
         Assert.Equal(200, await StatusOfAsync("/healthz/ready"));
+    }
+
+    /// <summary>
+    /// The pre-flight still works when an operator asks for it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not asserted here, and this comment is the reason.</b> The threshold is
+    /// a constructor argument on the pool rather than a runtime setting, so a
+    /// conformance test against a running server cannot switch it on.
+    /// <c>GeometryWorkerPoolTests.The_pre_flight_refuses_the_adversarial_comb_before_any_arithmetic</c>
+    /// covers it at the layer where it can be configured. Recorded rather than
+    /// left as a silent gap in coverage.
+    /// </remarks>
+    [Fact]
+    public async Task The_service_document_says_the_pre_flight_is_off()
+    {
+        JsonElement document = await GetJsonAsync(Root);
+
+        Assert.Equal(0, document.GetProperty("maximumCandidatePairs").GetInt64());
     }
 
     [Fact]
@@ -430,12 +479,23 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
                 .Select(o => o.GetString()!),
         ];
 
-        Assert.Contains("intersect", supported);
-        Assert.Contains("union", supported);
-        Assert.Contains("difference", supported);
+        foreach (string operation in (string[])[
+            "project", "areasAndLengths", "lengths", "labelPoints",
+            "convexHull", "densify", "generalize",
+            "intersect", "union", "difference",
+            "cut", "buffer", "offset", "simplify", "relation", "distance"])
+        {
+            Assert.Contains(operation, supported);
+        }
 
-        Assert.True(document.GetProperty("maximumCandidatePairs").GetInt64() > 0);
-        Assert.True(document.GetProperty("overlayDeadlineSeconds").GetDouble() > 0);
+        // <b>The deadline is the bound and must be stated.</b> The pre-flight is
+        // not: it is off by default since 2026-08-15, because it was measured
+        // under-predicting by fourteen times and the owner ruled that the server
+        // does not decide for the caller what is worth attempting. Zero here
+        // means "no pre-flight", and asserting it is positive would be asserting
+        // that the server second-guesses its callers.
+        Assert.True(document.GetProperty("deadlineSeconds").GetDouble() > 0);
+        Assert.True(document.GetProperty("maximumCandidatePairs").GetInt64() >= 0);
     }
 
     [Fact]

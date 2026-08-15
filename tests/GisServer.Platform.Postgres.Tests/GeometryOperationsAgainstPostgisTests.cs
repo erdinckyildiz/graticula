@@ -49,6 +49,12 @@ public sealed class GeometryOperationsAgainstPostgisTests : PostgresFixture
             where udt_name = 'geometry'
               and column_name = 'geom'
               and table_schema not in ('gisserver', 'tiger', 'topology')
+              -- <b>and not another test's private schema.</b> PostgresFixture
+              -- gives each test class a gisserver_test_* schema and drops it at
+              -- the end, so a class running in parallel with this one can have
+              -- its tables listed here and dropped before they are read. That
+              -- surfaced as 42P01 on a table this query had just returned.
+              and table_schema not like 'gisserver\_test\_%'
             group by 1
             order by 1
             """;
@@ -77,13 +83,25 @@ public sealed class GeometryOperationsAgainstPostgisTests : PostgresFixture
                  limit {count.ToString(CultureInfo.InvariantCulture)}
                  """);
 
-            await using (NpgsqlDataReader reader =
-                         await command.ExecuteReaderAsync(CancellationToken.None))
+            try
             {
+                await using NpgsqlDataReader reader =
+                    await command.ExecuteReaderAsync(CancellationToken.None);
+
                 while (await reader.ReadAsync(CancellationToken.None))
                 {
                     corpus.Add(WkbReader.Read((byte[])reader[0]));
                 }
+            }
+            catch (PostgresException e) when (e.SqlState == "42P01")
+            {
+                // <b>The table was listed and then dropped.</b> Publishing tests
+                // create hosted tables and remove them, and the catalogue read
+                // above is a snapshot — so a name can be valid when it is
+                // returned and gone a millisecond later. Try the next one; that
+                // is what a discovery loop is for. Surfaced as a real failure
+                // twice before being handled, both times on an unrelated run.
+                continue;
             }
 
             if (corpus.Count >= Math.Min(count, 20))

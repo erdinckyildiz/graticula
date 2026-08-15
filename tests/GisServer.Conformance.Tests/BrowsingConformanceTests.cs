@@ -295,7 +295,7 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         }
 
         using HttpRequestMessage request =
-            new(HttpMethod.Get, new Uri(root + Geometry + "/buffer"));
+            new(HttpMethod.Get, new Uri(root + Geometry + "/reshape"));
         request.Headers.Add("Accept", "text/html");
 
         using HttpResponseMessage response = await http.SendAsync(request);
@@ -303,9 +303,11 @@ public sealed class BrowsingConformanceTests : ArcGisClient
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("not implemented", html, StringComparison.Ordinal);
-        // The reason is buffer's own — curve construction — not the overlay
-        // argument that used to be pasted onto every refusal.
-        Assert.Contains("curve", html, StringComparison.OrdinalIgnoreCase);
+        // <b>The reason is reshape's own.</b> It used to be the overlay
+        // sentence, pasted onto all twelve refusals; buffer used to be here and
+        // is now implemented. What is left is refused as an editing operation,
+        // not as an expensive one.
+        Assert.Contains("editing", html, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

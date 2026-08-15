@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace GisServer.Host;
 
 /// <summary>
-/// Runs overlays in worker processes, and kills the ones that run too long.
+/// Runs topology work in worker processes, and kills the ones that run too long.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,13 +40,22 @@ namespace GisServer.Host;
 /// response. Retire it and start another.
 /// </para>
 /// <para>
+/// <b>It was <c>OverlayWorkerPool</c> and ran three operations.</b> On
+/// 2026-08-15 the owner overturned the rule that kept the rest out — the server
+/// bounds cost, it does not decide usefulness — and nine operations now come
+/// through here. Nothing about the bounds changed, because the bounds were never
+/// about which operation it was: a deadline that kills the process and a heap
+/// limit the process cannot exceed hold for a buffer exactly as they hold for an
+/// intersection.
+/// </para>
+/// <para>
 /// <b>The pool is small on purpose.</b> Each worker may allocate up to its
 /// ceiling, so the server's exposure is workers × ceiling and nothing else. Two
 /// workers at 1 GB is a number an operator can reason about; a worker per
 /// request is not.
 /// </para>
 /// </remarks>
-internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
+internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
 {
     /// <summary>How long an overlay may run before its worker is killed.</summary>
     /// <remarks>
@@ -65,6 +74,9 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
     /// The pre-flight threshold, in candidate segment pairs.
     /// </summary>
     /// <remarks>
+    /// <b>Zero, meaning no pre-flight, since 2026-08-15.</b> The number below is
+    /// why the old default was 100,000 and is kept because it is the reasoning
+    /// behind <see cref="PreflightAbove"/>, which an operator can still choose.
     /// <b>Set above the real corpus and below the attack, which is the only
     /// honest way to place it.</b> The largest real case measured 48,066 pairs
     /// at 62 ms; the 200-teeth comb measured 131,049 at 3.4 seconds. 100,000
@@ -73,7 +85,22 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
     /// 33,129 pairs and 884 ms — finding 16 says nothing at this layer will —
     /// and that case is what the deadline is for.
     /// </remarks>
-    public const long MaximumCandidatePairs = 100_000;
+    public const long MaximumCandidatePairs = 0;
+
+    /// <summary>
+    /// The pre-flight threshold that was the default until 2026-08-15.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept as a named constant rather than deleted, because an operator may
+    /// still want it</b> — a deployment that would rather refuse a heavy request
+    /// in 80 ms than spend ten seconds on it can pass this. It stopped being the
+    /// default when the owner ruled that the server does not decide for the
+    /// caller: the pre-flight was measured leaky (finding 16, under-predicting
+    /// fourteenfold) and a filter that both leaks and turns real work away is
+    /// the worst of the two options. The deadline and the heap limit are the
+    /// bounds; this is a cost optimisation.
+    /// </remarks>
+    public const long PreflightAbove = 100_000;
 
     /// <summary>The heap a worker may not exceed.</summary>
     /// <remarks>
@@ -133,7 +160,7 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
     /// <param name="maximumCandidatePairs">
     /// The pre-flight threshold, or null for <see cref="MaximumCandidatePairs"/>.
     /// </param>
-    public OverlayWorkerPool(
+    public GeometryWorkerPool(
         string executable,
         int workers,
         ILoggerFactory loggerFactory,
@@ -160,22 +187,19 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
     public bool Available => File.Exists(_executable);
 
     /// <inheritdoc/>
-    public async Task<OverlayResult> ComputeAsync(
-        OverlayOperation operation,
-        IReadOnlyList<Geometry> left,
-        IReadOnlyList<Geometry> right,
-        int srid,
+    public async Task<EngineResult> ComputeAsync(
+        EngineRequest request,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(left);
-        ArgumentNullException.ThrowIfNull(right);
+        ArgumentNullException.ThrowIfNull(request.Left);
+        ArgumentNullException.ThrowIfNull(request.Right);
 
         if (!Available)
         {
-            return new OverlayResult(
+            return new EngineResult(
                 [],
-                OverlayRefusal.Unavailable,
-                $"The overlay worker is not installed at '{_executable}'. Overlay operations "
+                EngineRefusal.Unavailable,
+                $"The geometry worker is not installed at '{_executable}'. These operations "
                 + "run in a separate process so they can be killed on a deadline (Q-97), and "
                 + "without it they are not offered.",
                 0,
@@ -187,11 +211,11 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
         // busy, not left holding a connection for a minute.
         if (!await _slots.WaitAsync(_deadline, cancellationToken).ConfigureAwait(false))
         {
-            return new OverlayResult(
+            return new EngineResult(
                 [],
-                OverlayRefusal.Unavailable,
-                "Every overlay worker is busy. Overlay runs in a small pool of processes so that "
-                + "its memory cost is bounded; try again shortly.",
+                EngineRefusal.Unavailable,
+                "Every geometry worker is busy. This work runs in a small pool of processes so "
+                + "that its memory cost is bounded; try again shortly.",
                 0,
                 0);
         }
@@ -203,9 +227,7 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
             worker = await RentAsync(cancellationToken).ConfigureAwait(false);
 
             return await worker
-                .ComputeAsync(
-                    operation, left, right, srid, _deadline, _maximumCandidatePairs,
-                    cancellationToken)
+                .ComputeAsync(request, _deadline, _maximumCandidatePairs, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -353,7 +375,10 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
             try
             {
                 await ComputeAsync(
-                    OverlayOperation.Union, [], [], 0, StartUp, long.MaxValue, cancellationToken)
+                    new EngineRequest(EngineOperation.Union, [], [], 0),
+                    StartUp,
+                    long.MaxValue,
+                    cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception)
@@ -365,11 +390,8 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
             }
         }
 
-        public async Task<OverlayResult> ComputeAsync(
-            OverlayOperation operation,
-            IReadOnlyList<Geometry> left,
-            IReadOnlyList<Geometry> right,
-            int srid,
+        public async Task<EngineResult> ComputeAsync(
+            EngineRequest work,
             TimeSpan deadline,
             long maximumCandidatePairs,
             CancellationToken cancellationToken)
@@ -378,11 +400,13 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
 
             byte[] request = JsonSerializer.SerializeToUtf8Bytes(new
             {
-                Operation = operation.ToString(),
-                Left = Encode(left),
-                Right = Encode(right),
-                Srid = srid,
+                Operation = work.Operation.ToString(),
+                Left = Encode(work.Left),
+                Right = Encode(work.Right),
+                Srid = work.Srid,
                 MaximumCandidatePairs = maximumCandidatePairs,
+                Distance = work.Distance,
+                Pattern = work.Pattern,
             });
 
             using CancellationTokenSource timer =
@@ -426,14 +450,14 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
 
                 Log.OverlayKilled(_log, (long)deadline.TotalMilliseconds, null);
 
-                return new OverlayResult(
+                return new EngineResult(
                     [],
-                    OverlayRefusal.Deadline,
-                    $"The overlay ran longer than {deadline.TotalSeconds:0.##} seconds and was "
-                    + "stopped. Overlay cost grows with the number of edge crossings rather than "
-                    + "with the size of the input, so a small pair of shapes can be an expensive "
-                    + "one — see benchmarks/geometry-overlay. Simplify the inputs, or overlay "
-                    + "fewer of them at once.",
+                    EngineRefusal.Deadline,
+                    $"'{work.Operation}' ran longer than {deadline.TotalSeconds:0.##} seconds and "
+                    + "was stopped. Topological cost grows with the number of edge crossings "
+                    + "rather than with the size of the input, so a small pair of shapes can be "
+                    + "an expensive one — see benchmarks/geometry-overlay. Reduce the inputs, or "
+                    + "send fewer of them at once.",
                     0,
                     clock.ElapsedMilliseconds);
             }
@@ -441,10 +465,10 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
             {
                 Kill();
 
-                return new OverlayResult(
+                return new EngineResult(
                     [],
-                    OverlayRefusal.Unavailable,
-                    "The overlay worker stopped responding. The request was not completed.",
+                    EngineRefusal.Unavailable,
+                    "The geometry worker stopped responding. The request was not completed.",
                     0,
                     clock.ElapsedMilliseconds);
             }
@@ -541,9 +565,15 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
 
             public long Milliseconds { get; set; }
 
+            public double? Scalar { get; set; }
+
+            public string? Matrix { get; set; }
+
+            public List<int[]>? Pairs { get; set; }
+
             public bool Healthy => Refusal.Length == 0 || Refusal == "TooLarge";
 
-            public OverlayResult ToResult(long elapsed)
+            public EngineResult ToResult(long elapsed)
             {
                 List<Geometry> geometries = [];
 
@@ -552,15 +582,20 @@ internal sealed class OverlayWorkerPool : IOverlay, IAsyncDisposable
                     geometries.Add(WkbReader.Read(Convert.FromBase64String(wkb)));
                 }
 
-                OverlayRefusal refusal = Refusal switch
+                EngineRefusal refusal = Refusal switch
                 {
-                    "" => OverlayRefusal.None,
-                    "TooLarge" => OverlayRefusal.TooLarge,
-                    "OutOfMemory" => OverlayRefusal.OutOfMemory,
-                    _ => OverlayRefusal.Invalid,
+                    "" => EngineRefusal.None,
+                    "TooLarge" => EngineRefusal.TooLarge,
+                    "OutOfMemory" => EngineRefusal.OutOfMemory,
+                    _ => EngineRefusal.Invalid,
                 };
 
-                return new OverlayResult(geometries, refusal, Message, CandidatePairs, elapsed);
+                return new EngineResult(geometries, refusal, Message, CandidatePairs, elapsed)
+                {
+                    Scalar = Scalar,
+                    Matrix = Matrix,
+                    Pairs = Pairs,
+                };
             }
         }
     }
