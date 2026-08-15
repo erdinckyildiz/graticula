@@ -404,6 +404,67 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<StyledService?> FindServiceForStyleAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Sql = """
+            select s.name, s.folder, s.style,
+                   coalesce(array_agg(l.name) filter (where l.name is not null), '{}')
+            from service s
+            left join layer l on l.service_id = s.id
+            where lower(s.name) = lower(@name)
+            group by s.id, s.name, s.folder, s.style
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new StyledService(
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            reader.GetFieldValue<string[]>(3),
+            reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetStyleAsync(
+        string name, string? style, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>style_updated_at moves with the style and is cleared with it</b>, so
+        // "when was this styled" cannot outlive the style itself.
+        //
+        // <b>The cast is load-bearing.</b> Without ::text the clear path fails
+        // with 42P08, could not determine data type of parameter $1: a null
+        // parameter inside a CASE gives Postgres nothing to infer from, and the
+        // set-a-style path works fine while the clear-it path 500s.
+        const string Sql = """
+            update service
+               set style = @style::text,
+                   style_updated_at =
+                     case when @style::text is null then null else now() end
+             where lower(name) = lower(@name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("style", (object?)style ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// <para>
     /// <b>Writes the service's scope, not the layer's, and that was a shipped

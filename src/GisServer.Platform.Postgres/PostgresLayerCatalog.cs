@@ -35,7 +35,10 @@ public sealed class PostgresLayerCatalog
         -- second time, on the column that decides who sees what.
         s.owner_principal_id, s.sharing, s.status, l.attachment_quota_bytes,
         s.id, l.layer_index, s.name, s.folder, s.kind, s.description,
-        l.parent_layer_index, l.cache_seconds
+        l.parent_layer_index, l.cache_seconds,
+
+        -- The stored style, or null for the generated one (ADR-028).
+        s.style
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -276,7 +279,7 @@ public sealed class PostgresLayerCatalog
     {
         Dictionary<Guid, List<PublishedLayer>> byService = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
-            Guid? Owner, SharingScope Sharing, ServiceStatus Status)> heads = [];
+            Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -306,7 +309,8 @@ public sealed class PostgresLayerCatalog
                         reader.IsDBNull(22) ? null : reader.GetString(22),
                         reader.IsDBNull(13) ? null : reader.GetGuid(13),
                         ParseSharing(reader.GetString(14)),
-                        ParseStatus(reader.GetString(15)));
+                        ParseStatus(reader.GetString(15)),
+                        reader.IsDBNull(25) ? null : reader.GetString(25));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -330,7 +334,8 @@ public sealed class PostgresLayerCatalog
             services.Add(new PublishedService(
                 id, head.Name, head.Folder, head.Kind, head.Description,
                 head.Owner, head.Sharing, head.Status, byService[id],
-                groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : []));
+                groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : [],
+                head.Style));
         }
 
         return services;

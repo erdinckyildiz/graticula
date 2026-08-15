@@ -224,6 +224,14 @@ sheet stops being allowed to be empty.
 5. **The sprite sheet stops being empty, or the `sprite` key stops being
    written**, when style management arrives. A permanent empty stub is a
    temporary compromise that stopped being temporary.
+   *(Style management arrived the same day —
+   [ADR-028](ADR-028-style-documents.md) — and this was answered a **third
+   way**: neither option was right, because there is no icon library to ship and
+   clients probe the sheet whether or not we advertise it. Instead the style
+   validator **refuses any layer setting `icon-image`**, so a style that would
+   silently draw nothing is turned away at the moment its author can fix it. The
+   harm is removed; the gap is not. **Still open**, and the check is deleted
+   rather than relaxed when sprites can be uploaded.)*
 
 ## 11. Dissent
 

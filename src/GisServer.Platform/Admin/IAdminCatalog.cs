@@ -113,6 +113,16 @@ public readonly record struct AdminLayer(
     bool Hosted);
 
 /// <summary>
+/// A service and the style stored against it.
+/// </summary>
+/// <param name="Name">Its name.</param>
+/// <param name="Folder">Its folder, or null for the root.</param>
+/// <param name="SourceLayers">The layer names a style may draw.</param>
+/// <param name="Style">The stored style, or null for the generated one.</param>
+public readonly record struct StyledService(
+    string Name, string? Folder, IReadOnlyList<string> SourceLayers, string? Style);
+
+/// <summary>
 /// The write side of the catalogue.
 /// </summary>
 /// <remarks>
@@ -255,7 +265,30 @@ public interface IAdminCatalog
     /// <summary>Lists published layers.</summary>
     Task<IReadOnlyList<AdminLayer>> ListLayersAsync(CancellationToken cancellationToken);
 
-    /// <summary>Changes a layer's sharing scope.</summary>
+    /// <summary>Finds a service and the layer names a style may draw.</summary>
+    /// <param name="name">The service name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The service, or null.</returns>
+    Task<StyledService?> FindServiceForStyleAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores a style against a service, or clears it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Validated before it gets here.</b> This writes what it is given; the
+    /// checks live in <c>StyleDocument</c> where the caller can be told which
+    /// line is wrong.
+    /// </remarks>
+    /// <param name="name">The service name.</param>
+    /// <param name="style">The document, or null to go back to the default.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a service was found and written.</returns>
+    Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
+
+    /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
+    /// <param name="layerName">A layer in the service.</param>
+    /// <param name="sharing">The new scope.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The layer as it was before, or null if there is no such layer.</returns>
     Task<AdminLayer?> SetSharingAsync(
         string layerName, SharingScope sharing, CancellationToken cancellationToken);

@@ -286,4 +286,93 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(2, service.Layers.Count);
         Assert.Equal(SharingScope.Public, service.Sharing);
     }
+
+    /// <summary>
+    /// A style is stored, read back byte for byte, and can be cleared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The clear path had its own bug and only a database could find it.</b>
+    /// The update sets <c>style_updated_at</c> from a CASE over the same
+    /// parameter, and a null parameter inside a CASE gives Postgres nothing to
+    /// infer a type from: <c>42P08, could not determine data type of parameter
+    /// $1</c>. Setting a style worked; clearing one returned a 500. A cast fixes
+    /// it, and this test is why the cast will stay.
+    /// </para>
+    /// <para>
+    /// <b>Byte for byte matters.</b> The column is text rather than jsonb
+    /// precisely so a cartographer gets back the file they sent — same
+    /// whitespace, same key order — and a normalising round trip would be a
+    /// silent edit of somebody's work.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_style_survives_the_round_trip_and_can_be_cleared()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "styled"), owner, CancellationToken.None);
+
+        // Deliberately odd formatting: two spaces, an unusual key order, a
+        // trailing newline. All of it must come back.
+        const string Style = """
+            {
+              "version":  8,
+              "layers": [],
+              "name": "İstanbul"
+            }
+            """;
+
+        Assert.True(await admin.SetStyleAsync("styled", Style, CancellationToken.None));
+
+        StyledService stored =
+            (await admin.FindServiceForStyleAsync("styled", CancellationToken.None))!.Value;
+
+        Assert.Equal(Style, stored.Style);
+        Assert.Equal(["styled"], stored.SourceLayers);
+
+        Assert.True(await admin.SetStyleAsync("styled", null, CancellationToken.None));
+
+        StyledService cleared =
+            (await admin.FindServiceForStyleAsync("styled", CancellationToken.None))!.Value;
+
+        Assert.Null(cleared.Style);
+    }
+
+    /// <summary>
+    /// The layer list a style is checked against is the service's own.
+    /// </summary>
+    /// <remarks>
+    /// A service with two layers must offer both, or the validator refuses a
+    /// style that is correct. The aggregate is a left join, so a service with no
+    /// layers must come back with an empty list rather than a list holding one
+    /// null.
+    /// </remarks>
+    [Fact]
+    public async Task The_source_layers_offered_are_the_ones_the_service_has()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "first", service: "pair"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "second", service: "pair"), owner, CancellationToken.None);
+
+        StyledService pair =
+            (await admin.FindServiceForStyleAsync("pair", CancellationToken.None))!.Value;
+
+        Assert.Equal(["first", "second"], pair.SourceLayers.OrderBy(n => n));
+        Assert.Null(pair.Style);
+    }
+
+    [Fact]
+    public async Task Styling_a_service_that_does_not_exist_says_so()
+    {
+        (PostgresAdminCatalog admin, _, _) = await ReadyAsync();
+
+        Assert.Null(await admin.FindServiceForStyleAsync("nosuch", CancellationToken.None));
+        Assert.False(await admin.SetStyleAsync("nosuch", "{}", CancellationToken.None));
+    }
 }

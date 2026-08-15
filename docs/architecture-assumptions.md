@@ -118,6 +118,8 @@ flagship decision without that being written anywhere.
 | A-068 | Fifteen minutes is longer than a transient outage and shorter than one nobody is handling | `UNVALIDATED` | Observe operator response in a real deployment. Configurable (`GisServer:CatalogFallbackMinutes`) because the right value is a property of the deployment, and zero disables degraded serving entirely | [ADR-026](adr/ADR-026-serving-through-a-platform-store-outage.md) |
 | A-069 | One Latin/Greek/Cyrillic typeface serves the deployments this product is for | `UNVALIDATED`, and **known to be false for a CJK deployment** | Ask a deployment that labels in a script DejaVu does not cover. Taken because the audience is a Turkish-speaking organisation leaving ArcGIS Enterprise (ADR-018 §1), and stated as a limit rather than discovered as a bug | [ADR-027](adr/ADR-027-glyphs-and-sprites.md) |
 | A-070 | Substituting an unavailable font beats refusing the request | `UNVALIDATED` by use. Reasoned from what a client does with a 404 — drops every label and reports a fetch failure, which reads as a broken server | Observe whether anybody is surprised by a substituted typeface | [ADR-027](adr/ADR-027-glyphs-and-sprites.md) |
+| A-071 | One style per service is enough to be useful, even though it is not enough to be finished | `UNVALIDATED` | Wait for the first request for a dark theme, which is the expected counterexample rather than a hypothetical one | [ADR-028](adr/ADR-028-style-documents.md) |
+| A-072 | Refusing a style at write time costs an author less than a blank map costs them at read time | `UNVALIDATED` by use, and it is the premise of the whole validator | Observe whether authors work around the checks | [ADR-028](adr/ADR-028-style-documents.md) |
 
 ---
 

@@ -401,6 +401,18 @@ internal static class VectorTileEndpoints
             return;
         }
 
+        // <b>A stored style wins, unchanged.</b> It was checked when it was
+        // written, so nothing here reparses or rewrites it — a cartographer
+        // should get back the file they sent, not a normalised version of it
+        // (ADR-028).
+        if (service.Style is { Length: > 0 } stored)
+        {
+            await Results.Content(stored, "application/json; charset=utf-8")
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         // One style layer per source layer, drawn in index order — polygons
         // before lines before points would be nicer, and is a cartographic
         // decision this default has no business making. Index order is what the

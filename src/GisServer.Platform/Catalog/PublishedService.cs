@@ -57,6 +57,12 @@ public sealed class PublishedService
     /// <param name="status">Whether it is served.</param>
     /// <param name="layers">Its layers, in any order.</param>
     /// <param name="groups">Its group layers, in any order.</param>
+    /// <param name="style">
+    /// The cartographic style somebody wrote for it, or null to keep the
+    /// generated default. Held as the text it was stored as, because a style is
+    /// a document an author reads again and normalising it would return
+    /// something they did not write.
+    /// </param>
     public PublishedService(
         Guid id,
         string name,
@@ -67,7 +73,8 @@ public sealed class PublishedService
         SharingScope sharing,
         ServiceStatus status,
         IEnumerable<PublishedLayer> layers,
-        IEnumerable<GroupLayer>? groups = null)
+        IEnumerable<GroupLayer>? groups = null,
+        string? style = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -81,12 +88,24 @@ public sealed class PublishedService
         Owner = owner;
         Sharing = sharing;
         Status = status;
+        Style = style;
         Layers = [.. layers.OrderBy(l => l.LayerIndex)];
         Groups = [.. (groups ?? []).OrderBy(g => g.Index)];
     }
 
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
+
+    /// <summary>
+    /// The stored style, or null when this service still uses the generated one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Text rather than a parsed document.</b> Nothing in the serving path
+    /// needs to look inside it — it was checked when it was written — and
+    /// reparsing it per request to serialise it again would be work whose only
+    /// effect is to reformat somebody's file.
+    /// </remarks>
+    public string? Style { get; }
 
     /// <summary>Its name within its folder.</summary>
     public string Name { get; }

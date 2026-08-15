@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using GisServer.Api.ArcGis;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
 using GisServer.Platform.Catalog;
@@ -126,6 +127,14 @@ internal static class AdminEndpoints
         app.MapGet("/admin/routes", ListRoutesAsync);
         app.MapPost("/admin/featureservices", CreateServiceAsync);
         app.MapPost("/admin/services/{name}/groups", CreateGroupLayerAsync);
+
+        // <b>The style, which is the one thing about a map this server cannot
+        // guess.</b> ADR-028. GET is here rather than only on the public
+        // resource so that an author can read back exactly what they stored,
+        // including a null meaning "still the generated one".
+        app.MapGet("/admin/services/{name}/style", GetStyleAsync);
+        app.MapPut("/admin/services/{name}/style", SetStyleAsync);
+        app.MapDelete("/admin/services/{name}/style", DeleteStyleAsync);
     }
 
     /// <summary>
@@ -494,6 +503,178 @@ internal static class AdminEndpoints
     /// account — so it takes <c>sharing:shareToPublic</c>, not a separate
     /// administrative privilege that would let one be granted without the other.
     /// </remarks>
+    /// <summary>Reads back the stored style, or says there is none.</summary>
+    private static async Task GetStyleAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+            is not { } service)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (service.Style is null)
+        {
+            await Results.Json(new
+            {
+                name = service.Name,
+                stored = false,
+                sourceLayers = service.SourceLayers,
+                note = "This service has no stored style, so it serves a generated one: every "
+                     + "layer in publication order, one colour per geometry type, no labels. "
+                     + "PUT a style document here to replace it.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        // The document as it was stored, byte for byte. An author diffing this
+        // against their file should see nothing.
+        await Results.Content(service.Style, "application/json; charset=utf-8")
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stores a style, having checked it against the service it is for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read as text, not bound as a model.</b> A style is an open-ended
+    /// document — the specification allows properties this server has never
+    /// heard of, and a client that understands them should get them back. Binding
+    /// it to a type would silently drop everything the type does not know, which
+    /// is the worst possible failure for a document somebody hand-wrote.
+    /// </para>
+    /// <para>
+    /// <b>content:publishFeatures, not an administrator privilege.</b> Styling
+    /// a service is a publisher's job, and the person who published a layer is
+    /// the person who knows what colour it should be.
+    /// </para>
+    /// </remarks>
+    private static async Task SetStyleAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+            is not { } service)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        string body;
+
+        // <b>Bounded before it is read, not after.</b> Reading an unbounded body
+        // and then measuring it is an accounting exercise: the memory is already
+        // spent. The cap is one more byte than the limit so that a document
+        // exactly at the limit is accepted and one over is refused.
+        using (System.IO.StreamReader reader = new(context.Request.Body))
+        {
+            char[] buffer = new char[StyleDocument.MaximumBytes + 1];
+            int read = 0;
+
+            while (read < buffer.Length)
+            {
+                int got = await reader
+                    .ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellation)
+                    .ConfigureAwait(false);
+
+                if (got == 0)
+                {
+                    break;
+                }
+
+                read += got;
+            }
+
+            body = new string(buffer, 0, read);
+        }
+
+        if (!StyleDocument.TryValidate(body, service.SourceLayers, out string? error))
+        {
+            await Refuse(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetStyleAsync(name, body, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // The document is not in the audit record. It can be a megabyte, it is
+        // readable through the API anyway, and an audit log that copies its
+        // subject is a second place to keep the same thing correct.
+        await AuditAsync(
+            context, audit, "service.style", name,
+            Detail(new { bytes = body.Length, replaced = service.Style is not null }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name = service.Name,
+            stored = true,
+            bytes = body.Length,
+            replaced = service.Style is not null,
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Drops the stored style, returning the service to the generated one.</summary>
+    private static async Task DeleteStyleAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+            is not { } service)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await catalog.SetStyleAsync(name, null, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "service.style.clear", name,
+            Detail(new { had = service.Style is not null }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name = service.Name,
+            stored = false,
+            had = service.Style is not null,
+            note = "Back to the generated style.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task SetServiceSharingAsync(
         HttpContext context,
         string name,
