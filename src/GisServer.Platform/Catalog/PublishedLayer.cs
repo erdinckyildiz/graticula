@@ -25,7 +25,11 @@ public sealed class PublishedLayer
         Guid? owner,
         SharingScope sharing,
         ServiceStatus status,
-        long attachmentQuotaBytes = 0)
+        long attachmentQuotaBytes = 0,
+        Guid serviceId = default,
+        int layerIndex = 0,
+        string? serviceName = null,
+        string? folder = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -40,7 +44,38 @@ public sealed class PublishedLayer
         Sharing = sharing;
         Status = status;
         AttachmentQuotaBytes = attachmentQuotaBytes;
+        ServiceId = serviceId;
+        LayerIndex = layerIndex;
+        ServiceName = serviceName ?? definition.Name;
+        Folder = folder;
     }
+
+    /// <summary>The service that contains it.</summary>
+    public Guid ServiceId { get; }
+
+    /// <summary>
+    /// Its number within that service — the <c>{id}</c> in the URL.
+    /// </summary>
+    /// <remarks>
+    /// <b>Assigned once and never reused.</b> A saved web map stores this number,
+    /// so renumbering after a layer is removed would silently repoint somebody's
+    /// map at different data. Gaps in the sequence are correct.
+    /// </remarks>
+    public int LayerIndex { get; }
+
+    /// <summary>
+    /// The service's name, which is the address — not the layer's own.
+    /// </summary>
+    /// <remarks>
+    /// These were the same string until 2026-08-15, when a service became a
+    /// container of layers. They are now different concepts that happen to
+    /// coincide for a single-layer service, which is the most common kind, which
+    /// is exactly why the distinction needs a name.
+    /// </remarks>
+    public string ServiceName { get; }
+
+    /// <summary>The service's folder, or null for the root.</summary>
+    public string? Folder { get; }
 
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
@@ -74,10 +109,19 @@ public sealed class PublishedLayer
     /// </remarks>
     public Guid? Owner { get; }
 
-    /// <summary>Who may read it (ADR-018 §3b).</summary>
+    /// <summary>
+    /// Who may read it (ADR-018 §3b) — its service's scope, not its own.
+    /// </summary>
+    /// <remarks>
+    /// <b>A layer has no sharing of its own and must not grow one.</b> A service
+    /// with three layers and three scopes cannot answer "who may see this
+    /// service", and the client asks about the service. Copied from the service
+    /// on read so that call sites which reason about a single layer keep working;
+    /// the database has one column, on <c>service</c>.
+    /// </remarks>
     public SharingScope Sharing { get; }
 
-    /// <summary>Whether it runs at all (ADR-020 §3).</summary>
+    /// <summary>Whether it runs at all (ADR-020 §3) — again, its service's.</summary>
     public ServiceStatus Status { get; }
 
     /// <summary>

@@ -154,16 +154,47 @@ public static class FeatureServerMetadataWriter
     /// </remarks>
     public const string HostedFolder = "hosted";
 
-    /// <summary>The service document at <c>/rest/services/{name}/FeatureServer</c>.</summary>
-    /// <param name="layer">The layer definition.</param>
-    /// <param name="geometryType">Its declared geometry type.</param>
-    /// <param name="extent">Where its features are, or null if unknown.</param>
+    /// <summary>One layer's entry in a service document.</summary>
+    /// <param name="Id">Its number within the service, which is the URL segment.</param>
+    /// <param name="Name">Its name.</param>
+    /// <param name="GeometryType">Its declared geometry type.</param>
+    /// <param name="Srid">Its spatial reference.</param>
+    /// <param name="Extent">Where its features are, or null if unknown.</param>
+    public readonly record struct ServiceLayer(
+        int Id, string Name, GeometryKind GeometryType, int Srid, Envelope? Extent);
+
+    /// <summary>
+    /// The service document at <c>/rest/services/{name}/FeatureServer</c>.
+    /// </summary>
+    /// <param name="layers">Its layers, in index order.</param>
     /// <param name="capabilities">What the caller may do — see the remarks on the type.</param>
+    /// <param name="description">What the service is for, or null.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>A service is a container of layers</b> — owner correction 2026-08-15.
+    /// It used to take one layer and hard-code <c>id = 0</c>, which is why every
+    /// route in this server ended in <c>/0</c>.
+    /// </para>
+    /// <para>
+    /// <b>The extent is the union of its layers', and the spatial reference is
+    /// the first layer's.</b> A service whose layers disagree about their
+    /// reference cannot state one, and every client reads a single
+    /// <c>spatialReference</c> here — so mixing them is refused at publication
+    /// rather than papered over at read time.
+    /// </para>
+    /// </remarks>
     public static object Service(
-        LayerDefinition layer, GeometryKind geometryType, Envelope? extent, string capabilities)
+        IReadOnlyList<ServiceLayer> layers,
+        string capabilities,
+        string? description = null)
     {
-        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(layers);
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
+
+        // A service with no layers is a real state — it has been created and not
+        // filled yet — and it still has to answer with a valid document.
+        int srid = layers.Count > 0 ? layers[0].Srid : 4326;
+        Envelope? extent = Union(layers);
 
         return new
         {
@@ -181,34 +212,58 @@ public static class FeatureServerMetadataWriter
             // edit button, so over-claiming puts that button in front of
             // somebody who will be refused when they press it.
             capabilities,
-            description = string.Empty,
+            description = description ?? string.Empty,
             copyrightText = string.Empty,
-            spatialReference = SpatialReference(layer.Srid),
-            initialExtent = ExtentOrNull(extent, layer.Srid),
-            fullExtent = ExtentOrNull(extent, layer.Srid),
+            spatialReference = SpatialReference(srid),
+            initialExtent = ExtentOrNull(extent, srid),
+            fullExtent = ExtentOrNull(extent, srid),
             allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal),
-            units = UnitsOf(layer.Srid),
+            units = UnitsOf(srid),
 
-            // One layer per service, always. ADR-013's model is a service per
-            // published layer, so the id is always 0 — which is why every query
-            // route in this server ends in /0.
-            layers = new[]
+            layers = layers.Select(l => new
             {
-                new
-                {
-                    id = 0,
-                    name = layer.Name,
-                    parentLayerId = -1,
-                    defaultVisibility = true,
-                    subLayerIds = (int[]?)null,
-                    minScale = 0,
-                    maxScale = 0,
-                    type = "Feature Layer",
-                    geometryType = ArcGisGeometryWriter.TypeName(geometryType),
-                },
-            },
+                id = l.Id,
+                name = l.Name,
+
+                // <b>-1 and null: this service has no group layers.</b> Group
+                // layers are a MapServer concept and MapServer is not in
+                // [v1-scope](../../docs/v1-scope.md). The fields are present
+                // because ArcGIS clients read them and an absent field is a
+                // different answer from "no parent".
+                parentLayerId = -1,
+                defaultVisibility = true,
+                subLayerIds = (int[]?)null,
+                minScale = 0,
+                maxScale = 0,
+                type = "Feature Layer",
+                geometryType = ArcGisGeometryWriter.TypeName(l.GeometryType),
+            }).ToArray(),
             tables = Array.Empty<object>(),
         };
+    }
+
+    /// <summary>The smallest box containing every layer's, or null.</summary>
+    private static Envelope? Union(IReadOnlyList<ServiceLayer> layers)
+    {
+        Envelope? union = null;
+
+        foreach (ServiceLayer layer in layers)
+        {
+            if (layer.Extent is not { } extent)
+            {
+                continue;
+            }
+
+            union = union is not { } sofar
+                ? extent
+                : new Envelope(
+                    Math.Min(sofar.MinX, extent.MinX),
+                    Math.Min(sofar.MinY, extent.MinY),
+                    Math.Max(sofar.MaxX, extent.MaxX),
+                    Math.Max(sofar.MaxY, extent.MaxY));
+        }
+
+        return union;
     }
 
     /// <summary>The layer document at <c>/rest/services/{name}/FeatureServer/0</c>.</summary>
@@ -221,12 +276,18 @@ public static class FeatureServerMetadataWriter
     /// shape an ArcGIS client reads. A relationship a client cannot discover is
     /// one nobody follows.
     /// </param>
+    /// <param name="layerId">
+    /// Its number within the service, which is the segment the client used to
+    /// reach it. Zero for a single-layer service, which was every service until
+    /// 2026-08-15.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
         LayerDescription description,
         string capabilities,
-        IEnumerable<object>? relationships = null)
+        IEnumerable<object>? relationships = null,
+        int layerId = 0)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -235,7 +296,7 @@ public static class FeatureServerMetadataWriter
         return new
         {
             currentVersion = CurrentVersion,
-            id = 0,
+            id = layerId,
             name = layer.Name,
             type = "Feature Layer",
             description = string.Empty,

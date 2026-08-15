@@ -50,15 +50,23 @@ public static class VectorTileServerMetadataWriter
     /// <summary>
     /// The VectorTileServer service document.
     /// </summary>
-    /// <param name="serviceName">The published layer name.</param>
-    /// <param name="sourceLayerName">The layer name written inside each tile.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="sourceLayerNames">
+    /// The layer names written inside each tile, one per layer in the service.
+    /// A tile carries all of them, so a client reading this document knows which
+    /// <c>source-layer</c> values to expect before it fetches one.
+    /// </param>
     /// <param name="extent">The data's extent, or null when it is unknown.</param>
     /// <param name="maxZoom">Deepest level served.</param>
     /// <returns>The document.</returns>
     public static object Service(
-        string serviceName, string sourceLayerName, Envelope? extent, int maxZoom)
+        string serviceName,
+        IReadOnlyList<string> sourceLayerNames,
+        Envelope? extent,
+        int maxZoom)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentNullException.ThrowIfNull(sourceLayerNames);
 
         object full = ExtentOf(extent);
 
@@ -130,8 +138,9 @@ public static class VectorTileServerMetadataWriter
     /// <summary>
     /// A Mapbox GL style, which is what <c>resources/styles/root.json</c> serves.
     /// </summary>
-    /// <param name="sourceLayerName">The layer name inside the tiles.</param>
-    /// <param name="geometryType">What to draw it as.</param>
+    /// <param name="sourceLayers">
+    /// Each layer inside the tiles and what to draw it as, in draw order.
+    /// </param>
     /// <returns>The style document.</returns>
     /// <remarks>
     /// <para>
@@ -148,8 +157,32 @@ public static class VectorTileServerMetadataWriter
     /// style that loads and a map that stays empty, with nothing in the console.
     /// </para>
     /// </remarks>
-    public static object Style(string sourceLayerName, GeometryKind geometryType)
+    public static object Style(IReadOnlyList<(string Name, GeometryKind Geometry)> sourceLayers)
     {
+        ArgumentNullException.ThrowIfNull(sourceLayers);
+
+        return new
+        {
+            version = 8,
+            sources = new Dictionary<string, object>
+            {
+                ["esri"] = new { type = "vector", url = "../../" },
+            },
+
+            // A dictionary rather than an anonymous type, because the style spec
+            // spells it "source-layer" and a C# member cannot carry a hyphen.
+            // The alternative is a naming policy on the serialiser, which would
+            // then apply to every other document this assembly writes and rename
+            // fields ArcGIS clients match exactly.
+            layers = sourceLayers.Select(StyleLayer).ToArray(),
+        };
+    }
+
+    /// <summary>One style layer, keyed and painted by its geometry.</summary>
+    private static object StyleLayer((string Name, GeometryKind Geometry) source)
+    {
+        (string sourceLayerName, GeometryKind geometryType) = source;
+
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
 
         Dictionary<string, object> paint = geometryType switch
@@ -180,29 +213,13 @@ public static class VectorTileServerMetadataWriter
             _ => "fill",
         };
 
-        return new
+        return new Dictionary<string, object>
         {
-            version = 8,
-            sources = new Dictionary<string, object>
-            {
-                ["esri"] = new { type = "vector", url = "../../" },
-            },
-            // A dictionary rather than an anonymous type, because the style spec
-            // spells it "source-layer" and a C# member cannot carry a hyphen.
-            // The alternative is a naming policy on the serialiser, which would
-            // then apply to every other document this assembly writes and rename
-            // fields ArcGIS clients match exactly.
-            layers = new object[]
-            {
-                new Dictionary<string, object>
-                {
-                    ["id"] = sourceLayerName,
-                    ["type"] = type,
-                    ["source"] = "esri",
-                    ["source-layer"] = sourceLayerName,
-                    ["paint"] = paint,
-                },
-            },
+            ["id"] = sourceLayerName,
+            ["type"] = type,
+            ["source"] = "esri",
+            ["source-layer"] = sourceLayerName,
+            ["paint"] = paint,
         };
     }
 

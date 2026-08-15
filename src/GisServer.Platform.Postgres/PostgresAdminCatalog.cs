@@ -116,26 +116,61 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
-    public async Task<Guid> PublishLayerAsync(
+    public async Task<PublishedLayerAddress> PublishLayerAsync(
         LayerPublication publication, Guid owner, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(publication);
 
         Guid id = Guid.NewGuid();
 
+        // <b>One statement, because the service, its index and the layer must
+        // arrive together or not at all.</b> Two round trips would leave a
+        // window where a second publisher reads the same max(layer_index) and
+        // both write layer 1 — the unique constraint on (service_id,
+        // layer_index) would then reject one of them <em>after</em> its service
+        // row existed. The CTE makes the whole thing one transaction with no
+        // application-side read to race on.
+        //
+        // <b>An existing service keeps its own sharing.</b> The scope belongs to
+        // the container (ADR-018 §3b-i), so adding a layer to a public service
+        // must not quietly reset it to whatever this request asked for — that
+        // would be a privilege change disguised as a publish.
         const string Sql = """
+            with folder as (
+                select case when d.is_datastore then 'hosted' else null end as name
+                from data_source d where d.id = @source
+            ),
+            existing as (
+                select s.id from service s, folder f
+                where lower(s.name) = lower(@service)
+                  and coalesce(lower(s.folder), '') = coalesce(lower(f.name), '')
+            ),
+            created as (
+                insert into service (id, name, folder, kind, owner_principal_id, sharing)
+                select gen_random_uuid(), @service, f.name, 'FeatureServer', @owner, @sharing
+                from folder f
+                where not exists (select 1 from existing)
+                returning id
+            ),
+            target as (
+                select id from existing union all select id from created
+            )
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type, is_hosted,
-               owner_principal_id, sharing)
-            values
-              (@id, @source, @name, @schema, @table, @geometry,
+               owner_principal_id, sharing, service_id, layer_index)
+            select
+               @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type, false,
-               @owner, @sharing)
+               @owner, @sharing, t.id,
+               coalesce((select max(l.layer_index) + 1 from layer l where l.service_id = t.id), 0)
+            from target t
+            returning layer_index
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("service", publication.ServiceName ?? publication.Name);
         command.Parameters.AddWithValue("source", publication.DataSourceId);
         command.Parameters.AddWithValue("name", publication.Name);
         command.Parameters.AddWithValue("schema", publication.SchemaName);
@@ -151,8 +186,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             Value = (object?)publication.ObjectIdColumn ?? DBNull.Value,
         });
 
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return id;
+        object? index = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return new PublishedLayerAddress(
+            id,
+            publication.ServiceName ?? publication.Name,
+            index is int at ? at : 0);
     }
 
     /// <inheritdoc/>

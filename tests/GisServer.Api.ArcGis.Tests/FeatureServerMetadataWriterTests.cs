@@ -51,7 +51,7 @@ public sealed class FeatureServerMetadataWriterTests
         // because applyEdits is planned puts that button in front of a user
         // today.
         JsonElement readOnly = Json(FeatureServerMetadataWriter.Service(
-            Layer(), GeometryKind.Polygon, null, "Query"));
+            [OneLayer()], "Query"));
 
         Assert.Equal("Query", readOnly.GetProperty("capabilities").GetString());
         Assert.False(readOnly.GetProperty("allowGeometryUpdates").GetBoolean());
@@ -59,7 +59,7 @@ public sealed class FeatureServerMetadataWriterTests
         // And when the caller may edit, the flag that gates geometry editing in
         // a client follows the capability rather than staying false.
         JsonElement editable = Json(FeatureServerMetadataWriter.Service(
-            Layer(), GeometryKind.Polygon, null, "Query,Create,Update,Delete"));
+            [OneLayer()], "Query,Create,Update,Delete"));
 
         Assert.True(editable.GetProperty("allowGeometryUpdates").GetBoolean());
     }
@@ -256,18 +256,77 @@ public sealed class FeatureServerMetadataWriterTests
     }
 
     [Fact]
-    public void The_service_reports_exactly_one_layer_at_id_zero()
+    public void A_single_layer_service_still_numbers_its_layer_zero()
     {
-        // ADR-013's model is one service per published layer, which is why every
-        // query route in this server ends in /0. If this ever reports more, the
-        // routes are wrong too.
+        // Every route in this server ended in a literal /0 until a service
+        // became a container of layers. The common case must not have moved.
         JsonElement layers = Json(FeatureServerMetadataWriter.Service(
-            Layer(), GeometryKind.Polygon, null, "Query")).GetProperty("layers");
+            [OneLayer()], "Query")).GetProperty("layers");
 
         JsonElement only = Assert.Single(layers.EnumerateArray().ToArray());
         Assert.Equal(0, only.GetProperty("id").GetInt32());
         Assert.Equal("esriGeometryPolygon", only.GetProperty("geometryType").GetString());
     }
+
+    [Fact]
+    public void A_service_reports_every_layer_it_contains_with_its_own_geometry_type()
+    {
+        // Owner correction 2026-08-15: "a service is a combination of layers".
+        // The screenshot that prompted it showed one service with a point, a
+        // line and a polygon layer, which is the case this asserts.
+        JsonElement layers = Json(FeatureServerMetadataWriter.Service(
+            [
+                new FeatureServerMetadataWriter.ServiceLayer(
+                    0, "GeoPoint", GeometryKind.Point, 3857, null),
+                new FeatureServerMetadataWriter.ServiceLayer(
+                    1, "GeoLine", GeometryKind.LineString, 3857, null),
+                new FeatureServerMetadataWriter.ServiceLayer(
+                    2, "GeoFence", GeometryKind.Polygon, 3857, null),
+            ],
+            "Query")).GetProperty("layers");
+
+        Assert.Equal(3, layers.GetArrayLength());
+        Assert.Equal("GeoLine", layers[1].GetProperty("name").GetString());
+        Assert.Equal(2, layers[2].GetProperty("id").GetInt32());
+
+        Assert.Equal(
+            ["esriGeometryPoint", "esriGeometryPolyline", "esriGeometryPolygon"],
+            layers.EnumerateArray().Select(l => l.GetProperty("geometryType").GetString()));
+    }
+
+    [Fact]
+    public void The_service_extent_is_the_union_of_its_layers()
+    {
+        // A client zooms to this. A service whose extent covered only its first
+        // layer would open on a map with two of its three layers off-screen.
+        JsonElement extent = Json(FeatureServerMetadataWriter.Service(
+            [
+                new FeatureServerMetadataWriter.ServiceLayer(
+                    0, "a", GeometryKind.Point, 3857, new Envelope(0, 0, 10, 10)),
+                new FeatureServerMetadataWriter.ServiceLayer(
+                    1, "b", GeometryKind.Point, 3857, new Envelope(-5, 20, 3, 40)),
+            ],
+            "Query")).GetProperty("fullExtent");
+
+        Assert.Equal(-5, extent.GetProperty("xmin").GetDouble());
+        Assert.Equal(0, extent.GetProperty("ymin").GetDouble());
+        Assert.Equal(10, extent.GetProperty("xmax").GetDouble());
+        Assert.Equal(40, extent.GetProperty("ymax").GetDouble());
+    }
+
+    [Fact]
+    public void An_empty_service_is_still_a_valid_document()
+    {
+        // A service exists between being created and having layers added, and
+        // an administrator will open it in that window.
+        JsonElement document = Json(FeatureServerMetadataWriter.Service([], "Query"));
+
+        Assert.Empty(document.GetProperty("layers").EnumerateArray());
+        Assert.Equal(10.81, document.GetProperty("currentVersion").GetDouble(), 2);
+    }
+
+    private static FeatureServerMetadataWriter.ServiceLayer OneLayer() =>
+        new(0, Layer().Name, GeometryKind.Polygon, Layer().Srid, null);
 
     [Fact]
     public void The_advertised_maximum_matches_the_limit_the_query_endpoint_enforces()

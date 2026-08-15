@@ -59,8 +59,12 @@ internal static class RelationshipEndpoints
         foreach (string prefix in (string[])
             ["/rest/services", $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}"])
         {
-            app.MapGet($"{prefix}/{{layerName}}/FeatureServer/0/queryRelatedRecords", QueryRelatedAsync);
-            app.MapPost($"{prefix}/{{layerName}}/FeatureServer/0/queryRelatedRecords", QueryRelatedAsync);
+            app.MapGet(
+                $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryRelatedRecords",
+                QueryRelatedAsync);
+            app.MapPost(
+                $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryRelatedRecords",
+                QueryRelatedAsync);
         }
     }
 
@@ -352,37 +356,24 @@ internal static class RelationshipEndpoints
     /// </remarks>
     private static async Task QueryRelatedAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         PostgresLayerCatalog layers,
         PostgresRelationshipCatalog relationships,
         ServiceContexts contexts,
         LayerConnections connections,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await layers.FindAsync(layerName, cancellation).ConfigureAwait(false);
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, layers, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
 
-        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        if (layer is null)
         {
-            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
             return;
         }
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        if (layer is null
-            || !LayerAccess
-                .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                .IsAllowed())
-        {
-            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
-            return;
-        }
-
-        if (!layer.IsRunning)
-        {
-            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
-            return;
-        }
 
         string relationshipId = Value(context, "relationshipId");
         string objectIdsRaw = Value(context, "objectIds");
@@ -402,7 +393,8 @@ internal static class RelationshipEndpoints
             || (relationship.OriginLayerId != layer.Id && relationship.RelatedLayerId != layer.Id))
         {
             await Fail(context, 404,
-                $"Relationship {wanted} does not exist, or does not involve '{layerName}'.")
+                $"Relationship {wanted} does not exist, or does not involve "
+                + $"'{layer.Definition.Name}'.")
                 .ConfigureAwait(false);
             return;
         }
@@ -451,7 +443,7 @@ internal static class RelationshipEndpoints
             .IsAllowed())
         {
             await Fail(context, 403,
-                $"'{layerName}' is related to a layer you may not read, so the related records "
+                $"'{layer.Definition.Name}' is related to a layer you may not read, so the related records "
                 + "cannot be returned. A relationship does not widen who may see a layer.")
                 .ConfigureAwait(false);
             return;

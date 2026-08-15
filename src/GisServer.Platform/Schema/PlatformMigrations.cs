@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(10);
+    public static SchemaVersion ComponentSchemaVersion => new(11);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -45,6 +45,7 @@ public static class PlatformMigrations
         AttachmentQuotaV8,
         RelationshipsV9,
         SystemServicesV10,
+        ServicesV11,
     ]);
 
     /// <summary>
@@ -700,5 +701,135 @@ public static class PlatformMigrations
         """
         insert into system_service (name, kind, folder, sharing)
         values ('Geometry', 'GeometryServer', 'Utilities', 'organization')
+        """);
+
+    /// <summary>
+    /// A service becomes a container of layers, which is what a service is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner correction, 2026-08-15: "a service is a combination of layers
+    /// actually. so multiple layers can be shown as a service."</b> Until now
+    /// one published layer <em>was</em> one service, and the assumption was
+    /// wired in hard enough to be visible in the URLs: every route in the server
+    /// ended in <c>/0</c>, because there could never be a layer 1.
+    /// </para>
+    /// <para>
+    /// <b>The old model was not a simplification, it was a different product.</b>
+    /// ArcGIS's unit of publication, sharing, naming and stopping is the
+    /// <em>service</em>; layers are what a service contains. Somebody publishing
+    /// three related layers — points, lines, fences — publishes one service with
+    /// three layers, and every client adds it as one thing. One-layer-per-service
+    /// makes them add three unrelated services and gives an administrator three
+    /// sharing switches to keep in step.
+    /// </para>
+    /// <para>
+    /// <b>Sharing, status, folder and owner move to the service, and only to the
+    /// service.</b> A service with three layers and three sharing scopes has no
+    /// answer to "who may see this service", so those columns cannot stay on the
+    /// layer and also mean anything. The layer's copies are left in place by this
+    /// migration and read by nothing — see the warning below.
+    /// </para>
+    /// <para>
+    /// <b>Expand, and the backfill is the point.</b> Every existing layer gets a
+    /// service of its own name, in the folder its data implies, carrying its
+    /// sharing, status and owner — so every URL that worked before this migration
+    /// works after it, at the same address, with the same authorization. The new
+    /// model contains the old one exactly.
+    /// </para>
+    /// <para>
+    /// <b>Two sources of truth exist between this migration and its contract, and
+    /// that is a real hazard rather than a formality.</b> The <c>is_hosted</c>
+    /// column is the cautionary tale in this very file: it stayed writable, drifted
+    /// to false everywhere, and silently disabled every vector tile service. The
+    /// defence here is that <c>layer.sharing</c> and <c>layer.status</c> are read
+    /// by nothing after this migration — the catalogue query selects the service's
+    /// columns — so a stale value cannot be believed. Dropping them is a contract
+    /// migration and is tracked as <b>D-29</b>.
+    /// </para>
+    /// </remarks>
+    private static Migration ServicesV11 => Migration.Expand(
+        new SchemaVersion(11),
+        "A service contains layers, so three related layers can be published as one service.",
+
+        """
+        create table service (
+            id           uuid        not null primary key,
+            name         text        not null,
+            folder       text,
+            kind         text        not null default 'FeatureServer',
+            description  text,
+            owner_principal_id uuid,
+            sharing      text        not null default 'private',
+            status       text        not null default 'started',
+            created_at   timestamptz not null default now(),
+            updated_at   timestamptz not null default now(),
+            constraint service_sharing_known
+              check (sharing in ('private', 'organization', 'public')),
+            constraint service_status_known
+              check (status in ('started', 'stopped'))
+        )
+        """,
+
+        // Unique per folder rather than globally: /rest/services/roads and
+        // /rest/services/hosted/roads are two addresses and may be two services.
+        // A null folder is the root, and null is not distinct from null here, so
+        // the root cannot hold two services of one name either.
+        """
+        create unique index service_name_in_folder
+          on service (coalesce(folder, ''), lower(name))
+        """,
+
+        "alter table layer add column service_id uuid references service (id)",
+
+        // The number in the URL. Unique within a service, and it is what
+        // /FeatureServer/{id} resolves against.
+        "alter table layer add column layer_index integer",
+
+        // One service per existing layer, keeping its name, folder, sharing,
+        // status and owner — so nothing moves and no URL changes.
+        """
+        insert into service (id, name, folder, kind, owner_principal_id, sharing, status)
+        select
+            gen_random_uuid(),
+            l.name,
+            case when d.is_datastore then 'hosted' else null end,
+            'FeatureServer',
+            l.owner_principal_id,
+            l.sharing,
+            l.status
+        from layer l
+        join data_source d on d.id = l.data_source_id
+        """,
+
+        """
+        update layer l
+        set service_id = s.id, layer_index = 0
+        from service s
+        where s.name = l.name
+          and s.folder is not distinct from
+              (select case when d.is_datastore then 'hosted' else null end
+               from data_source d where d.id = l.data_source_id)
+        """,
+
+        "alter table layer alter column service_id set not null",
+        "alter table layer alter column layer_index set not null",
+
+        """
+        alter table layer add constraint layer_index_unique_in_service
+          unique (service_id, layer_index)
+        """,
+
+        "create index layer_service_idx on layer (service_id)",
+        "create index service_sharing_idx on service (sharing)",
+
+        // The layer name is no longer the service address, so it no longer needs
+        // to be unique across the whole server — two services may each have a
+        // layer called "Parcels". It stays unique within its service.
+        "alter table layer drop constraint layer_name_key",
+
+        """
+        alter table layer add constraint layer_name_unique_in_service
+          unique (service_id, name)
         """);
 }

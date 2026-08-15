@@ -29,6 +29,31 @@ namespace GisServer.Host;
 /// </remarks>
 internal static class ServiceFolder
 {
+    /// <summary>
+    /// Which folder a request path names, or null for the root.
+    /// </summary>
+    /// <param name="path">The request path.</param>
+    /// <returns>The folder, or null.</returns>
+    /// <remarks>
+    /// <b>Hosted is the only folder that holds services</b>; Utilities holds the
+    /// system services, which are addressed by their own routes. When a second
+    /// service folder exists this stops being a boolean and becomes a lookup.
+    /// </remarks>
+    public static string? FolderOf(PathString path) =>
+        InHostedFolder(path) ? FeatureServerMetadataWriter.HostedFolder : null;
+
+    /// <summary>Sends the caller to the same service at its real URL.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="service">The service, which knows its folder.</param>
+    /// <returns>The write.</returns>
+    public static Task RedirectAsync(HttpContext context, PublishedService service)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(service);
+
+        return RedirectAsync(context, service.Folder is not null);
+    }
+
     /// <summary>Whether the request came in at the right URL space for this layer.</summary>
     /// <param name="context">The request.</param>
     /// <param name="layer">The layer it resolved to.</param>
@@ -38,7 +63,7 @@ internal static class ServiceFolder
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
 
-        return InHostedFolder(context.Request.Path) == layer.Definition.IsHosted;
+        return InHostedFolder(context.Request.Path) == (layer.Folder is not null);
     }
 
     /// <summary>Sends the caller to the same service at its real URL.</summary>
@@ -50,10 +75,15 @@ internal static class ServiceFolder
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
 
+        return RedirectAsync(context, layer.Folder is not null);
+    }
+
+    private static Task RedirectAsync(HttpContext context, bool hosted)
+    {
         string path = context.Request.Path.Value ?? "";
         string prefix = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/";
 
-        string moved = layer.Definition.IsHosted
+        string moved = hosted
             ? path.Replace("/rest/services/", prefix, StringComparison.OrdinalIgnoreCase)
             : path.Replace(prefix, "/rest/services/", StringComparison.OrdinalIgnoreCase);
 

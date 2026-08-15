@@ -239,6 +239,63 @@ rather than at receiving it.
 
 ---
 
+## 4g. A service contains layers — corrected 2026-08-15
+
+**Owner correction: *"a service is a combination of layers actually. so multiple
+layers can be shown as a service. like the screenshot. and when we go into the
+layers, we might see the fields etc of that layer."*** Sent with an ArcGIS REST
+Services Directory page showing one `MapServer` holding four layers.
+
+**What was built instead, and it was not a simplification.** One published layer
+*was* one service. Nothing in this ADR ever said so — the assumption arrived
+through the code and hardened into the URL space, where every route in the
+server ended in a literal `/0` because there could never be a layer 1. The
+metadata writer had a comment asserting the model as though it were decided
+here. It was not decided anywhere.
+
+**Why the difference is not cosmetic.** ArcGIS's unit of publication, naming,
+sharing, stopping and *adding to a map* is the service; layers are what a service
+contains. Somebody publishing points, lines and fences for one workflow publishes
+**one** service with three layers. Under the old model they got three unrelated
+services, three sharing switches to keep in step, and a client that adds three
+things where the ArcGIS original adds one. That is a different product, not a
+smaller one.
+
+The model now:
+
+- A **service** carries the name, folder, description, owner, **sharing** and
+  **status**. A layer carries only data-shape concerns.
+- A **layer** has a `layer_index` within its service, and that integer is the
+  `{id}` in the URL. Assigned once, **never reused** — a saved web map stores it,
+  so renumbering after a removal would silently repoint somebody's map at
+  different data. Gaps are correct.
+- **Sharing cannot live on the layer**, because a service with three layers and
+  three scopes has no answer to *who may see this service* — and the client asks
+  about the service. See [ADR-018](ADR-018-authorization-and-roles.md) §3b-i for
+  the same argument applied to services that have no layer at all.
+- **Capabilities are the intersection.** One layer without an integer identity
+  (§2a) makes the whole service read-only, because a client reads one
+  capabilities string and offers one edit button.
+- **Publishing is unchanged unless you ask for it.** A layer published without a
+  service name gets a single-layer service named after itself, which is exactly
+  what every layer in the catalogue was before this. Migration 11 backfilled all
+  ten of them that way, so no URL moved.
+- **A vector tile carries every layer of its service**, as separate MVT layers.
+  This is a byte concatenation and not a re-encode: a tile is a protobuf whose
+  only field is `repeated Layer layers = 3`, and protobuf defines concatenation
+  of two encodings as an encoding with repeated fields appended. Cached per
+  layer, so adding a fourth layer does not serve three-layer tiles from every
+  warm entry in the pyramid.
+
+**Group layers are not part of this.** The screenshot shows nesting —
+`EarlyAlert_Reports_HD (0)` with `GeoPoint (1)`, `GeoLine (2)`, `GeoFence (3)`
+beneath it — and that is a `MapServer` group layer, which is a MapServer concept.
+MapServer is not in [v1-scope](../v1-scope.md). FeatureServer's layer list is
+flat, and `parentLayerId: -1` with `subLayerIds: null` is written out rather than
+omitted so a client reads *no parent* instead of *unknown*.
+
+---
+
 ## 5. Scope — both in v1
 
 **Owner decision, 2026-08-13.** Relationships and attachments both ship in v1,

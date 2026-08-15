@@ -469,11 +469,17 @@ public static class Program
 
         foreach (string prefix in (string[])["/rest/services", $"/rest/services/{hosted}"])
         {
-            app.MapGet($"{prefix}/{{layerName}}/FeatureServer", ServiceMetadataAsync);
-            app.MapGet($"{prefix}/{{layerName}}/FeatureServer/0", LayerMetadataAsync);
-            app.MapGet($"{prefix}/{{layerName}}/FeatureServer/0/query", QueryAsync);
-            app.MapPost($"{prefix}/{{layerName}}/FeatureServer/0/query", QueryAsync);
-            app.MapPost($"{prefix}/{{layerName}}/FeatureServer/0/applyEdits", ApplyEditsAsync);
+            // <b>{layerId}, not /0.</b> Every route in this server ended in a
+            // literal zero until 2026-08-15, because one published layer was one
+            // service and there could never be a layer 1. A service is a
+            // container of layers, so the number is now real.
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer", ServiceMetadataAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", LayerMetadataAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync);
+            app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync);
+            app.MapPost(
+                $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/applyEdits",
+                ApplyEditsAsync);
         }
 
         VectorTileEndpoints.Map(app);
@@ -532,7 +538,7 @@ public static class Program
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        IReadOnlyList<PublishedLayer> layers = await catalog.ListAsync(cancellation)
+        IReadOnlyList<PublishedService> services = await catalog.ListServicesAsync(cancellation)
             .ConfigureAwait(false);
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
@@ -546,15 +552,19 @@ public static class Program
         bool wantHosted = string.Equals(
             folder, FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase);
 
-        bool folderHoldsLayers = folder is null || wantHosted;
+        bool folderHoldsServices = folder is null || wantHosted;
 
-        List<PublishedLayer> visible = !folderHoldsLayers ? [] :
+        List<PublishedService> visible = !folderHoldsServices ? [] :
         [
-            .. layers.Where(layer =>
-                layer.Definition.IsHosted == wantHosted
-                && (layer.IsRunning || seesStopped)
+            .. services.Where(service =>
+                string.Equals(
+                    service.Folder ?? string.Empty,
+                    wantHosted ? FeatureServerMetadataWriter.HostedFolder : string.Empty,
+                    StringComparison.OrdinalIgnoreCase)
+                && (service.IsRunning || seesStopped)
                 && LayerAccess
-                    .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
+                    .Evaluate(
+                        service.Sharing, service.Owner, current.Principal, current.Authorization)
                     .IsAllowed()),
         ];
 
@@ -582,21 +592,23 @@ public static class Program
                     Type: s.Kind)),
         ];
 
+        // <b>Only hosted services have tile services (Q-67)</b>, and only those
+        // whose layers are all in Web Mercator can actually serve one — the tile
+        // path refuses any other SRID rather than answering an empty tile
+        // (Q-96), so listing one here would be advertising a 400.
+        List<PublishedService> tileable =
+        [
+            .. visible.Where(s =>
+                s.Layers.Count > 0
+                && s.Layers.All(l =>
+                    l.Definition.IsHosted
+                    && l.Definition.Srid == VectorTileEndpoints.WebMercator)),
+        ];
+
         List<(string Name, string Type)> everything =
         [
-            .. visible.Select(l => (
-                Name: folder is null ? l.Definition.Name : $"{folder}/{l.Definition.Name}",
-                Type: "FeatureServer")),
-
-            // Only hosted layers have tile services (Q-67), and only those in
-            // Web Mercator can actually serve one.
-            .. visible
-                .Where(l => l.Definition.IsHosted
-                    && l.Definition.Srid == VectorTileEndpoints.WebMercator)
-                .Select(l => (
-                    Name: folder is null ? l.Definition.Name : $"{folder}/{l.Definition.Name}",
-                    Type: "VectorTileServer")),
-
+            .. visible.Select(s => (s.QualifiedName, Type: "FeatureServer")),
+            .. tileable.Select(s => (s.QualifiedName, Type: "VectorTileServer")),
             .. systemServices,
         ];
 
@@ -613,13 +625,10 @@ public static class Program
         }
 
         return Results.Ok(FeatureServerMetadataWriter.Catalogue(
-            visible.Select(layer => layer.Definition.Name),
+            visible.Select(s => s.Name),
             folders,
             folder,
-            visible
-                .Where(layer => layer.Definition.IsHosted
-                    && layer.Definition.Srid == VectorTileEndpoints.WebMercator)
-                .Select(layer => layer.Definition.Name),
+            tileable.Select(s => s.Name),
             systemServices));
     }
 
@@ -707,85 +716,60 @@ public static class Program
     }
 
 
-    /// <summary>
-    /// Resolves a layer for a metadata request, or writes the refusal.
-    /// </summary>
-    /// <remarks>
-    /// Shared by the service and layer documents so that both apply ADR-018
-    /// §3b's sharing rule identically. A metadata endpoint that leaks the
-    /// existence of a private layer undoes the query endpoint's care.
-    /// </remarks>
-    private static async Task<PublishedLayer?> VisibleLayerAsync(
-        HttpContext context,
-        string layerName,
-        PostgresLayerCatalog catalog,
-        CancellationToken cancellation)
-    {
-        PublishedLayer? layer =
-            await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
-
-        if (layer is not null && !ServiceFolder.Matches(context, layer))
-        {
-            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
-            return null;
-        }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        if (layer is null
-            || !LayerAccess
-                .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                .IsAllowed())
-        {
-            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
-            return null;
-        }
-
-        // ADR-020 §3, and the order matters: sharing is checked first, so a
-        // caller who may not see the layer learns nothing about whether it is
-        // running. Only somebody already entitled to know it exists gets the
-        // 503 that says it is stopped.
-        if (!layer.IsRunning)
-        {
-            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
-            return null;
-        }
-
-        return layer;
-    }
 
     private static async Task ServiceMetadataAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+        PublishedService? service = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (layer is null)
+        if (service is null)
         {
             return;
         }
 
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
-            .ConfigureAwait(false);
+        // <b>Every layer's extent, which means every layer's shape query.</b>
+        // ServiceContexts caches those for thirty seconds, so a three-layer
+        // service costs three cached reads rather than three round trips — but
+        // a service with fifty layers would pay fifty on a cold cache, and that
+        // is the cost of a document that states a real full extent.
+        List<FeatureServerMetadataWriter.ServiceLayer> layers = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation)
+                .ConfigureAwait(false);
+
+            layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
+                layer.LayerIndex,
+                layer.Definition.Name,
+                layer.GeometryType,
+                layer.Definition.Srid,
+                described.Extent));
+        }
 
         object document = FeatureServerMetadataWriter.Service(
-            layer.Definition, layer.GeometryType, description.Extent, CapabilitiesFor(context, layer));
+            layers, CapabilitiesFor(context, service), service.Description);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
             await Results.Content(
                 RestDirectory.Document(
                     context.Request.Path,
-                    $"{layer.Definition.Name} (FeatureServer)",
+                    $"{service.QualifiedName} (FeatureServer)",
                     document,
 
-                    // The layer beneath, because a FeatureServer document says
-                    // almost nothing and the layer is what somebody came for.
-                    [("Layer: 0", context.Request.Path + "/0")]),
+                    // A link per layer, because the layers are what somebody
+                    // came for and a service document says little on its own.
+                    [.. layers.Select(l => (
+                        Label: $"{l.Name} ({l.Id})",
+                        Href: $"{context.Request.Path}/{l.Id}"))],
+                    linksLabel: "Layers"),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -797,13 +781,15 @@ public static class Program
 
     private static async Task LayerMetadataAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
         PostgresRelationshipCatalog relationships,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);
 
         if (layer is null)
@@ -820,14 +806,15 @@ public static class Program
             description,
             CapabilitiesFor(context, layer),
             await RelationshipsForAsync(layer, relationships, catalog, cancellation)
-                .ConfigureAwait(false));
+                .ConfigureAwait(false),
+            layer.LayerIndex);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
             await Results.Content(
                 RestDirectory.Document(
                     context.Request.Path,
-                    $"{layer.Definition.Name} - {layer.Definition.Name} (0)",
+                    $"{layer.ServiceName} - {layer.Definition.Name} ({layer.LayerIndex})",
                     document,
                     [("Query", context.Request.Path + "/query?where=1%3D1&outFields=*&f=json")]),
                 "text/html; charset=utf-8")
@@ -864,14 +851,16 @@ public static class Program
     /// </remarks>
     private static async Task ApplyEditsAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         ServiceContexts contexts,
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await VisibleLayerAsync(context, layerName, catalog, cancellation)
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);
 
         if (layer is null)
@@ -888,7 +877,7 @@ public static class Program
                     {
                         code = 400,
                         message =
-                            $"Layer '{layerName}' has no integer object-id column, so its features "
+                            $"Layer '{layer.Definition.Name}' has no integer object-id column, so its features "
                             + "cannot be addressed for update or delete (ADR-013 §2a).",
                     },
                 },
@@ -942,7 +931,8 @@ public static class Program
             .ApplyAsync(parsed.Batch, cancellation)
             .ConfigureAwait(false);
 
-        await AuditEditsAsync(context, audit, layerName, parsed, outcome, cancellation)
+        await AuditEditsAsync(
+            context, audit, $"{serviceName}/{layerId}", parsed, outcome, cancellation)
             .ConfigureAwait(false);
 
         await Results.Json(ApplyEditsResponse.Build(outcome, parsed))
@@ -1058,6 +1048,26 @@ public static class Program
     /// caller holds, because there is no way to name a row (ADR-013 §2a).
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// What the caller may do across a whole service.
+    /// </summary>
+    /// <remarks>
+    /// <b>The intersection, not the union.</b> One layer that cannot be served
+    /// through ArcGIS — no integer identity, ADR-013 §2a — makes the service
+    /// read-only, because a client reads one capabilities string for the service
+    /// and offers one edit button. Claiming Update because two layers of three
+    /// support it puts that button in front of a refusal.
+    /// </remarks>
+    private static string CapabilitiesFor(HttpContext context, PublishedService service)
+    {
+        if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.IsArcGisServable))
+        {
+            return "Query";
+        }
+
+        return CapabilitiesFor(context, service.Layers[0]);
+    }
+
     private static string CapabilitiesFor(HttpContext context, PublishedLayer layer)
     {
         if (!layer.Definition.IsArcGisServable)
@@ -1212,48 +1222,35 @@ public static class Program
 
     private static async Task QueryAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
         IAuditLog audit,
         ILoggerFactory loggerFactory,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+        // <b>Through ServiceLookup like everything else.</b> This endpoint used
+        // to resolve the layer itself, and that is exactly how it became the one
+        // path where the hosted/registered URL split was not enforced — metadata
+        // and applyEdits redirected; query, the most-used of the three, served
+        // happily from the wrong folder. A conformance test caught it. The
+        // divergence was justified at the time by its refusals differing, and
+        // they do not: the audit below needs the *reason*, not a different set
+        // of answers, and the reason is a pure function of what we already have.
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
 
-        // <b>This endpoint resolves the layer itself rather than through
-        // VisibleLayerAsync</b>, because its refusals differ — and that is
-        // exactly how it came to be the one path where the hosted/registered URL
-        // split was not enforced. A conformance test caught it: metadata and
-        // applyEdits redirected, and query, the most-used endpoint of the three,
-        // served happily from the wrong folder.
-        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        if (layer is null)
         {
-            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
             return;
         }
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        // One response for "does not exist" and "not shared with you". A 403 on
-        // a named layer confirms it exists, which turns this endpoint into a
-        // directory of everything published on the server.
-        LayerAccess.Reason reason = layer is null
-            ? LayerAccess.Reason.Denied
-            : LayerAccess.Evaluate(
-                layer.Sharing, layer.Owner, current.Principal, current.Authorization);
-
-        if (layer is null || !reason.IsAllowed())
-        {
-            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
-            return;
-        }
-
-        if (!layer.IsRunning)
-        {
-            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
-            return;
-        }
+        LayerAccess.Reason reason = LayerAccess.Evaluate(
+            layer.Sharing, layer.Owner, current.Principal, current.Authorization);
 
         if (reason == LayerAccess.Reason.AdministrativeOverride)
         {
@@ -1266,7 +1263,7 @@ public static class Program
                     current.Principal.Name,
                     context.Connection.RemoteIpAddress?.ToString(),
                     "layer.read.override",
-                    layerName,
+                    $"{serviceName}/{layerId}",
                     SharingDetail(layer.Sharing),
                     Succeeded: true),
                 cancellation).ConfigureAwait(false);
@@ -1281,7 +1278,7 @@ public static class Program
                     {
                         code = 400,
                         message =
-                            $"Layer '{layerName}' has no integer object-id column, so it cannot be "
+                            $"Layer '{layer.Definition.Name}' has no integer object-id column, so it cannot be "
                             + "served through the ArcGIS surface. It remains servable natively.",
                     },
                 },
@@ -1322,7 +1319,7 @@ public static class Program
         {
             if (FeatureServerQueryParameters.IsIgnored(ignored, out string why))
             {
-                Log.QueryParameterIgnored(queryLog, ignored, layerName, why);
+                Log.QueryParameterIgnored(queryLog, ignored, layer.Definition.Name, why);
             }
         }
 

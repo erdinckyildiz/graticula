@@ -23,6 +23,13 @@ namespace GisServer.Host;
 internal sealed record DataSourceRequest(string? Name, string? ConnectionString);
 
 /// <summary>A layer to publish.</summary>
+/// <remarks>
+/// <b><c>ServiceName</c> is the service to publish into, or null for a service
+/// of this layer's own.</b> Naming an existing service adds this layer to it at
+/// the next free index, which is how three related layers become one service —
+/// owner correction 2026-08-15, <em>"a service is a combination of layers"</em>.
+/// Omitting it keeps the behaviour every layer published before that date got.
+/// </remarks>
 internal sealed record PublishRequest(
     string? Name,
     Guid DataSourceId,
@@ -33,7 +40,8 @@ internal sealed record PublishRequest(
     string? ObjectIdColumn,
     int Srid,
     string? GeometryType,
-    string? Sharing);
+    string? Sharing,
+    string? ServiceName = null);
 
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
@@ -452,7 +460,7 @@ internal static class AdminEndpoints
 
         try
         {
-            Guid id = await catalog
+            PublishedLayerAddress published = await catalog
                 .PublishLayerAsync(publication, current.Principal.Id, cancellation)
                 .ConfigureAwait(false);
 
@@ -460,7 +468,9 @@ internal static class AdminEndpoints
                 context, audit, "layer.publish", publication.Name,
                 Detail(new
                 {
-                    id,
+                    id = published.Id,
+                    service = published.ServiceName,
+                    layer = published.LayerIndex,
                     table = $"{publication.SchemaName}.{publication.TableName}",
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
@@ -470,8 +480,14 @@ internal static class AdminEndpoints
             await Results.Json(
                 new
                 {
-                    id,
+                    id = published.Id,
                     name = publication.Name,
+
+                    // Where it actually is, which is no longer derivable from
+                    // its name: a layer added to an existing service is an index
+                    // inside that service.
+                    service = published.ServiceName,
+                    layerId = published.LayerIndex,
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
 

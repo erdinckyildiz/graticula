@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Api.ArcGis;
+using GisServer.Geometries;
 using GisServer.Features;
 using GisServer.Platform.Catalog;
 using GisServer.Platform.Identity;
@@ -47,14 +48,14 @@ internal static class VectorTileEndpoints
         foreach (string prefix in (string[])
             ["/rest/services", $"/rest/services/{Api.ArcGis.FeatureServerMetadataWriter.HostedFolder}"])
         {
-            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer", ServiceAsync);
-            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/resources/styles", StyleAsync);
-            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/resources/styles/root.json", StyleAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer", ServiceAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles", StyleAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", StyleAsync);
 
             // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and
             // it is the reverse of almost every other tile scheme. Written once,
             // here, where the swap into TileAddress is visible on one line.
-            app.MapGet($"{prefix}/{{layerName}}/VectorTileServer/tile/{{z:int}}/{{y:int}}/{{x:int}}.pbf",
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/tile/{{z:int}}/{{y:int}}/{{x:int}}.pbf",
                 TileAsync);
         }
     }
@@ -70,36 +71,55 @@ internal static class VectorTileEndpoints
     /// genuinely exists and that the caller may genuinely read: it has a
     /// FeatureServer and will never have a VectorTileServer.
     /// </remarks>
-    private static async Task<PublishedLayer?> TileableAsync(
+    private static async Task<PublishedService?> TileableAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
         PostgresLayerCatalog catalog,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+        PublishedService? service = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
 
-        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        if (service is null)
         {
-            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
             return null;
         }
 
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        if (layer is null
-            || !LayerAccess
-                .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                .IsAllowed())
+        if (service.Layers.Count == 0)
         {
-            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            $"The service '{serviceName}' has no layers, so there is nothing to "
+                            + "put in a tile.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
             return null;
         }
 
-        if (!layer.IsRunning)
+        // <b>Every layer, not the first one.</b> A tile carries all of a
+        // service's layers, so one registered or non-Mercator layer disqualifies
+        // the service rather than being quietly skipped — a tile missing one of
+        // three layers looks like missing data, and nobody would know to ask.
+        PublishedLayer layer = service.Layers[0];
+
+        foreach (PublishedLayer each in service.Layers)
         {
-            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
-            return null;
+            if (!each.Definition.IsHosted || each.Definition.Srid != WebMercator)
+            {
+                layer = each;
+                break;
+            }
         }
+
+        string layerName = service.QualifiedName;
 
         if (!layer.Definition.IsHosted)
         {
@@ -144,7 +164,7 @@ internal static class VectorTileEndpoints
             return null;
         }
 
-        return layer;
+        return service;
     }
 
     /// <summary>
@@ -178,49 +198,77 @@ internal static class VectorTileEndpoints
     /// <summary>The service document.</summary>
     private static async Task ServiceAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
         PostgresLayerCatalog catalog,
         ServiceContexts contexts,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await TileableAsync(context, layerName, catalog, cancellation)
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
             .ConfigureAwait(false);
 
-        if (layer is null)
+        if (service is null)
         {
             return;
         }
 
         // The extent comes from the same cached description the feature path
         // uses, so the two surfaces cannot disagree about where a layer is.
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
-            .ConfigureAwait(false);
+        Envelope? extent = null;
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation)
+                .ConfigureAwait(false);
+
+            extent = Widen(extent, described.Extent);
+        }
 
         await Results.Ok(VectorTileServerMetadataWriter.Service(
-            layer.Definition.Name,
-            layer.Definition.Name,
-            description.Extent,
+            service.Name,
+            [.. service.Layers.Select(l => l.Definition.Name)],
+            extent,
             TileAddress.MaxZoom))
             .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The smallest box containing both, treating null as nothing.</summary>
+    private static Envelope? Widen(Envelope? sofar, Envelope? next)
+    {
+        if (next is not { } add)
+        {
+            return sofar;
+        }
+
+        return sofar is not { } have
+            ? add
+            : new Envelope(
+                Math.Min(have.MinX, add.MinX),
+                Math.Min(have.MinY, add.MinY),
+                Math.Max(have.MaxX, add.MaxX),
+                Math.Max(have.MaxY, add.MaxY));
     }
 
     /// <summary>The default style.</summary>
     private static async Task StyleAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
         PostgresLayerCatalog catalog,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await TileableAsync(context, layerName, catalog, cancellation)
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
             .ConfigureAwait(false);
 
-        if (layer is null)
+        if (service is null)
         {
             return;
         }
 
+        // One style layer per source layer, drawn in index order — polygons
+        // before lines before points would be nicer, and is a cartographic
+        // decision this default has no business making. Index order is what the
+        // publisher chose.
         await Results.Ok(VectorTileServerMetadataWriter.Style(
-            layer.Definition.Name, layer.GeometryType))
+            [.. service.Layers.Select(l => (l.Definition.Name, l.GeometryType))]))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -240,7 +288,7 @@ internal static class VectorTileEndpoints
     /// </remarks>
     private static async Task TileAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
         int z,
         int y,
         int x,
@@ -250,10 +298,10 @@ internal static class VectorTileEndpoints
         ITileCache cache,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await TileableAsync(context, layerName, catalog, cancellation)
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
             .ConfigureAwait(false);
 
-        if (layer is null)
+        if (service is null)
         {
             return;
         }
@@ -269,46 +317,117 @@ internal static class VectorTileEndpoints
             return;
         }
 
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
-            .ConfigureAwait(false);
-
-        IReadOnlyList<string> attributes = AttributesOf(layer, description);
-
         // <b>The cache is consulted after authorization, never before.</b>
-        // ADR-010 §4: for tiles the authorization is uniform — a layer is
+        // ADR-010 §4: for tiles the authorization is uniform — a service is
         // readable or it is not — so the check happens first and every
         // authorized caller shares one entry. Looking up before the check would
         // make a cache hit a way around the sharing rule.
-        TileCacheKey key = new(
-            layer.Id,
-            TileCacheKey.FingerprintOf(
-                layer.Definition.Srid,
-                layer.Definition.GeometryColumn,
-                attributes,
-                PostGisTileSource.Extent,
-                PostGisTileSource.Buffer),
-            address);
+        //
+        // <b>Cached per layer, not per service.</b> The whole tile could be one
+        // entry, and then adding a fourth layer to a service would silently
+        // serve three-layer tiles from every warm entry in the pyramid. Per
+        // layer, a new layer simply has no entries yet and the other three keep
+        // theirs.
+        List<byte[]> parts = [];
+        bool everyPartCached = true;
 
-        CachedTile cached = await cache.ReadAsync(key, cancellation).ConfigureAwait(false);
-
-        if (cached.Answered)
+        foreach (PublishedLayer layer in service.Layers)
         {
-            await WriteTileAsync(context, cached.Bytes, "HIT", cancellation).ConfigureAwait(false);
-            return;
+            (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+                .ConfigureAwait(false);
+
+            IReadOnlyList<string> attributes = AttributesOf(layer, description);
+
+            TileCacheKey key = new(
+                layer.Id,
+                TileCacheKey.FingerprintOf(
+                    layer.Definition.Srid,
+                    layer.Definition.GeometryColumn,
+                    attributes,
+                    PostGisTileSource.Extent,
+                    PostGisTileSource.Buffer),
+                address);
+
+            CachedTile cached = await cache.ReadAsync(key, cancellation).ConfigureAwait(false);
+
+            if (cached.Answered)
+            {
+                parts.Add(cached.Bytes);
+                continue;
+            }
+
+            everyPartCached = false;
+
+            ITileSource source = connections.TileSourceFor(layer, attributes);
+
+            byte[] part = await source
+                .BuildAsync(address, layer.Definition.Name, cancellation)
+                .ConfigureAwait(false);
+
+            // Empty is stored too — a zero-length marker. Most of a pyramid is
+            // emptiness and rebuilding the ocean on every request is the waste
+            // ADR-010 §2's negative caching exists to stop.
+            await cache.WriteAsync(key, part, cancellation).ConfigureAwait(false);
+
+            parts.Add(part);
         }
 
-        ITileSource source = connections.TileSourceFor(layer, attributes);
-
-        byte[] tile = await source
-            .BuildAsync(address, layer.Definition.Name, cancellation)
+        await WriteTileAsync(
+            context, Concatenate(parts), everyPartCached ? "HIT" : "MISS", cancellation)
             .ConfigureAwait(false);
+    }
 
-        // Empty is stored too — a zero-length marker. Most of a pyramid is
-        // emptiness and rebuilding the ocean on every request is the waste
-        // ADR-010 §2's negative caching exists to stop.
-        await cache.WriteAsync(key, tile, cancellation).ConfigureAwait(false);
+    /// <summary>
+    /// Joins one encoded layer per service layer into one tile.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Byte concatenation is the whole implementation, and it is correct
+    /// rather than a trick.</b> A vector tile is a protobuf message whose only
+    /// field is <c>repeated Layer layers = 3</c>, and protobuf defines the
+    /// concatenation of two encodings of a message as an encoding of that
+    /// message with repeated fields appended. So two single-layer tiles laid end
+    /// to end <em>are</em> the two-layer tile — no decode, no re-encode, and no
+    /// dependency on our own encoder being right.
+    /// </para>
+    /// <para>
+    /// <b>Empty parts vanish, which is what should happen.</b> A layer with
+    /// nothing in this tile encodes to zero bytes; appending nothing is
+    /// appending nothing. A service whose layers are all empty here produces an
+    /// empty tile, and that is the 204 the caller should get.
+    /// </para>
+    /// </remarks>
+    private static byte[] Concatenate(List<byte[]> parts)
+    {
+        int total = 0;
 
-        await WriteTileAsync(context, tile, "MISS", cancellation).ConfigureAwait(false);
+        foreach (byte[] part in parts)
+        {
+            total += part.Length;
+        }
+
+        if (total == 0)
+        {
+            return [];
+        }
+
+        // The common case by a wide margin: a single-layer service, where there
+        // is nothing to join and no reason to copy.
+        if (parts.Count == 1)
+        {
+            return parts[0];
+        }
+
+        byte[] tile = new byte[total];
+        int at = 0;
+
+        foreach (byte[] part in parts)
+        {
+            part.CopyTo(tile, at);
+            at += part.Length;
+        }
+
+        return tile;
     }
 
     /// <summary>

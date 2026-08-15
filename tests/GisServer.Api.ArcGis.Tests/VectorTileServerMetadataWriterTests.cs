@@ -26,7 +26,7 @@ namespace GisServer.Api.ArcGis.Tests;
 public sealed class VectorTileServerMetadataWriterTests
 {
     private static JsonElement Service(Envelope? extent = null, int maxZoom = 22) =>
-        Parse(VectorTileServerMetadataWriter.Service("roads", "roads", extent, maxZoom));
+        Parse(VectorTileServerMetadataWriter.Service("roads", ["roads"], extent, maxZoom));
 
     private static JsonElement Parse(object document) =>
         JsonDocument.Parse(JsonSerializer.Serialize(document)).RootElement;
@@ -204,7 +204,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // dictionary. If it ever regresses to sourceLayer the style loads, the
         // map stays empty, and nothing appears in the browser console.
         JsonElement layer = Parse(
-            VectorTileServerMetadataWriter.Style("roads", GeometryKind.LineString))
+            VectorTileServerMetadataWriter.Style([("roads", GeometryKind.LineString)]))
             .GetProperty("layers")[0];
 
         Assert.Equal("roads", layer.GetProperty("source-layer").GetString());
@@ -219,7 +219,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // requests a tile.
         Assert.Equal(
             "../../",
-            Parse(VectorTileServerMetadataWriter.Style("roads", GeometryKind.Polygon))
+            Parse(VectorTileServerMetadataWriter.Style([("roads", GeometryKind.Polygon)]))
                 .GetProperty("sources").GetProperty("esri").GetProperty("url").GetString());
     }
 
@@ -237,7 +237,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // reads as a rendering bug rather than a default nobody set.
         Assert.Equal(
             expected,
-            Parse(VectorTileServerMetadataWriter.Style("x", kind))
+            Parse(VectorTileServerMetadataWriter.Style([("x", kind)]))
                 .GetProperty("layers")[0].GetProperty("type").GetString());
     }
 
@@ -246,7 +246,7 @@ public sealed class VectorTileServerMetadataWriterTests
     {
         // A fill layer carrying circle-radius is silently ignored by the
         // renderer, so the two have to move together.
-        JsonElement layer = Parse(VectorTileServerMetadataWriter.Style("x", GeometryKind.Polygon))
+        JsonElement layer = Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon)]))
             .GetProperty("layers")[0];
 
         Assert.True(layer.GetProperty("paint").EnumerateObject()
@@ -258,7 +258,7 @@ public sealed class VectorTileServerMetadataWriterTests
     {
         Assert.Equal(
             8,
-            Parse(VectorTileServerMetadataWriter.Style("x", GeometryKind.Polygon))
+            Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon)]))
                 .GetProperty("version").GetInt32());
     }
 
@@ -266,6 +266,6 @@ public sealed class VectorTileServerMetadataWriterTests
     public void A_service_needs_a_name()
     {
         Assert.Throws<ArgumentException>(
-            () => VectorTileServerMetadataWriter.Service(" ", "x", null, 22));
+            () => VectorTileServerMetadataWriter.Service(" ", ["x"], null, 22));
     }
 }

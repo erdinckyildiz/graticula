@@ -226,11 +226,11 @@ internal static class HostedDataEndpoints
             .ImportAsync(dataset!, name, cancellation)
             .ConfigureAwait(false);
 
-        Guid layerId;
+        PublishedLayerAddress published;
 
         try
         {
-            layerId = await catalog.PublishLayerAsync(
+            published = await catalog.PublishLayerAsync(
                 new LayerPublication(
                     name,
                     datastore,
@@ -286,7 +286,7 @@ internal static class HostedDataEndpoints
 
         await Results.Json(new
         {
-            id = layerId,
+            id = published.Id,
             name,
             table = $"{result.SchemaName}.{result.TableName}",
             rows = result.Rows,
@@ -308,7 +308,7 @@ internal static class HostedDataEndpoints
                       + "way in, so the layer can serve vector tiles. EPSG:4326 to EPSG:3857 is a "
                       + "closed formula with no datum shift, so nothing was lost.",
             },
-            services = Services(name),
+            services = Services(published.ServiceName, published.LayerIndex),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -333,8 +333,19 @@ internal static class HostedDataEndpoints
     /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms.</param>
     /// <param name="Fields">Its attribute columns.</param>
     /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
+    /// <param name="ServiceName">
+    /// The service to put this layer in, or null for a service of its own.
+    /// <b>This is what lets a portal screen design three layers into one
+    /// service</b> — points, lines and fences under one name — which is the
+    /// shape the owner asked for on 2026-08-15. The layer keeps its own name;
+    /// only its address changes.
+    /// </param>
     internal sealed record LayerDesign(
-        string? Name, string? GeometryType, IReadOnlyList<FieldDesign>? Fields, string? Sharing);
+        string? Name,
+        string? GeometryType,
+        IReadOnlyList<FieldDesign>? Fields,
+        string? Sharing,
+        string? ServiceName = null);
 
     /// <summary>One designed column.</summary>
     /// <param name="Name">Its name.</param>
@@ -418,14 +429,17 @@ internal static class HostedDataEndpoints
             fields, kind, PostGisImporter.StoredSrid, design.Name, cancellation)
             .ConfigureAwait(false);
 
-        Guid layerId;
+        PublishedLayerAddress published;
 
         try
         {
-            layerId = await catalog.PublishLayerAsync(
+            published = await catalog.PublishLayerAsync(
                 new LayerPublication(
                     design.Name, datastore, result.SchemaName, result.TableName,
-                    "geom", "objectid", "objectid", result.StoredSrid, kind, sharing),
+                    "geom", "objectid", "objectid", result.StoredSrid, kind, sharing,
+                    string.IsNullOrWhiteSpace(design.ServiceName)
+                        ? null
+                        : design.ServiceName.Trim()),
                 current.Principal.Id,
                 cancellation).ConfigureAwait(false);
         }
@@ -454,14 +468,14 @@ internal static class HostedDataEndpoints
 
         await Results.Json(new
         {
-            id = layerId,
+            id = published.Id,
             name = design.Name,
             table = $"{result.SchemaName}.{result.TableName}",
             rows = 0,
             geometryType = kind.ToString(),
             fields = fields.Select(f => new { f.Name, type = f.Type.ToString(), f.Nullable }),
             sharing = sharing.ToString().ToLowerInvariant(),
-            services = Services(design.Name),
+            services = Services(published.ServiceName, published.LayerIndex),
             note = "The feature class is empty. Add features through the FeatureServer's "
                  + "applyEdits. Its extent is unknown until it has one, so a client will show it "
                  + "as covering the world.",
@@ -541,11 +555,28 @@ internal static class HostedDataEndpoints
     /// </remarks>
     private const int MaximumFields = 250;
 
-    /// <summary>Where a hosted layer's services live.</summary>
-    private static object Services(string name) => new
+    /// <summary>
+    /// Where a hosted layer's services live — the service address, not the
+    /// layer's name.
+    /// </summary>
+    /// <param name="serviceName">The service the layer landed in.</param>
+    /// <param name="layerIndex">Its number within that service.</param>
+    /// <remarks>
+    /// <b>These two strings are the whole answer to "what URL did I just
+    /// create", and they were wrong for one request.</b> A layer designed into a
+    /// named service was reported at <c>/hosted/{layerName}/FeatureServer</c>,
+    /// which is nothing — the service is named something else and the layer is
+    /// an index inside it. A creation response that hands back a 404 is worse
+    /// than one that hands back no link at all.
+    /// </remarks>
+    private static object Services(string serviceName, int layerIndex) => new
     {
-        feature = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{name}/FeatureServer",
-        tiles = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{name}/VectorTileServer",
+        feature =
+            $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{serviceName}"
+            + $"/FeatureServer/{layerIndex}",
+        tiles =
+            $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{serviceName}"
+            + "/VectorTileServer",
     };
 
     /// <summary>The datastore's data source id, or empty when it is not registered.</summary>

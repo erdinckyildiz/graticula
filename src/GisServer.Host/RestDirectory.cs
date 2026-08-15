@@ -136,6 +136,12 @@ internal static class RestDirectory
     /// <param name="title">The heading.</param>
     /// <param name="document">The same object the JSON endpoint serialises.</param>
     /// <param name="links">Extra links to offer, as label and href.</param>
+    /// <param name="linksLabel">
+    /// What those links are, without the colon. A service's links are its
+    /// <em>Layers</em> and a layer's are things to <em>View in</em>, and calling
+    /// both the same thing makes a service page read as though its layers were
+    /// alternative renderings of it.
+    /// </param>
     /// <returns>An HTML document.</returns>
     /// <remarks>
     /// <b>Rendered by walking the serialised JSON</b>, rather than by a template
@@ -146,7 +152,8 @@ internal static class RestDirectory
         string path,
         string title,
         object document,
-        IEnumerable<(string Label, string Href)>? links = null)
+        IEnumerable<(string Label, string Href)>? links = null,
+        string linksLabel = "View in")
     {
         StringBuilder body = new();
 
@@ -158,7 +165,7 @@ internal static class RestDirectory
 
             if (list.Count > 0)
             {
-                body.Append("<p><b>View in:</b> ");
+                body.Append(CultureInfo.InvariantCulture, $"<p><b>{H(linksLabel)}:</b> ");
                 body.Append(string.Join(" &middot; ", list.Select(l =>
                     $"<a href=\"{H(l.Href)}\">{H(l.Label)}</a>")));
                 body.Append("</p>");
@@ -179,9 +186,79 @@ internal static class RestDirectory
     {
         foreach (JsonProperty property in element.EnumerateObject())
         {
+            // <b>Fields get a real table, and they are the reason anybody opens
+            // this page.</b> Owner request 2026-08-15: *"we need the fields also
+            // be shown"*. Rendered inline as name-colon-value pairs they were
+            // technically present and unreadable — a wall of prose where a
+            // person is trying to find one column's type before writing a query.
+            string rendered = property.Name is "fields" or "layers"
+                    && property.Value.ValueKind == JsonValueKind.Array
+                    && property.Value.GetArrayLength() > 0
+                ? Grid(property.Value, path)
+                : Value(property.Value, path);
+
             body.Append(CultureInfo.InvariantCulture,
-                $"<tr><th>{H(Humanise(property.Name))}</th><td>{Value(property.Value, path)}</td></tr>");
+                $"<tr><th>{H(Humanise(property.Name))}</th><td>{rendered}</td></tr>");
         }
+    }
+
+    /// <summary>
+    /// An array of like-shaped objects as a table, one row each.
+    /// </summary>
+    /// <remarks>
+    /// <b>The columns are the union of the keys, in first-seen order.</b> Taking
+    /// the first element's keys would silently drop a column that only some
+    /// fields carry — <c>domain</c> and <c>length</c> are exactly that — and
+    /// dropping it is invisible, which is the worst way for a directory to be
+    /// wrong.
+    /// </remarks>
+    private static string Grid(JsonElement array, string path)
+    {
+        List<string> columns = [];
+
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                // Not a uniform array of objects, so a table would misrepresent
+                // it. Fall back rather than force it.
+                return Value(array, path);
+            }
+
+            foreach (JsonProperty property in item.EnumerateObject())
+            {
+                if (!columns.Contains(property.Name, StringComparer.Ordinal))
+                {
+                    columns.Add(property.Name);
+                }
+            }
+        }
+
+        StringBuilder grid = new("<div class=\"scroll\"><table class=\"grid\"><thead><tr>");
+
+        foreach (string column in columns)
+        {
+            grid.Append(CultureInfo.InvariantCulture, $"<th>{H(Humanise(column))}</th>");
+        }
+
+        grid.Append("</tr></thead><tbody>");
+
+        foreach (JsonElement item in array.EnumerateArray())
+        {
+            grid.Append("<tr>");
+
+            foreach (string column in columns)
+            {
+                grid.Append(CultureInfo.InvariantCulture,
+                    $"<td>{(item.TryGetProperty(column, out JsonElement cell)
+                        ? Value(cell, path)
+                        : "<i>—</i>")}</td>");
+            }
+
+            grid.Append("</tr>");
+        }
+
+        return grid.Append("</tbody></table></div>").ToString();
     }
 
     /// <summary>Renders one value, following the shapes these documents use.</summary>
@@ -305,10 +382,23 @@ internal static class RestDirectory
                                font-weight: 600; white-space: nowrap; }
               table.props td { vertical-align: top; padding: 3px 0; }
               .fmt { font-size: 11px; padding: 5px 14px; }
+
+              /* A field list is a table, and a wide one scrolls in its own box
+                 rather than pushing the page sideways. */
+              .scroll { overflow-x: auto; max-width: 100%; }
+              table.grid { border-collapse: collapse; font-size: 12px; margin: 2px 0 6px; }
+              table.grid th, table.grid td { border: 1px solid #d4dde6; padding: 3px 9px;
+                                             text-align: left; vertical-align: top;
+                                             white-space: nowrap; }
+              table.grid thead th { background: #f0f4f8; font-weight: 600; }
+              table.grid tbody tr:nth-child(even) { background: #fafbfc; }
               @media (prefers-color-scheme: dark) {
                 body { background: #14181c; color: #e6e6e6; }
                 .bar, .top { background: #1b2228; border-color: #2c363f; }
                 a { color: #7bb6f0; }
+                table.grid th, table.grid td { border-color: #2c363f; }
+                table.grid thead th { background: #1b2228; }
+                table.grid tbody tr:nth-child(even) { background: #181d22; }
               }
             </style>
             <div class="top">GIS Server REST Services Directory</div>

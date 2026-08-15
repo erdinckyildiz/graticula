@@ -34,6 +34,15 @@ public readonly record struct RegisteredDataSource(
 /// <param name="Srid">Its SRID.</param>
 /// <param name="GeometryType">Its declared geometry type.</param>
 /// <param name="Sharing">Who may read it.</param>
+/// <param name="ServiceName">
+/// The service to publish into, or null to give this layer one of its own.
+/// <b>Null is the ordinary case and keeps the old behaviour exactly:</b> a layer
+/// published on its own becomes a single-layer service named after it, which is
+/// what every layer in this catalogue was before 2026-08-15. Naming an existing
+/// service adds the layer to it at the next free index — which is how three
+/// related layers become one service, as the owner asked for: <em>"a service is
+/// a combination of layers."</em>
+/// </param>
 public sealed record LayerPublication(
     string Name,
     Guid DataSourceId,
@@ -44,7 +53,14 @@ public sealed record LayerPublication(
     string? ObjectIdColumn,
     int Srid,
     GeometryKind GeometryType,
-    SharingScope Sharing);
+    SharingScope Sharing,
+    string? ServiceName = null);
+
+/// <summary>Where a freshly published layer lives.</summary>
+/// <param name="Id">Its catalogue identity.</param>
+/// <param name="ServiceName">The service it landed in.</param>
+/// <param name="LayerIndex">Its number within that service — the URL segment.</param>
+public readonly record struct PublishedLayerAddress(Guid Id, string ServiceName, int LayerIndex);
 
 /// <summary>A published layer, as the admin API sees it.</summary>
 /// <param name="Id">Its catalogue identity.</param>
@@ -143,7 +159,14 @@ public interface IAdminCatalog
     Task<string?> ConnectionStringOfAsync(Guid dataSourceId, CancellationToken cancellationToken);
 
     /// <summary>Publishes a layer, owned by the given principal.</summary>
-    Task<Guid> PublishLayerAsync(
+    /// <remarks>
+    /// <b>Returns the address, not just the id.</b> The caller needs to tell
+    /// somebody where the layer now is, and since a service is a container of
+    /// layers that address is a service name plus an index — neither of which
+    /// the caller can compute, because the index depends on what was already in
+    /// the service when this ran.
+    /// </remarks>
+    Task<PublishedLayerAddress> PublishLayerAsync(
         LayerPublication publication, Guid owner, CancellationToken cancellationToken);
 
     /// <summary>Lists published layers.</summary>

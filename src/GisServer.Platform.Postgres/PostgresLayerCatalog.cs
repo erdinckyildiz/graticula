@@ -26,8 +26,36 @@ public sealed class PostgresLayerCatalog
         -- exactly one home and cannot drift from the other one.
         d.is_datastore, l.geometry_type,
         d.name, d.connection_secret, d.key_version,
-        l.owner_principal_id, l.sharing, l.status, l.attachment_quota_bytes
+
+        -- <b>From the service, never from the layer.</b> The layer's own
+        -- sharing, status and owner columns survive migration 11 and are read
+        -- by nothing: a service holding three layers with three scopes cannot
+        -- answer "who may see this service", so the question is asked of the
+        -- container. Reading l.sharing here would be the is_hosted mistake a
+        -- second time, on the column that decides who sees what.
+        s.owner_principal_id, s.sharing, s.status, l.attachment_quota_bytes,
+        s.id, l.layer_index, s.name, s.folder, s.kind, s.description
         """;
+
+    /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
+    private const string From =
+        "from layer l "
+        + "join data_source d on d.id = l.data_source_id "
+        + "join service s on s.id = l.service_id";
+
+    /// <summary>
+    /// The same joins driven from the service, so an empty one is still a service.
+    /// </summary>
+    /// <remarks>
+    /// <b>Left, and it matters the moment somebody creates a service before
+    /// adding layers to it.</b> An inner join makes that service invisible — the
+    /// administrator who just created it sees nothing in the catalogue and
+    /// reasonably concludes the creation failed.
+    /// </remarks>
+    private const string ServiceFrom =
+        "from service s "
+        + "left join layer l on l.service_id = s.id "
+        + "left join data_source d on d.id = l.data_source_id";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly SecretProtector _secrets;
@@ -46,7 +74,7 @@ public sealed class PostgresLayerCatalog
     public async Task<IReadOnlyList<PublishedLayer>> ListAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            $"select {Columns} from layer l join data_source d on d.id = l.data_source_id order by l.name");
+            $"select {Columns} {From} order by s.name, l.layer_index");
 
         List<PublishedLayer> layers = [];
         await using NpgsqlDataReader reader =
@@ -66,8 +94,7 @@ public sealed class PostgresLayerCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            $"select {Columns} from layer l join data_source d on d.id = l.data_source_id "
-            + "where l.name = @name");
+            $"select {Columns} {From} where l.name = @name order by s.name limit 1");
         command.Parameters.AddWithValue("name", name);
 
         await using NpgsqlDataReader reader =
@@ -88,8 +115,7 @@ public sealed class PostgresLayerCatalog
     public async Task<PublishedLayer?> FindByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            $"select {Columns} from layer l join data_source d on d.id = l.data_source_id "
-            + "where l.id = @id");
+            $"select {Columns} {From} where l.id = @id");
 
         command.Parameters.AddWithValue("id", id);
 
@@ -139,7 +165,113 @@ public sealed class PostgresLayerCatalog
             reader.IsDBNull(13) ? null : reader.GetGuid(13),
             ParseSharing(reader.GetString(14)),
             ParseStatus(reader.GetString(15)),
-            reader.GetInt64(16));
+            reader.GetInt64(16),
+            reader.GetGuid(17),
+            reader.GetInt32(18),
+            reader.GetString(19),
+            reader.IsDBNull(20) ? null : reader.GetString(20));
+    }
+
+    /// <summary>Every service, with its layers.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The services, ordered by name.</returns>
+    /// <remarks>
+    /// <b>One query, then grouped in memory.</b> A query per service would be
+    /// the N+1 the catalogue endpoint cannot afford — it runs on every
+    /// <c>/rest/services</c> — and the join returns one row per layer, which at
+    /// the 100–1,000 services this product targets is a few thousand rows.
+    /// </remarks>
+    public async Task<IReadOnlyList<PublishedService>> ListServicesAsync(
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {Columns} {ServiceFrom} order by s.name, l.layer_index");
+
+        return await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>One service by folder and name, or null.</summary>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The service, or null.</returns>
+    /// <remarks>
+    /// <b>Matched case-insensitively</b>, because ArcGIS writes its own folder
+    /// as <c>Hosted</c> and a client copying that convention must not meet a 404
+    /// over a capital letter.
+    /// </remarks>
+    public async Task<PublishedService?> FindServiceAsync(
+        string? folder, string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {Columns} {ServiceFrom} "
+            + "where lower(s.name) = lower(@name) "
+            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
+            + "order by l.layer_index");
+
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue(
+            "folder", (object?)folder ?? DBNull.Value);
+
+        IReadOnlyList<PublishedService> services =
+            await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
+
+        return services.Count == 0 ? null : services[0];
+    }
+
+    private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
+        NpgsqlCommand command, CancellationToken cancellationToken)
+    {
+        Dictionary<Guid, List<PublishedLayer>> byService = [];
+        Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
+            Guid? Owner, SharingScope Sharing, ServiceStatus Status)> heads = [];
+        List<Guid> order = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            Guid serviceId = reader.GetGuid(17);
+
+            if (!byService.TryGetValue(serviceId, out List<PublishedLayer>? layers))
+            {
+                layers = [];
+                byService[serviceId] = layers;
+                order.Add(serviceId);
+
+                heads[serviceId] = (
+                    reader.GetString(19),
+                    reader.IsDBNull(20) ? null : reader.GetString(20),
+                    reader.GetString(21),
+                    reader.IsDBNull(22) ? null : reader.GetString(22),
+                    reader.IsDBNull(13) ? null : reader.GetGuid(13),
+                    ParseSharing(reader.GetString(14)),
+                    ParseStatus(reader.GetString(15)));
+            }
+
+            // A left join, so a service with no layers arrives as one row of
+            // nulls. That is a service, not a broken row.
+            if (!reader.IsDBNull(0))
+            {
+                layers.Add(Map(reader));
+            }
+        }
+
+        List<PublishedService> services = [];
+
+        foreach (Guid id in order)
+        {
+            var head = heads[id];
+
+            services.Add(new PublishedService(
+                id, head.Name, head.Folder, head.Kind, head.Description,
+                head.Owner, head.Sharing, head.Status, byService[id]));
+        }
+
+        return services;
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

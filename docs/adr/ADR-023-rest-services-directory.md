@@ -121,10 +121,35 @@ weaker than a type that cannot be rendered unescaped. Recorded as condition 3.
 | The geometry service was reachable with no authentication | anonymous `POST …/GeometryServer/project` → `200` | Reproduced 2026-08-15; now `404`, test `An_anonymous_caller_does_not_reach_an_organisation_shared_service` |
 | Every service the catalogue lists resolves | 3 catalogues walked, every `{name}/{type}` fetched | `Every_listed_service_resolves` |
 | Encoding holds for hostile names | `<script>`, `"><img onerror>`, `"` in an href | `RestDirectoryTests`, 5 cases |
+| A multi-layer service renders as one page with links to each layer, and each layer's fields as a table | `EarlyAlert_Reports_HD` with GeoPoint, GeoLine, GeoFence | `MultiLayerServiceConformanceTests`, 7 cases |
 
 **What is not measured:** nothing here is a performance question. The pages are
 rendered from documents already built for the JSON path, so the cost is string
 concatenation on a request that was already doing catalogue I/O.
+
+### 4a. What the directory then exposed — added 2026-08-15
+
+Reading the rendered pages produced the second correction of the day: *"we need
+the fields also be shown. a service is a combination of layers actually."* Both
+halves came from looking at output, and neither would have come from reading
+code.
+
+- **Fields were present and unreadable.** They rendered as inline
+  `name: value, name: value` prose — technically complete, and hopeless for
+  somebody trying to find one column's type before writing a query. Arrays of
+  like-shaped objects (`fields`, `layers`) now render as tables, with columns
+  taken from the **union** of the keys rather than the first element's, because
+  `domain` and `length` appear on some fields and not others and dropping a
+  column is invisible.
+- **A service being one layer was visible the moment it was drawn.** See
+  [ADR-013](ADR-013-feature-service-data-model.md) §4g. The page said
+  `Layers:` and listed exactly one, always, and the URL underneath it always
+  ended in `/0`.
+
+That is now twice that this surface has exposed something the code did not.
+Recorded because it is an argument about what browsing your own product is for,
+not a coincidence: **rendering forces every field to be somewhere on a page**,
+and a model that is wrong has nowhere to hide once it is drawn.
 
 ## 5. Decision
 
@@ -151,9 +176,12 @@ external resource, because it must be legible when it is the only thing working.
   sharing code was correct.
 - A `?f=json` link on every page, so the directory is a route into the API rather
   than a substitute for it.
-- Two real defects found by opening URLs: the second-folder filter, and a `404`
+- Four real defects found by opening URLs: the second-folder filter; a `404`
   that Kestrel turned into a connection reset because the filter wrote a response
-  without reading the POST body.
+  without reading the POST body; the service model itself (§4a); and a creation
+  response handing back a URL that 404s, because it built the address from the
+  layer's name after the layer had been published into a differently named
+  service.
 
 **Negative.**
 

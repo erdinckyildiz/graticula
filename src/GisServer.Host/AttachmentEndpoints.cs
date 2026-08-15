@@ -61,7 +61,7 @@ internal static class AttachmentEndpoints
         foreach (string prefix in (string[])
             ["/rest/services", $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}"])
         {
-            string layer = $"{prefix}/{{layerName}}/FeatureServer/0";
+            string layer = $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}";
 
             app.MapGet($"{layer}/{{objectId:long}}/attachments", ListAsync);
             app.MapGet($"{layer}/{{objectId:long}}/attachments/{{attachmentId:int}}", DownloadAsync);
@@ -74,13 +74,14 @@ internal static class AttachmentEndpoints
 
     private static async Task ListAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         long objectId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, layerName, catalog, connections, write: false, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: false, cancellation)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -129,14 +130,15 @@ internal static class AttachmentEndpoints
     /// </remarks>
     private static async Task DownloadAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         long objectId,
         int attachmentId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, layerName, catalog, connections, write: false, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: false, cancellation)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -188,14 +190,15 @@ internal static class AttachmentEndpoints
     /// </remarks>
     private static async Task AddAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         long objectId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, layerName, catalog, connections, write: true, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -261,7 +264,9 @@ internal static class AttachmentEndpoints
                     objectId, name, sniffed, section.ContentType, limited, cancellation)
                     .ConfigureAwait(false);
 
-                await AuditAsync(context, audit, layerName, objectId, name, sniffed, cancellation)
+                await AuditAsync(
+                    context, audit, $"{serviceName}/{layerId}", objectId, name, sniffed,
+                    cancellation)
                     .ConfigureAwait(false);
 
                 await Results.Json(new
@@ -290,14 +295,15 @@ internal static class AttachmentEndpoints
 
     private static async Task DeleteAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         long objectId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, layerName, catalog, connections, write: true, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -341,7 +347,7 @@ internal static class AttachmentEndpoints
             .ConfigureAwait(false);
 
         await AuditAsync(
-            context, audit, layerName, objectId,
+            context, audit, $"{serviceName}/{layerId}", objectId,
             string.Join(",", removed), "delete", cancellation).ConfigureAwait(false);
 
         await Results.Json(new
@@ -368,35 +374,21 @@ internal static class AttachmentEndpoints
     /// </remarks>
     private static async Task<PostGisAttachmentStore?> ResolveAsync(
         HttpContext context,
-        string layerName,
+        string serviceName,
+        int layerId,
         PostgresLayerCatalog catalog,
         LayerConnections connections,
         bool write,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer =
-            await catalog.FindAsync(layerName, cancellation).ConfigureAwait(false);
+        // Folder, then sharing, then status — through the one resolver, so this
+        // surface cannot drift from the query endpoint's answers.
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
 
-        if (layer is not null && !ServiceFolder.Matches(context, layer))
+        if (layer is null)
         {
-            await ServiceFolder.RedirectAsync(context, layer).ConfigureAwait(false);
-            return null;
-        }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        if (layer is null
-            || !LayerAccess
-                .Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization)
-                .IsAllowed())
-        {
-            await Authorize.RefuseReadAsync(context, layerName).ConfigureAwait(false);
-            return null;
-        }
-
-        if (!layer.IsRunning)
-        {
-            await Authorize.RefuseStoppedAsync(context, layerName).ConfigureAwait(false);
             return null;
         }
 
@@ -413,7 +405,7 @@ internal static class AttachmentEndpoints
             // Neither is built, and saying so beats a table that fails to be
             // created halfway through an upload.
             await Refuse(context, 501,
-                $"Attachments are not available on '{layerName}' because it is registered rather "
+                $"Attachments are not available on '{layer.Definition.Name}' because it is registered rather "
                 + "than hosted. Reading a migrated __ATTACH table and creating a companion table "
                 + "where this server has DDL rights are both designed (ADR-013 §4c) and not "
                 + "built.").ConfigureAwait(false);
