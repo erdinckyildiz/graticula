@@ -140,6 +140,21 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         return Path.Combine(AppContext.BaseDirectory, "overlay", name);
     }
 
+    /// <summary>How many worker processes this pool has ever launched.</summary>
+    /// <remarks>
+    /// <b>Exposed for one test, and the test it replaced was counting the wrong
+    /// thing.</b> "A worker is reused rather than launched per request" was
+    /// asserted by counting processes named GisServer.Overlay.Worker on the
+    /// whole machine — which also counts the ones belonging to the other test
+    /// classes running in parallel, and to any server the developer happens to
+    /// have running. It failed intermittently for a year of afternoons and was
+    /// written off as flaky twice. A counter on the pool measures what the
+    /// sentence actually claims.
+    /// </remarks>
+    internal int WorkersStarted => _started;
+
+    private int _started;
+
     private readonly SemaphoreSlim _slots;
     private readonly ConcurrentBag<Worker> _idle = [];
     private readonly string _executable;
@@ -275,6 +290,8 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         }
 
         Worker started = Worker.Start(_executable, _log);
+
+        Interlocked.Increment(ref _started);
 
         await started.WarmUpAsync(cancellationToken).ConfigureAwait(false);
 

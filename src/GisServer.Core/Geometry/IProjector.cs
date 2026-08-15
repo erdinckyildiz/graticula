@@ -13,6 +13,27 @@ namespace GisServer.Geometries;
 /// not say.
 /// </param>
 /// <remarks>
+/// <para>
+/// <b>The accuracy is still null and the caution is what replaced it.</b>
+/// <c>ST_Transform</c> does not say which pipeline PROJ chose or what its stated
+/// accuracy is, and getting that out needs PROJ's operation database, which this
+/// server does not have (Q-100). What it <em>can</em> tell, from the two
+/// references alone, is whether a datum change was required at all — and that
+/// is the whole of the difference between a transformation that is exact by
+/// construction and one that can silently be metres out. 4326 to 3857 is a
+/// closed formula on one datum. A national grid to WGS 84 is a datum change, and
+/// when the shift grids for the accurate path are absent PROJ falls back to a
+/// ballpark transformation <em>without failing</em>.
+/// </para>
+/// <para>
+/// <b>Saying "a datum change happened and its accuracy is unstated" is not the
+/// answer geometry-crs-policy §3 asks for, and it is a great deal better than
+/// silence.</b> D-32: the failure it describes has no error, no log line and no
+/// visual signature — the map looks right and is in the wrong place. A caution
+/// on the response is the first thing that gives it any signature at all.
+/// </para>
+/// </remarks>
+/// <remarks>
 /// <b>Reported, not assumed</b> —
 /// <see href="../../../docs/geometry-crs-policy.md">geometry-crs-policy</see> §3.
 /// Several transformation paths usually exist between two coordinate reference
@@ -22,7 +43,19 @@ namespace GisServer.Geometries;
 /// transformation rather than failing. **A silent default is the problem; a
 /// documented default is not.**
 /// </remarks>
-public readonly record struct ProjectionProvenance(string Engine, double? Accuracy);
+/// <param name="DatumShift">
+/// Whether the two references sit on different datums, or null when the server
+/// could not tell.
+/// </param>
+/// <param name="Caution">
+/// What the caller needs to know about this particular transformation's
+/// trustworthiness, or null when there is nothing to say.
+/// </param>
+public readonly record struct ProjectionProvenance(
+    string Engine,
+    double? Accuracy,
+    bool? DatumShift = null,
+    string? Caution = null);
 
 /// <summary>
 /// Moves geometry between coordinate reference systems.

@@ -346,8 +346,6 @@ public sealed class GeometryWorkerPoolTests
 
         await using GeometryWorkerPool pool = Pool();
 
-        int before = Process.GetProcessesByName("GisServer.Overlay.Worker").Length;
-
         for (int i = 0; i < 5; i++)
         {
             EngineResult result = await pool.ComputeAsync(
@@ -360,12 +358,13 @@ public sealed class GeometryWorkerPoolTests
             Assert.Equal(EngineRefusal.None, result.Refusal);
         }
 
-        int after = Process.GetProcessesByName("GisServer.Overlay.Worker").Length;
-
-        Assert.True(
-            after - before <= 1,
-            $"Five sequential overlays left {after - before} extra worker processes, so each "
-            + "request started its own.");
+        // <b>This pool's own count, not the machine's.</b> It used to count
+        // processes named GisServer.Overlay.Worker across the whole machine,
+        // which also counts the pools other test classes are running in
+        // parallel and any server the developer has up. It failed
+        // intermittently and was written off as flaky twice before anybody
+        // noticed it was not measuring the claim in its own name.
+        Assert.Equal(1, pool.WorkersStarted);
     }
 
     [Fact]

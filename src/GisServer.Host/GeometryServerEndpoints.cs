@@ -1257,8 +1257,18 @@ internal static class GeometryServerEndpoints
                 // which pipeline it chose. Pinning a pipeline is what
                 // geometry-crs-policy §3 asks for and nobody has designed it.
                 accuracyMetres = provenance.Accuracy,
+
+                // <b>What the server can find out, since it cannot find out the
+                // accuracy.</b> Whether a datum was crossed is readable from the
+                // two references alone, and it is the difference between a
+                // transformation that is exact by construction and one that can
+                // be metres out with no error and no visual signature (D-32).
+                datumShift = provenance.DatumShift,
+                caution = provenance.Caution,
                 note = "The transformation path was chosen by PROJ. Where several exist they "
-                     + "differ by metres, and pinning one is not yet supported.",
+                     + "differ by metres, and pinning one is not yet supported. When "
+                     + "datumShift is true, read 'caution' before treating this as "
+                     + "authoritative.",
             },
         }).ConfigureAwait(false);
 
