@@ -446,10 +446,11 @@ which job needs stating before both grow.
    `HEAD`, and the day somebody needs a browser to write, that needs its own
    decision — antiforgery tokens, a same-origin check, or a deliberate narrowing
    — not a quiet removal of the method test. *(Held by
-   `The_cookie_does_not_authenticate_a_post`, verified by breaking it.)*
+   `The_cookie_does_not_authenticate_a_post`, verified by breaking it.)* *(Discharged — `The_cookie_does_not_authenticate_a_post`, which signs in, proves the cookie authenticates a read, then posts the identical request and requires a refusal. Verified by removing the method check and watching it fail alone.)*
+
 7. **A form page exists for every operation the service document links**, and the
    field names on it are the field names the handler reads. Two lists that can
-   disagree is a directory that documents an API the server does not have.
+   disagree is a directory that documents an API the server does not have. *(Discharged — `GeometryPage.Operations` is the single list the service document links from and the forms are built from, so a rename breaks both together. `Each_operation_is_a_link` walks all seven; `Following_the_link_shows_a_form_rather_than_running_it` proves the link opens a form rather than running the operation.)*
 
 ## 11. Dissent
 

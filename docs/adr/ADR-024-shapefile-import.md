@@ -163,7 +163,7 @@ database silently.
    ceiling**, before the first deployment that matters. A-062 is a guess.
 5. **Dropping Z and M is stated in the import response**, not only in this
    document. A loss the caller is not told about at the time is a loss they find
-   later.
+   later. *(Discharged — `HostedDataEndpoints` sets an import warning when `ShapefileReader.DropsZOrM` is true, and the import response carries it. The caller is told at the moment of the loss rather than finding it in an ADR later.)*
 
 ## 9. Dissent
 

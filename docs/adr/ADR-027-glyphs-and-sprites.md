@@ -220,7 +220,8 @@ sheet stops being allowed to be empty.
    time.
 4. **The font licence is in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)
    with the text shipped beside the font**, because the Bitstream Vera licence
-   requires the notice to travel with the file.
+   requires the notice to travel with the file. *(Discharged — [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries the row and a section explaining why a redistributed font is unlike every other entry, and the licence text sits beside the font at [tools/fonts/LICENSE-DejaVu.txt](../../tools/fonts/LICENSE-DejaVu.txt) — which is what Bitstream Vera requires, since the notice must travel with the file rather than be referenced from elsewhere.)*
+
 5. **The sprite sheet stops being empty, or the `sprite` key stops being
    written**, when style management arrives. A permanent empty stub is a
    temporary compromise that stopped being temporary.

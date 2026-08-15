@@ -258,7 +258,8 @@ informational.
 1. **ADR-007 §4.4, §4.5 and §4.12 are marked as amended by this**, so a reader
    arriving at the runtime ADR is not told about a router that was removed. A
    superseded design left readable as current is how the next person implements
-   the wrong thing.
+   the wrong thing. *(Discharged — ADR-007 §4.4, §4.5 and §4.12 each carry an amendment note at the top of the section, so a reader arriving at the runtime ADR meets the reversal before the design it reversed. The sections are left intact below their notes, because that is the design to return to if the experiment is ever run.)*
+
 2. **`benchmarks/worker-model` is written before affinity is ever reconsidered.**
    Both this decision and the one it reverses rest on not knowing the context
    weight distribution, and whichever way it goes next, it should go there on a
