@@ -384,6 +384,90 @@ silently — already provides the mechanism: a registered layer's capability
 report states that tiles are unavailable and why, rather than a tile endpoint
 existing and failing.
 
+## 4a. The query AST exists — 2026-08-15
+
+**Owner request: *"I wanted something similar to this, with all capabilities."***
+Building ArcGIS's query page meant listing which parameters to offer, and the
+answer was embarrassing: `where` accepted the literal `1=1` and nothing else.
+The most used capability of the whole API was a text box that refused every
+value a person would type into it.
+
+**The refusal was correct and the reason had a shelf life.** §4.6 said parsing
+SQL fragments from a request is how injection happens, and that the answer was
+the AST this ADR describes. That was true. It stayed true for as long as the AST
+did not exist, and the cost was not neutral: a server whose `where` does not work
+is not a FeatureServer with a gap, it is a FeatureServer nobody can use.
+
+**`WhereClause` is that AST, narrowed to what ArcGIS's parameter needs.**
+Recursive descent over comparisons, `LIKE`, `IN`, `BETWEEN`, `IS NULL`,
+`AND`/`OR`/`NOT` and parentheses. What matters is what it does with the result:
+
+- **Nothing the caller wrote reaches SQL as text.** Identifiers are *matched*
+  against the layer's real columns and the emitted name is the one we already
+  had; operators come from a fixed table; every literal is a bound parameter.
+  The emitted string is ours.
+- **What is absent is absent by construction**, not by a blocklist. There is no
+  grammar rule for `;`, comments, subqueries, function calls, arithmetic or
+  column-to-column comparison — so none of them can arrive by an escape nobody
+  thought of. Twelve real injection techniques are asserted refused, and the
+  conformance suite checks the refusal is a **400 from us** rather than a 500
+  from PostgreSQL, because a 500 would mean the parser had already failed.
+- **Two limits are denial-of-service controls rather than tidiness.** Clause
+  length is capped, and so is parenthesis depth: recursive descent recurses once
+  per bracket, and a stack overflow in .NET cannot be caught and takes the
+  process down.
+
+**What is still not in the grammar, and would be safe to add:** arithmetic and
+scalar functions. Both are shapes rather than holes. They are absent because
+nobody has asked, and adding either is a deliberate act with its own tests.
+
+### 4b. Everything else the query operation documents
+
+The same pass implemented the rest of the parameters, each against PostGIS:
+
+| Parameter | How |
+|---|---|
+| `objectIds` | `= any(@ids)`, bound as an array, capped at 10,000 |
+| `spatialRel` × 9 | the PostGIS predicate, always behind an explicit `&&` — `ST_Relate` has no built-in index test and would otherwise scan the table |
+| `relationParam` | `ST_Relate` with a checked nine-character DE-9IM pattern |
+| `geometryType` × 5 | ArcGIS geometry JSON through the existing reader; the comma syntax only for envelopes and points, which is all it is defined for |
+| `distance` + `units` | `ST_DWithin` on the **filter**, six units converted to metres |
+| `returnIdsOnly` | ids of the whole answer set, deliberately not capped by the page size — capping it defeats the only reason to ask |
+| `returnExtentOnly` | `ST_Extent` and `count(*)` in **one** statement, so the box and the number describe the same set |
+| `returnDistinctValues` | `distinct on` the requested fields, with the identity excluded — including it would make every row distinct and the parameter a no-op that looked like it worked |
+| `outStatistics`, `groupByFieldsForStatistics`, `havingClause` | aggregates from an enum, never from caller text; output names restricted to plain identifiers |
+| `geometryPrecision` | `ST_ReducePrecision` |
+| `maxAllowableOffset` | `ST_SimplifyPreserveTopology` — the plain simplifier can produce a self-intersecting polygon, and the caller asked for a smaller shape, not an invalid one |
+| `outSR` / `defaultSR` | `ST_Transform` in the select, **and the response reports the reference it is actually in** |
+
+**Transform, then generalise, then round.** `maxAllowableOffset` is specified in
+the *output* reference, so simplifying before transforming applies a tolerance
+in degrees to metres and is wrong by a factor of a hundred thousand.
+
+**`inSR` is still refused when it differs from the layer**, and the asymmetry
+with `outSR` is the point. Output reprojection is a transform applied to the
+answer. Input reprojection would mean comparing a filter in one reference
+against data in another, and skipping it produces **no error and no features** —
+the boxes never meet. That is the defect that made every 4326 tile silently
+empty (Q-96), and it is not one to reintroduce on the query path.
+
+**One defect this found in itself.** The first implementation bound the filter
+geometry as plain WKB, which carries no spatial reference, so PostGIS refused
+every real predicate with *"Operation on mixed SRID geometries"*. The `&&`
+operator does **not** check the SRID — so the index-only relations answered
+happily while `within`, `touches`, `overlaps`, `crosses`, `relate` and
+`dwithin` all errored. A partial implementation that looked complete, and the
+reason `Every_spatial_relationship_is_answered_rather_than_refused` walks all
+nine rather than sampling.
+
+**What is refused, and none of it for effort:** `time` (no layer declares
+`timeInfo`), `fullText` (needs a tsvector column and an index on somebody
+else's table), `gdbVersion` (no version tree), `historicMoment` (no history),
+`returnZ`/`returnM` (geometry is stored without them), percentile statistics
+(needs an ordered-set aggregate), `quantizationParameters`, and `uniqueIds`.
+Each appears on the query page **present and disabled with its reason**, rather
+than missing.
+
 ## 5. Counterarguments to this decision
 
 - **Refusing queries is a worse user experience than answering them slowly.**

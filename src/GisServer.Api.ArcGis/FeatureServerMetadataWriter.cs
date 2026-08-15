@@ -459,30 +459,49 @@ public static class FeatureServerMetadataWriter
             // (PostGisFeatureSource), which is what makes the claim true rather
             // than merely convenient.
             supportsAdvancedQueries = true,
-            supportsStatistics = false,
+            supportsStatistics = true,
             supportsPagination = true,
             supportsOrderBy = true,
-            supportsDistinct = false,
-            supportsReturningQueryExtent = false,
+            supportsDistinct = true,
+            supportsReturningQueryExtent = true,
 
             // <b>The nested object is the one clients actually read.</b> The
             // flat flags above are the older shape and are kept because some
             // clients still look at them; advancedQueryCapabilities is where the
             // ArcGIS REST specification puts these, and a client that reads only
             // it would have concluded we support nothing.
+            // <b>Audited against the parser on 2026-08-15, not carried
+            // forward.</b> Every true below names a parameter
+            // FeatureServerQueryParameters honours today, and every false names
+            // one it refuses by name with a reason. The list went stale once
+            // already — pagination and ordering sat false for weeks while both
+            // worked — so the rule now is that changing a flag and changing the
+            // parser are the same commit.
             advancedQueryCapabilities = new
             {
                 supportsPagination = true,
                 supportsOrderBy = true,
-                supportsStatistics = false,
-                supportsDistinct = false,
-                supportsReturningQueryExtent = false,
-                supportsQueryWithDistance = false,
+                supportsStatistics = true,
+                supportsDistinct = true,
+                supportsReturningQueryExtent = true,
+                supportsQueryWithDistance = true,
+                supportsHavingClause = true,
+                supportsReturningGeometryCentroid = false,
+
+                // No arithmetic or function calls in the where grammar, which is
+                // what this flag claims — see WhereClause, where the omission is
+                // deliberate rather than pending.
                 supportsSqlExpression = false,
-                supportsHavingClause = false,
                 supportsCountDistinct = false,
                 supportsQueryWithResultType = false,
+                supportsPercentileStatistics = false,
             },
+
+            // Said out loud because a client uses them to decide whether to
+            // offer a z/m toggle at all.
+            hasZ = false,
+            hasM = false,
+            supportsCoordinatesQuantization = false,
 
             // The one thing we do support beyond a plain read, and the only
             // spatial relationship the query endpoint implements.

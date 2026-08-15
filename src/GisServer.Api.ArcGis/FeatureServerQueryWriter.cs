@@ -138,9 +138,15 @@ public sealed class FeatureServerQueryWriter
         writer.WriteString("globalIdFieldName", string.Empty);
         writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
 
+        // <b>The reference the geometry is actually in, which is outSR when one
+        // was asked for.</b> Reporting the layer's after transforming would
+        // label metres as degrees, and a client would place the features
+        // somewhere in the Gulf of Guinea without any error to explain it.
+        int srid = query.OutSrid ?? _layer.Srid;
+
         writer.WriteStartObject("spatialReference");
-        writer.WriteNumber("wkid", _layer.Srid);
-        writer.WriteNumber("latestWkid", _layer.Srid);
+        writer.WriteNumber("wkid", srid);
+        writer.WriteNumber("latestWkid", srid);
         writer.WriteEndObject();
 
         // Field types are not known until a value has been seen, and the header

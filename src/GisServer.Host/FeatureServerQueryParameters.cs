@@ -2,12 +2,43 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text.Json;
 using System.Linq;
+using GisServer.Api.ArcGis;
+using GisServer.Catalog;
 using GisServer.Features;
 using GisServer.Geometries;
 using Microsoft.AspNetCore.Http;
 
 namespace GisServer.Host;
+
+/// <summary>
+/// What the caller asked the query response to be.
+/// </summary>
+/// <remarks>
+/// <b>One enum rather than four booleans, because they are exclusive.</b>
+/// <c>returnCountOnly</c>, <c>returnIdsOnly</c>, <c>returnExtentOnly</c> and
+/// <c>outStatistics</c> each replace the response with something else entirely,
+/// and a request carrying two of them is refused rather than ranked — guessing a
+/// precedence means answering one question and silently dropping the other.
+/// </remarks>
+internal enum QueryShape
+{
+    /// <summary>The features themselves.</summary>
+    Features,
+
+    /// <summary>How many matched.</summary>
+    Count,
+
+    /// <summary>Their object ids.</summary>
+    Ids,
+
+    /// <summary>The box around them, and how many.</summary>
+    Extent,
+
+    /// <summary>Computed aggregates instead of features.</summary>
+    Statistics,
+}
 
 /// <summary>
 /// Parses the ArcGIS FeatureServer <c>query</c> parameters we support.
@@ -39,9 +70,20 @@ internal static class FeatureServerQueryParameters
     /// <summary>Parameters that change the answer and that we do not implement.</summary>
     private static readonly string[] RefusedParameters =
     [
-        "groupByFieldsForStatistics", "outStatistics",
-        "returnIdsOnly", "returnDistinctValues", "returnExtentOnly",
-        "objectIds", "time", "distance", "relationParam", "having",
+        // <b>What is left after 2026-08-15, and each is absent for a reason
+        // that is not effort.</b> The rest of this list became implemented that
+        // day; these five cannot be implemented without something the product
+        // does not have.
+        //
+        //   time                  — no layer declares timeInfo, so there is no
+        //                           field to filter on and no extent to report.
+        //   gdbVersion            — there is no version tree.
+        //   historicMoment        — there is no history.
+        //   fullText              — needs a tsvector column and an index nobody
+        //                           has asked us to create on their table.
+        //   uniqueIds /
+        //   returnUniqueIdsOnly   — a 12.1 concept with no counterpart here.
+        "time", "fullText", "uniqueIds", "returnUniqueIdsOnly",
     ];
 
     /// <summary>
@@ -94,7 +136,7 @@ internal static class FeatureServerQueryParameters
     /// Every column, for expanding <c>outFields=*</c>. Taken from the database.
     /// </param>
     /// <param name="query">The parsed query.</param>
-    /// <param name="countOnly">Whether the caller asked for a count rather than features.</param>
+    /// <param name="shape">What the caller asked the response to be.</param>
     /// <param name="error">Why it could not be parsed.</param>
     public static bool TryParse(
         IQueryCollection parameters,
@@ -102,11 +144,11 @@ internal static class FeatureServerQueryParameters
         int layerSrid,
         IReadOnlyList<FieldDescription> allFields,
         [NotNullWhen(true)] out FeatureQuery? query,
-        out bool countOnly,
+        out QueryShape shape,
         [NotNullWhen(false)] out string? error)
     {
         query = null;
-        countOnly = false;
+        shape = QueryShape.Features;
         error = null;
 
         foreach (string refused in RefusedParameters)
@@ -114,10 +156,9 @@ internal static class FeatureServerQueryParameters
             if (parameters.ContainsKey(refused))
             {
                 error =
-                    $"'{refused}' is not supported yet. It is refused rather than ignored: "
-                    + "answering a different question than the one asked would be worse than "
-                    + "saying so. Supported: where (only 1=1), geometry (envelope), outFields, "
-                    + "resultRecordCount, resultOffset, returnGeometry, returnCountOnly, outSR.";
+                    $"'{refused}' is not supported. It is refused rather than ignored: answering "
+                    + "a different question than the one asked would be worse than saying so. "
+                    + $"{WhyRefused(refused)}";
                 return false;
             }
         }
@@ -128,13 +169,17 @@ internal static class FeatureServerQueryParameters
         // false — and silencing it with a ! would be asserting exactly the thing
         // worth having checked.
         if (!TryUnknown(parameters, out error)) { return Fail(out error, error); }
-        if (!TryGeometryType(parameters, out error)) { return Fail(out error, error); }
-        if (!TryWhere(parameters, out error)) { return Fail(out error, error); }
-        if (!TrySpatialRelationship(parameters, out error)) { return Fail(out error, error); }
-        if (!TrySpatialReference(parameters, layerSrid, out error)) { return Fail(out error, error); }
         if (!TryLimit(parameters, out int limit, out error)) { return Fail(out error, error); }
         if (!TryOffset(parameters, out int offset, out error)) { return Fail(out error, error); }
-        if (!TryEnvelope(parameters, layerSrid, out Envelope? boundingBox, out error)) { return Fail(out error, error); }
+        if (!TrySpatial(parameters, layerSrid, out SpatialFilter? spatial, out Envelope? box, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryOutSpatialReference(parameters, layerSrid, out int? outSrid, out error))
+        {
+            return Fail(out error, error);
+        }
 
         if (!TryFields(parameters, objectIdColumn, allFields, out List<string> fields, out error))
         {
@@ -146,15 +191,116 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
-        countOnly = Flag(parameters, "returnCountOnly", defaultValue: false);
+        if (!TryWhere(parameters, allFields, out ParsedWhere? where, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryObjectIds(parameters, out List<long> objectIds, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryPositiveInt(parameters, "geometryPrecision", out int? precision, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryPositiveDouble(parameters, "maxAllowableOffset", out double? tolerance, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryStatistics(parameters, allFields, out List<StatisticRequest> statistics,
+                out List<string> groupBy, out string? having, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryShape(parameters, statistics.Count > 0, out shape, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        bool distinct = Flag(parameters, "returnDistinctValues", defaultValue: false);
+
+        if (distinct && Flag(parameters, "returnGeometry", defaultValue: true)
+            && parameters.ContainsKey("returnGeometry"))
+        {
+            error =
+                "'returnDistinctValues' needs 'returnGeometry=false'. Two features with identical "
+                + "attributes still have different shapes, so distinct rows and returned geometry "
+                + "cannot both be honoured — ArcGIS requires the same combination.";
+            return false;
+        }
 
         query = new FeatureQuery(
             limit,
-            boundingBox,
+            box,
             fields,
             offset,
-            includeGeometry: Flag(parameters, "returnGeometry", defaultValue: true),
-            orderBy);
+
+            // Distinct implies no geometry, and asking for the ids or the count
+            // means nobody is going to read a shape.
+            includeGeometry: !distinct
+                && shape is QueryShape.Features
+                && Flag(parameters, "returnGeometry", defaultValue: true),
+            orderBy,
+            spatial,
+            objectIds,
+            distinct,
+            statistics,
+            groupBy,
+            having,
+            precision,
+            tolerance,
+            outSrid,
+            where);
+
+        return true;
+    }
+
+    /// <summary>Why a refused parameter is refused, said specifically.</summary>
+    private static string WhyRefused(string name) => name switch
+    {
+        "time" => "No layer here declares timeInfo, so there is no time field to filter on.",
+        "fullText" => "Full-text search needs a tsvector column and an index on your table.",
+        _ => "Unique ids are an ArcGIS 12.1 concept with no counterpart in this server.",
+    };
+
+    /// <summary>What the caller asked the response to be.</summary>
+    private static bool TryShape(
+        IQueryCollection parameters, bool statistics, out QueryShape shape, out string? error)
+    {
+        error = null;
+        shape = QueryShape.Features;
+
+        List<string> asked = [];
+
+        if (Flag(parameters, "returnCountOnly", false)) { asked.Add("returnCountOnly"); }
+        if (Flag(parameters, "returnIdsOnly", false)) { asked.Add("returnIdsOnly"); }
+        if (Flag(parameters, "returnExtentOnly", false)) { asked.Add("returnExtentOnly"); }
+        if (statistics) { asked.Add("outStatistics"); }
+
+        if (asked.Count > 1)
+        {
+            // <b>Refused rather than ranked.</b> ArcGIS documents a precedence
+            // among these; guessing at it would mean answering one question and
+            // silently dropping the other, which is the failure this whole class
+            // is written to avoid.
+            error =
+                $"{string.Join(" and ", asked)} were all asked for, and each replaces the "
+                + "response with something different. Ask for one.";
+            return false;
+        }
+
+        shape = asked.Count == 0 ? QueryShape.Features : asked[0] switch
+        {
+            "returnCountOnly" => QueryShape.Count,
+            "returnIdsOnly" => QueryShape.Ids,
+            "returnExtentOnly" => QueryShape.Extent,
+            _ => QueryShape.Statistics,
+        };
 
         return true;
     }
@@ -163,9 +309,14 @@ internal static class FeatureServerQueryParameters
     /// <summary>Every parameter this class understands, in any capacity.</summary>
     private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
     {
-        "where", "geometry", "geometryType", "spatialRel", "outFields", "orderByFields",
-        "resultRecordCount", "resultOffset", "returnGeometry", "returnCountOnly",
-        "returnCentroid", "outSR", "inSR",
+        "where", "objectIds",
+        "geometry", "geometryType", "spatialRel", "relationParam", "distance", "units",
+        "inSR", "outSR", "defaultSR",
+        "outFields", "orderByFields", "returnGeometry", "returnCentroid",
+        "maxAllowableOffset", "geometryPrecision",
+        "resultRecordCount", "resultOffset",
+        "returnCountOnly", "returnIdsOnly", "returnExtentOnly", "returnDistinctValues",
+        "outStatistics", "groupByFieldsForStatistics", "havingClause",
     };
 
     /// <summary>
@@ -316,114 +467,6 @@ internal static class FeatureServerQueryParameters
         return false;
     }
 
-    /// <summary>
-    /// Accepts the always-true predicate and nothing else.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is not SQL support and must not grow into it.</b> Every ArcGIS
-    /// client sends <c>where=1=1</c> to mean <em>no filter</em>, so refusing it
-    /// refuses every client for no safety gained. Anything else is a predicate
-    /// we would have to parse, and parsing SQL fragments from a request is how
-    /// injection happens — the real answer is ADR-008's query AST.
-    /// </remarks>
-    private static bool TryWhere(IQueryCollection parameters, out string? error)
-    {
-        error = null;
-
-        if (!parameters.TryGetValue("where", out Microsoft.Extensions.Primitives.StringValues values)
-            || values.Count == 0)
-        {
-            return true;
-        }
-
-        string where = (values[0] ?? string.Empty).Trim();
-
-        if (where.Length == 0
-            || string.Equals(where, "1=1", StringComparison.Ordinal)
-            || string.Equals(where.Replace(" ", string.Empty, StringComparison.Ordinal), "1=1",
-                StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        error =
-            $"'where' accepts only the always-true predicate (1=1), and this one is \"{where}\". "
-            + "Attribute filtering needs the query AST in ADR-008, which does not exist yet. It is "
-            + "refused rather than ignored, because returning every feature to a client that asked "
-            + "for some of them is a wrong answer rather than a missing feature.";
-        return false;
-    }
-
-    private static bool TrySpatialRelationship(IQueryCollection parameters, out string? error)
-    {
-        error = null;
-
-        if (!parameters.TryGetValue("spatialRel", out Microsoft.Extensions.Primitives.StringValues values)
-            || values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
-        {
-            return true;
-        }
-
-        if (string.Equals(values[0], "esriSpatialRelIntersects", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        error =
-            $"'spatialRel' of '{values[0]}' is not supported. The only relationship implemented is "
-            + "esriSpatialRelIntersects, which is what the bounding-box pushdown computes. The "
-            + "others need the geometry engine on the request path (ADR-003).";
-        return false;
-    }
-
-    /// <summary>
-    /// Refuses a spatial reference that would require reprojection.
-    /// </summary>
-    /// <remarks>
-    /// Matching the layer is accepted; anything else is refused rather than
-    /// silently returned in the wrong system, which would put a client's
-    /// features in the sea.
-    /// </remarks>
-    private static bool TrySpatialReference(
-        IQueryCollection parameters, int layerSrid, out string? error)
-    {
-        error = null;
-
-        foreach (string name in (string[])["outSR", "inSR"])
-        {
-            if (!parameters.TryGetValue(name, out Microsoft.Extensions.Primitives.StringValues values)
-                || values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
-            {
-                continue;
-            }
-
-            string raw = values[0]!.Trim();
-
-            // A client may send either a bare wkid or a spatial reference object.
-            // Only the bare form is understood; the object form is refused rather
-            // than half-parsed.
-            if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int wkid))
-            {
-                error =
-                    $"'{name}' must be a numeric wkid; '{raw}' is not one. A spatial reference "
-                    + "object is not accepted here.";
-                return false;
-            }
-
-            if (!SameSpatialReference(wkid, layerSrid))
-            {
-                error =
-                    $"'{name}' asks for {wkid} and this layer is {layerSrid}. This server does not "
-                    + "reproject: returning geometry in a system it was not asked for, or claiming "
-                    + "a system it is not in, are both worse than refusing. Request the layer's own "
-                    + "spatial reference.";
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     private static bool TryLimit(IQueryCollection parameters, out int limit, out string? error)
     {
         limit = 1000;
@@ -470,29 +513,735 @@ internal static class FeatureServerQueryParameters
         return true;
     }
 
-    private static bool TryEnvelope(
-        IQueryCollection parameters, int layerSrid, out Envelope? boundingBox, out string? error)
+    /// <summary>
+    /// The whole spatial filter: geometry, type, relation, buffer.
+    /// </summary>
+    /// <param name="parameters">The query string.</param>
+    /// <param name="layerSrid">The layer's reference, which the filter must be in.</param>
+    /// <param name="spatial">A rich filter, when the request needs one.</param>
+    /// <param name="boundingBox">The fast path, when an envelope-intersects will do.</param>
+    /// <param name="error">Why it was refused.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Two outputs, because one of the two cases is worth keeping fast.</b>
+    /// An envelope with the default relation and no buffer is the overwhelming
+    /// majority of real traffic and compiles to the index operator alone. Every
+    /// other combination becomes a <see cref="SpatialFilter"/>. At most one is
+    /// ever set.
+    /// </para>
+    /// <para>
+    /// <b><c>inSR</c> must match the layer, still.</b> Reprojecting the filter
+    /// would mean transforming the caller's geometry before comparing it, and
+    /// the failure when that is skipped is silent — boxes in different units
+    /// simply never meet and the answer is zero features with no error, which is
+    /// exactly the defect that made every 4326 tile empty (Q-96). Output
+    /// reprojection is a different question and is now supported; see
+    /// <see cref="TryOutSpatialReference"/>.
+    /// </para>
+    /// </remarks>
+    private static bool TrySpatial(
+        IQueryCollection parameters,
+        int layerSrid,
+        out SpatialFilter? spatial,
+        out Envelope? boundingBox,
+        out string? error)
     {
+        spatial = null;
         boundingBox = null;
         error = null;
 
-        if (!parameters.TryGetValue("geometry", out Microsoft.Extensions.Primitives.StringValues geometry)
-            || geometry.Count == 0 || string.IsNullOrWhiteSpace(geometry[0]))
+        string raw = First(parameters, "geometry");
+
+        if (!TryWkid(parameters, "inSR", out int? inSrid, out error))
+        {
+            return false;
+        }
+
+        inSrid ??= Wkid(First(parameters, "defaultSR"));
+
+        if (inSrid is { } given && !SameSpatialReference(given, layerSrid))
+        {
+            error =
+                $"'inSR' asks for {given} and this layer is {layerSrid}. The filter geometry is "
+                + "compared against stored geometry, and comparing two references without "
+                + "transforming one produces no error and no features — so it is refused. Send "
+                + "the filter in the layer's own reference.";
+            return false;
+        }
+
+        if (raw.Length == 0)
+        {
+            // No geometry, so nothing else here applies. spatialRel without a
+            // geometry is meaningless rather than wrong, and saying so beats
+            // ignoring it.
+            if (!string.IsNullOrWhiteSpace(First(parameters, "spatialRel"))
+                || !string.IsNullOrWhiteSpace(First(parameters, "distance")))
+            {
+                error =
+                    "'spatialRel' and 'distance' describe how to compare against a filter "
+                    + "geometry, and no 'geometry' was given. Send one, or drop them.";
+                return false;
+            }
+
+            return true;
+        }
+
+        if (!TryRelation(parameters, out SpatialRelation relation, out string? pattern, out error))
+        {
+            return false;
+        }
+
+        if (!TryDistance(parameters, layerSrid, out double distance, out error))
+        {
+            return false;
+        }
+
+        string kind = First(parameters, "geometryType");
+
+        // The fast path, and the shape of it is the reason it is worth
+        // detecting: a bare envelope-intersects is the index operator alone.
+        bool plainEnvelope =
+            distance == 0
+            && relation is SpatialRelation.Intersects
+            && (kind.Length == 0
+                || kind.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase));
+
+        if (plainEnvelope && TryParseEnvelope(raw, layerSrid, out boundingBox))
         {
             return true;
         }
 
-        if (TryParseEnvelope(geometry[0]!, layerSrid, out boundingBox))
+        if (!TryFilterGeometry(raw, kind, layerSrid, out Geometry? geometry, out error))
         {
-            return true;
+            return false;
         }
 
-        error =
-            "geometry must be an envelope, either 'xmin,ymin,xmax,ymax' or "
-            + "{\"xmin\":…,\"ymin\":…,\"xmax\":…,\"ymax\":…}. Other geometry types as a spatial "
-            + "filter need the query AST (ADR-008) and are not implemented.";
-        return false;
+        spatial = new SpatialFilter(geometry!, relation, pattern, distance);
+        return true;
     }
+
+    /// <summary>
+    /// The filter geometry, from either the simple syntax or ArcGIS JSON.
+    /// </summary>
+    /// <remarks>
+    /// <b>The comma syntax is only defined for envelopes and points</b>, which is
+    /// what the ArcGIS documentation says; everything else must be JSON. A
+    /// four-number string with <c>geometryType=esriGeometryPolygon</c> is a
+    /// client mistake worth naming rather than guessing at.
+    /// </remarks>
+    private static bool TryFilterGeometry(
+        string raw, string kind, int layerSrid, out Geometry? geometry, out string? error)
+    {
+        geometry = null;
+        error = null;
+
+        bool json = raw.StartsWith('{');
+
+        if (!json)
+        {
+            string[] parts = raw.Split(',', StringSplitOptions.TrimEntries);
+
+            if (parts.Length == 4
+                && (kind.Length == 0
+                    || kind.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (!TryParseEnvelope(raw, layerSrid, out Envelope? box) || box is null)
+                {
+                    error = "The envelope must be four numbers: xmin,ymin,xmax,ymax.";
+                    return false;
+                }
+
+                geometry = Rectangle(box.Value);
+                return true;
+            }
+
+            if (parts.Length == 2
+                && kind.Equals("esriGeometryPoint", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double x)
+                    || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double y))
+                {
+                    error = "A point in the short syntax must be two numbers: x,y.";
+                    return false;
+                }
+
+                geometry = new Point(x, y);
+                return true;
+            }
+
+            error =
+                $"'geometry' is '{raw}', which is not a shape this server can read. The "
+                + "comma-separated form is defined only for an envelope (xmin,ymin,xmax,ymax) and "
+                + "a point (x,y); anything else must be ArcGIS geometry JSON.";
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+
+            if (!ArcGisGeometryReader.TryRead(document.RootElement, layerSrid, out geometry, out error))
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch (JsonException e)
+        {
+            error = $"'geometry' is not valid JSON: {e.Message}";
+            return false;
+        }
+    }
+
+    /// <summary>One of ArcGIS's nine relations.</summary>
+    private static bool TryRelation(
+        IQueryCollection parameters,
+        out SpatialRelation relation,
+        out string? pattern,
+        out string? error)
+    {
+        relation = SpatialRelation.Intersects;
+        pattern = null;
+        error = null;
+
+        string raw = First(parameters, "spatialRel");
+
+        if (raw.Length > 0)
+        {
+            relation = raw.ToLowerInvariant() switch
+            {
+                "esrispatialrelintersects" => SpatialRelation.Intersects,
+                "esrispatialrelcontains" => SpatialRelation.Contains,
+                "esrispatialrelcrosses" => SpatialRelation.Crosses,
+                "esrispatialrelenvelopeintersects" => SpatialRelation.EnvelopeIntersects,
+                "esrispatialrelindexintersects" => SpatialRelation.IndexIntersects,
+                "esrispatialreloverlaps" => SpatialRelation.Overlaps,
+                "esrispatialreltouches" => SpatialRelation.Touches,
+                "esrispatialrelwithin" => SpatialRelation.Within,
+                "esrispatialrelrelation" => SpatialRelation.Relate,
+                _ => (SpatialRelation)(-1),
+            };
+
+            if ((int)relation < 0)
+            {
+                error =
+                    $"'spatialRel' of '{raw}' is not one of the nine ArcGIS relationships.";
+                return false;
+            }
+        }
+
+        pattern = First(parameters, "relationParam");
+
+        if (relation == SpatialRelation.Relate)
+        {
+            if (pattern.Length == 0)
+            {
+                error =
+                    "esriSpatialRelRelation needs 'relationParam', a nine-character DE-9IM "
+                    + "pattern such as FFFTTT***. Without one there is no relation to test.";
+                return false;
+            }
+
+            // <b>Checked here because it reaches ST_Relate as a value, and a
+            // value is bound — so this is a usefulness check, not a safety
+            // one.</b> A malformed pattern would otherwise surface as a database
+            // error with our SQL in it.
+            if (pattern.Length != 9 || pattern.Any(c => !"012TF*".Contains(c, StringComparison.Ordinal)))
+            {
+                error =
+                    $"'relationParam' must be nine characters from 0 1 2 T F *, and '{pattern}' "
+                    + "is not.";
+                return false;
+            }
+        }
+        else if (pattern.Length > 0)
+        {
+            error =
+                "'relationParam' only means something with spatialRel=esriSpatialRelRelation. "
+                + "Accepting it here would let a caller believe a pattern was applied.";
+            return false;
+        }
+
+        if (pattern.Length == 0)
+        {
+            pattern = null;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The buffer distance, converted into the layer's own units.
+    /// </summary>
+    /// <remarks>
+    /// <b>Refused on a geographic layer, and this is the interesting case.</b>
+    /// A distance in metres against degrees is not a unit conversion — the
+    /// number of metres in a degree of longitude depends on where you are — so
+    /// there is no factor to apply. Doing it properly means a geography cast or
+    /// a projected intermediate, and guessing would put the buffer in the wrong
+    /// place by hundreds of kilometres at high latitudes.
+    /// </remarks>
+    private static bool TryDistance(
+        IQueryCollection parameters, int layerSrid, out double distance, out string? error)
+    {
+        distance = 0;
+        error = null;
+
+        string raw = First(parameters, "distance");
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+            || value < 0)
+        {
+            error = "'distance' must be a non-negative number.";
+            return false;
+        }
+
+        if (value == 0)
+        {
+            return true;
+        }
+
+        if (layerSrid == 4326)
+        {
+            error =
+                "'distance' is not supported on a layer stored in degrees (EPSG:4326). A distance "
+                + "in metres has no fixed size in degrees — it depends on latitude — so there is "
+                + "no conversion to apply and a guess would be wrong by hundreds of kilometres "
+                + "near the poles. Publish the layer in a projected reference, or use a filter "
+                + "geometry you have already buffered.";
+            return false;
+        }
+
+        string units = First(parameters, "units");
+
+        double metres = units.ToLowerInvariant() switch
+        {
+            "" or "esrisrunit_meter" => 1,
+            "esrisrunit_foot" => 0.3048,
+            "esrisrunit_kilometer" => 1000,
+            "esrisrunit_statutemile" => 1609.344,
+            "esrisrunit_nauticalmile" => 1852,
+            "esrisrunit_usnauticalmile" => 1852,
+            _ => double.NaN,
+        };
+
+        if (double.IsNaN(metres))
+        {
+            error =
+                $"'units' of '{units}' is not one this server knows. Use esriSRUnit_Meter, "
+                + "esriSRUnit_Foot, esriSRUnit_Kilometer, esriSRUnit_StatuteMile, "
+                + "esriSRUnit_NauticalMile or esriSRUnit_USNauticalMile.";
+            return false;
+        }
+
+        // The layer's units are metres for every projected reference this server
+        // serves; Web Mercator's are metres that stretch with latitude, which is
+        // its own well-known distortion and not something to correct here.
+        distance = value * metres;
+        return true;
+    }
+
+    /// <summary>The output reference, which the database will transform into.</summary>
+    private static bool TryOutSpatialReference(
+        IQueryCollection parameters, int layerSrid, out int? outSrid, out string? error)
+    {
+        if (!TryWkid(parameters, "outSR", out outSrid, out error))
+        {
+            return false;
+        }
+
+        outSrid ??= Wkid(First(parameters, "defaultSR"));
+
+        if (outSrid is { } wanted && SameSpatialReference(wanted, layerSrid))
+        {
+            // Asking for what it already is costs a transform that changes
+            // nothing, and reports a different wkid for identical coordinates.
+            outSrid = null;
+        }
+
+        return true;
+    }
+
+    /// <summary>A wkid parameter, or null when absent.</summary>
+    private static bool TryWkid(
+        IQueryCollection parameters, string name, out int? wkid, out string? error)
+    {
+        wkid = null;
+        error = null;
+
+        string raw = First(parameters, name);
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        // A client may send a bare wkid or a spatial reference object. Both are
+        // read; the object form is what the ArcGIS SDK sends.
+        if (raw.StartsWith('{'))
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(raw);
+
+                foreach (string property in (string[])["latestWkid", "wkid"])
+                {
+                    if (document.RootElement.TryGetProperty(property, out JsonElement value)
+                        && value.TryGetInt32(out int found))
+                    {
+                        wkid = found;
+                        return true;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Falls through to the message below.
+            }
+
+            error = $"'{name}' is an object with no wkid in it.";
+            return false;
+        }
+
+        if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        {
+            error = $"'{name}' must be a numeric wkid or a spatial reference object; '{raw}' is not.";
+            return false;
+        }
+
+        wkid = parsed;
+        return true;
+    }
+
+    private static int? Wkid(string raw) =>
+        int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+            ? value
+            : null;
+
+    /// <summary>The attribute predicate, parsed rather than forwarded.</summary>
+    /// <remarks>
+    /// <b><c>1=1</c> is stripped rather than parsed.</b> The grammar has no rule
+    /// for comparing two literals — deliberately, because it is the shape every
+    /// injection attempt starts with — and <c>1=1</c> is what every ArcGIS
+    /// client sends to mean "no filter". Recognising it here keeps the grammar
+    /// closed and the clients working.
+    /// </remarks>
+    private static bool TryWhere(
+        IQueryCollection parameters,
+        IReadOnlyList<FieldDescription> allFields,
+        out ParsedWhere? where,
+        out string? error)
+    {
+        where = null;
+        error = null;
+
+        string raw = First(parameters, "where").Trim();
+
+        if (raw.Length == 0
+            || string.Equals(
+                raw.Replace(" ", string.Empty, StringComparison.Ordinal),
+                "1=1",
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!WhereClause.TryParse(
+                raw,
+                [.. allFields.Select(f => f.Name)],
+                LayerDefinition.Quote,
+                out ParsedWhere parsed,
+                out error))
+        {
+            error = $"'where' could not be parsed. {error}";
+            return false;
+        }
+
+        where = parsed;
+        return true;
+    }
+
+    /// <summary>A comma-separated list of object ids.</summary>
+    private static bool TryObjectIds(
+        IQueryCollection parameters, out List<long> ids, out string? error)
+    {
+        ids = [];
+        error = null;
+
+        string raw = First(parameters, "objectIds");
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        foreach (string part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!long.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id))
+            {
+                error =
+                    $"'objectIds' must be a comma-separated list of integers, and '{part}' is not "
+                    + "one. An object id is an integer by definition (ADR-013 §2a).";
+                return false;
+            }
+
+            ids.Add(id);
+        }
+
+        // Bound, because the list becomes an array parameter and a caller could
+        // otherwise post a million of them to build one query.
+        if (ids.Count > MaximumObjectIds)
+        {
+            error =
+                $"'objectIds' carries {ids.Count} ids and the limit is {MaximumObjectIds}. Use a "
+                + "'where' clause, which the database can index.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>How many ids one request may name.</summary>
+    /// <remarks>
+    /// ArcGIS's own documentation warns that performance drops past a thousand.
+    /// Ten times that is generous and still bounded.
+    /// </remarks>
+    public const int MaximumObjectIds = 10_000;
+
+    /// <summary>Statistics, their grouping, and the filter over them.</summary>
+    private static bool TryStatistics(
+        IQueryCollection parameters,
+        IReadOnlyList<FieldDescription> allFields,
+        out List<StatisticRequest> statistics,
+        out List<string> groupBy,
+        out string? having,
+        out string? error)
+    {
+        statistics = [];
+        groupBy = [];
+        having = null;
+        error = null;
+
+        string raw = First(parameters, "outStatistics");
+        string groups = First(parameters, "groupByFieldsForStatistics");
+        having = First(parameters, "havingClause");
+
+        if (having.Length == 0)
+        {
+            having = null;
+        }
+
+        HashSet<string> known = new(allFields.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
+
+        foreach (string field in groups.Split(
+            ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!known.TryGetValue(field, out string? actual))
+            {
+                error = $"'groupByFieldsForStatistics' names '{field}', which is not a field.";
+                return false;
+            }
+
+            groupBy.Add(actual);
+        }
+
+        if (raw.Length == 0)
+        {
+            if (groupBy.Count > 0 || having is not null)
+            {
+                error =
+                    "'groupByFieldsForStatistics' and 'havingClause' only mean something with "
+                    + "'outStatistics'. Without it there is nothing to group or to filter.";
+                return false;
+            }
+
+            return true;
+        }
+
+        JsonElement definitions;
+
+        try
+        {
+            definitions = JsonDocument.Parse(raw).RootElement;
+        }
+        catch (JsonException e)
+        {
+            error = $"'outStatistics' is not valid JSON: {e.Message}";
+            return false;
+        }
+
+        if (definitions.ValueKind != JsonValueKind.Array)
+        {
+            error = "'outStatistics' must be an array of statistic definitions.";
+            return false;
+        }
+
+        foreach (JsonElement definition in definitions.EnumerateArray())
+        {
+            if (!TryStatistic(definition, known, out StatisticRequest statistic, out error))
+            {
+                return false;
+            }
+
+            statistics.Add(statistic);
+        }
+
+        if (statistics.Count == 0)
+        {
+            error = "'outStatistics' is empty, so there is nothing to compute.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryStatistic(
+        JsonElement definition,
+        HashSet<string> known,
+        out StatisticRequest statistic,
+        out string? error)
+    {
+        statistic = default;
+        error = null;
+
+        string type = Text(definition, "statisticType");
+        string field = Text(definition, "onStatisticField");
+        string outName = Text(definition, "outStatisticFieldName");
+
+        StatisticKind kind = type.ToLowerInvariant() switch
+        {
+            "count" => StatisticKind.Count,
+            "sum" => StatisticKind.Sum,
+            "min" => StatisticKind.Min,
+            "max" => StatisticKind.Max,
+            "avg" => StatisticKind.Avg,
+            "stddev" => StatisticKind.StdDev,
+            "var" => StatisticKind.Var,
+            _ => (StatisticKind)(-1),
+        };
+
+        if ((int)kind < 0)
+        {
+            error =
+                $"'statisticType' of '{type}' is not supported. Use count, sum, min, max, avg, "
+                + "stddev or var. Percentile needs an ordered-set aggregate and is not "
+                + "implemented.";
+            return false;
+        }
+
+        if (!known.TryGetValue(field, out string? actual))
+        {
+            error = $"'onStatisticField' names '{field}', which is not a field of this layer.";
+            return false;
+        }
+
+        if (outName.Length == 0)
+        {
+            outName = $"{type.ToLowerInvariant()}_{actual}";
+        }
+
+        // <b>The output name reaches SQL as an identifier and cannot be bound.</b>
+        // Restricted to what an identifier may contain rather than escaped,
+        // because a name that needs escaping to be safe is a name worth
+        // refusing — ADR-008 §4.6.
+        if (outName.Length > 63 || !outName.All(c => char.IsLetterOrDigit(c) || c == '_'))
+        {
+            error =
+                $"'outStatisticFieldName' of '{outName}' is not a plain identifier. Use letters, "
+                + "digits and underscores, up to 63 characters.";
+            return false;
+        }
+
+        statistic = new StatisticRequest(kind, actual, outName);
+        return true;
+    }
+
+    private static string Text(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(property, out JsonElement value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static bool TryPositiveInt(
+        IQueryCollection parameters, string name, out int? value, out string? error)
+    {
+        value = null;
+        error = null;
+
+        string raw = First(parameters, name);
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            || parsed < 0)
+        {
+            error = $"'{name}' must be a non-negative integer.";
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
+
+    private static bool TryPositiveDouble(
+        IQueryCollection parameters, string name, out double? value, out string? error)
+    {
+        value = null;
+        error = null;
+
+        string raw = First(parameters, name);
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            || parsed < 0)
+        {
+            error = $"'{name}' must be a non-negative number.";
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
+
+    /// <summary>
+    /// A box as a closed, clockwise polygon.
+    /// </summary>
+    /// <remarks>
+    /// <b>ST_Relate and its siblings compare geometries, and an envelope is not
+    /// one.</b> The ring is closed explicitly — the first point repeated as the
+    /// last — because a ring that is not closed is not a ring, and the omission
+    /// is the kind that produces a PostGIS error a long way from here.
+    /// </remarks>
+    private static Polygon Rectangle(Envelope box) =>
+        new(new LinearRing(XySequence.Wrap(
+        [
+            box.MinX, box.MinY,
+            box.MaxX, box.MinY,
+            box.MaxX, box.MaxY,
+            box.MinX, box.MaxY,
+            box.MinX, box.MinY,
+        ])));
+
+    /// <summary>The first value of a parameter, or the empty string.</summary>
+    private static string First(IQueryCollection parameters, string name) =>
+        parameters.TryGetValue(name, out Microsoft.Extensions.Primitives.StringValues values)
+        && values.Count > 0
+            ? (values[0] ?? string.Empty).Trim()
+            : string.Empty;
 
     /// <summary>
     /// Resolves <c>outFields</c>, including the star.

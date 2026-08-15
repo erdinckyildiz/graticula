@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>0bad59d</code> · 2026-08-15 10:29</p>
+<p class="stamp">Generated from commit <code>fc4363d</code> · 2026-08-15 10:58</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
@@ -118,7 +118,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">639</div><div class="kpi-l">tests</div><div class="kpi-n">102 source files, 25,005 lines</div></div>
+<div class="kpi good"><div class="kpi-v">717</div><div class="kpi-l">tests</div><div class="kpi-n">104 source files, 27,558 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -303,16 +303,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">152</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.2%"></div></div><div class="bar-n">134</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:67.1%"></div></div><div class="bar-n">102</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">72</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:14.5%"></div></div><div class="bar-n">22</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">192</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:69.8%"></div></div><div class="bar-n">134</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:61.5%"></div></div><div class="bar-n">118</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:49.0%"></div></div><div class="bar-n">94</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">22</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>fc4363d</code><time>2026-08-15</time><span>the query page, and the capability document it caught lying</span></li>
 <li><code>0bad59d</code><time>2026-08-15</time><span>untrack a scratch page that followed a git add -A</span></li>
 <li><code>7956303</code><time>2026-08-15</time><span>group layers: the service&#x27;s layer list becomes a tree</span></li>
 <li><code>02434a6</code><time>2026-08-15</time><span>a service is a container of layers, which is what a service is</span></li>
@@ -326,7 +327,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3b10d13</code><time>2026-08-14</time><span>ignore TestResults, which a trx logger run committed by accident</span></li>
 <li><code>caedc44</code><time>2026-08-14</time><span>hosted is about where the data lives, not how it arrived â€” and it gets its own folder</span></li>
 <li><code>8161f18</code><time>2026-08-14</time><span>hosted data means uploaded data now, and a security rule chose the format</span></li>
-<li><code>7ae23fe</code><time>2026-08-14</time><span>GeometryServer, the half of it that cannot be used as a weapon</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

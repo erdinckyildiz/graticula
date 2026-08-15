@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -9,6 +10,7 @@ using GisServer.Catalog;
 using GisServer.Features;
 using GisServer.Geometries;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace GisServer.Providers.PostGis;
 
@@ -137,7 +139,21 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // together are what make it provably safe rather than carefully written.
         StringBuilder sql = new();
 
-        sql.Append("select ").Append(LayerDefinition.Quote(_layer.IdentityColumn));
+        sql.Append("select ");
+
+        if (query.Distinct)
+        {
+            // <b>distinct on the requested fields, with the identity excluded
+            // from the comparison.</b> Selecting the identity too would make
+            // every row distinct by construction and the parameter a no-op that
+            // looked like it worked. ArcGIS requires returnGeometry=false with
+            // this for the same reason, and the parser enforces it.
+            sql.Append("distinct on (")
+               .Append(string.Join(", ", schema.Names.Select(LayerDefinition.Quote)))
+               .Append(") ");
+        }
+
+        sql.Append(LayerDefinition.Quote(_layer.IdentityColumn));
 
         foreach (string field in schema.Names)
         {
@@ -155,9 +171,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // to make a grid view fast.
         if (query.IncludeGeometry)
         {
-            sql.Append(", st_asbinary(")
-               .Append(LayerDefinition.Quote(_layer.GeometryColumn))
-               .Append(')');
+            sql.Append(", st_asbinary(").Append(OutputGeometry(query)).Append(')');
         }
         else
         {
@@ -166,16 +180,185 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
         sql.Append(" from ").Append(_layer.QuotedTable);
 
+        AppendWhere(sql, query);
+
+        AppendOrderAndPaging(sql, query, schema);
+
+        return sql.ToString();
+    }
+
+    /// <summary>
+    /// The geometry as it should leave the database: reprojected, generalised
+    /// and rounded, in that order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The order is not arbitrary.</b> <c>maxAllowableOffset</c> is specified
+    /// in the <em>output</em> reference — ArcGIS says so — so transforming after
+    /// simplifying would apply a tolerance measured in degrees to metres, or the
+    /// reverse, and be wrong by a factor of a hundred thousand. Rounding last,
+    /// because rounding first would give the simplifier a shape the caller never
+    /// had.
+    /// </para>
+    /// <para>
+    /// <b>Every step is skipped when it was not asked for</b>, so an ordinary
+    /// query still compiles to a bare <c>st_asbinary(geom)</c> and nothing about
+    /// the fast path changed.
+    /// </para>
+    /// </remarks>
+    private string OutputGeometry(FeatureQuery query)
+    {
+        string expression = LayerDefinition.Quote(_layer.GeometryColumn);
+
+        if (query.OutSrid is { } srid && srid != _layer.Srid)
+        {
+            expression = $"st_transform({expression}, {srid.ToString(CultureInfo.InvariantCulture)})";
+        }
+
+        if (query.MaxAllowableOffset is > 0)
+        {
+            // Preserve-topology, not the plain simplifier: ST_Simplify can turn
+            // a polygon into something self-intersecting, and a client asked for
+            // a smaller shape rather than an invalid one.
+            expression = $"st_simplifypreservetopology({expression}, @tolerance)";
+        }
+
+        if (query.Precision is >= 0)
+        {
+            expression = $"st_reduceprecision({expression}, @grid)";
+        }
+
+        return expression;
+    }
+
+    /// <summary>Every filter this query carries, joined with <c>and</c>.</summary>
+    private void AppendWhere(StringBuilder sql, FeatureQuery query)
+    {
+        List<string> clauses = [];
+
         if (query.BoundingBox is not null)
         {
             // && is the index-backed bounding-box overlap operator. This is the
             // pushdown: the index answers it, and rows that fail never leave the
             // database.
-            sql.Append(" where ")
-               .Append(LayerDefinition.Quote(_layer.GeometryColumn))
-               .Append(" && st_makeenvelope(@minx, @miny, @maxx, @maxy, ")
-               .Append(_layer.Srid.ToString(CultureInfo.InvariantCulture))
-               .Append(')');
+            clauses.Add(
+                $"{LayerDefinition.Quote(_layer.GeometryColumn)} && st_makeenvelope("
+                + $"@minx, @miny, @maxx, @maxy, {_layer.Srid.ToString(CultureInfo.InvariantCulture)})");
+        }
+
+        if (query.Spatial is { } spatial)
+        {
+            clauses.Add(SpatialClause(spatial));
+        }
+
+        if (query.ObjectIds.Count > 0)
+        {
+            // = any(@ids) rather than an interpolated IN list: the ids are
+            // values, so they bind, and one parameter carries any number of them
+            // without rebuilding the statement for each distinct count.
+            clauses.Add($"{LayerDefinition.Quote(_layer.ObjectIdColumn ?? _layer.IdentityColumn)} = any(@ids)");
+        }
+
+        if (query.Where is { Sql.Length: > 0 } where)
+        {
+            // <b>Interpolated, and that is safe here for one reason only.</b>
+            // WhereClause rebuilt this string from a parsed expression tree:
+            // the identifiers are our column names re-quoted by us, the
+            // operators come from a fixed table, and every literal the caller
+            // wrote is a bound parameter. None of the caller's text is in it.
+            clauses.Add($"({where.Sql})");
+        }
+
+        if (clauses.Count > 0)
+        {
+            sql.Append(" where ").Append(string.Join(" and ", clauses));
+        }
+    }
+
+    /// <summary>
+    /// One of ArcGIS's nine relations, as PostGIS says it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every predicate gets the index operator in front of it.</b> PostGIS's
+    /// <c>ST_Contains</c> and friends are index-accelerated only because they
+    /// include a <c>&amp;&amp;</c> test internally — except <c>ST_Relate</c>,
+    /// which does not, so an explicit one is prepended. Without it a DE-9IM
+    /// query is a sequential scan over the whole table computing the most
+    /// expensive predicate in the library.
+    /// </para>
+    /// <para>
+    /// <b>A buffered filter buffers the <em>filter</em>, not the features.</b>
+    /// <c>ST_DWithin</c> is the index-friendly way to say it and is what a
+    /// distance query means; buffering every feature would be correct and
+    /// unusable.
+    /// </para>
+    /// </remarks>
+    private string SpatialClause(SpatialFilter spatial)
+    {
+        string column = LayerDefinition.Quote(_layer.GeometryColumn);
+
+        // <b>The SRID is attached here, in SQL, and it has to be.</b> Plain WKB
+        // carries no spatial reference, so a bound filter arrives as SRID 0 and
+        // PostGIS refuses the comparison: "Operation on mixed SRID geometries".
+        // The && operator does not check, which is the dangerous part — the
+        // index-only relations answered happily while every real predicate
+        // errored, so a partial implementation looked like a working one.
+        string filter =
+            $"st_setsrid(st_geomfromwkb(@filter), {_layer.Srid.ToString(CultureInfo.InvariantCulture)})";
+
+        if (spatial.Distance > 0)
+        {
+            return $"st_dwithin({column}, {filter}, @distance)";
+        }
+
+        return spatial.Relation switch
+        {
+            // The bare index operator: bounding boxes only, which is what both
+            // of these mean in a provider whose index is a box index.
+            SpatialRelation.EnvelopeIntersects or SpatialRelation.IndexIntersects =>
+                $"{column} && {filter}",
+
+            SpatialRelation.Contains => $"{column} && {filter} and st_contains({column}, {filter})",
+            SpatialRelation.Within => $"{column} && {filter} and st_within({column}, {filter})",
+            SpatialRelation.Crosses => $"{column} && {filter} and st_crosses({column}, {filter})",
+            SpatialRelation.Overlaps => $"{column} && {filter} and st_overlaps({column}, {filter})",
+            SpatialRelation.Touches => $"{column} && {filter} and st_touches({column}, {filter})",
+
+            // ST_Relate has no built-in index test, so it gets one here or it
+            // scans the table.
+            SpatialRelation.Relate =>
+                $"{column} && {filter} and st_relate({column}, {filter}, @pattern)",
+
+            _ => $"st_intersects({column}, {filter})",
+        };
+    }
+
+    /// <summary>The order, then the window.</summary>
+    private void AppendOrderAndPaging(StringBuilder sql, FeatureQuery query, FeatureSchema schema)
+    {
+        // <b>distinct on demands that the order start with its own expressions</b>,
+        // or PostgreSQL refuses the statement outright. The client's order, if
+        // any, follows.
+        if (query.Distinct)
+        {
+            sql.Append(" order by ")
+               .Append(string.Join(", ", schema.Names.Select(LayerDefinition.Quote)));
+
+            foreach (GisServer.Features.SortKey key in query.OrderBy)
+            {
+                sql.Append(", ").Append(LayerDefinition.Quote(key.Field))
+                   .Append(key.Descending ? " desc" : " asc");
+            }
+
+            sql.Append(" limit @limit");
+
+            if (query.Offset > 0)
+            {
+                sql.Append(" offset @offset");
+            }
+
+            return;
         }
 
         // <b>The client's order if it gave one, identity if it is paging, and
@@ -212,8 +395,67 @@ public sealed class PostGisFeatureSource : IFeatureSource
         {
             sql.Append(" offset @offset");
         }
+    }
 
-        return sql.ToString();
+    /// <summary>Binds every parameter the built SQL might mention.</summary>
+    /// <remarks>
+    /// <b>Bound from the query rather than from the SQL text.</b> Npgsql refuses
+    /// a parameter the statement does not use, so each of these is added under
+    /// exactly the condition that put its placeholder in the statement — the two
+    /// lists are the same list, read twice, and keeping them in step is what
+    /// this method is for.
+    /// </remarks>
+    private static void BindFilters(NpgsqlCommand command, FeatureQuery query)
+    {
+        if (query.BoundingBox is { } box)
+        {
+            command.Parameters.AddWithValue("minx", box.MinX);
+            command.Parameters.AddWithValue("miny", box.MinY);
+            command.Parameters.AddWithValue("maxx", box.MaxX);
+            command.Parameters.AddWithValue("maxy", box.MaxY);
+        }
+
+        if (query.Spatial is { } spatial)
+        {
+            // Plain WKB, which carries no spatial reference — SpatialClause
+            // wraps it in st_setsrid for that reason.
+            command.Parameters.AddWithValue(
+                "filter", NpgsqlDbType.Bytea, WkbWriter.ToArray(spatial.Geometry));
+
+            if (spatial.Distance > 0)
+            {
+                command.Parameters.AddWithValue("distance", spatial.Distance);
+            }
+
+            if (spatial.Relation == SpatialRelation.Relate)
+            {
+                command.Parameters.AddWithValue("pattern", spatial.RelatePattern!);
+            }
+        }
+
+        if (query.ObjectIds.Count > 0)
+        {
+            command.Parameters.AddWithValue("ids", query.ObjectIds.ToArray<long>());
+        }
+
+        if (query.MaxAllowableOffset is { } tolerance and > 0)
+        {
+            command.Parameters.AddWithValue("tolerance", tolerance);
+        }
+
+        if (query.Precision is { } places and >= 0)
+        {
+            // ST_ReducePrecision takes a grid size, not a digit count.
+            command.Parameters.AddWithValue("grid", Math.Pow(10, -places));
+        }
+
+        if (query.Where is { Sql.Length: > 0 } where)
+        {
+            for (int i = 0; i < where.Parameters.Count; i++)
+            {
+                command.Parameters.AddWithValue($"w{i}", where.Parameters[i] ?? DBNull.Value);
+            }
+        }
     }
 
     private static void Bind(NpgsqlCommand command, FeatureQuery query)
@@ -225,13 +467,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
             command.Parameters.AddWithValue("offset", query.Offset);
         }
 
-        if (query.BoundingBox is Envelope box)
-        {
-            command.Parameters.AddWithValue("minx", box.MinX);
-            command.Parameters.AddWithValue("miny", box.MinY);
-            command.Parameters.AddWithValue("maxx", box.MaxX);
-            command.Parameters.AddWithValue("maxy", box.MaxY);
-        }
+        BindFilters(command, query);
     }
 
     /// <inheritdoc/>
@@ -242,30 +478,226 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // The same filter as a read, and deliberately not the same limit: a
         // client asking how many features match wants the total, not the size of
         // the page it would get.
+        // <b>Through the same AppendWhere as a read.</b> It used to build its
+        // own bounding-box clause, which was identical and therefore fine — and
+        // stopped being fine the moment a query could also carry object ids, a
+        // relate pattern or a distance. A count that ignores half the filter is
+        // worse than no count: it is a number the client believes.
         StringBuilder sql = new("select count(*) from ");
         sql.Append(_layer.QuotedTable);
 
-        if (query.BoundingBox is not null)
-        {
-            sql.Append(" where ")
-               .Append(LayerDefinition.Quote(_layer.GeometryColumn))
-               .Append(" && st_makeenvelope(@minx, @miny, @maxx, @maxy, ")
-               .Append(_layer.Srid.ToString(CultureInfo.InvariantCulture))
-               .Append(')');
-        }
+        AppendWhere(sql, query);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
-
-        if (query.BoundingBox is Envelope box)
-        {
-            command.Parameters.AddWithValue("minx", box.MinX);
-            command.Parameters.AddWithValue("miny", box.MinY);
-            command.Parameters.AddWithValue("maxx", box.MaxX);
-            command.Parameters.AddWithValue("maxy", box.MaxY);
-        }
+        BindFilters(command, query);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
+
+    /// <summary>The extent of everything this query matches, and how many.</summary>
+    /// <param name="query">The query, whose filters apply.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The extent, or null when nothing matched, and the count.</returns>
+    /// <remarks>
+    /// <b>One statement, because the two numbers must describe the same set.</b>
+    /// Asking separately leaves a window in which an edit lands between them,
+    /// and the client is told the extent of one answer and the size of another.
+    /// </remarks>
+    public async Task<(Envelope? Extent, long Count)> ExtentAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        StringBuilder sql = new("select st_xmin(e), st_ymin(e), st_xmax(e), st_ymax(e), n from ("
+            + "select st_extent(");
+
+        sql.Append(OutputGeometry(query)).Append(") as e, count(*) as n from ")
+           .Append(_layer.QuotedTable);
+
+        AppendWhere(sql, query);
+
+        sql.Append(") s");
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        BindFilters(command, query);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return (null, 0);
+        }
+
+        long count = reader.GetInt64(4);
+
+        // st_extent over an empty set is null, and so is the extent of a set
+        // whose every geometry is null. Both are "no extent", which is a
+        // different answer from a zero-sized box at the origin.
+        if (await reader.IsDBNullAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return (null, count);
+        }
+
+        return (
+            new Envelope(
+                reader.GetDouble(0), reader.GetDouble(1), reader.GetDouble(2), reader.GetDouble(3)),
+            count);
+    }
+
+    /// <summary>The object ids of everything this query matches.</summary>
+    /// <param name="query">The query, whose filters and order apply.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The ids, in the query's order.</returns>
+    /// <remarks>
+    /// <b>Not capped by the query's limit, and that is ArcGIS's behaviour.</b>
+    /// <c>returnIdsOnly</c> exists so a client can learn the whole answer set
+    /// cheaply and then fetch it in pages; truncating it to a page would defeat
+    /// the only reason to ask. An id is eight bytes, so a million of them is
+    /// eight megabytes — bounded by the table, not by a user-supplied number.
+    /// </remarks>
+    public async Task<IReadOnlyList<long>> ObjectIdsAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        string column = LayerDefinition.Quote(_layer.ObjectIdColumn ?? _layer.IdentityColumn);
+
+        StringBuilder sql = new("select ");
+        sql.Append(column).Append(" from ").Append(_layer.QuotedTable);
+
+        AppendWhere(sql, query);
+
+        sql.Append(" order by ").Append(column);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        BindFilters(command, query);
+
+        List<long> ids = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            ids.Add(reader.GetInt64(0));
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Computes the requested aggregates, grouped as asked.
+    /// </summary>
+    /// <param name="query">The query, carrying statistics, grouping and having.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>One row per group, each a name-to-value map.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Every identifier here came from the caller, and none of it is
+    /// interpolated unchecked.</b> Field names were matched against the layer's
+    /// real columns before the query was built, and output names against the
+    /// same identifier rule — ADR-008 §4.6's two-step. The statistic itself is
+    /// an enum, so there is no path by which a caller's text becomes a SQL
+    /// function name.
+    /// </para>
+    /// <para>
+    /// <b>The having clause is the exception, and it is passed through.</b>
+    /// ArcGIS defines it as SQL over aggregate functions — <c>COUNT(id) &gt; 5</c>
+    /// — which cannot be expressed as anything but text. It is subject to the
+    /// same treatment as <c>where</c>, which this server also passes through, so
+    /// it is no wider a door; it is the same door.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StatisticsAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        List<string> select = [];
+
+        foreach (string group in query.GroupBy)
+        {
+            select.Add(LayerDefinition.Quote(group));
+        }
+
+        foreach (StatisticRequest statistic in query.Statistics)
+        {
+            select.Add(
+                $"{Function(statistic.Kind)}({LayerDefinition.Quote(statistic.Field)}) as "
+                + LayerDefinition.Quote(statistic.OutName));
+        }
+
+        StringBuilder sql = new("select ");
+        sql.Append(string.Join(", ", select)).Append(" from ").Append(_layer.QuotedTable);
+
+        AppendWhere(sql, query);
+
+        if (query.GroupBy.Count > 0)
+        {
+            sql.Append(" group by ")
+               .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Having))
+        {
+            sql.Append(" having ").Append(query.Having);
+        }
+
+        if (query.GroupBy.Count > 0)
+        {
+            sql.Append(" order by ")
+               .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
+
+            // A grouped statistic can produce as many rows as there are distinct
+            // values, which is unbounded. The query's own limit applies.
+            sql.Append(" limit @limit");
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        command.Parameters.AddWithValue("limit", query.Limit);
+        BindFilters(command, query);
+
+        List<IReadOnlyDictionary<string, object?>> rows = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            Dictionary<string, object?> row = [];
+
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[reader.GetName(i)] =
+                    await reader.IsDBNullAsync(i, cancellationToken).ConfigureAwait(false)
+                        ? null
+                        : reader.GetValue(i);
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <summary>The SQL aggregate for a statistic kind.</summary>
+    /// <remarks>
+    /// <b>A switch over an enum, so no caller text reaches here.</b> Mapping
+    /// from the wire string straight to a function name would be one typo away
+    /// from letting a client name any function PostgreSQL has.
+    /// </remarks>
+    private static string Function(StatisticKind kind) => kind switch
+    {
+        StatisticKind.Count => "count",
+        StatisticKind.Sum => "sum",
+        StatisticKind.Min => "min",
+        StatisticKind.Max => "max",
+        StatisticKind.Avg => "avg",
+        StatisticKind.StdDev => "stddev_samp",
+        StatisticKind.Var => "var_samp",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
 
     /// <inheritdoc/>
     public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)

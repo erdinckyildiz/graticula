@@ -669,6 +669,181 @@ public static class Program
         return entries;
     }
 
+    /// <summary>
+    /// Answers a query that asked for something other than features.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every one of these runs the same parsed query through the same
+    /// source.</b> A count computed by a different code path from the features
+    /// it counts is a count that can disagree with them, and the disagreement
+    /// appears only when somebody compares the two.
+    /// </remarks>
+    private static async Task AlternateShapeAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription described,
+        IFeatureSource source,
+        FeatureQuery query,
+        QueryShape shape,
+        bool html,
+        CancellationToken cancellation)
+    {
+        if (source is not PostGisFeatureSource postgis)
+        {
+            // Every source in this build is PostGIS. Said out loud rather than
+            // cast blindly, so a second provider fails here with a sentence
+            // instead of an InvalidCastException in a stack trace.
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 501,
+                        message =
+                            "Counts, ids, extents and statistics are implemented for the PostGIS "
+                            + "provider only, and this layer is served by another.",
+                    },
+                },
+                statusCode: StatusCodes.Status501NotImplemented)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        switch (shape)
+        {
+            case QueryShape.Count:
+            {
+                long count = await postgis.CountAsync(query, cancellation).ConfigureAwait(false);
+
+                if (html)
+                {
+                    await QueryPage
+                        .WriteCountAsync(context, layer, described, count, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                // What an ArcGIS client asks before it starts paging.
+                await Results.Json(new { count }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            case QueryShape.Ids:
+            {
+                IReadOnlyList<long> ids = await postgis
+                    .ObjectIdsAsync(query, cancellation).ConfigureAwait(false);
+
+                if (html)
+                {
+                    await QueryPage
+                        .WriteIdsAsync(context, layer, described, ids, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                await Results.Json(new
+                {
+                    objectIdFieldName = layer.Definition.ObjectIdColumn,
+                    objectIds = ids,
+                }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            case QueryShape.Extent:
+            {
+                (Envelope? extent, long count) = await postgis
+                    .ExtentAsync(query, cancellation).ConfigureAwait(false);
+
+                int srid = query.OutSrid ?? layer.Definition.Srid;
+
+                if (html)
+                {
+                    await QueryPage
+                        .WriteExtentAsync(context, layer, described, extent, count, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                await Results.Json(new
+                {
+                    count,
+                    extent = extent is { } box
+                        ? new
+                        {
+                            xmin = box.MinX,
+                            ymin = box.MinY,
+                            xmax = box.MaxX,
+                            ymax = box.MaxY,
+                            spatialReference = new { wkid = srid, latestWkid = srid },
+                        }
+                        : null,
+                }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            default:
+            {
+                IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await postgis
+                    .StatisticsAsync(query, cancellation).ConfigureAwait(false);
+
+                if (html)
+                {
+                    await QueryPage
+                        .WriteStatisticsAsync(context, layer, described, rows, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                // <b>Shaped as features with no geometry, which is what ArcGIS
+                // returns.</b> A client reads statistics through the same code
+                // path it reads features with; inventing a different envelope
+                // would mean every client needed a special case for us.
+                await Results.Json(new
+                {
+                    displayFieldName = string.Empty,
+                    fields = FieldsOf(rows),
+                    features = rows.Select(r => new { attributes = r }),
+                }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+    }
+
+    /// <summary>The field list for a statistics response, from its first row.</summary>
+    /// <remarks>
+    /// <b>From the row rather than from the request</b>, because the grouping
+    /// fields and the computed ones both appear and only the database knows what
+    /// type an average of an integer column came back as.
+    /// </remarks>
+    private static object[] FieldsOf(IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
+    {
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        List<object> fields = [];
+
+        foreach (KeyValuePair<string, object?> cell in rows[0])
+        {
+            fields.Add(new
+            {
+                name = cell.Key,
+                alias = cell.Key,
+                type = cell.Value switch
+                {
+                    null => "esriFieldTypeString",
+                    long or int or short => "esriFieldTypeInteger",
+                    double or float or decimal => "esriFieldTypeDouble",
+                    DateTime => "esriFieldTypeDate",
+                    _ => "esriFieldTypeString",
+                },
+            });
+        }
+
+        return [.. fields];
+    }
+
     /// <summary>What sits at an index — a layer's name, a group's, or the number.</summary>
     private static string NameOf(PublishedService service, int index)
     {
@@ -1418,7 +1593,7 @@ public static class Program
                 layer.Definition.Srid,
                 described.Fields,
                 out FeatureQuery? query,
-                out bool countOnly,
+                out QueryShape shape,
                 out string? error))
         {
             await Results.Json(
@@ -1440,20 +1615,14 @@ public static class Program
             }
         }
 
-        if (countOnly)
+        // <b>Four shapes that are not a feature collection.</b> Each replaces
+        // the response entirely, which is why the parser refuses a request that
+        // asks for two of them: there would be no honest way to answer both.
+        if (shape is not QueryShape.Features)
         {
-            long count = await source.CountAsync(query!, cancellation).ConfigureAwait(false);
-
-            if (html)
-            {
-                await QueryPage
-                    .WriteCountAsync(context, layer, described, count, cancellation)
-                    .ConfigureAwait(false);
-                return;
-            }
-
-            // What an ArcGIS client asks before it starts paging.
-            await Results.Json(new { count }).ExecuteAsync(context).ConfigureAwait(false);
+            await AlternateShapeAsync(
+                context, layer, described, source, query!, shape, html, cancellation)
+                .ConfigureAwait(false);
             return;
         }
 

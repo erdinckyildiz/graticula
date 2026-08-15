@@ -61,7 +61,11 @@ internal static class QueryPage
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        foreach (string name in (string[])["where", "objectIds", "geometry", "outFields"])
+        foreach (string name in (string[])
+        [
+            "where", "objectIds", "geometry", "outFields", "outStatistics",
+            "returnCountOnly", "returnIdsOnly", "returnExtentOnly", "resultOffset",
+        ])
         {
             if (!string.IsNullOrWhiteSpace(request.Query[name]))
             {
@@ -210,6 +214,132 @@ internal static class QueryPage
         return WritePageAsync(context, body.ToString(), cancellation);
     }
 
+    /// <summary>Writes an object-id list as a page.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer being queried.</param>
+    /// <param name="description">Its fields, for the form.</param>
+    /// <param name="ids">The matching ids.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The write.</returns>
+    public static Task WriteIdsAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription description,
+        IReadOnlyList<long> ids,
+        CancellationToken cancellation)
+    {
+        StringBuilder body = new();
+        AppendForm(body, context, layer, description);
+
+        string many = ids.Count.ToString("N0", CultureInfo.InvariantCulture);
+
+        body.Append(CultureInfo.InvariantCulture,
+            $"<h3>Results:</h3><p><b>{many}</b> object id(s):</p>");
+
+        // <b>Comma-separated in one block, not a table.</b> Somebody looking at
+        // this is about to paste it into an objectIds parameter, and a table of
+        // ten thousand single-cell rows is unusable for that and slow to render.
+        body.Append("<div class=\"scroll\"><code>")
+            .Append(H(string.Join(", ", ids)))
+            .Append("</code></div>");
+
+        return WritePageAsync(context, body.ToString(), cancellation);
+    }
+
+    /// <summary>Writes an extent-only answer as a page.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer being queried.</param>
+    /// <param name="description">Its fields, for the form.</param>
+    /// <param name="extent">The box, or null when nothing matched.</param>
+    /// <param name="count">How many matched.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The write.</returns>
+    public static Task WriteExtentAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription description,
+        Envelope? extent,
+        long count,
+        CancellationToken cancellation)
+    {
+        StringBuilder body = new();
+        AppendForm(body, context, layer, description);
+
+        body.Append(CultureInfo.InvariantCulture,
+            $"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
+
+        if (extent is { } box)
+        {
+            body.Append(CultureInfo.InvariantCulture,
+                $"<table class=\"props\"><tr><th>XMin</th><td>{box.MinX:0.######}</td></tr>"
+                + $"<tr><th>YMin</th><td>{box.MinY:0.######}</td></tr>"
+                + $"<tr><th>XMax</th><td>{box.MaxX:0.######}</td></tr>"
+                + $"<tr><th>YMax</th><td>{box.MaxY:0.######}</td></tr></table>");
+        }
+        else
+        {
+            body.Append("<p><i>No extent: nothing matched, or every match has no geometry.</i></p>");
+        }
+
+        return WritePageAsync(context, body.ToString(), cancellation);
+    }
+
+    /// <summary>Writes computed statistics as a page.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer being queried.</param>
+    /// <param name="description">Its fields, for the form.</param>
+    /// <param name="rows">One row per group.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The write.</returns>
+    public static Task WriteStatisticsAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription description,
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken cancellation)
+    {
+        StringBuilder body = new();
+        AppendForm(body, context, layer, description);
+
+        body.Append("<h3>Results:</h3>");
+
+        if (rows.Count == 0)
+        {
+            body.Append("<p><i>Nothing matched, so there was nothing to compute.</i></p>");
+            return WritePageAsync(context, body.ToString(), cancellation);
+        }
+
+        body.Append("<div class=\"scroll\"><table class=\"grid\"><thead><tr>");
+
+        foreach (string column in rows[0].Keys)
+        {
+            body.Append(CultureInfo.InvariantCulture, $"<th>{H(column)}</th>");
+        }
+
+        body.Append("</tr></thead><tbody>");
+
+        foreach (IReadOnlyDictionary<string, object?> row in rows)
+        {
+            body.Append("<tr>");
+
+            foreach (string column in rows[0].Keys)
+            {
+                object? value = row.TryGetValue(column, out object? found) ? found : null;
+
+                body.Append(CultureInfo.InvariantCulture,
+                    $"<td>{(value is null
+                        ? "<i>null</i>"
+                        : H(Convert.ToString(value, CultureInfo.InvariantCulture)))}</td>");
+            }
+
+            body.Append("</tr>");
+        }
+
+        body.Append("</tbody></table></div>");
+
+        return WritePageAsync(context, body.ToString(), cancellation);
+    }
+
     /// <summary>One result row.</summary>
     /// <remarks>
     /// <b>The geometry is summarised, not printed.</b> A polygon's coordinate
@@ -316,6 +446,21 @@ internal static class QueryPage
     }
 
     /// <summary>The form itself.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every parameter ArcGIS's page has, in ArcGIS's order.</b> An
+    /// administrator who knows that page should not have to re-learn this one,
+    /// and a screenshot of the two should differ only in what is greyed out.
+    /// </para>
+    /// <para>
+    /// <b>What this server cannot honour is present and disabled, not
+    /// missing.</b> Omitting a control makes the page silently different from
+    /// every ArcGIS page in the world, and leaves somebody hunting for a field
+    /// that is simply not drawn. Disabling it with a reason answers the question
+    /// on the spot — and a disabled input is not submitted, so the request is
+    /// exactly the request the enabled controls describe.
+    /// </para>
+    /// </remarks>
     private static void AppendForm(
         StringBuilder body,
         HttpContext context,
@@ -326,47 +471,125 @@ internal static class QueryPage
 
         body.Append(CultureInfo.InvariantCulture,
             $"<h2>Query: {H(layer.ServiceName)} - {H(layer.Definition.Name)} "
-            + $"({layer.LayerIndex})</h2>");
+            + $"(ID: {layer.LayerIndex})</h2>");
 
         body.Append(CultureInfo.InvariantCulture,
             $"<form action=\"{H(context.Request.Path)}\" method=\"get\"><table class=\"form\">");
 
-        Text(body, "Where:", "where", q["where"], "1=1", wide: true);
+        Text(body, "Where:", "where", q["where"], "objectid > 0 and address like 'High%'", 80);
 
-        Text(body, "Out Fields:", "outFields", q["outFields"], "*", wide: true);
+        Area(body, "Full Text Search:", "fullText", q["fullText"],
+            "Needs a tsvector column and an index on your table, which this server will not "
+            + "create on data it does not own.");
 
-        // The field names, so nobody has to open the layer document in another
-        // tab to remember whether it is parcel_id or parcelid.
+        Text(body, "Object IDs:", "objectIds", q["objectIds"], "1, 2, 3", 80);
+
+        Text(body, "Unique Ids:", "uniqueIds", q["uniqueIds"], string.Empty, 80,
+            disabled: "An ArcGIS 12.1 concept with no counterpart in this server.");
+
+        Text(body, "Time:", "time", q["time"], string.Empty, 40,
+            disabled: "No layer here declares timeInfo, so there is no time field to filter on.");
+
+        Area(body, "Input Geometry:", "geometry", q["geometry"], null);
+
+        Select(body, "Geometry Type:", "geometryType", q["geometryType"],
+        [
+            ("esriGeometryEnvelope", "Envelope"),
+            ("esriGeometryPoint", "Point"),
+            ("esriGeometryMultipoint", "Multipoint"),
+            ("esriGeometryPolyline", "Polyline"),
+            ("esriGeometryPolygon", "Polygon"),
+        ]);
+
+        Text(body, "Input Spatial Reference:", "inSR", q["inSR"],
+            layer.Definition.Srid.ToString(CultureInfo.InvariantCulture), 20);
+
+        Text(body, "Default Spatial Reference:", "defaultSR", q["defaultSR"], string.Empty, 20);
+
+        Select(body, "Spatial Relationship:", "spatialRel", q["spatialRel"],
+        [
+            ("esriSpatialRelIntersects", "Intersects"),
+            ("esriSpatialRelContains", "Contains"),
+            ("esriSpatialRelCrosses", "Crosses"),
+            ("esriSpatialRelEnvelopeIntersects", "Envelope Intersects"),
+            ("esriSpatialRelIndexIntersects", "Index Intersects"),
+            ("esriSpatialRelOverlaps", "Overlaps"),
+            ("esriSpatialRelTouches", "Touches"),
+            ("esriSpatialRelWithin", "Within"),
+            ("esriSpatialRelRelation", "Relation"),
+        ]);
+
+        Text(body, "Distance:", "distance", q["distance"], string.Empty, 20);
+
+        Select(body, "Units:", "units", q["units"],
+        [
+            ("", "(default: metres)"),
+            ("esriSRUnit_Meter", "Meter"),
+            ("esriSRUnit_Foot", "Foot"),
+            ("esriSRUnit_Kilometer", "Kilometer"),
+            ("esriSRUnit_StatuteMile", "Statute Mile"),
+            ("esriSRUnit_NauticalMile", "Nautical Mile"),
+            ("esriSRUnit_USNauticalMile", "US Nautical Mile"),
+        ]);
+
+        Text(body, "Relation:", "relationParam", q["relationParam"], "FFFTTT***", 20);
+
+        Text(body, "Out Fields:", "outFields", q["outFields"], "*", 80);
+
         body.Append(CultureInfo.InvariantCulture,
             $"<tr><th></th><td class=\"hint\">{H(string.Join(", ", description.Fields.Select(f => f.Name)))}</td></tr>");
 
-        Text(body, "Input Geometry:", "geometry", q["geometry"],
-            "xmin,ymin,xmax,ymax", wide: true);
+        Radio(body, "Return Geometry:", "returnGeometry", q["returnGeometry"], defaultTrue: true);
 
-        Select(body, "Geometry Type:", "geometryType", q["geometryType"],
-            [("", "(none)"), ("esriGeometryEnvelope", "esriGeometryEnvelope")]);
+        Text(body, "Max Allowable Offset:", "maxAllowableOffset", q["maxAllowableOffset"],
+            string.Empty, 20);
 
-        Select(body, "Spatial Relationship:", "spatialRel", q["spatialRel"],
-            [("", "(default)"), ("esriSpatialRelIntersects", "esriSpatialRelIntersects")]);
+        Text(body, "Geometry Precision:", "geometryPrecision", q["geometryPrecision"],
+            string.Empty, 20);
 
-        Text(body, "Input Spatial Reference:", "inSR", q["inSR"],
-            layer.Definition.Srid.ToString(CultureInfo.InvariantCulture), wide: false);
+        Text(body, "Output Spatial Reference:", "outSR", q["outSR"], string.Empty, 20);
+
+        Text(body, "Having Clause:", "havingClause", q["havingClause"], "COUNT(objectid) > 5", 80);
 
         Text(body, "Order By Fields:", "orderByFields", q["orderByFields"],
-            "field ASC, field DESC", wide: true);
+            "field ASC, field DESC", 80);
 
-        Text(body, "Result Offset:", "resultOffset", q["resultOffset"], "0", wide: false);
+        Text(body, "Group By Fields For Statistics:", "groupByFieldsForStatistics",
+            q["groupByFieldsForStatistics"], "field1, field2", 80);
 
-        Text(body, "Result Record Count:", "resultRecordCount", q["resultRecordCount"],
-            "1000", wide: false);
+        Area(body, "Output Statistics:", "outStatistics", q["outStatistics"], null,
+            "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\","
+            + "\"outStatisticFieldName\":\"n\"}]");
 
-        Select(body, "Return Geometry:", "returnGeometry", q["returnGeometry"],
-            [("", "true"), ("true", "true"), ("false", "false")]);
+        Radio(body, "Return Z:", "returnZ", q["returnZ"], defaultTrue: false,
+            disabled: "Geometry is stored without z and m values.");
 
-        Select(body, "Return Count Only:", "returnCountOnly", q["returnCountOnly"],
-            [("", "false"), ("false", "false"), ("true", "true")]);
+        Radio(body, "Return M:", "returnM", q["returnM"], defaultTrue: false,
+            disabled: "Geometry is stored without z and m values.");
 
-        Text(body, "Output Spatial Reference:", "outSR", q["outSR"], "", wide: false);
+        Text(body, "gdbVersion:", "gdbVersion", q["gdbVersion"], string.Empty, 20,
+            disabled: "There is no version tree.");
+
+        Text(body, "Historic Moment:", "historicMoment", q["historicMoment"], string.Empty, 20,
+            disabled: "There is no history to query.");
+
+        Radio(body, "Return Distinct Values:", "returnDistinctValues", q["returnDistinctValues"],
+            defaultTrue: false);
+
+        Text(body, "Result Offset:", "resultOffset", q["resultOffset"], "0", 20);
+
+        Text(body, "Result Record Count:", "resultRecordCount", q["resultRecordCount"], "1000", 20);
+
+        Radio(body, "Return Extent Only:", "returnExtentOnly", q["returnExtentOnly"],
+            defaultTrue: false);
+
+        Radio(body, "Return Count Only:", "returnCountOnly", q["returnCountOnly"],
+            defaultTrue: false);
+
+        Radio(body, "Return IDs Only:", "returnIdsOnly", q["returnIdsOnly"], defaultTrue: false);
+
+        Select(body, "SQL Format:", "sqlFormat", q["sqlFormat"],
+            [("none", "none"), ("standard", "standard")]);
 
         Select(body, "Format:", "f", string.IsNullOrEmpty(q["f"]) ? "html" : q["f"],
             [("html", "HTML"), ("json", "JSON")]);
@@ -377,13 +600,69 @@ internal static class QueryPage
         body.Append("</table></form>");
     }
 
+    /// <summary>A multi-line input, for the parameters that take JSON.</summary>
+    private static void Area(
+        StringBuilder body,
+        string label,
+        string name,
+        string? value,
+        string? disabled,
+        string placeholder = "")
+    {
+        body.Append(CultureInfo.InvariantCulture,
+            $"<tr><th>{H(label)}</th><td><textarea name=\"{H(name)}\" rows=\"4\" cols=\"78\" "
+            + $"placeholder=\"{H(placeholder)}\"{Off(disabled)}>{H(value)}</textarea>"
+            + $"{Why(disabled)}</td></tr>");
+    }
+
+    /// <summary>A true/false pair, which is how ArcGIS renders these.</summary>
+    private static void Radio(
+        StringBuilder body,
+        string label,
+        string name,
+        string? value,
+        bool defaultTrue,
+        string? disabled = null)
+    {
+        bool on = string.IsNullOrEmpty(value) ? defaultTrue : value == "true";
+
+        body.Append(CultureInfo.InvariantCulture,
+            $"<tr><th>{H(label)}</th><td>"
+            + $"<label><input type=\"radio\" name=\"{H(name)}\" value=\"true\""
+            + $"{(on ? " checked" : string.Empty)}{Off(disabled)}> True</label> "
+            + $"<label><input type=\"radio\" name=\"{H(name)}\" value=\"false\""
+            + $"{(on ? string.Empty : " checked")}{Off(disabled)}> False</label>"
+            + $"{Why(disabled)}</td></tr>");
+    }
+
+    /// <summary>The disabled attribute, or nothing.</summary>
+    private static string Off(string? disabled) =>
+        disabled is null ? string.Empty : " disabled";
+
+    /// <summary>Why a control is disabled, said beside it.</summary>
+    /// <remarks>
+    /// <b>The reason is the point.</b> A greyed-out box with no explanation is
+    /// the same dead end as a missing one, one step later.
+    /// </remarks>
+    private static string Why(string? disabled) =>
+        disabled is null
+            ? string.Empty
+            : $"<div class=\"hint\">Not supported: {H(disabled)}</div>";
+
     private static void Text(
-        StringBuilder body, string label, string name, string? value, string placeholder, bool wide)
+        StringBuilder body,
+        string label,
+        string name,
+        string? value,
+        string placeholder,
+        int size,
+        string? disabled = null)
     {
         body.Append(CultureInfo.InvariantCulture,
             $"<tr><th>{H(label)}</th><td><input type=\"text\" name=\"{H(name)}\" "
             + $"value=\"{H(value)}\" placeholder=\"{H(placeholder)}\" "
-            + $"size=\"{(wide ? 70 : 12)}\"></td></tr>");
+            + $"size=\"{size.ToString(CultureInfo.InvariantCulture)}\"{Off(disabled)}>"
+            + $"{Why(disabled)}</td></tr>");
     }
 
     private static void Select(

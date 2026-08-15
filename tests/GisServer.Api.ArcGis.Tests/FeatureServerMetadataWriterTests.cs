@@ -81,20 +81,19 @@ public sealed class FeatureServerMetadataWriterTests
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
             Layer(), GeometryKind.Polygon, Description(), "Query"));
 
-        foreach (string claim in (string[])
-            ["supportsStatistics", "supportsDistinct", "supportsReturningQueryExtent"])
-        {
-            Assert.False(layer.GetProperty(claim).GetBoolean(), claim);
-        }
-
         JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
 
         foreach (string claim in (string[])
-            ["supportsStatistics", "supportsDistinct", "supportsReturningQueryExtent",
-             "supportsQueryWithDistance", "supportsSqlExpression", "supportsHavingClause"])
+            ["supportsSqlExpression", "supportsCountDistinct", "supportsQueryWithResultType",
+             "supportsPercentileStatistics", "supportsReturningGeometryCentroid"])
         {
             Assert.False(advanced.GetProperty(claim).GetBoolean(), claim);
         }
+
+        // Geometry is stored without z and m, and a client uses these to decide
+        // whether to offer the toggles at all.
+        Assert.False(layer.GetProperty("hasZ").GetBoolean());
+        Assert.False(layer.GetProperty("hasM").GetBoolean());
     }
 
     [Fact]
@@ -107,14 +106,22 @@ public sealed class FeatureServerMetadataWriterTests
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
             Layer(), GeometryKind.Polygon, Description(), "Query"));
 
-        Assert.True(layer.GetProperty("supportsAdvancedQueries").GetBoolean());
-        Assert.True(layer.GetProperty("supportsPagination").GetBoolean());
-        Assert.True(layer.GetProperty("supportsOrderBy").GetBoolean());
-
         JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
 
-        Assert.True(advanced.GetProperty("supportsPagination").GetBoolean());
-        Assert.True(advanced.GetProperty("supportsOrderBy").GetBoolean());
+        foreach (string claim in (string[])
+            ["supportsPagination", "supportsOrderBy", "supportsStatistics", "supportsDistinct",
+             "supportsReturningQueryExtent", "supportsQueryWithDistance", "supportsHavingClause"])
+        {
+            Assert.True(advanced.GetProperty(claim).GetBoolean(), claim);
+        }
+
+        // The older flat spelling, kept because some clients still read it.
+        foreach (string claim in (string[])
+            ["supportsAdvancedQueries", "supportsPagination", "supportsOrderBy",
+             "supportsStatistics", "supportsDistinct", "supportsReturningQueryExtent"])
+        {
+            Assert.True(layer.GetProperty(claim).GetBoolean(), claim);
+        }
     }
 
     [Fact]

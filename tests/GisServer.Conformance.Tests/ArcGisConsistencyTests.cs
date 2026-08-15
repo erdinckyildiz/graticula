@@ -343,6 +343,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
             "resultOffset and resultRecordCount are honoured, so declaring otherwise tells every "
             + "client not to page.");
 
+        Assert.True(layer.GetProperty("supportsStatistics").GetBoolean());
+        Assert.True(layer.GetProperty("supportsDistinct").GetBoolean());
+
         JsonElement advanced = Require(
             layer,
             "advancedQueryCapabilities",
@@ -352,9 +355,12 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         Assert.True(advanced.GetProperty("supportsPagination").GetBoolean());
         Assert.True(advanced.GetProperty("supportsOrderBy").GetBoolean());
 
+        Assert.True(advanced.GetProperty("supportsStatistics").GetBoolean());
+        Assert.True(advanced.GetProperty("supportsDistinct").GetBoolean());
+
         // And the ones that are false are false, which is the other half.
-        Assert.False(advanced.GetProperty("supportsStatistics").GetBoolean());
-        Assert.False(advanced.GetProperty("supportsDistinct").GetBoolean());
+        Assert.False(advanced.GetProperty("supportsSqlExpression").GetBoolean());
+        Assert.False(advanced.GetProperty("supportsPercentileStatistics").GetBoolean());
     }
 
     // ---------- the query page ----------
@@ -374,18 +380,53 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     }
 
     [Fact]
-    public async Task The_query_page_only_offers_parameters_the_server_honours()
+    public async Task The_query_page_has_every_ArcGIS_parameter_on_it()
     {
-        // The form is a live capability report. A control for outStatistics
-        // would invite somebody to fill in a box and be refused for it.
+        // <b>An administrator who knows Esri's page should not have to re-learn
+        // this one.</b> A missing control leaves somebody hunting for a field
+        // that is simply not drawn.
         string name = await FirstServiceNameAsync();
 
         string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
 
-        foreach (string refused in (string[])
-            ["outStatistics", "groupByFieldsForStatistics", "returnIdsOnly", "distance", "time"])
+        foreach (string parameter in (string[])
+        [
+            "where", "objectIds", "geometry", "geometryType", "inSR", "defaultSR", "spatialRel",
+            "distance", "units", "relationParam", "outFields", "returnGeometry",
+            "maxAllowableOffset", "geometryPrecision", "outSR", "havingClause", "orderByFields",
+            "groupByFieldsForStatistics", "outStatistics", "returnZ", "returnM", "gdbVersion",
+            "historicMoment", "returnDistinctValues", "resultOffset", "resultRecordCount",
+            "returnExtentOnly", "returnCountOnly", "returnIdsOnly", "sqlFormat", "f",
+        ])
         {
-            Assert.DoesNotContain($"name=\"{refused}\"", page, StringComparison.Ordinal);
+            Assert.Contains($"name=\"{parameter}\"", page, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task What_the_server_cannot_honour_is_disabled_with_a_reason()
+    {
+        // <b>Present and greyed out, not absent.</b> A disabled input is not
+        // submitted, so the request is exactly what the enabled controls
+        // describe — and the reason beside it answers the question on the spot
+        // instead of sending somebody to read an error.
+        string name = await FirstServiceNameAsync();
+
+        string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
+
+        Assert.Contains("Not supported:", page, StringComparison.Ordinal);
+
+        foreach (string refused in (string[]) ["time", "gdbVersion", "historicMoment", "returnZ"])
+        {
+            int at = page.IndexOf($"name=\"{refused}\"", StringComparison.Ordinal);
+
+            Assert.True(at > 0, refused);
+
+            // The disabled attribute sits inside the same tag.
+            int close = page.IndexOf('>', at);
+
+            Assert.Contains(
+                "disabled", page[at..close], StringComparison.Ordinal);
         }
     }
 

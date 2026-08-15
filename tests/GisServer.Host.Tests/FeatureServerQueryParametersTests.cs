@@ -69,30 +69,105 @@ public sealed class FeatureServerQueryParametersTests
     // ---------- refusals ----------
 
     [Theory]
-    [InlineData("outStatistics")]
-    [InlineData("returnIdsOnly")]
-    [InlineData("objectIds")]
-    [InlineData("having")]
+    [InlineData("time")]
+    [InlineData("fullText")]
+    [InlineData("uniqueIds")]
+    [InlineData("returnUniqueIdsOnly")]
     public void A_parameter_that_changes_the_answer_is_refused_rather_than_ignored(string parameter)
     {
+        // <b>What is left, and each is absent for a reason that is not
+        // effort.</b> outStatistics, returnIdsOnly, objectIds and havingClause
+        // were all on this list until 2026-08-15 and are now implemented; these
+        // four need something the product does not have — a time-aware layer, a
+        // tsvector index, a version tree.
         Assert.Contains(parameter, Refuse((parameter, "anything")), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_real_where_clause_is_refused_and_says_what_would_be_needed()
+    public void A_refusal_says_what_is_missing_rather_than_that_it_is_unsupported()
     {
-        string error = Refuse(("where", "name = 'x'"));
-
-        Assert.Contains("always-true", error, StringComparison.Ordinal);
-        Assert.Contains("ADR-008", error, StringComparison.Ordinal);
+        // "Not supported" sends somebody to file an issue. Naming the thing that
+        // is absent answers the question in the message.
+        Assert.Contains(
+            "timeInfo", Refuse(("time", "1,2")), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_spatial_relationship_other_than_intersects_is_refused()
+    public void A_real_where_clause_is_parsed_rather_than_refused()
+    {
+        // <b>Refused with "ADR-008's query AST does not exist yet" until
+        // 2026-08-15.</b> It exists now — WhereClause — and it is what makes the
+        // most-used parameter of the query API usable without handing user text
+        // to the database.
+        FeatureQuery query = Parse(("where", "name = 'x'"));
+
+        Assert.NotNull(query.Where);
+        Assert.Equal("\"name\" = @w0", query.Where!.Value.Sql);
+        Assert.Equal("x", Assert.Single(query.Where.Value.Parameters));
+    }
+
+    [Fact]
+    public void A_where_clause_that_is_not_in_the_grammar_is_still_refused()
+    {
+        // The parser is the boundary, and the boundary has to hold: anything it
+        // cannot rebuild is refused rather than forwarded.
+        Assert.Contains(
+            "could not be parsed",
+            Refuse(("where", "1=1; drop table x")),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("esriSpatialRelIntersects")]
+    [InlineData("esriSpatialRelContains")]
+    [InlineData("esriSpatialRelCrosses")]
+    [InlineData("esriSpatialRelEnvelopeIntersects")]
+    [InlineData("esriSpatialRelIndexIntersects")]
+    [InlineData("esriSpatialRelOverlaps")]
+    [InlineData("esriSpatialRelTouches")]
+    [InlineData("esriSpatialRelWithin")]
+    public void Every_spatial_relationship_but_relate_is_understood(string relation)
+    {
+        // All nine are implemented; relate is the one that also needs a pattern
+        // and has its own test.
+        Parse(("geometry", "0,0,1,1"), ("spatialRel", relation));
+    }
+
+    [Fact]
+    public void An_invented_spatial_relationship_is_refused()
     {
         Assert.Contains(
-            "esriSpatialRelIntersects",
-            Refuse(("spatialRel", "esriSpatialRelContains")),
+            "nine",
+            Refuse(("geometry", "0,0,1,1"), ("spatialRel", "esriSpatialRelSortOfNear")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Relate_needs_a_pattern_and_a_pattern_needs_relate()
+    {
+        // Each without the other is a request that cannot be honoured as
+        // written, and accepting either would let a caller believe a relation
+        // was applied that was not.
+        Assert.Contains(
+            "relationParam",
+            Refuse(("geometry", "0,0,1,1"), ("spatialRel", "esriSpatialRelRelation")),
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "esriSpatialRelRelation",
+            Refuse(("geometry", "0,0,1,1"), ("relationParam", "T********")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_relate_pattern_must_be_nine_characters_of_the_right_alphabet()
+    {
+        Assert.Contains(
+            "nine characters",
+            Refuse(
+                ("geometry", "0,0,1,1"),
+                ("spatialRel", "esriSpatialRelRelation"),
+                ("relationParam", "nonsense")),
             StringComparison.Ordinal);
     }
 
@@ -136,11 +211,41 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void A_geometry_type_other_than_an_envelope_is_refused()
+    public void A_polygon_filter_is_read_from_ArcGIS_geometry_JSON()
     {
+        // Only an envelope was accepted until 2026-08-15, on the grounds that a
+        // bounding box is what the index answers. The index still answers the
+        // box; the predicate that follows it is what the geometry engine does,
+        // and PostGIS has had one all along.
+        FeatureQuery query = Parse(
+            ("geometry", "{\"rings\":[[[0,0],[0,1],[1,1],[1,0],[0,0]]]}"),
+            ("geometryType", "esriGeometryPolygon"),
+            ("spatialRel", "esriSpatialRelWithin"));
+
+        Assert.NotNull(query.Spatial);
+        Assert.Equal(SpatialRelation.Within, query.Spatial!.Relation);
+    }
+
+    [Fact]
+    public void A_point_filter_is_read_from_the_short_syntax()
+    {
+        FeatureQuery query = Parse(
+            ("geometry", "10,20"),
+            ("geometryType", "esriGeometryPoint"),
+            ("distance", "5"));
+
+        Assert.NotNull(query.Spatial);
+        Assert.Equal(5, query.Spatial!.Distance);
+    }
+
+    [Fact]
+    public void The_short_syntax_is_only_defined_for_envelopes_and_points()
+    {
+        // Four numbers and geometryType=polygon is a client mistake worth naming
+        // rather than guessing at.
         Assert.Contains(
-            "esriGeometryEnvelope",
-            Refuse(("geometryType", "esriGeometryPolygon")),
+            "must be ArcGIS geometry JSON",
+            Refuse(("geometry", "0,0,1,1"), ("geometryType", "esriGeometryPolygon")),
             StringComparison.Ordinal);
     }
 
@@ -155,14 +260,36 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void An_outSR_that_would_need_reprojection_is_refused()
+    public void An_outSR_is_carried_into_the_query_for_the_database_to_apply()
     {
-        // Returning geometry in a system it was not asked for, or claiming a
-        // system it is not in, both put a client's features in the sea.
-        string error = Refuse(("outSR", "4326"));
+        // Refused until 2026-08-15 on the grounds that this server does not
+        // reproject. It does now, in the database, on the way out — and the
+        // response reports the reference the geometry is actually in, which is
+        // the half that matters.
+        Assert.Equal(4326, Parse(("outSR", "4326")).OutSrid);
+    }
 
-        Assert.Contains("does not reproject", error, StringComparison.Ordinal);
-        Assert.Contains("4326", error, StringComparison.Ordinal);
+    [Fact]
+    public void An_outSR_that_matches_the_layer_costs_nothing()
+    {
+        // Transforming into the reference the data is already in changes no
+        // coordinate and costs a function call per row.
+        Assert.Null(Parse(("outSR", Srid.ToString(System.Globalization.CultureInfo.InvariantCulture))).OutSrid);
+    }
+
+    [Fact]
+    public void An_inSR_that_would_need_reprojection_is_still_refused()
+    {
+        // <b>The asymmetry is deliberate.</b> Output reprojection is a transform
+        // the database applies to the answer; input reprojection would mean
+        // comparing a filter in one reference against data in another, and when
+        // that is skipped there is no error — the boxes simply never meet and
+        // the answer is zero features. That is the defect that made every 4326
+        // tile silently empty.
+        Assert.Contains(
+            "no error and no features",
+            Refuse(("geometry", "0,0,1,1"), ("inSR", "4326")),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -182,12 +309,11 @@ public sealed class FeatureServerQueryParametersTests
     public void A_negative_offset_is_refused() => Refuse(("resultOffset", "-1"));
 
     [Fact]
-    public void A_geometry_that_is_not_an_envelope_is_refused_with_the_reason()
+    public void A_geometry_that_is_not_a_shape_at_all_is_refused_with_the_reason()
     {
-        Assert.Contains(
-            "envelope",
-            Refuse(("geometry", "{\"rings\":[]}")),
-            StringComparison.Ordinal);
+        // An empty ring list is not a polygon; the reader says so rather than
+        // producing a geometry with nothing in it.
+        Refuse(("geometry", "{\"rings\":[]}"), ("geometryType", "esriGeometryPolygon"));
     }
 
     // ---------- what every ArcGIS client sends ----------
@@ -243,12 +369,44 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void returnCountOnly_is_reported_separately_from_the_query()
+    public void The_response_shape_is_reported_separately_from_the_query()
     {
-        Assert.True(FeatureServerQueryParameters.TryParse(
-            Query(("returnCountOnly", "true")), "objectid", Srid, Fields, out _, out bool countOnly, out _));
+        // <b>An enum, not a boolean, since 2026-08-15.</b> Four parameters each
+        // replace the response with something different, and they are mutually
+        // exclusive — so the parser reports which one rather than a flag per
+        // parameter that could be set in combinations with no meaning.
+        Assert.Equal(QueryShape.Count, Shape(("returnCountOnly", "true")));
+        Assert.Equal(QueryShape.Ids, Shape(("returnIdsOnly", "true")));
+        Assert.Equal(QueryShape.Extent, Shape(("returnExtentOnly", "true")));
+        Assert.Equal(QueryShape.Features, Shape(("outFields", "*")));
 
-        Assert.True(countOnly);
+        Assert.Equal(
+            QueryShape.Statistics,
+            Shape(("outStatistics",
+                "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\"}]")));
+    }
+
+    [Fact]
+    public void Two_response_shapes_at_once_are_refused_rather_than_ranked()
+    {
+        // Guessing a precedence means answering one question and silently
+        // dropping the other, which is the failure this whole class avoids.
+        Assert.False(FeatureServerQueryParameters.TryParse(
+            Query(("returnCountOnly", "true"), ("returnIdsOnly", "true")),
+            "objectid", Srid, Fields, out _, out _, out string? error));
+
+        Assert.Contains("Ask for one", error!, StringComparison.Ordinal);
+    }
+
+    private static QueryShape Shape(params (string Key, string Value)[] parameters)
+    {
+        Assert.True(
+            FeatureServerQueryParameters.TryParse(
+                Query(parameters), "objectid", Srid, Fields, out _, out QueryShape shape,
+                out string? error),
+            error);
+
+        return shape;
     }
 
     [Fact]
@@ -284,7 +442,6 @@ public sealed class FeatureServerQueryParametersTests
 
     [Theory]
     [InlineData("quantizationParameters")]
-    [InlineData("maxAllowableOffset")]
     [InlineData("cacheHint")]
     [InlineData("returnCentroid")]
     [InlineData("f")]

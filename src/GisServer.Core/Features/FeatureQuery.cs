@@ -56,13 +56,38 @@ public sealed class FeatureQuery
     /// How to order results, outermost key first. Field names must already have
     /// been checked against the layer's columns — see <see cref="OrderBy"/>.
     /// </param>
+    /// <param name="spatial">
+    /// A spatial restriction richer than a box: any geometry, any of the nine
+    /// relations, optionally buffered. Null for none.
+    /// </param>
+    /// <param name="objectIds">Only these features, by object id. Null for all.</param>
+    /// <param name="distinct">Whether to collapse duplicate attribute rows.</param>
+    /// <param name="statistics">Aggregates to compute instead of returning features.</param>
+    /// <param name="groupBy">Fields to group those aggregates by.</param>
+    /// <param name="having">A filter over the aggregates, in SQL.</param>
+    /// <param name="precision">Decimal places for output coordinates, or null for all.</param>
+    /// <param name="maxAllowableOffset">Generalisation tolerance, or null for none.</param>
+    /// <param name="outSrid">Reproject output geometry to this, or null to leave it.</param>
+    /// <param name="where">
+    /// An attribute predicate, already parsed and parameterised. Null for none.
+    /// </param>
     public FeatureQuery(
         int limit,
         Envelope? boundingBox = null,
         IReadOnlyList<string>? fields = null,
         int offset = 0,
         bool includeGeometry = true,
-        IReadOnlyList<SortKey>? orderBy = null)
+        IReadOnlyList<SortKey>? orderBy = null,
+        SpatialFilter? spatial = null,
+        IReadOnlyList<long>? objectIds = null,
+        bool distinct = false,
+        IReadOnlyList<StatisticRequest>? statistics = null,
+        IReadOnlyList<string>? groupBy = null,
+        string? having = null,
+        int? precision = null,
+        double? maxAllowableOffset = null,
+        int? outSrid = null,
+        ParsedWhere? where = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumLimit);
@@ -73,6 +98,24 @@ public sealed class FeatureQuery
         Offset = offset;
         IncludeGeometry = includeGeometry;
         OrderBy = orderBy is null ? Array.Empty<SortKey>() : [.. orderBy];
+        Spatial = spatial?.Validated();
+        ObjectIds = objectIds is null ? Array.Empty<long>() : [.. objectIds];
+        Distinct = distinct;
+        Statistics = statistics is null ? Array.Empty<StatisticRequest>() : [.. statistics];
+        GroupBy = groupBy is null ? Array.Empty<string>() : [.. groupBy];
+        Having = having;
+        Precision = precision;
+        MaxAllowableOffset = maxAllowableOffset;
+        OutSrid = outSrid;
+        Where = where;
+
+        if (Having is not null && Statistics.Count == 0)
+        {
+            throw new ArgumentException(
+                "A having clause filters aggregates, and this query computes none. Accepting it "
+                + "would mean silently ignoring a filter the caller believes is applied.",
+                nameof(having));
+        }
 
         if (fields is null || fields.Count == 0)
         {
@@ -97,8 +140,66 @@ public sealed class FeatureQuery
     /// <summary>Maximum features to return.</summary>
     public int Limit { get; }
 
-    /// <summary>Spatial restriction, or <see langword="null"/> for none.</summary>
+    /// <summary>
+    /// A bounding-box restriction, or <see langword="null"/> for none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept beside <see cref="Spatial"/> rather than folded into it, and the
+    /// reason is that this is the path that is fast.</b> An envelope-intersects
+    /// filter is the overwhelming majority of real traffic and compiles to the
+    /// index operator alone; expressing it as a general geometry filter would
+    /// route it through the same predicate as a DE-9IM relate and lose that.
+    /// <b>At most one of the two is ever set</b> — the compatibility layer
+    /// chooses — and a provider that sees both must apply both.
+    /// </remarks>
     public Envelope? BoundingBox { get; }
+
+    /// <summary>A richer spatial restriction, or null for none.</summary>
+    public SpatialFilter? Spatial { get; }
+
+    /// <summary>
+    /// Only these object ids, or empty for no such restriction.
+    /// </summary>
+    /// <remarks>
+    /// <b>Long, not string.</b> ADR-013 §2a: an ArcGIS object id is a unique
+    /// integer by definition, and a layer without one is refused by this surface
+    /// before a query is built. Taking text here would invite a caller to pass
+    /// the declared identity column instead, which may be a uuid.
+    /// </remarks>
+    public IReadOnlyList<long> ObjectIds { get; }
+
+    /// <summary>Whether duplicate attribute rows collapse to one.</summary>
+    public bool Distinct { get; }
+
+    /// <summary>Aggregates to compute instead of returning features.</summary>
+    public IReadOnlyList<StatisticRequest> Statistics { get; }
+
+    /// <summary>Fields to group the aggregates by.</summary>
+    public IReadOnlyList<string> GroupBy { get; }
+
+    /// <summary>A filter over the aggregates, or null.</summary>
+    public string? Having { get; }
+
+    /// <summary>Decimal places for output coordinates, or null for full precision.</summary>
+    public int? Precision { get; }
+
+    /// <summary>Generalisation tolerance in output units, or null for none.</summary>
+    public double? MaxAllowableOffset { get; }
+
+    /// <summary>Reproject output geometry into this reference, or null.</summary>
+    public int? OutSrid { get; }
+
+    /// <summary>
+    /// An attribute predicate, parsed and parameterised, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Parsed before it gets here, never raw.</b> <see cref="WhereClause"/>
+    /// rebuilds the caller's SQL from an expression tree with every literal
+    /// bound; what this carries is our text, not theirs. A provider may
+    /// interpolate <see cref="ParsedWhere.Sql"/> directly for that reason and
+    /// for no other.
+    /// </remarks>
+    public ParsedWhere? Where { get; }
 
     /// <summary>Attributes to return. Empty means identity and geometry only.</summary>
     public IReadOnlyList<string> Fields { get; }

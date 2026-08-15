@@ -187,13 +187,29 @@ declaration true rather than merely convenient. Asserted by
 `Pages_do_not_overlap_or_skip`, which is the only thing that would notice if that
 ordering were removed: the responses would stay well-formed and become wrong.
 
-**The form offers only what the server honours.** Esri's page has controls for
-`outStatistics`, `groupByFieldsForStatistics`, `distance`, `returnIdsOnly`,
-`time` and twenty more. Rendering those would break §2's rule through the UI
-rather than through a header: somebody fills in a box, presses the button, and
-gets an error the page invited them to cause. **The form is a live capability
-report**, and a missing control is a request to implement the parameter, not to
-add the control.
+**The form offered only what the server honoured — and the owner rejected that,
+correctly.** *"I wanted something similar to this, with all capabilities."* A
+form with twelve of ArcGIS's forty controls is not a smaller version of that
+page; it is a different page, and an administrator who knows Esri's is left
+hunting for a field that is simply not drawn.
+
+The position that replaced it, and it is better than either extreme:
+
+- **Every ArcGIS parameter is on the page, in ArcGIS's order.** A screenshot of
+  the two should differ only in what is greyed out.
+- **Most of them now work**, because listing the controls forced the question of
+  why they did not. See [ADR-008](ADR-008-query-engine.md) §4a and §4b: the
+  where-clause parser, all nine spatial relationships, every input geometry
+  type, distance and units, ids-only, extent-only, distinct, statistics with
+  grouping and having, precision, generalisation, and output reprojection.
+- **The eight that cannot work are disabled with the reason beside them.** A
+  disabled input is not submitted, so the request still matches exactly what the
+  enabled controls describe — and *"Not supported: no layer here declares
+  timeInfo"* answers the question on the spot, where a missing control answers
+  nothing and an enabled one produces an error the page invited.
+
+So the form is still a live capability report. It just reports the whole surface
+instead of only the part that works, which is more information rather than less.
 
 **Results stream, like the JSON path.** A-037 measured allocation as the binding
 constraint; buffering a page of features to build a table would reintroduce the
