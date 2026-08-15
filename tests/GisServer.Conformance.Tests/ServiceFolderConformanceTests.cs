@@ -40,7 +40,16 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
     {
         string root = await RequireServerAsync();
         using HttpClient http = Blunt();
-        return await http.GetAsync(new Uri(root + path));
+
+        // The blunt client still signs in. It is blunt about <em>redirects</em>
+        // — that is what it is for — not about identity, and a hosted layer
+        // shared with the organisation answers 404 to a stranger. Without this
+        // the test would be checking sharing while claiming to check
+        // capitalisation.
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(root + path));
+        await AuthenticateAsync(request, root);
+
+        return await http.SendAsync(request);
     }
 
     // ---------- the catalogue ----------
@@ -168,5 +177,54 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
             + "one and share it.");
 
         return services[0].GetProperty("name").GetString()!["hosted/".Length..];
+    }
+
+    // ---------- more than one folder ----------
+
+    /// <summary>
+    /// A second folder does not inherit the first folder's contents.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is a regression test with a short and embarrassing history.</b>
+    /// The catalogue decided "is this the hosted folder?" by asking whether the
+    /// folder was non-null, which was correct for exactly as long as there was
+    /// one folder. The moment Utilities existed, /rest/services/Utilities listed
+    /// all five hosted layers under names that 404. Found by opening the URL.
+    /// </remarks>
+    [Fact]
+    public async Task Another_folder_does_not_list_the_hosted_layers()
+    {
+        JsonElement services = (await GetJsonAsync("/rest/services/Utilities"))
+            .GetProperty("services");
+
+        Assert.DoesNotContain(
+            services.EnumerateArray(),
+            s => string.Equals(
+                s.GetProperty("type").GetString(), "FeatureServer", StringComparison.Ordinal));
+    }
+
+    /// <summary>Every service the catalogue lists can actually be fetched.</summary>
+    /// <remarks>
+    /// <b>The property a catalogue exists to have.</b> A client reads this list
+    /// and builds URLs from it; an entry that 404s is worse than an absent one,
+    /// because the client reports the server as broken rather than as empty.
+    /// This walks both folders and asks for each service document in turn.
+    /// </remarks>
+    [Theory]
+    [InlineData("/rest/services")]
+    [InlineData("/rest/services/hosted")]
+    [InlineData("/rest/services/Utilities")]
+    public async Task Every_listed_service_resolves(string catalogue)
+    {
+        JsonElement services = (await GetJsonAsync(catalogue)).GetProperty("services");
+
+        foreach (JsonElement service in services.EnumerateArray())
+        {
+            string name = service.GetProperty("name").GetString()!;
+            string type = service.GetProperty("type").GetString()!;
+
+            // GetJsonAsync asserts a success status, which is the assertion.
+            _ = await GetJsonAsync($"/rest/services/{name}/{type}");
+        }
     }
 }

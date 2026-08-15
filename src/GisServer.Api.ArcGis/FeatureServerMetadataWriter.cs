@@ -84,12 +84,19 @@ public static class FeatureServerMetadataWriter
     /// services as two entries of the same name and different types; omitting
     /// the second means a client browsing the catalogue never finds it.
     /// </param>
+    /// <param name="systemServices">
+    /// Services with no layer behind them — the geometry service — already
+    /// carrying their folder in their name. Owner correction 2026-08-15:
+    /// "geometry server is also a service", so it belongs in the directory
+    /// beside the layers.
+    /// </param>
     /// <returns>The catalogue document.</returns>
     public static object Catalogue(
         IEnumerable<string> serviceNames,
         IEnumerable<string> folders,
         string? folder = null,
-        IEnumerable<string>? tileServices = null)
+        IEnumerable<string>? tileServices = null,
+        IEnumerable<(string Name, string Type)>? systemServices = null)
     {
         ArgumentNullException.ThrowIfNull(serviceNames);
         ArgumentNullException.ThrowIfNull(folders);
@@ -110,6 +117,13 @@ public static class FeatureServerMetadataWriter
         {
             services.AddRange(
                 tileServices.Select(name => new { name = Qualify(name), type = "VectorTileServer" }));
+        }
+
+        // A service that is not a layer — the geometry service — carries its
+        // folder in its own name already, so it is added verbatim.
+        if (systemServices is not null)
+        {
+            services.AddRange(systemServices.Select(s => new { name = s.Name, type = s.Type }));
         }
 
         return new

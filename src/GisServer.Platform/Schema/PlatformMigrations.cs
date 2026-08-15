@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(9);
+    public static SchemaVersion ComponentSchemaVersion => new(10);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -44,6 +44,7 @@ public static class PlatformMigrations
         DatastoreV7,
         AttachmentQuotaV8,
         RelationshipsV9,
+        SystemServicesV10,
     ]);
 
     /// <summary>
@@ -651,4 +652,53 @@ public static class PlatformMigrations
         // of the relationship table on every request.
         "create index relationship_origin on relationship (origin_layer_id)",
         "create index relationship_related on relationship (related_layer_id)");
+
+    /// <summary>
+    /// Services that are not layers, so they can be shared like everything else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner correction, 2026-08-15: "geometry server is also a service."</b>
+    /// Until now sharing was a property of a <em>layer</em>, and GeometryServer —
+    /// which has no layer — was therefore governed by nothing at all and reachable
+    /// anonymously. That was not a decision; it was a gap nobody had named,
+    /// because the authorization model was built around content and the geometry
+    /// service is not content.
+    /// </para>
+    /// <para>
+    /// <b>One table, and the same three scopes.</b> A system service is private,
+    /// organisation-wide or public exactly as a layer is
+    /// ([ADR-018](../../../docs/adr/ADR-018-authorization-and-roles.md) §3b), so
+    /// an administrator has one concept to learn rather than two.
+    /// </para>
+    /// <para>
+    /// <b>Seeded organisation-wide rather than public.</b> ADR-018's default is
+    /// closed, and *private* is meaningless for a service with no owner — there
+    /// would be nobody it was private to. Organisation-wide is the closed default
+    /// that still leaves the service usable, and an administrator can open it.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> A new table and one seeded row; nothing existing is touched.
+    /// </para>
+    /// </remarks>
+    private static Migration SystemServicesV10 => Migration.Expand(
+        new SchemaVersion(10),
+        "Services that are not layers, so GeometryServer can be shared like everything else.",
+
+        """
+        create table system_service (
+            name        text        not null primary key,
+            kind        text        not null,
+            folder      text,
+            sharing     text        not null default 'private',
+            updated_at  timestamptz not null default now(),
+            constraint system_service_sharing_known
+              check (sharing in ('private', 'organization', 'public'))
+        )
+        """,
+
+        """
+        insert into system_service (name, kind, folder, sharing)
+        values ('Geometry', 'GeometryServer', 'Utilities', 'organization')
+        """);
 }

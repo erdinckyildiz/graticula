@@ -40,9 +40,10 @@ judgement is recorded rather than implied. Of §81's sixteen:
   was believed before anything was built, but by a header that says section by
   section which parts are still true and what superseded the rest; the ADR conditions — **counted 2026-08-15 by
   [tools/conditions.py](tools/conditions.py) rather than estimated: there are
-  63, not "roughly twenty-five", and 13 are discharged, not none**. Both halves
+  69, not "roughly twenty-five", and 15 are discharged, not none**. Both halves
   of the old sentence were guesses, and a number nobody can reproduce is a
-  number nobody maintains; **A-003**, the load-bearing assumption under
+  number nobody maintains — the count moves as ADRs are written, and it is
+  re-run rather than remembered; **A-003**, the load-bearing assumption under
   ADR-007, which now has no validation route; and every finding in
   [independent review 3](docs/reviews/independent-review-3-synthesis.md) not
   removed by the v1 cut.

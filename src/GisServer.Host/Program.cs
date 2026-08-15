@@ -73,6 +73,9 @@ public static class Program
         builder.Services.AddSingleton(services =>
             new PostgresRelationshipCatalog(services.GetRequiredService<NpgsqlDataSource>()));
 
+        builder.Services.AddSingleton(services =>
+            new PostgresSystemServices(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>Raised so our own cap is the one that fires.</b> The default form
         // value limit is 4 MB, which is well under the 500,000 vertices
         // GeometryServer documents as its bound — so a request inside the
@@ -428,19 +431,34 @@ public static class Program
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/auth/login")));
 
-        // The root: registered services, and the folder hosted ones live in.
+        // The root: registered services, the folders, and the system services.
         app.MapGet("/rest/services", (
-            HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, folder: null, cancellation));
+            HttpContext context,
+            PostgresLayerCatalog catalog,
+            PostgresSystemServices system,
+            CancellationToken cancellation) =>
+            CatalogueAsync(context, catalog, system, folder: null, cancellation));
 
         // Everything the datastore owns. The literal segment is more specific
         // than {layerName}, so routing prefers it — and it is matched
         // case-insensitively, which is why a client sending ArcGIS's own
         // capitalised "Hosted" reaches the same place.
         app.MapGet($"/rest/services/{FeatureServerMetadataWriter.HostedFolder}", (
-            HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation) =>
+            HttpContext context,
+            PostgresLayerCatalog catalog,
+            PostgresSystemServices system,
+            CancellationToken cancellation) =>
             CatalogueAsync(
-                context, catalog, FeatureServerMetadataWriter.HostedFolder, cancellation));
+                context, catalog, system, FeatureServerMetadataWriter.HostedFolder, cancellation));
+
+        // Where the system services live. ArcGIS puts the geometry service in a
+        // Utilities folder and every client that looks for one looks there.
+        app.MapGet("/rest/services/Utilities", (
+            HttpContext context,
+            PostgresLayerCatalog catalog,
+            PostgresSystemServices system,
+            CancellationToken cancellation) =>
+            CatalogueAsync(context, catalog, system, "Utilities", cancellation));
 
         // <b>Two URL spaces, and a layer answers on exactly one.</b> Hosted
         // services live under the folder; registered ones live at the root. A
@@ -508,6 +526,7 @@ public static class Program
     private static async Task<IResult> CatalogueAsync(
         HttpContext context,
         PostgresLayerCatalog catalog,
+        PostgresSystemServices system,
         string? folder,
         CancellationToken cancellation)
     {
@@ -517,9 +536,19 @@ public static class Program
             .ConfigureAwait(false);
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
-        bool wantHosted = folder is not null;
 
-        List<PublishedLayer> visible =
+        // <b>A layer lives in exactly one folder</b>: hosted ones in "hosted",
+        // registered ones at the root. This was <c>folder is not null</c> until
+        // Utilities existed, which meant every folder that was not the root was
+        // the hosted folder — so /rest/services/Utilities listed all five hosted
+        // layers. Found by opening the URL. A second folder is all it took, and
+        // the reading was plausible right up to the moment there were two.
+        bool wantHosted = string.Equals(
+            folder, FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase);
+
+        bool folderHoldsLayers = folder is null || wantHosted;
+
+        List<PublishedLayer> visible = !folderHoldsLayers ? [] :
         [
             .. layers.Where(layer =>
                 layer.Definition.IsHosted == wantHosted
@@ -533,19 +562,65 @@ public static class Program
         // visible to this caller. Hiding an empty folder would make its
         // emptiness depend on who is asking, and a client that caches the root
         // would then never look inside it again.
-        string[] folders = folder is null ? [FeatureServerMetadataWriter.HostedFolder] : [];
+        string[] folders = folder is null
+            ? [FeatureServerMetadataWriter.HostedFolder, "Utilities"]
+            : [];
+
+        // <b>System services are services.</b> Owner correction 2026-08-15: the
+        // geometry service belongs in the directory beside the layers, governed
+        // by the same sharing, or an administrator browsing the server cannot
+        // see half of what it offers.
+        List<(string Name, string Type)> systemServices =
+        [
+            .. (await system.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(s => string.Equals(s.Folder, folder, StringComparison.OrdinalIgnoreCase)
+                    && LayerAccess
+                        .Evaluate(s.Sharing, null, current.Principal, current.Authorization)
+                        .IsAllowed())
+                .Select(s => (
+                    Name: folder is null ? s.Name : $"{folder}/{s.Name}",
+                    Type: s.Kind)),
+        ];
+
+        List<(string Name, string Type)> everything =
+        [
+            .. visible.Select(l => (
+                Name: folder is null ? l.Definition.Name : $"{folder}/{l.Definition.Name}",
+                Type: "FeatureServer")),
+
+            // Only hosted layers have tile services (Q-67), and only those in
+            // Web Mercator can actually serve one.
+            .. visible
+                .Where(l => l.Definition.IsHosted
+                    && l.Definition.Srid == VectorTileEndpoints.WebMercator)
+                .Select(l => (
+                    Name: folder is null ? l.Definition.Name : $"{folder}/{l.Definition.Name}",
+                    Type: "VectorTileServer")),
+
+            .. systemServices,
+        ];
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            return Results.Content(
+                RestDirectory.Folder(
+                    context.Request.Path,
+                    folder,
+                    FeatureServerMetadataWriter.CurrentVersion,
+                    folders,
+                    everything),
+                "text/html; charset=utf-8");
+        }
 
         return Results.Ok(FeatureServerMetadataWriter.Catalogue(
             visible.Select(layer => layer.Definition.Name),
             folders,
             folder,
-
-            // Only hosted layers have tile services (Q-67), and only those in
-            // Web Mercator can actually serve one.
             visible
                 .Where(layer => layer.Definition.IsHosted
                     && layer.Definition.Srid == VectorTileEndpoints.WebMercator)
-                .Select(layer => layer.Definition.Name)));
+                .Select(layer => layer.Definition.Name),
+            systemServices));
     }
 
     /// <summary>
@@ -697,9 +772,27 @@ public static class Program
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
 
-        await Results.Ok(FeatureServerMetadataWriter.Service(
-            layer.Definition, layer.GeometryType, description.Extent, CapabilitiesFor(context, layer)))
-            .ExecuteAsync(context).ConfigureAwait(false);
+        object document = FeatureServerMetadataWriter.Service(
+            layer.Definition, layer.GeometryType, description.Extent, CapabilitiesFor(context, layer));
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            await Results.Content(
+                RestDirectory.Document(
+                    context.Request.Path,
+                    $"{layer.Definition.Name} (FeatureServer)",
+                    document,
+
+                    // The layer beneath, because a FeatureServer document says
+                    // almost nothing and the layer is what somebody came for.
+                    [("Layer: 0", context.Request.Path + "/0")]),
+                "text/html; charset=utf-8")
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async Task LayerMetadataAsync(
@@ -721,14 +814,29 @@ public static class Program
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
 
-        await Results.Ok(FeatureServerMetadataWriter.Layer(
+        object document = FeatureServerMetadataWriter.Layer(
             layer.Definition,
             layer.GeometryType,
             description,
             CapabilitiesFor(context, layer),
             await RelationshipsForAsync(layer, relationships, catalog, cancellation)
-                .ConfigureAwait(false)))
-            .ExecuteAsync(context).ConfigureAwait(false);
+                .ConfigureAwait(false));
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            await Results.Content(
+                RestDirectory.Document(
+                    context.Request.Path,
+                    $"{layer.Definition.Name} - {layer.Definition.Name} (0)",
+                    document,
+                    [("Query", context.Request.Path + "/query?where=1%3D1&outFields=*&f=json")]),
+                "text/html; charset=utf-8")
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
 
 

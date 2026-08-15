@@ -7,9 +7,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Api.ArcGis;
 using GisServer.Geometries;
+using GisServer.Platform.Identity;
+using GisServer.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace GisServer.Host;
 
@@ -76,24 +79,106 @@ internal static class GeometryServerEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet("/rest/services/Utilities/Geometry/GeometryServer", Describe);
-        app.MapPost("/rest/services/Utilities/Geometry/GeometryServer/project", ProjectAsync);
-        app.MapPost("/rest/services/Utilities/Geometry/GeometryServer/areasAndLengths", AreasAndLengths);
-        app.MapPost("/rest/services/Utilities/Geometry/GeometryServer/lengths", Lengths);
-        app.MapPost("/rest/services/Utilities/Geometry/GeometryServer/labelPoints", LabelPoints);
+        // <b>A group, so the sharing check cannot be forgotten on one route.</b>
+        // Owner correction 2026-08-15: "geometry server is also a service. we
+        // might make all services public, private or organization." Until this
+        // group existed the geometry service was reachable anonymously — not
+        // because anyone decided it should be, but because sharing lived on
+        // layers and this service has none. Five handlers each remembering to
+        // call a guard is five chances to forget; the filter is one.
+        RouteGroupBuilder geometry = app
+            .MapGroup("/rest/services/Utilities/Geometry/GeometryServer")
+            .AddEndpointFilter(SharingFilter);
+
+        geometry.MapGet("", Describe);
+        geometry.MapPost("/project", ProjectAsync);
+        geometry.MapPost("/areasAndLengths", AreasAndLengths);
+        geometry.MapPost("/lengths", Lengths);
+        geometry.MapPost("/labelPoints", LabelPoints);
 
         foreach (string operation in Blocked)
         {
             string name = operation;
-            app.MapPost(
-                $"/rest/services/Utilities/Geometry/GeometryServer/{name}",
-                (HttpContext context) => Refuse(context, name));
+            geometry.MapPost($"/{name}", (HttpContext context) => Refuse(context, name));
         }
     }
 
-    /// <summary>The service document.</summary>
-    private static IResult Describe() => Results.Ok(new
+    /// <summary>The name this service carries in <c>system_service</c>.</summary>
+    public const string ServiceName = "Geometry";
+
+    /// <summary>
+    /// What a caller who may not use this service gets.
+    /// </summary>
+    /// <remarks>
+    /// <b>404, matching every other unshared resource.</b> A 403 would confirm
+    /// the service exists, and a service made private stops answering strangers
+    /// entirely — including about itself.
+    /// </remarks>
+    private static readonly IResult Refusal = Results.Json(
+        new
+        {
+            error = new
+            {
+                code = 404,
+                message =
+                    "No service 'Utilities/Geometry/GeometryServer' is visible to you. It may not "
+                    + "exist, or it may not be shared with you — this response is deliberately the "
+                    + "same for both. An administrator can change its sharing with "
+                    + "PUT /admin/services/Geometry/sharing.",
+            },
+        },
+        statusCode: StatusCodes.Status404NotFound);
+
+    /// <summary>
+    /// Refuses the request unless this service's sharing admits the caller.
+    /// </summary>
+    /// <remarks>
+    /// <b>404, matching <see cref="Authorize.RefuseReadAsync"/>.</b> A private
+    /// geometry service that answered 403 would confirm it exists; the whole
+    /// point of making it private is that it does not answer strangers at all.
+    /// </remarks>
+    private static async ValueTask<object?> SharingFilter(
+        EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)
     {
+        HttpContext context = invocation.HttpContext;
+
+        PostgresSystemServices services =
+            context.RequestServices.GetRequiredService<PostgresSystemServices>();
+
+        SystemService? service = await services
+            .FindAsync(ServiceName, context.RequestAborted)
+            .ConfigureAwait(false);
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()
+            ?? throw new InvalidOperationException(
+                "No principal was resolved for this request. The authentication middleware must "
+                + "run before any endpoint, including for anonymous callers.");
+
+        // Absent from the table means absent from the server. A row that was
+        // deleted is a service that was removed, not one that defaults to open.
+        bool allowed = service is { } found
+            && LayerAccess
+                .Evaluate(found.Sharing, null, current.Principal, current.Authorization)
+                .IsAllowed();
+
+        if (allowed)
+        {
+            return await next(invocation).ConfigureAwait(false);
+        }
+
+        // <b>Returned, not executed here.</b> Writing the response from inside
+        // the filter left the POST body unread, and Kestrel reset the connection
+        // rather than sending the 404 — the client saw "the response ended
+        // prematurely", which is a worse answer than any status code. Handing
+        // the result back lets the framework finish the request properly.
+        return Refusal;
+    }
+
+    /// <summary>The service document.</summary>
+    private static IResult Describe(HttpContext context)
+    {
+        var document = new
+        {
         currentVersion = FeatureServerMetadataWriter.CurrentVersion,
         serviceDescription = "Geometry operations that are linear in the size of their input.",
 
@@ -107,7 +192,17 @@ internal static class GeometryServerEndpoints
              + "16.7 GB where a real 72,919-vertex polygon cost 312 ms — so no cap on input size "
              + "bounds the work, and an unauthenticated request could take the server down. "
              + "Tracked as Q-97.",
-    });
+        };
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            return Results.Content(
+                RestDirectory.Document(context.Request.Path, "Geometry (GeometryServer)", document),
+                "text/html; charset=utf-8");
+        }
+
+        return Results.Ok(document);
+    }
 
     /// <summary>Refuses an operation that needs overlay, and says why.</summary>
     private static Task Refuse(HttpContext context, string operation) =>

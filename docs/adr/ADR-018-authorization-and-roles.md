@@ -150,6 +150,50 @@ privileges. They are not needed to make reading work, and adding them here would
 be adopting a subsystem to complete a table. Deferred, and the scope column
 takes a string so adding `group` later is a value rather than a migration.
 
+### 3b-i. A service that is not a layer is still a service
+
+**Added 2026-08-15, after the project owner said: *"geometry server is also a
+service. we might make all services public, private or organization."* They were
+correcting an omission, and the omission had teeth.**
+
+§3b above says *every **layer** carries an owner and a sharing scope*, and that
+is exactly what was built. The geometry service has no layer. So it was governed
+by nothing at all: `POST /rest/services/Utilities/Geometry/GeometryServer/project`
+answered `200` to an anonymous caller, on a server whose stated default is that a
+fresh install publishes nothing to the unauthenticated.
+
+**That was not a decision anybody took.** It is what happens when an
+authorization model is built around *content* and something ships that is not
+content. Nothing in the code said "the geometry service is public"; there was
+simply no place for it to be anything. A gap of that shape does not appear in a
+review of the sharing code, because the sharing code is correct — it appears
+only when somebody asks what governs the thing that is not on the list.
+
+The correction:
+
+- A system service — a service with no layer behind it — carries the **same
+  three scopes** as a layer. One concept, not two.
+- It has **no owner**, so `private` means *administrators only*, reached through
+  `admin:viewAllContent` rather than through ownership.
+- The seeded scope for the geometry service is **`organization`**, not `public`.
+  Closed defaults are §3b's rule and the reason for it does not weaken here; the
+  service costs CPU and, per [ADR-022](ADR-022-geometry-server.md), is the
+  surface whose adversarial cost measurement invalidated A-042. Anonymous access
+  to it is a decision an administrator can take, not one we take for them.
+- Changing it is `PUT /admin/services/{name}/sharing`, taking the **same
+  privileges as a layer's sharing** — `sharing:shareToPublic` to open it to the
+  world. Opening the geometry service to anonymous callers is the same act as
+  opening a layer to them, and a separate privilege would let one be granted
+  without the other.
+- Enforcement is a **route-group filter**, not a call in each handler. Five
+  handlers each remembering a guard is five chances to forget, and forgetting is
+  precisely how this gap started.
+
+**What this does not fix.** Nothing structural prevents the next service without
+a layer from arriving with the same hole. The check that would — every mapped
+route under `/rest/services` is either governed by a layer's sharing or by a
+`system_service` row — is not written. Recorded as **D-28**.
+
 ### 3c. The default roles are Portal's
 
 | Role | Portal's meaning, as we implement it |
@@ -294,6 +338,10 @@ divergence a breaking change to our core.
 4. **The upgrade is walked on a store that already has layers**, and the
    operator is told that existing layers became private. Silently privatising
    somebody's published data is a worse regression than the closed default was.
+5. **No route under `/rest/services` is reachable without a sharing decision
+   behind it.** §3b-i closed the one instance; this condition asks for the check
+   that closes the class. Tracked as D-28. Until it is written, the property is
+   held by review, and review is what missed it the first time.
 
 ## 9. Assumptions
 

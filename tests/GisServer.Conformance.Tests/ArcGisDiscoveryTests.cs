@@ -88,9 +88,15 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
 
         JsonElement service = await GetJsonAsync($"/rest/services/{name}/FeatureServer");
 
-        Assert.Equal("Query", Require(
+        // <b>Contains, not equals.</b> Capabilities describe what <em>this</em>
+        // caller may do, so an editor legitimately sees Create,Update,Delete
+        // here and a reader does not. Asserting the exact string asserted that
+        // nobody was signed in, which is a fact about the harness rather than
+        // about conformance — and it broke the moment the suite grew a login.
+        Assert.Contains("Query", Require(
             service, "capabilities",
-            "A client reads this to decide which UI to offer.").GetString());
+            "A client reads this to decide which UI to offer.").GetString()!,
+            System.StringComparison.Ordinal);
 
         JsonElement layers = Require(
             service, "layers", "A FeatureServer with no layer list has nothing to add.");

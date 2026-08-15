@@ -81,6 +81,92 @@ internal static class AdminEndpoints
             SetStatusAsync(c, name, ServiceStatus.Stopped, a, l, t));
         app.MapDelete("/admin/layers/{name}", UnpublishAsync);
         app.MapPost("/admin/layers/{name}/refresh", RefreshAsync);
+
+        // A service that is not a layer, shared the same way. Owner correction
+        // 2026-08-15: "we might make all services public, private or
+        // organization" — including the geometry service, which has no layer
+        // and was therefore governed by nothing.
+        app.MapGet("/admin/services", ListSystemServicesAsync);
+        app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+    }
+
+    /// <summary>Every service that is not a layer, and how it is shared.</summary>
+    private static async Task ListSystemServicesAsync(
+        HttpContext context, PostgresSystemServices services, CancellationToken cancellation)
+    {
+        // Reading the list is an administrative act: it enumerates services
+        // regardless of their sharing, which is exactly what the directory does
+        // not do.
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        await Results.Json(new
+        {
+            services = (await services.ListAsync(cancellation).ConfigureAwait(false))
+                .Select(s => new
+                {
+                    s.Name,
+                    s.Kind,
+                    s.Folder,
+                    sharing = PostgresSharing(s.Sharing),
+                }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Changes who may use a service that has no layer.</summary>
+    /// <remarks>
+    /// <b>The same privileges as a layer's sharing, for the same reason.</b>
+    /// Opening the geometry service to the public is the same act as opening a
+    /// layer to the public — it makes a server resource reachable without an
+    /// account — so it takes <c>sharing:shareToPublic</c>, not a separate
+    /// administrative privilege that would let one be granted without the other.
+    /// </remarks>
+    private static async Task SetServiceSharingAsync(
+        HttpContext context,
+        string name,
+        SharingRequest request,
+        PostgresSystemServices services,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!TryReadScope(request.Sharing, out SharingScope scope, out string? error))
+        {
+            await Refuse(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        Privilege needed = scope == SharingScope.Public
+            ? Privilege.SharingShareToPublic
+            : Privilege.SharingShareToOrganization;
+
+        if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        SystemService? before = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+
+        if (!await services.SetSharingAsync(name, scope, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.share", name,
+            Detail(new
+            {
+                from = before is { } b ? PostgresSharing(b.Sharing) : null,
+                to = PostgresSharing(scope),
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, sharing = PostgresSharing(scope) })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

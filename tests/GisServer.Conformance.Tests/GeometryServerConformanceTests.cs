@@ -39,8 +39,15 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         }
 
         using FormUrlEncodedContent content = new(form);
-        using HttpResponseMessage response =
-            await http.PostAsync(new Uri(root + Root + "/" + operation), content);
+        using HttpRequestMessage request =
+            new(HttpMethod.Post, new Uri(root + Root + "/" + operation)) { Content = content };
+
+        // The geometry service is shared with the organisation, not the public
+        // — owner correction 2026-08-15 — so these calls sign in. The test that
+        // anonymous access is refused is below, and it deliberately does not.
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await http.SendAsync(request);
 
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
     }
@@ -51,8 +58,12 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         using HttpClient http = Client();
 
         using FormUrlEncodedContent content = new([new KeyValuePair<string, string>("f", "json")]);
-        using HttpResponseMessage response =
-            await http.PostAsync(new Uri(root + Root + "/" + operation), content);
+        using HttpRequestMessage request =
+            new(HttpMethod.Post, new Uri(root + Root + "/" + operation)) { Content = content };
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await http.SendAsync(request);
 
         return (int)response.StatusCode;
     }
@@ -243,5 +254,39 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
             "sr",
             result.GetProperty("error").GetProperty("message").GetString()!,
             StringComparison.Ordinal);
+    }
+
+    // ---------- sharing ----------
+
+    /// <summary>
+    /// The geometry service answers strangers the same way a private layer does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This service was reachable anonymously until 2026-08-15</b>, and not
+    /// because anyone decided it should be. Sharing was a property of a layer,
+    /// this service has no layer, and so nothing governed it — a gap rather than
+    /// a decision, found by the project owner asking why the geometry server was
+    /// not in the service list.
+    /// </para>
+    /// <para>
+    /// <b>404 rather than 401</b>, matching every other unshared resource here:
+    /// a 403 would confirm the service exists, and a private service that
+    /// confirms its own existence is only half private.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_anonymous_caller_does_not_reach_an_organisation_shared_service()
+    {
+        string root = await RequireServerAsync();
+
+        // Deliberately not AuthenticateAsync: this is the anonymous case.
+        using HttpClient http = Client();
+        using FormUrlEncodedContent content = new([new KeyValuePair<string, string>("f", "json")]);
+
+        using HttpResponseMessage response =
+            await http.PostAsync(new Uri(root + Root + "/project"), content);
+
+        Assert.Equal(404, (int)response.StatusCode);
     }
 }
