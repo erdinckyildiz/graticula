@@ -371,4 +371,62 @@ public sealed class BrowsingConformanceTests : ArcGisClient
             }
         }
     }
+
+    /// <summary>
+    /// An empty folder tells a stranger they are a stranger.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner asked twice why the geometry service was missing.</b> The
+    /// first time the answer was a real defect — a browser could not sign in at
+    /// all. The second time the server was right and the page was useless: it
+    /// said *"no services, or none visible to you"*, which is honest and does
+    /// not tell you that <em>you</em> are the one who is not signed in.
+    /// </para>
+    /// <para>
+    /// <b>The condition is what keeps this from being a disclosure.</b> The hint
+    /// depends on the caller being anonymous, not on anything being hidden — an
+    /// empty folder with nothing behind it says exactly the same words. Counting
+    /// what a stranger cannot see is what the §66 security gate refused on
+    /// <c>/admin/health</c>, and this must not become that by another door.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_folder_tells_an_anonymous_reader_to_sign_in()
+    {
+        string root = await RequireServerAsync();
+
+        using HttpClient stranger = Browser(new CookieContainer());
+
+        string html = await HtmlAsync(stranger, root + "/rest/services/Utilities");
+
+        Assert.DoesNotContain("GeometryServer", html, StringComparison.Ordinal);
+        Assert.Contains("not signed in", html, StringComparison.Ordinal);
+        Assert.Contains("/rest/login", html, StringComparison.Ordinal);
+
+        // And no count of what they are missing.
+        Assert.DoesNotContain("1 service", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("2 services", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A signed-in reader is not nagged, and sees the service.
+    /// </summary>
+    [Fact]
+    public async Task A_signed_in_reader_gets_the_service_and_no_hint()
+    {
+        string root = await RequireServerAsync();
+
+        CookieContainer jar = new();
+        using HttpClient http = Browser(jar);
+
+        using (HttpResponseMessage _ = await SignInAsync(http, root, "/rest/services"))
+        {
+        }
+
+        string html = await HtmlAsync(http, root + "/rest/services/Utilities");
+
+        Assert.Contains("GeometryServer", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not signed in", html, StringComparison.Ordinal);
+    }
 }

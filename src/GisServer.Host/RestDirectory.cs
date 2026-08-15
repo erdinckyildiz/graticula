@@ -155,6 +155,26 @@ internal static class RestDirectory
             body.Append(
                 "<p><i>No services, or none visible to you. A service you cannot read is not "
                 + "listed, so this may look empty to one person and full to another.</i></p>");
+
+            // <b>And, if they are nobody, tell them what to do about it.</b> The
+            // sentence above is honest and useless: the owner read it twice and
+            // asked twice why the geometry service was missing, because knowing
+            // that sharing *might* be the reason does not tell you that you are
+            // the one who is not signed in.
+            //
+            // <b>This leaks nothing, and the condition is what makes that
+            // true.</b> It depends on the caller being anonymous, not on
+            // anything being hidden — an empty folder with nothing behind it
+            // shows the same words. Saying "there are 2 services you cannot see"
+            // would be the disclosure the §66 security gate refused on
+            // /admin/health, arriving by a different door.
+            if (Current.Value is not { Length: > 0 })
+            {
+                body.Append(CultureInfo.InvariantCulture,
+                    $"<p class=\"hint\">You are not signed in. Services shared with the "
+                    + $"organisation are not listed to a stranger — "
+                    + $"<a href=\"/rest/login?return={U(path)}\">sign in</a> and look again.</p>");
+            }
         }
         else
         {

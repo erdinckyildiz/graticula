@@ -53,6 +53,223 @@ def git(*args):
         return ""
 
 
+
+# ---------------------------------------------------------------- language
+
+# <b>The frame is translated; the records are not.</b> Everything written into
+# the repository stays English (`CLAUDE.md` §8) because the project is given
+# away and its reasoning has to be readable by whoever picks it up. So an ADR
+# title, a condition, a debt and a question appear here exactly as they are
+# written — and the headings, labels and explanations around them are the part
+# that can speak Turkish.
+#
+# That split is deliberate rather than a limitation worked around: a page that
+# machine-translated the records would be a second, drifting copy of the
+# registers, which is the failure this generator exists to prevent.
+
+TEXT = {
+    "en": {
+        "title": "Control Room",
+        "eyebrow": "gis-server \u00b7 Phase 1 \u2014 Implementation",
+        "lede": (
+            "Everything below is read out of the repository at build time \u2014 the ADR headers, "
+            "<code>open-questions.md</code>, <code>architecture-debt.md</code>, "
+            "<code>architecture-assumptions.md</code> and git. Nothing on this page is typed by "
+            "hand, because the two versions that were went stale within a day."),
+        "stamp": "Generated from commit",
+        "stands": "Where it stands",
+        "left": "What is left",
+        "gates": "Review gates (\u00a766)",
+        "decisions": "Decisions",
+        "questions": "Open questions",
+        "debt": "Architecture debt",
+        "assumptions": "Assumptions",
+        "verified": "What is verified",
+        "recent": "Recent work",
+        "k_adrs": "ADRs",
+        "k_conditions": "ADR conditions discharged",
+        "k_questions": "open questions",
+        "k_debts": "open debts",
+        "k_gates": "review gates run",
+        "k_assumptions": "assumptions validated",
+        "k_tests": "tests",
+        "n_unconditional": "none accepted unconditionally",
+        "n_accepted": "accepted outright",
+        "n_live": "live",
+        "n_deferred": "deferred with their decision",
+        "n_answered": "answered",
+        "n_blocking": "blocking",
+        "n_repaid": "repaid",
+        "n_partly": "partly",
+        "n_outside": "need an outside reviewer",
+        "n_unproven": "the rest are unproven",
+        "n_files": "source files",
+        "n_lines": "lines",
+        "sub_left": (
+            "Three buckets, sorted by who can move them. The sort is derived: an item is the "
+            "owner's when the question register names them, and an outside reviewer's when the "
+            "gate says in its own words that it needs somebody who did not write this. Everything "
+            "else is ours, and it is the only bucket that shrinks by working."),
+        "sub_bars": (
+            "A condition is discharged when its text is struck through in the ADR itself. Nothing "
+            "here is marked done by this page \u2014 it is counted from the decision that made the "
+            "promise."),
+        "sub_gates": (
+            "Each gate runs against the whole architecture, not per ADR, and a failure reopens "
+            "decisions rather than being noted and passed over. A gate ticked without evidence is "
+            "worse than one left open: it turns an unknown into a false assurance and nothing "
+            "afterwards re-examines it."),
+        "sub_decisions": (
+            "Every architectural decision is an ADR. Status and confidence are read from each "
+            "file's own header, so a decision cannot quietly change grade here without changing "
+            "there."),
+        "sub_questions": (
+            "Uncertainty is recorded rather than hidden. An empty list here would mean the "
+            "recording stopped, not that the uncertainty did."),
+        "sub_debt": (
+            "Temporary compromises, each with the trigger that repays it. A compromise with no "
+            "trigger is a permanent decision wearing a temporary label."),
+        "sub_assumptions": (
+            "Invalidating one triggers a review of every ADR that rests on it. The unvalidated "
+            "majority is the honest state of the project, not an oversight."),
+        "owner": "Owner",
+        "owner_none": "Nothing is waiting on the owner.",
+        "outside": "An outside reviewer",
+        "ours": "Ours",
+        "open_of": "open",
+        "gates_word": "gates",
+        "items": "items",
+        "bars_title": "Open conditions, by decision",
+        "th_gate": "Gate",
+        "th_run": "Run",
+        "th_result": "Result, or what it is waiting for",
+        "th_adr": "ADR",
+        "th_decision": "Decision",
+        "th_status": "Status",
+        "th_confidence": "Confidence",
+        "th_conditions": "Conditions",
+        "th_id": "ID",
+        "th_debt": "Debt",
+        "th_repay": "Repay when",
+        "th_state": "State",
+        "th_assumption": "Assumption",
+        "not_run": "not run",
+        "blocking_tag": "BLOCKING",
+        "footer": "generated by",
+    },
+    "tr": {
+        "title": "Kontrol Odası",
+        "eyebrow": "gis-server \u00b7 Faz 1 \u2014 Uygulama",
+        "lede": (
+            "Buradaki her \u015fey depodan okunuyor: ADR ba\u015fl\u0131klar\u0131, "
+            "<code>open-questions.md</code>, <code>architecture-debt.md</code>, "
+            "<code>architecture-assumptions.md</code> ve git. Hi\u00e7bir say\u0131 elle "
+            "yaz\u0131lm\u0131yor \u2014 elle yaz\u0131lan iki s\u00fcr\u00fcm bir g\u00fcn "
+            "i\u00e7inde bayatlad\u0131. <b>Kay\u0131tlar\u0131n kendisi \u0130ngilizce "
+            "kal\u0131yor</b> (CLAUDE.md \u00a78): proje ba\u011f\u0131\u015flan\u0131yor ve "
+            "gerek\u00e7esinin onu devralacak ki\u015fi taraf\u0131ndan okunabilmesi gerekiyor."),
+        "stamp": "\u015eu commit\u2019ten \u00fcretildi:",
+        "stands": "Durum",
+        "left": "Ne kald\u0131",
+        "gates": "\u0130nceleme kap\u0131lar\u0131 (\u00a766)",
+        "decisions": "Kararlar",
+        "questions": "A\u00e7\u0131k sorular",
+        "debt": "Mimari bor\u00e7",
+        "assumptions": "Varsay\u0131mlar",
+        "verified": "Neyin do\u011fruland\u0131\u011f\u0131",
+        "recent": "Son \u00e7al\u0131\u015fma",
+        "k_adrs": "ADR",
+        "k_conditions": "kapat\u0131lan ADR ko\u015fulu",
+        "k_questions": "a\u00e7\u0131k soru",
+        "k_debts": "a\u00e7\u0131k bor\u00e7",
+        "k_gates": "ko\u015fulan kap\u0131",
+        "k_assumptions": "do\u011frulanan varsay\u0131m",
+        "k_tests": "test",
+        "n_unconditional": "hi\u00e7biri ko\u015fulsuz kabul edilmedi",
+        "n_accepted": "ko\u015fulsuz kabul",
+        "n_live": "canl\u0131",
+        "n_deferred": "karar\u0131yla birlikte ertelendi",
+        "n_answered": "yan\u0131tland\u0131",
+        "n_blocking": "engelleyici",
+        "n_repaid": "\u00f6dendi",
+        "n_partly": "k\u0131smen",
+        "n_outside": "tanesi d\u0131\u015far\u0131dan bir incelemeci istiyor",
+        "n_unproven": "geri kalan\u0131 kan\u0131tlanmad\u0131",
+        "n_files": "kaynak dosya",
+        "n_lines": "sat\u0131r",
+        "sub_left": (
+            "\u00dc\u00e7 k\u0131s\u0131m, kimin ilerletebilece\u011fine g\u00f6re "
+            "ayr\u0131lm\u0131\u015f. Ayr\u0131m t\u00fcretilmi\u015f: bir madde, soru "
+            "defteri sahibi i\u015faret ediyorsa <em>sahibin</em>; kap\u0131 kendi "
+            "c\u00fcmleleriyle \u201cbunu yazmam\u0131\u015f biri gerekiyor\u201d diyorsa "
+            "<em>d\u0131\u015far\u0131dan bir incelemecinin</em>. Geri kalan bizim \u2014 ve "
+            "\u00e7al\u0131\u015farak k\u00fc\u00e7\u00fclen tek k\u0131s\u0131m o."),
+        "sub_bars": (
+            "Bir ko\u015ful, ADR\u2019nin kendi metninde i\u015faretlendi\u011finde kapanm\u0131\u015f "
+            "say\u0131l\u0131r. Bu sayfa hi\u00e7bir \u015feyi kendisi kapatm\u0131yor \u2014 "
+            "sadece s\u00f6z\u00fc veren karardan okuyor."),
+        "sub_gates": (
+            "Her kap\u0131 ADR ba\u015f\u0131na de\u011fil, mimarinin tamam\u0131na kar\u015f\u0131 "
+            "ko\u015fulur; ba\u015far\u0131s\u0131zl\u0131k not d\u00fc\u015f\u00fcl\u00fcp "
+            "ge\u00e7ilmez, kararlar\u0131 yeniden a\u00e7ar. Kan\u0131ts\u0131z "
+            "i\u015faretlenmi\u015f bir kap\u0131, a\u00e7\u0131k b\u0131rak\u0131lm\u0131\u015f "
+            "olandan k\u00f6t\u00fcd\u00fcr: bilinmeyeni sahte bir g\u00fcvenceye "
+            "\u00e7evirir ve sonras\u0131nda kimse d\u00f6n\u00fcp bakmaz."),
+        "sub_decisions": (
+            "Her mimari karar bir ADR. Durum ve g\u00fcven seviyesi her dosyan\u0131n kendi "
+            "ba\u015fl\u0131\u011f\u0131ndan okunuyor \u2014 yani bir karar orada "
+            "de\u011fi\u015fmeden burada sessizce not de\u011fi\u015ftiremez."),
+        "sub_questions": (
+            "Belirsizlik gizlenmiyor, kayda ge\u00e7iyor. Buran\u0131n bo\u015f olmas\u0131 "
+            "belirsizli\u011fin de\u011fil, kayd\u0131n bitti\u011fi anlam\u0131na gelirdi."),
+        "sub_debt": (
+            "Ge\u00e7ici uzla\u015fmalar, her biri kendini \u00f6deyen tetikle birlikte. "
+            "Tetiksiz bir uzla\u015fma, ge\u00e7ici etiketi takm\u0131\u015f kal\u0131c\u0131 "
+            "bir karard\u0131r."),
+        "sub_assumptions": (
+            "Birinin \u00e7\u00fcr\u00fct\u00fclmesi, \u00fczerine kurulu her ADR\u2019nin "
+            "yeniden g\u00f6zden ge\u00e7irilmesini tetikler. Do\u011frulanmam\u0131\u015f "
+            "\u00e7o\u011funluk projenin d\u00fcr\u00fcst hâli, bir ihmal de\u011fil."),
+        "owner": "Sahibi",
+        "owner_none": "Sahibini bekleyen bir \u015fey yok.",
+        "outside": "D\u0131\u015far\u0131dan bir incelemeci",
+        "ours": "Bizim",
+        "open_of": "a\u00e7\u0131k",
+        "gates_word": "kap\u0131",
+        "items": "madde",
+        "bars_title": "A\u00e7\u0131k ko\u015fullar, karara g\u00f6re",
+        "th_gate": "Kap\u0131",
+        "th_run": "Ko\u015fuldu",
+        "th_result": "Sonu\u00e7, ya da neyi bekledi\u011fi",
+        "th_adr": "ADR",
+        "th_decision": "Karar",
+        "th_status": "Durum",
+        "th_confidence": "G\u00fcven",
+        "th_conditions": "Ko\u015ful",
+        "th_id": "No",
+        "th_debt": "Bor\u00e7",
+        "th_repay": "Ne zaman \u00f6denir",
+        "th_state": "Durum",
+        "th_assumption": "Varsay\u0131m",
+        "not_run": "ko\u015fulmad\u0131",
+        "blocking_tag": "ENGELLEY\u0130C\u0130",
+        "footer": "\u00fcreten:",
+    },
+}
+
+LANG = "en"
+
+
+def ui(key):
+    """A chrome string in the page's language, falling back to English.
+
+    Named `ui` and not `t` because `build()` already binds `t` to the test
+    counts, and a shadowed lookup fails at the first call with a message about
+    a list not being callable — which says nothing about translation.
+    """
+    return TEXT.get(LANG, TEXT["en"]).get(key, TEXT["en"][key])
+
+
 # ---------------------------------------------------------------- ADRs
 
 def adrs():
@@ -446,47 +663,48 @@ def build():
                 f'<div class="kpi-n">{esc(note)}</div></div>')
 
     parts = []
-    parts.append(HEAD)
+    parts.append(HEAD.replace(TITLE_SLOT, esc(ui('title'))))
 
     parts.append('<header class="top">')
-    parts.append('<div class="eyebrow">gis-server · Phase 1 — Implementation</div>')
+    parts.append(f'<div class="eyebrow">{esc(ui("eyebrow"))}</div>')
     parts.append('<h1>Control Room</h1>')
-    parts.append('<p class="lede">Everything below is read out of the repository at build time — '
-                 'the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, '
-                 '<code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, '
-                 'because the two versions that were went stale within a day.</p>')
-    parts.append(f'<p class="stamp">Generated from commit <code>{esc(commits(1)[0]["sha"] if commits(1) else "?")}</code> · {esc(generated)}</p>')
+    parts.append(f'<p class="lede">{ui("lede")}</p>')
+    parts.append(
+        f'<p class="stamp">{esc(ui("stamp"))} '
+        f'<code>{esc(commits(1)[0]["sha"] if commits(1) else "?")}</code> · {esc(generated)}</p>')
     parts.append('</header>')
 
     # ---- the numbers
-    parts.append('<section><h2>Where it stands</h2><div class="kpis">')
+    parts.append(f'<section><h2>{esc(ui("stands"))}</h2><div class="kpis">')
     plain = by_status.get("ACCEPTED", 0)
     parts.append(kpi(
-        len(a), "ADRs",
+        len(a), ui("k_adrs"),
         # Worth stating rather than showing a zero: not one decision in this
         # project is accepted without conditions attached to it.
-        "none accepted unconditionally" if plain == 0 else f"{plain} accepted outright",
+        ui("n_unconditional") if plain == 0 else f'{plain} {ui("n_accepted")}',
         "warn" if plain == 0 else ""))
     deferred = sum(x["deferred"] for x in a)
     live = conditions - discharged - deferred
 
     parts.append(kpi(
-        f"{discharged}/{conditions}", "ADR conditions discharged",
-        f"{live} live · {deferred} deferred with their decision",
+        f"{discharged}/{conditions}", ui("k_conditions"),
+        f'{live} {ui("n_live")} · {deferred} {ui("n_deferred")}',
         "warn" if discharged < live / 2 else "good"))
-    parts.append(kpi(len(q_open), "open questions",
-                     f"{sum(1 for x in q if x['resolved'])} answered"
-                     + (f" · {len(q_blocking)} blocking" if q_blocking else "")))
+    parts.append(kpi(len(q_open), ui("k_questions"),
+                     f"{sum(1 for x in q if x['resolved'])} {ui('n_answered')}"
+                     + (f" · {len(q_blocking)} {ui('n_blocking')}" if q_blocking else "")))
     partly = sum(1 for x in d if x["partly"])
-    parts.append(kpi(len(d_open), "open debts",
-                     f"{len(d) - len(d_open)} repaid" + (f" · {partly} partly" if partly else ""),
+    parts.append(kpi(len(d_open), ui("k_debts"),
+                     f"{len(d) - len(d_open)} {ui('n_repaid')}"
+                     + (f" · {partly} {ui('n_partly')}" if partly else ""),
                      "warn" if len(d_open) > 10 else ""))
     gates_run = sum(1 for x in gate if x["run"])
-    parts.append(kpi(f"{gates_run}/{len(gate)}", "review gates run",
-                     f"{sum(1 for x in gate if not x['run'] and x['outside'])} need an outside reviewer",
+    parts.append(kpi(f"{gates_run}/{len(gate)}", ui("k_gates"),
+                     f"{sum(1 for x in gate if not x['run'] and x['outside'])} {ui('n_outside')}",
                      "warn" if gates_run < len(gate) else "good"))
-    parts.append(kpi(f"{validated}/{len(s)}", "assumptions validated", "the rest are unproven", "warn"))
-    parts.append(kpi(total_tests, "tests", f"{files} source files, {lines:,} lines", "good"))
+    parts.append(kpi(f"{validated}/{len(s)}", ui("k_assumptions"), ui("n_unproven"), "warn"))
+    parts.append(kpi(total_tests, ui("k_tests"),
+                     f'{files} {ui("n_files")}, {lines:,} {ui("n_lines")}', "good"))
     parts.append('</div></section>')
 
     # ---- what is left, grouped by who can move it
@@ -499,25 +717,21 @@ def build():
     outside = [x for x in gate if not x["run"] and x["outside"]]
     ours = [x for x in gate if not x["run"] and not x["outside"]]
 
-    parts.append('<section><h2>What is left</h2>')
-    parts.append('<p class="sub">Three buckets, sorted by who can move them. The sort is derived: '
-                 "an item is the owner's when the question register names them, and an outside "
-                 "reviewer's when the gate says in its own words that it needs somebody who did "
-                 'not write this. Everything else is ours, and it is the only bucket that shrinks '
-                 'by working.</p>')
+    parts.append(f'<section><h2>{esc(ui("left"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_left")}</p>')
 
     parts.append('<div class="cards">')
 
     parts.append(
-        f'<article class="card blocking"><div class="card-h"><span class="id">Owner</span>'
-        f'<span class="owner blocking-tag">{len(owner_q)} open</span></div>'
+        f'<article class="card blocking"><div class="card-h"><span class="id">{esc(ui("owner"))}</span>'
+        f'<span class="owner blocking-tag">{len(owner_q)} {ui("open_of")}</span></div>'
         + "".join(f'<p><b>{esc(x["id"])}</b> — {esc(x["text"])}</p>' for x in owner_q)
-        + ('<p>Nothing is waiting on the owner.</p>' if not owner_q else '')
+        + (f'<p>{esc(ui("owner_none"))}</p>' if not owner_q else '')
         + '</article>')
 
     parts.append(
-        f'<article class="card"><div class="card-h"><span class="id">An outside reviewer</span>'
-        f'<span class="owner">{len(outside)} gates</span></div>'
+        f'<article class="card"><div class="card-h"><span class="id">{esc(ui("outside"))}</span>'
+        f'<span class="owner">{len(outside)} {ui("gates_word")}</span></div>'
         + "".join(f'<p><b>{esc(x["name"])}</b> — {esc(x["result"])}</p>' for x in outside)
         + '<p class="muted-t">§67 also still owes a review round by somebody who did not '
           'participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed '
@@ -525,8 +739,8 @@ def build():
         + '</article>')
 
     parts.append(
-        f'<article class="card"><div class="card-h"><span class="id">Ours</span>'
-        f'<span class="owner">{len(left) + len(d_open) + len(cold) + len(ours)} items</span></div>'
+        f'<article class="card"><div class="card-h"><span class="id">{esc(ui("ours"))}</span>'
+        f'<span class="owner">{len(left) + len(d_open) + len(cold) + len(ours)} {ui("items")}</span></div>'
         f'<p><b>{len(left)} ADR conditions</b> outstanding across '
         f'{len({x["adr"] for x in left})} decisions — the largest commitment on this page.</p>'
         f'<p><b>{len(d_open)} debts</b> with their repayment triggers already written down.</p>'
@@ -545,10 +759,8 @@ def build():
         worst = per.most_common()
         top = max(n for _, n in worst)
 
-        parts.append('<h2 style="margin-top:34px">Open conditions, by decision</h2>')
-        parts.append('<p class="sub">A condition is discharged when its text is struck through in '
-                     'the ADR itself. Nothing here is marked done by this page — it is counted '
-                     'from the decision that made the promise.</p>')
+        parts.append(f'<h2 style="margin-top:34px">{esc(ui("bars_title"))}</h2>')
+        parts.append(f'<p class="sub">{ui("sub_bars")}</p>')
         parts.append('<div class="bars">')
 
         for adr, n in worst:
@@ -563,17 +775,13 @@ def build():
     parts.append('</section>')
 
     # ---- the gates
-    parts.append('<section><h2>Review gates (§66)</h2>')
-    parts.append('<p class="sub">Each gate runs against the whole architecture, not per ADR, and '
-                 'a failure reopens decisions rather than being noted and passed over. A gate '
-                 'ticked without evidence is worse than one left open: it turns an unknown into a '
-                 'false assurance and nothing afterwards re-examines it.</p>')
-    parts.append('<div class="scroll"><table><thead><tr><th>Gate</th><th>Run</th>'
-                 '<th>Result, or what it is waiting for</th></tr></thead><tbody>')
+    parts.append(f'<section><h2>{esc(ui("gates"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_gates")}</p>')
+    parts.append(f'<div class="scroll"><table><thead><tr><th>{esc(ui("th_gate"))}</th><th>{esc(ui("th_run"))}</th><th>{esc(ui("th_result"))}</th></tr></thead><tbody>')
 
     for x in gate:
         if not x["run"]:
-            pill = '<span class="pill muted">not run</span>'
+            pill = f'<span class="pill muted">{esc(ui("not_run"))}</span>'
         elif re.search(r"\bFAIL\b", x["result"]):
             pill = '<span class="pill bad">FAIL</span>'
         elif re.search(r"\bPASS\b", x["result"]):
@@ -587,12 +795,10 @@ def build():
     parts.append('</tbody></table></div></section>')
 
     # ---- ADRs
-    parts.append('<section><h2>Decisions</h2>')
-    parts.append('<p class="sub">Every architectural decision is an ADR. Status and confidence are read from '
-                 'each file\'s own header, so a decision cannot quietly change grade here without changing there.</p>')
+    parts.append(f'<section><h2>{esc(ui("decisions"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_decisions")}</p>')
     parts.append('<div class="scroll"><table><thead><tr>'
-                 '<th>ADR</th><th>Decision</th><th>Status</th><th>Confidence</th>'
-                 '<th class="num">Conditions</th></tr></thead><tbody>')
+                 f'<th>{esc(ui("th_adr"))}</th><th>{esc(ui("th_decision"))}</th><th>{esc(ui("th_status"))}</th><th>{esc(ui("th_confidence"))}</th><th class="num">{esc(ui("th_conditions"))}</th></tr></thead><tbody>')
     for x in a:
         parts.append(
             f'<tr><td class="id">{esc(x["id"])}</td><td>{esc(x["title"])}</td>'
@@ -603,24 +809,22 @@ def build():
     parts.append('</tbody></table></div></section>')
 
     # ---- questions
-    parts.append('<section><h2>Open questions</h2>')
-    parts.append('<p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean '
-                 'the recording stopped, not that the uncertainty did.</p>')
+    parts.append(f'<section><h2>{esc(ui("questions"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_questions")}</p>')
     parts.append('<div class="cards">')
     for x in sorted(q_open, key=lambda y: (not y["blocking"], y["id"])):
         mark = ' blocking' if x["blocking"] else ''
-        tag = '<span class="owner blocking-tag">BLOCKING</span>' if x["blocking"]               else f'<span class="owner">{esc(x["owner"])}</span>'
+        tag = f'<span class="owner blocking-tag">{esc(ui("blocking_tag"))}</span>' if x["blocking"]               else f'<span class="owner">{esc(x["owner"])}</span>'
         parts.append(f'<article class="card{mark}"><div class="card-h">'
                      f'<span class="id">{esc(x["id"])}</span>{tag}</div>'
                      f'<p>{esc(x["text"])}</p></article>')
     parts.append('</div></section>')
 
     # ---- debt
-    parts.append('<section><h2>Architecture debt</h2>')
-    parts.append('<p class="sub">Temporary compromises, each with the trigger that repays it. '
-                 'A compromise with no trigger is a permanent decision wearing a temporary label.</p>')
+    parts.append(f'<section><h2>{esc(ui("debt"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_debt")}</p>')
     parts.append('<div class="scroll"><table><thead><tr>'
-                 '<th>ID</th><th>Debt</th><th>Repay when</th><th>State</th></tr></thead><tbody>')
+                 f'<th>{esc(ui("th_id"))}</th><th>{esc(ui("th_debt"))}</th><th>{esc(ui("th_repay"))}</th><th>{esc(ui("th_state"))}</th></tr></thead><tbody>')
     for x in d:
         tone = "cond" if x["partly"] else "warn" if x["open"] else "good"
         label = "PARTLY" if x["partly"] else "OPEN" if x["open"] else "RESOLVED"
@@ -630,11 +834,10 @@ def build():
     parts.append('</tbody></table></div></section>')
 
     # ---- assumptions
-    parts.append('<section><h2>Assumptions</h2>')
-    parts.append('<p class="sub">Invalidating one triggers a review of every ADR that rests on it. '
-                 'The unvalidated majority is the honest state of the project, not an oversight.</p>')
+    parts.append(f'<section><h2>{esc(ui("assumptions"))}</h2>')
+    parts.append(f'<p class="sub">{ui("sub_assumptions")}</p>')
     parts.append('<div class="scroll"><table><thead><tr>'
-                 '<th>ID</th><th>Assumption</th><th>State</th></tr></thead><tbody>')
+                 f'<th>{esc(ui("th_id"))}</th><th>{esc(ui("th_assumption"))}</th><th>{esc(ui("th_state"))}</th></tr></thead><tbody>')
     for x in s:
         tone = "good" if x["state"].startswith("VALIDATED") else \
                "bad" if x["state"].startswith("INVALID") else "warn"
@@ -643,7 +846,7 @@ def build():
     parts.append('</tbody></table></div></section>')
 
     # ---- tests
-    parts.append('<section><h2>What is verified</h2>')
+    parts.append(f'<section><h2>{esc(ui("verified"))}</h2>')
     parts.append('<p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the '
                  'test sources, so this number cannot drift from the suite that produces it.</p>')
     parts.append('<div class="bars">')
@@ -655,19 +858,23 @@ def build():
     parts.append('</div></section>')
 
     # ---- progress
-    parts.append('<section><h2>Recent work</h2><ol class="log">')
+    parts.append(f'<section><h2>{esc(ui("recent"))}</h2><ol class="log">')
     for c in commits():
         parts.append(f'<li><code>{esc(c["sha"])}</code><time>{esc(c["date"])}</time>'
                      f'<span>{esc(c["subject"])}</span></li>')
     parts.append('</ol></section>')
 
-    parts.append('<footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>')
+    parts.append(
+        f'<footer><p>gis-server · Apache-2.0 · {esc(ui("footer"))} '
+        f'<code>tools/status-page.py</code></p></footer>')
     parts.append('</main>')
 
     return "\n".join(parts)
 
 
-HEAD = """<title>Control Room</title>
+TITLE_SLOT = "{{TITLE}}"
+
+HEAD = """<title>{{TITLE}}</title>
 <style>
 :root{
   --ink:#141b1f; --ink-2:#41525c; --ink-3:#74878f;
@@ -778,6 +985,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "status.html")
-    io.open(target, "w", encoding="utf-8", newline="\n").write(build())
-    print(f"wrote {target}")
+    # <b>Both languages come out of one run.</b> Two commands would be two
+    # chances to forget one, and a stale translation is worse than none: it
+    # looks current and is not.
+    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    target = argv[0] if argv else os.path.join(ROOT, "docs", "status.html")
+
+    for language in TEXT:
+        globals()["LANG"] = language
+
+        out = target if language == "en" else re.sub(r"\.html$", f".{language}.html", target)
+        io.open(out, "w", encoding="utf-8", newline="\n").write(build())
+        print(f"wrote {out}  [{language}]")

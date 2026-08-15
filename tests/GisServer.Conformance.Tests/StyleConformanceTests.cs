@@ -25,7 +25,7 @@ namespace GisServer.Conformance.Tests;
 /// has to set, so it is not obviously worth it for two classes.
 /// </remarks>
 [CollectionDefinition("tile service state")]
-public sealed class TileServiceStateCollection
+public sealed class SharedTileServiceState
 {
 }
 
