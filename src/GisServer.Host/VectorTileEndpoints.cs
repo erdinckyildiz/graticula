@@ -675,13 +675,93 @@ internal static class VectorTileEndpoints
 
         if (tile.Length == 0)
         {
+            // No body, so nothing to revalidate against. An ETag on a 204 would
+            // be an identifier for the absence of bytes.
             context.Response.StatusCode = StatusCodes.Status204NoContent;
+            return;
+        }
+
+        // <b>An ETag, so that expiry costs a header instead of a tile.</b>
+        // `max-age` above stops a client asking for an hour; when the hour is
+        // up it asks again, and without a validator the only possible answer is
+        // the whole tile. Most tiles never change — a cadastral pyramid is
+        // rebuilt when somebody edits a parcel, not hourly — so the common case
+        // after expiry is re-sending bytes the caller already has.
+        //
+        // <b>Computed from the bytes, not from the cache key.</b> A key-derived
+        // tag would claim two tiles are identical because they were asked for
+        // the same way, which is exactly wrong for the case that matters: the
+        // data changed and the address did not. Hashing ~50 KB costs
+        // microseconds beside the query that produced it.
+        //
+        // <b>Strong, not weak.</b> These are bytes, compared byte for byte;
+        // there is no notion of a semantically equivalent tile.
+        string etag = "\"" + Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(tile).AsSpan(0, 16)) + "\"";
+
+        context.Response.Headers.ETag = etag;
+
+        // <b>Compared after the tile is in hand, and that is the honest
+        // limit.</b> The saving is bandwidth, not work: by the time we can say
+        // "unchanged" we have already read or built it. Storing the tag beside
+        // the cache entry would let a hit answer without reading the bytes, and
+        // that is the version to write when a measurement says the read matters.
+        if (Matches(context.Request.Headers.IfNoneMatch, etag))
+        {
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
+
+            // A 304 carries no body and must not claim one. Kestrel will refuse
+            // to send Content-Length with 304, and a length left set here is a
+            // response that some proxies treat as truncated.
+            context.Response.Headers.ContentLength = null;
             return;
         }
 
         context.Response.ContentType = "application/vnd.mapbox-vector-tile";
         context.Response.Headers.ContentLength = tile.Length;
         await context.Response.Body.WriteAsync(tile, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether the caller already holds this tile.
+    /// </summary>
+    /// <remarks>
+    /// <b>A list, and <c>*</c>, because the header allows both.</b> A client may
+    /// send several tags, and a proxy revalidating anything it holds may send
+    /// <c>*</c>, which means <em>if you have any version at all</em>. Treating
+    /// the header as a single opaque string is the common shortcut and it fails
+    /// silently — the tile is re-sent, nothing breaks, and the feature quietly
+    /// does nothing.
+    /// </remarks>
+    private static bool Matches(
+        Microsoft.Extensions.Primitives.StringValues header, string etag)
+    {
+        foreach (string? value in header)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            foreach (string candidate in value.Split(
+                         ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (candidate == "*" || string.Equals(candidate, etag, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                // A cache may weaken a tag it stored. W/"x" and "x" identify the
+                // same bytes as far as this server is concerned.
+                if (candidate.StartsWith("W/", StringComparison.Ordinal)
+                    && string.Equals(candidate[2..], etag, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

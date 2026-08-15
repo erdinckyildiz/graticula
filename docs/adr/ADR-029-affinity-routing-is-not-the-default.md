@@ -265,7 +265,9 @@ informational.
    number.
 3. **The node-local tile cache is stated in deployment guidance** before anybody
    is told to run two nodes. Discovering that two servers means two caches, in
-   production, is the worst way to learn it.
+   production, is the worst way to learn it. *(Discharged 2026-08-15 —
+   [deployment.md](../deployment.md) §1, which also lists what else is per node
+   and states plainly that two nodes have never been run.)*
 4. **A-003 and A-014 are restored to load-bearing the moment affinity is
    reconsidered**, rather than being quietly carried as informational into a
    design that needs them again.

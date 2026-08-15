@@ -27,6 +27,7 @@ namespace GisServer.Conformance.Tests;
 /// exist rather than that a label can be drawn.
 /// </para>
 /// </remarks>
+[Collection("tile service state")]
 public sealed class GlyphConformanceTests : ArcGisClient
 {
     private const string ServiceVariable = "GISSERVER_TEST_TILE_SERVICE";

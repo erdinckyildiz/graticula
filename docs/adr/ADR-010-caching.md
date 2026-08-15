@@ -97,6 +97,24 @@ The latency gain is small and is not the point — the datastore doing a twelfth
 of the work is. On a real cold pyramid with a slow query the two numbers
 separate.
 
+**And expiry now costs a header rather than a tile.** `max-age` stops a client
+asking for an hour; when the hour is up it asks again, and without a validator
+the only possible answer was the whole tile — for a pyramid that is rebuilt when
+somebody edits a parcel, not hourly. Tiles carry a **strong `ETag` computed from
+the bytes**, and `If-None-Match` answers `304`.
+
+Computed from the bytes rather than from the cache key on purpose: a key-derived
+tag would claim two tiles are identical because they were asked for the same
+way, which is exactly wrong for the case that matters — the data changed and the
+address did not. The honest limit is that the saving is bandwidth and not work:
+by the time the server can say *unchanged* it has already read or built the tile.
+Storing the tag beside the cache entry would let a hit answer without reading the
+bytes, and that is the version to write when a measurement says the read matters.
+
+The header is parsed as the list it is — several tags, `*`, and `W/` weakened
+forms all match. Treating it as one opaque string re-sends the tile, breaks
+nothing, and turns the feature off without telling anybody.
+
 **Node-local, deliberately.** Across nodes the herd arrives once per node, and
 the answer there is a caching reverse proxy: tiles already carry
 `Cache-Control: public, max-age=3600`, and every real deployment has a proxy in

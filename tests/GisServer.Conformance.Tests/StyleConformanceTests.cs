@@ -10,6 +10,26 @@ using Xunit;
 namespace GisServer.Conformance.Tests;
 
 /// <summary>
+/// Conformance classes that share one fixture service and mutate its state.
+/// </summary>
+/// <remarks>
+/// <b>xunit runs test classes in parallel, and these two write and read the same
+/// thing.</b> `StyleConformanceTests` stores a style on the tile fixture;
+/// `GlyphConformanceTests` reads that service's style and asserts the generated
+/// one carries `glyphs` and `sprite`. Run at the same time, the second sees the
+/// first's document and fails — which is what happened on 2026-08-15, and it is
+/// a defect in the tests rather than in the server.
+///
+/// A collection serialises them. The alternative — a second fixture service —
+/// would be cleaner and costs another environment variable that every runner
+/// has to set, so it is not obviously worth it for two classes.
+/// </remarks>
+[CollectionDefinition("tile service state")]
+public sealed class TileServiceStateCollection
+{
+}
+
+/// <summary>
 /// Storing a style, serving it, and getting the generated one back.
 /// </summary>
 /// <remarks>
@@ -27,6 +47,7 @@ namespace GisServer.Conformance.Tests;
 /// its own defect that only a database could produce.
 /// </para>
 /// </remarks>
+[Collection("tile service state")]
 public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
 {
     private const string ServiceVariable = "GISSERVER_TEST_TILE_SERVICE";
