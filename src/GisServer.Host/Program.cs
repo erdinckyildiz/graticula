@@ -559,6 +559,41 @@ public static class Program
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/applyEdits",
                 ApplyEditsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // <b>The three single-operation endpoints ArcGIS also offers.</b>
+            // applyEdits is the one a modern client uses and the only one that
+            // can be transactional across operations, but plenty of tooling —
+            // older ArcGIS clients, scripts, anything written against the
+            // 10.x documentation — posts to these instead and gets a 404 from a
+            // server that can do exactly what was asked. They are thin: each
+            // rewrites its own parameter into the batch applyEdits already
+            // takes, so there is one writer, one audit path and one place where
+            // rollback is decided.
+            foreach ((string route, EditOperation operation) in
+                ((string, EditOperation)[])
+                [
+                    ("addFeatures", EditOperation.Add),
+                    ("updateFeatures", EditOperation.Update),
+                    ("deleteFeatures", EditOperation.Delete),
+                ])
+            {
+                EditOperation which = operation;
+
+                app.MapPost(
+                    $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/{route}",
+                    (HttpContext context,
+                     string serviceName,
+                     int layerId,
+                     CatalogFallback catalog,
+                     LayerConnections connections,
+                     ServiceContexts contexts,
+                     IAuditLog audit,
+                     CancellationToken cancellation) =>
+                        ApplyEditsAsync(
+                            context, serviceName, layerId, catalog, connections, contexts,
+                            audit, cancellation, which))
+                    .Governed(SharingGovernedExtensions.ByService);
+            }
         }
 
         VectorTileEndpoints.Map(app);
@@ -1243,6 +1278,22 @@ public static class Program
     /// cannot be used to discover layer names.
     /// </para>
     /// </remarks>
+    /// <summary>Which endpoint asked, and therefore where the features go.</summary>
+    private enum EditOperation
+    {
+        /// <summary>applyEdits: adds, updates and deletes together.</summary>
+        Apply,
+
+        /// <summary>addFeatures: one list, in "features".</summary>
+        Add,
+
+        /// <summary>updateFeatures: one list, in "features".</summary>
+        Update,
+
+        /// <summary>deleteFeatures: object ids, in "objectIds".</summary>
+        Delete,
+    }
+
     private static async Task ApplyEditsAsync(
         HttpContext context,
         string serviceName,
@@ -1251,7 +1302,8 @@ public static class Program
         LayerConnections connections,
         ServiceContexts contexts,
         IAuditLog audit,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        EditOperation operation = EditOperation.Apply)
     {
         PublishedLayer? layer = await ServiceLookup
             .LayerAsync(context, catalog, serviceName, layerId, cancellation)
@@ -1284,9 +1336,84 @@ public static class Program
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
             : FormCollection.Empty;
 
-        string? adds = Field(form, context, "adds");
-        string? updates = Field(form, context, "updates");
-        string? deletes = Field(form, context, "deletes");
+        // <b>One shape underneath.</b> The single-operation endpoints spell
+        // their input differently — "features" for add and update, "objectIds"
+        // for delete — and mean exactly one third of what applyEdits means.
+        // Translating here rather than duplicating the handler keeps one writer,
+        // one audit record and one rollback rule.
+        string? features = Field(form, context, "features");
+
+        string? adds = operation switch
+        {
+            EditOperation.Apply => Field(form, context, "adds"),
+            EditOperation.Add => features,
+            _ => null,
+        };
+
+        string? updates = operation switch
+        {
+            EditOperation.Apply => Field(form, context, "updates"),
+            EditOperation.Update => features,
+            _ => null,
+        };
+
+        string? deletes = operation switch
+        {
+            EditOperation.Apply => Field(form, context, "deletes"),
+            EditOperation.Delete => Field(form, context, "objectIds"),
+            _ => null,
+        };
+
+        // <b>deleteFeatures also takes a where clause in ArcGIS, and this
+        // refuses it.</b> Deleting by predicate is a different risk from
+        // deleting by identity: one mistyped clause removes a layer, and there
+        // is nothing to undo it with — no versioning, no soft delete, no
+        // preview of what would go. Refusing is recoverable and a wiped layer is
+        // not, so the caller is told to resolve the clause to ids first with a
+        // query they can look at.
+        if (operation == EditOperation.Delete && Field(form, context, "where") is { } clause)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            "deleteFeatures accepts 'objectIds' and not 'where' on this server. "
+                            + "Deleting by predicate removes an unknown number of features and "
+                            + "nothing here can undo it \u2014 there is no versioning and no soft "
+                            + "delete. Run the same clause through /query with returnIdsOnly=true, "
+                            + $"look at what it selects, and pass those ids. (where: {clause})",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        // A single-operation endpoint called with nothing to do is a client
+        // sending the wrong parameter name, not a request to do nothing.
+        if (operation != EditOperation.Apply && adds is null && updates is null && deletes is null)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = operation == EditOperation.Delete
+                            ? "deleteFeatures needs 'objectIds': a comma-separated list."
+                            : $"{(operation == EditOperation.Add ? "addFeatures" : "updateFeatures")}"
+                              + " needs 'features': an array of ArcGIS features.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
 
         // Adds need less than updates and deletes do; asking for the wider
         // privilege on a batch that only adds would refuse a legitimate edit.
@@ -1329,8 +1456,20 @@ public static class Program
             context, audit, $"{serviceName}/{layerId}", parsed, outcome, cancellation)
             .ConfigureAwait(false);
 
-        await Results.Json(ApplyEditsResponse.Build(outcome, parsed))
-            .ExecuteAsync(context).ConfigureAwait(false);
+        // <b>ArcGIS answers each single-operation endpoint with only its own
+        // results array.</b> A client posting addFeatures reads addResults and
+        // nothing else; handing it three arrays, two of them empty, is a
+        // different document from the one it was written against.
+        await Results.Json(operation switch
+        {
+            EditOperation.Add =>
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Add),
+            EditOperation.Update =>
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Update),
+            EditOperation.Delete =>
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Delete),
+            _ => ApplyEditsResponse.Build(outcome, parsed),
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Reads a field from the form, falling back to the query string.</summary>

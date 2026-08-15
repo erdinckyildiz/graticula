@@ -133,6 +133,7 @@ export GISSERVER_TEST_QUERYABLE="buildings"                     # a feature serv
 export GISSERVER_TEST_MULTILAYER="hosted/EarlyAlert_Reports_HD" # more than one layer
 export GISSERVER_TEST_GROUPED="hosted/EarlyAlert"               # contains a group layer
 export GISSERVER_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTileServer
+export GISSERVER_TEST_EDITABLE="editable"                       # layer 0 accepts edits
 ```
 
 The fixtures cannot be discovered from the catalogue: a published layer may

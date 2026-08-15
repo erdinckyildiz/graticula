@@ -46,6 +46,65 @@ public static class ApplyEditsResponse
         };
     }
 
+    /// <summary>Which single operation a response is for.</summary>
+    public enum EditKind
+    {
+        /// <summary><c>addFeatures</c>.</summary>
+        Add,
+
+        /// <summary><c>updateFeatures</c>.</summary>
+        Update,
+
+        /// <summary><c>deleteFeatures</c>.</summary>
+        Delete,
+    }
+
+    /// <summary>
+    /// The response for one of the single-operation endpoints.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One array, because that is the document the client is parsing.</b>
+    /// ArcGIS answers <c>addFeatures</c> with <c>addResults</c> and nothing
+    /// else; returning all three, two of them empty, is a different shape from
+    /// the one an older client was written against.
+    /// </para>
+    /// <para>
+    /// <b>Through the same merge as <see cref="Build"/>.</b> A feature the
+    /// parser rejected never reached the writer but still occupied a position in
+    /// the request, and dropping it here would shift every later result onto the
+    /// wrong feature — the exact defect the merge exists to prevent, reintroduced
+    /// by a second code path.
+    /// </para>
+    /// <para>
+    /// <c>rolledBack</c> is carried on this shape too, for the same reason it is
+    /// on the full one: a client that asked for all-or-nothing and reads a list
+    /// of successes has no other way to learn none of them were kept.
+    /// </para>
+    /// </remarks>
+    /// <param name="outcome">What the writer did.</param>
+    /// <param name="parsed">What the parser rejected before the writer saw it.</param>
+    /// <param name="kind">Which operation was asked for.</param>
+    /// <returns>An object ready for JSON serialisation.</returns>
+    public static object One(EditOutcome outcome, ApplyEditsRequest.Parsed parsed, EditKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(parsed);
+
+        (string name, object[] results) = kind switch
+        {
+            EditKind.Add => ("addResults", Merge(outcome.Adds, parsed.RejectedAdds)),
+            EditKind.Update => ("updateResults", Merge(outcome.Updates, parsed.RejectedUpdates)),
+            _ => ("deleteResults", Merge(outcome.Deletes, parsed.RejectedDeletes)),
+        };
+
+        return new Dictionary<string, object>
+        {
+            [name] = results,
+            ["rolledBack"] = outcome.RolledBack,
+        };
+    }
+
     private static object[] Merge(
         IReadOnlyList<EditResult> applied, IReadOnlyList<ApplyEditsRequest.Rejected> rejected)
     {
