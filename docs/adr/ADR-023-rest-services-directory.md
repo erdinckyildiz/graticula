@@ -121,6 +121,8 @@ weaker than a type that cannot be rendered unescaped. Recorded as condition 3.
 | The geometry service was reachable with no authentication | anonymous `POST …/GeometryServer/project` → `200` | Reproduced 2026-08-15; now `404`, test `An_anonymous_caller_does_not_reach_an_organisation_shared_service` |
 | Every service the catalogue lists resolves | 3 catalogues walked, every `{name}/{type}` fetched | `Every_listed_service_resolves` |
 | Encoding holds for hostile names | `<script>`, `"><img onerror>`, `"` in an href | `RestDirectoryTests`, 5 cases |
+| Paging returns contiguous, non-overlapping pages | offsets 0/3/6 on a real layer returned objectids 1-3, 4-6, 7-9 | `Pages_do_not_overlap_or_skip` |
+| `supportsPagination` and `supportsOrderBy` were false while both worked | layer document vs `FeatureServerQueryParameters` | `The_layer_document_claims_the_paging_and_ordering_it_does_support` |
 | A multi-layer service renders as one page with links to each layer, and each layer's fields as a table | `EarlyAlert_Reports_HD` with GeoPoint, GeoLine, GeoFence | `MultiLayerServiceConformanceTests`, 7 cases |
 
 **What is not measured:** nothing here is a performance question. The pages are
@@ -150,6 +152,66 @@ That is now twice that this surface has exposed something the code did not.
 Recorded because it is an argument about what browsing your own product is for,
 not a coincidence: **rendering forces every field to be somewhere on a page**,
 and a model that is wrong has nowhere to hide once it is drawn.
+
+### 4b. The query page — added 2026-08-15
+
+*"can you define query pages as well"*, then *"check arcgis query page on web
+can create something similar."*
+
+`f=html` on the query operation is a documented ArcGIS format, and the page it
+produces is where a WHERE clause gets tested before it goes into a client. It is
+also the third thing this surface has produced by being built rather than
+reasoned about (§4a): writing the form meant listing which parameters to offer,
+and that list had to be checked against what the query endpoint honours.
+
+**The check found the capability document lying, in the direction nobody
+audits.** `supportsPagination` and `supportsOrderBy` were `false`. `resultOffset`,
+`resultRecordCount` and `orderByFields` had all been honoured since the query
+endpoint was written. ADR-008 §2's never-degrade-silently is normally read as
+*do not over-claim* — over-claiming puts a button in front of somebody that
+returns an error, which is loud. **Under-claiming is quiet and costs the whole
+capability**: a client reading `supportsPagination: false` does not page, so it
+asks for the entire layer in one request or refuses the large ones, and nothing
+anywhere reports a problem.
+
+Both are now `true`, and there is a second place they had to go:
+`advancedQueryCapabilities`, which is where the ArcGIS specification puts them
+and what a modern client reads. The flat flags are the older shape and are kept.
+
+**Pagination is an honest claim only because the order is deterministic.** Esri's
+documentation requires a paginated query with a constant where clause to keep a
+consistent sort order across pages, and PostgreSQL's `LIMIT`/`OFFSET` without an
+`ORDER BY` does not — page two can repeat page one. The provider already orders
+by the identity column whenever an offset is given, which is what makes the
+declaration true rather than merely convenient. Asserted by
+`Pages_do_not_overlap_or_skip`, which is the only thing that would notice if that
+ordering were removed: the responses would stay well-formed and become wrong.
+
+**The form offers only what the server honours.** Esri's page has controls for
+`outStatistics`, `groupByFieldsForStatistics`, `distance`, `returnIdsOnly`,
+`time` and twenty more. Rendering those would break §2's rule through the UI
+rather than through a header: somebody fills in a box, presses the button, and
+gets an error the page invited them to cause. **The form is a live capability
+report**, and a missing control is a request to implement the parameter, not to
+add the control.
+
+**Results stream, like the JSON path.** A-037 measured allocation as the binding
+constraint; buffering a page of features to build a table would reintroduce the
+peak the JSON writer is careful to avoid. Rows are written as they arrive, which
+is why `RestDirectory` grew an `OpenPage` that leaves `<main>` unclosed. The
+first row is still pulled before a byte is written, for the reason the JSON
+writer documents: executing the query is what raises the statement timeout, and
+once the header is in the pipe the status cannot be taken back.
+
+**Geometry is summarised, not printed** — *"polygon, 5 vertices"* — because a
+polygon's coordinate list is thousands of numbers and pasting it into a cell
+makes the attributes impossible to find. The coordinates are one click away in
+the JSON.
+
+**An explicit `f=json` still beats a browser's `Accept` header**, and there is
+now a test that sends both together. Every existing caller sends `f=json`; if
+the header ever won, the query endpoint would start returning HTML to machines,
+and the JSON suite would not catch it because it sends no `Accept` header at all.
 
 ## 5. Decision
 

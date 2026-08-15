@@ -229,6 +229,59 @@ public abstract class ArcGisClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Fetches a page as a browser would, asserting it came back as HTML.
+    /// </summary>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <returns>The page.</returns>
+    /// <remarks>
+    /// <b>An Accept header and no <c>f</c>, which is exactly what a browser
+    /// sends.</b> Asking with <c>?f=html</c> would test the parameter and leave
+    /// the header path — the one a person typing a URL actually takes —
+    /// unexercised.
+    /// </remarks>
+    protected async Task<string> GetHtmlAsync(string path)
+    {
+        string root = await RequireServerAsync();
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"{root}{path}"));
+        request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml");
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await _http.SendAsync(request);
+
+        Assert.True(
+            response.IsSuccessStatusCode,
+            $"GET {root}{path} returned {(int)response.StatusCode} for a browser.");
+
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    /// <summary>
+    /// Fetches with an explicit format and a browser's Accept header.
+    /// </summary>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <param name="format">The <c>f</c> value.</param>
+    /// <returns>The media type that came back.</returns>
+    protected async Task<string?> MediaTypeForAsync(string path, string format)
+    {
+        string root = await RequireServerAsync();
+
+        string separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+
+        using HttpRequestMessage request =
+            new(HttpMethod.Get, new Uri($"{root}{path}{separator}f={format}"));
+
+        request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml");
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await _http.SendAsync(request);
+
+        return response.Content.Headers.ContentType?.MediaType;
+    }
+
     /// <summary>Fetches a document and returns its status without asserting.</summary>
     protected async Task<int> StatusOfAsync(string path)
     {

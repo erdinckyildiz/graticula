@@ -398,6 +398,19 @@ internal static class RestDirectory
         return pretty.ToString();
     }
 
+    /// <summary>
+    /// The shell with <c>&lt;main&gt;</c> left open, for a page that streams.
+    /// </summary>
+    /// <param name="path">The request path, for the breadcrumb.</param>
+    /// <param name="body">What goes at the top, before the streamed part.</param>
+    /// <returns>An unfinished HTML document. The caller closes it.</returns>
+    /// <remarks>
+    /// <b>Shared so the query page cannot drift from the directory it sits
+    /// in.</b> Two shells would be two stylesheets and two breadcrumbs, and the
+    /// query page would slowly stop looking like the pages that link to it.
+    /// </remarks>
+    public static string OpenPage(string path, string body) => Page(path, body, close: false);
+
     /// <summary>The shell: breadcrumb, format links, and the styling.</summary>
     /// <remarks>
     /// <b>Deliberately plain, and deliberately not the console's design.</b> This
@@ -405,7 +418,7 @@ internal static class RestDirectory
     /// also has to be legible when the only thing working is this page, which is
     /// an argument against anything it would need to load.
     /// </remarks>
-    private static string Page(string path, string body)
+    private static string Page(string path, string body, bool close = true)
     {
         StringBuilder crumbs = new("<a href=\"/rest/services\">Home</a>");
         string sofar = "";
@@ -473,6 +486,16 @@ internal static class RestDirectory
                                              white-space: nowrap; }
               table.grid thead th { background: #f0f4f8; font-weight: 600; }
               table.grid tbody tr:nth-child(even) { background: #fafbfc; }
+
+              /* The query form. Labels right-aligned against their inputs, so a
+                 column of boxes reads as one control rather than as prose. */
+              table.form th { text-align: right; font-weight: 600; padding: 3px 10px 3px 0;
+                              white-space: nowrap; vertical-align: top; }
+              table.form td { padding: 3px 0; }
+              table.form input, table.form select { font: inherit; padding: 2px 4px; }
+              .hint { font-size: 11px; opacity: 0.75; }
+              .paging { margin-top: 10px; }
+              button { font: inherit; padding: 3px 14px; margin-top: 6px; }
               @media (prefers-color-scheme: dark) {
                 body { background: #14181c; color: #e6e6e6; }
                 .bar, .top { background: #1b2228; border-color: #2c363f; }
@@ -485,7 +508,7 @@ internal static class RestDirectory
             <div class="top">GIS Server REST Services Directory</div>
             <div class="bar">{{crumbs}}</div>
             <div class="fmt"><a href="{{H(json)}}">JSON</a></div>
-            <main>{{body}}</main>
+            <main>{{body}}{{(close ? "</main>" : string.Empty)}}
             """;
     }
 

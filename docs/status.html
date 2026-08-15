@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>02434a6</code> · 2026-08-15 09:43</p>
+<p class="stamp">Generated from commit <code>0bad59d</code> · 2026-08-15 10:29</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
@@ -118,7 +118,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">632</div><div class="kpi-l">tests</div><div class="kpi-n">101 source files, 24,488 lines</div></div>
+<div class="kpi good"><div class="kpi-v">639</div><div class="kpi-l">tests</div><div class="kpi-n">102 source files, 25,005 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -306,13 +306,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">152</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.2%"></div></div><div class="bar-n">134</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:67.1%"></div></div><div class="bar-n">102</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.0%"></div></div><div class="bar-n">76</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">66</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">72</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:14.5%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>0bad59d</code><time>2026-08-15</time><span>untrack a scratch page that followed a git add -A</span></li>
+<li><code>7956303</code><time>2026-08-15</time><span>group layers: the service&#x27;s layer list becomes a tree</span></li>
 <li><code>02434a6</code><time>2026-08-15</time><span>a service is a container of layers, which is what a service is</span></li>
 <li><code>9706f38</code><time>2026-08-15</time><span>the service list a browser can read, and the service nothing was guarding</span></li>
 <li><code>741f4ad</code><time>2026-08-15</time><span>the licensing gate passes, the consistency gate fails, and composite stops lying</span></li>
@@ -325,8 +327,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>caedc44</code><time>2026-08-14</time><span>hosted is about where the data lives, not how it arrived â€” and it gets its own folder</span></li>
 <li><code>8161f18</code><time>2026-08-14</time><span>hosted data means uploaded data now, and a security rule chose the format</span></li>
 <li><code>7ae23fe</code><time>2026-08-14</time><span>GeometryServer, the half of it that cannot be used as a weapon</span></li>
-<li><code>d85dbe1</code><time>2026-08-14</time><span>A-042 invalidated: a vertex cap is not a control, and the proof took the host down</span></li>
-<li><code>7ef4990</code><time>2026-08-14</time><span>the tile cache: 4x, and the row of ADR-010 I refused to implement</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

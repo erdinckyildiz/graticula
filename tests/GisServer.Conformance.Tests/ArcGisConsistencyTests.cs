@@ -272,4 +272,154 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
         return services.EnumerateArray().First().GetProperty("name").GetString()!;
     }
+
+    // ---------- paging ----------
+
+    /// <summary>
+    /// Pages do not overlap and do not skip, which is what the claim means.
+    /// </summary>
+    /// <remarks>
+    /// <b>The layer document now says <c>supportsPagination: true</c>, and this
+    /// is the assertion behind it.</b> Esri's documentation requires a
+    /// paginated query with a constant where clause to keep a consistent sort
+    /// order across pages; PostgreSQL's LIMIT/OFFSET without an ORDER BY does
+    /// not, and page two can repeat rows from page one. If the provider ever
+    /// stops ordering by identity when an offset is given, this test is the only
+    /// thing that notices — the responses stay well-formed and merely wrong.
+    /// </remarks>
+    [Fact]
+    public async Task Pages_do_not_overlap_or_skip()
+    {
+        string name = await FirstServiceNameAsync();
+
+        JsonElement first = await GetJsonAsync(
+            $"/rest/services/{name}/FeatureServer/0/query"
+            + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=0");
+
+        if (first.GetProperty("features").GetArrayLength() < 2)
+        {
+            // Fewer than two features, so there is no second page to compare.
+            // A fact about the fixture, not a failure.
+            return;
+        }
+
+        JsonElement second = await GetJsonAsync(
+            $"/rest/services/{name}/FeatureServer/0/query"
+            + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=1");
+
+        string oid = first.GetProperty("objectIdFieldName").GetString()!;
+
+        int[] page1 =
+        [
+            .. first.GetProperty("features").EnumerateArray()
+                .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
+        ];
+
+        int[] page2 =
+        [
+            .. second.GetProperty("features").EnumerateArray()
+                .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
+        ];
+
+        // Offset one, page size two: the second row of page one must be the
+        // first row of page two. Anything else means the order moved between
+        // requests, which is the failure pagination without an order produces.
+        Assert.Equal(page1[1], page2[0]);
+    }
+
+    [Fact]
+    public async Task The_layer_document_does_not_understate_what_the_query_endpoint_does()
+    {
+        // <b>Under-claiming is quieter than over-claiming and not harmless.</b>
+        // A client reading supportsPagination=false does not page — it asks for
+        // the whole layer or refuses the large ones — so a false negative here
+        // costs exactly the capability it hides.
+        string name = await FirstServiceNameAsync();
+
+        JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
+
+        Assert.True(
+            layer.GetProperty("supportsPagination").GetBoolean(),
+            "resultOffset and resultRecordCount are honoured, so declaring otherwise tells every "
+            + "client not to page.");
+
+        JsonElement advanced = Require(
+            layer,
+            "advancedQueryCapabilities",
+            "This is where the ArcGIS specification puts these flags, and a client reading only it "
+            + "would conclude the server supports nothing.");
+
+        Assert.True(advanced.GetProperty("supportsPagination").GetBoolean());
+        Assert.True(advanced.GetProperty("supportsOrderBy").GetBoolean());
+
+        // And the ones that are false are false, which is the other half.
+        Assert.False(advanced.GetProperty("supportsStatistics").GetBoolean());
+        Assert.False(advanced.GetProperty("supportsDistinct").GetBoolean());
+    }
+
+    // ---------- the query page ----------
+
+    [Fact]
+    public async Task The_query_page_is_a_form_when_nothing_has_been_asked()
+    {
+        // A bare .../query in a browser is somebody about to build a query, not
+        // somebody asking for every feature in the layer.
+        string name = await FirstServiceNameAsync();
+
+        string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
+
+        Assert.Contains("<form", page, StringComparison.Ordinal);
+        Assert.Contains("name=\"where\"", page, StringComparison.Ordinal);
+        Assert.Contains("Query (GET)", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_query_page_only_offers_parameters_the_server_honours()
+    {
+        // The form is a live capability report. A control for outStatistics
+        // would invite somebody to fill in a box and be refused for it.
+        string name = await FirstServiceNameAsync();
+
+        string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
+
+        foreach (string refused in (string[])
+            ["outStatistics", "groupByFieldsForStatistics", "returnIdsOnly", "distance", "time"])
+        {
+            Assert.DoesNotContain($"name=\"{refused}\"", page, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task The_query_page_renders_results_and_the_json_link_still_works()
+    {
+        string name = await FirstServiceNameAsync();
+
+        string page = await GetHtmlAsync(
+            $"/rest/services/{name}/FeatureServer/0/query?where=1%3D1&outFields=*&f=html");
+
+        Assert.Contains("<h3>Results:</h3>", page, StringComparison.Ordinal);
+
+        // The same query as JSON, which is what the page is a view of.
+        JsonElement json = await GetJsonAsync(
+            $"/rest/services/{name}/FeatureServer/0/query?where=1%3D1&outFields=*");
+
+        Assert.True(json.TryGetProperty("features", out _));
+    }
+
+    [Fact]
+    public async Task An_explicit_json_format_beats_a_browser_Accept_header()
+    {
+        // <b>The case that would break every existing caller.</b> A client
+        // sending f=json from something that also advertises text/html — a
+        // browser-based SDK, a proxy that rewrites Accept — must still get JSON.
+        // If the header ever wins, the query endpoint starts returning HTML to
+        // machines and nothing in the JSON suite would catch it, because the
+        // JSON suite sends no Accept header at all.
+        string name = await FirstServiceNameAsync();
+
+        Assert.Equal(
+            "application/json",
+            await MediaTypeForAsync(
+                $"/rest/services/{name}/FeatureServer/0/query?where=1%3D1&outFields=*", "json"));
+    }
 }

@@ -74,7 +74,9 @@ internal static class FeatureServerQueryParameters
         ["datumTransformation"] = "no reprojection happens, so none is applied",
         ["gdbVersion"] = "there is no version tree",
         ["historicMoment"] = "there is no history",
-        ["f"] = "JSON is the only format",
+        // f=html renders the query page (ADR-023 §4b). Anything else — pbf,
+        // geojson, kmz — is still ignored, and this is where that is said.
+        ["f"] = "only json and html are produced; any other format returns json",
         ["token"] = "authentication is by header; see ADR-015 §4",
         ["resultType"] = "no result-type specialisation exists",
         ["sqlFormat"] = "no SQL is exposed",

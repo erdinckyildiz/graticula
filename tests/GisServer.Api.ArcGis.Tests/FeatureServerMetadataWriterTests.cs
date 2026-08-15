@@ -71,15 +71,50 @@ public sealed class FeatureServerMetadataWriterTests
         // refuses by name. Declaring support for one is the never-degrade-
         // silently failure inverted: the client asks, and we say no after it
         // has already offered the feature.
+        //
+        // <b>This list used to include pagination and ordering, and that was
+        // the same failure pointing the other way.</b> Both had been honoured by
+        // the query endpoint since it was written, and declaring them false told
+        // every client not to page — so it asked for whole layers or gave up on
+        // the large ones. A capability list is only as good as its last audit
+        // against the code, and this test is that audit.
         JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
             Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         foreach (string claim in (string[])
-            ["supportsAdvancedQueries", "supportsStatistics", "supportsPagination",
-             "supportsOrderBy", "supportsDistinct", "supportsReturningQueryExtent"])
+            ["supportsStatistics", "supportsDistinct", "supportsReturningQueryExtent"])
         {
             Assert.False(layer.GetProperty(claim).GetBoolean(), claim);
         }
+
+        JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
+
+        foreach (string claim in (string[])
+            ["supportsStatistics", "supportsDistinct", "supportsReturningQueryExtent",
+             "supportsQueryWithDistance", "supportsSqlExpression", "supportsHavingClause"])
+        {
+            Assert.False(advanced.GetProperty(claim).GetBoolean(), claim);
+        }
+    }
+
+    [Fact]
+    public void The_layer_document_claims_the_paging_and_ordering_it_does_support()
+    {
+        // resultOffset, resultRecordCount and orderByFields are honoured, and
+        // the provider orders by identity whenever an offset is given — which is
+        // what makes a paginated query's order consistent across pages, as the
+        // ArcGIS specification requires. Both places clients look must say so.
+        JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
+
+        Assert.True(layer.GetProperty("supportsAdvancedQueries").GetBoolean());
+        Assert.True(layer.GetProperty("supportsPagination").GetBoolean());
+        Assert.True(layer.GetProperty("supportsOrderBy").GetBoolean());
+
+        JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
+
+        Assert.True(advanced.GetProperty("supportsPagination").GetBoolean());
+        Assert.True(advanced.GetProperty("supportsOrderBy").GetBoolean());
     }
 
     [Fact]

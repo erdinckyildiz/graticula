@@ -1399,6 +1399,19 @@ public static class Program
         (IFeatureSource source, LayerDescription described) = await contexts
             .GetAsync(layer, cancellation).ConfigureAwait(false);
 
+        bool html = RestDirectory.WantsHtml(
+            context.Request.Query["f"], context.Request.Headers.Accept);
+
+        // <b>An empty query string in a browser is a request for the form.</b>
+        // Running it as an unfiltered read and rendering the answer as a table
+        // would make a link somebody clicks into a full scan of the layer.
+        if (html && QueryPage.WantsForm(context.Request))
+        {
+            await QueryPage.WriteFormAsync(context, layer, described, cancellation)
+                .ConfigureAwait(false);
+            return;
+        }
+
         if (!FeatureServerQueryParameters.TryParse(
                 context.Request.Query,
                 layer.Definition.ObjectIdColumn!,
@@ -1429,11 +1442,30 @@ public static class Program
 
         if (countOnly)
         {
-            // What an ArcGIS client asks before it starts paging.
-            await Results.Json(new
+            long count = await source.CountAsync(query!, cancellation).ConfigureAwait(false);
+
+            if (html)
             {
-                count = await source.CountAsync(query!, cancellation).ConfigureAwait(false),
-            }).ExecuteAsync(context).ConfigureAwait(false);
+                await QueryPage
+                    .WriteCountAsync(context, layer, described, count, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            // What an ArcGIS client asks before it starts paging.
+            await Results.Json(new { count }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (html)
+        {
+            // <b>The same source and the same parsed query as the JSON path.</b>
+            // A second way of running the query is a second set of answers, and
+            // the whole point of the page is that it shows what a client will
+            // get.
+            await QueryPage
+                .WriteResultsAsync(context, layer, described, source, query!, cancellation)
+                .ConfigureAwait(false);
             return;
         }
 

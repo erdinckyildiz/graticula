@@ -440,16 +440,49 @@ public static class FeatureServerMetadataWriter
             hasStaticData = true,
             isDataVersioned = false,
 
-            // <b>Every one of these is false because it is false.</b> A client
-            // reads them to decide which UI to offer, and an optimistic answer
-            // here is the never-degrade-silently failure at its most direct:
-            // the user gets a statistics panel that returns an error.
-            supportsAdvancedQueries = false,
+            // <b>Two of these were false while the query endpoint honoured
+            // them, and that is the never-degrade-silently rule broken in the
+            // direction nobody checks.</b> ADR-008 §2 is usually read as "do not
+            // over-claim", because over-claiming puts a button in front of
+            // somebody that returns an error. Under-claiming is quieter and not
+            // harmless: a client reading supportsPagination=false does not page,
+            // so it asks for the whole layer in one request or gives up on the
+            // large ones. resultOffset and resultRecordCount have worked since
+            // the query endpoint was written, and orderByFields with them.
+            //
+            // <b>Pagination is honest here because the order is deterministic.</b>
+            // Esri's documentation is explicit that a paginated query with a
+            // constant where clause must return a consistent sort order across
+            // pages, and PostgreSQL's LIMIT/OFFSET without an ORDER BY does not
+            // — page two can repeat rows from page one. The provider therefore
+            // orders by the identity column whenever an offset is given
+            // (PostGisFeatureSource), which is what makes the claim true rather
+            // than merely convenient.
+            supportsAdvancedQueries = true,
             supportsStatistics = false,
-            supportsPagination = false,
-            supportsOrderBy = false,
+            supportsPagination = true,
+            supportsOrderBy = true,
             supportsDistinct = false,
             supportsReturningQueryExtent = false,
+
+            // <b>The nested object is the one clients actually read.</b> The
+            // flat flags above are the older shape and are kept because some
+            // clients still look at them; advancedQueryCapabilities is where the
+            // ArcGIS REST specification puts these, and a client that reads only
+            // it would have concluded we support nothing.
+            advancedQueryCapabilities = new
+            {
+                supportsPagination = true,
+                supportsOrderBy = true,
+                supportsStatistics = false,
+                supportsDistinct = false,
+                supportsReturningQueryExtent = false,
+                supportsQueryWithDistance = false,
+                supportsSqlExpression = false,
+                supportsHavingClause = false,
+                supportsCountDistinct = false,
+                supportsQueryWithResultType = false,
+            },
 
             // The one thing we do support beyond a plain read, and the only
             // spatial relationship the query endpoint implements.
