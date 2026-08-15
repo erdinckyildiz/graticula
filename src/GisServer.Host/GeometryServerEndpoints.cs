@@ -66,7 +66,8 @@ internal static class GeometryServerEndpoints
 
     /// <summary>What this surface offers, all of it linear in the input.</summary>
     private static readonly string[] Supported =
-        ["project", "areasAndLengths", "lengths", "labelPoints"];
+        ["project", "areasAndLengths", "lengths", "labelPoints",
+         "convexHull", "densify", "generalize"];
 
     /// <summary>Overlay, which runs in a worker process it can be killed in.</summary>
     /// <remarks>
@@ -77,10 +78,71 @@ internal static class GeometryServerEndpoints
     /// </remarks>
     private static readonly string[] Overlay = ["intersect", "difference", "union"];
 
-    /// <summary>Operations still not implemented, each for its own reason.</summary>
-    private static readonly string[] Blocked =
-        ["cut", "buffer", "offset", "relation", "autoComplete",
-         "reshape", "trimExtend", "convexHull", "simplify", "densify", "generalize", "distance"];
+    /// <summary>
+    /// Operations not implemented, each with the reason it is not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One reason each, because they do not share one.</b> Every refusal used
+    /// to say <em>"it needs general polygon overlay"</em>, which is true of
+    /// <c>cut</c> and false of <c>distance</c> — <c>ST_Distance</c> does no
+    /// overlay at all. The owner noticed by comparing this service against a
+    /// real ArcGIS one: 22 operations there, 7 here, and a refusal that blamed
+    /// the same cause for all of them. Telling a caller something untrue about
+    /// why they cannot have a thing is worse than the missing thing.
+    /// </para>
+    /// <para>
+    /// <b>The list shrank on 2026-08-15</b> — <c>convexHull</c>, <c>densify</c>
+    /// and <c>generalize</c> moved to <see cref="Supported"/>, computed in
+    /// process. They were refused on an argument about asymptotics that
+    /// ADR-022 condition 2 had already flagged as the kind of reasoning
+    /// measurement overturns.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
+    {
+        ["cut"] =
+            "It splits a polygon by a line, which is general overlay: measurement found no cap "
+            + "on input size bounds that work \u2014 a 6,408-vertex adversarial input cost 153 "
+            + "seconds and 16.7 GB where a real 72,919-vertex polygon cost 312 ms. It belongs in "
+            + "the overlay worker beside intersect, union and difference, and is not there yet.",
+
+        ["buffer"] =
+            "Offsetting a boundary needs curve construction and self-intersection repair. It is "
+            + "bounded by the input, unlike overlay, so this is a matter of not having written "
+            + "it rather than of it being unsafe to offer.",
+
+        ["offset"] =
+            "Same as buffer: curve offsetting, bounded by the input, not yet written.",
+
+        ["simplify"] =
+            "ArcGIS 'simplify' repairs topology \u2014 it makes a geometry valid \u2014 which is a "
+            + "different and much harder operation than reducing vertices. Reducing vertices is "
+            + "'generalize', and that is available. Offering topology repair under this name "
+            + "when it only generalised would be the worst kind of compatibility.",
+
+        ["relation"] =
+            "It evaluates a DE-9IM pattern between two geometries, which needs a topology engine. "
+            + "One exists in the overlay worker; wiring this to it is work nobody has done.",
+
+        ["distance"] =
+            "Minimum distance between two geometries is O(n\u00d7m) over segment pairs in the "
+            + "general case, which is bounded but not cheap, and the containment case needs a "
+            + "point-in-polygon test to answer zero correctly. Not written, and not refused for "
+            + "any deeper reason than that.",
+
+        ["autoComplete"] =
+            "It closes a polygon against its neighbours, which is an editing operation over a "
+            + "set of existing features rather than a calculation on the geometry sent.",
+
+        ["reshape"] =
+            "An editing operation: it replaces part of a boundary with a supplied line. Needs the "
+            + "same topology engine as relation.",
+
+        ["trimExtend"] =
+            "An editing operation on lines against a trimming geometry. Needs the same topology "
+            + "engine.",
+    };
 
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
@@ -116,6 +178,15 @@ internal static class GeometryServerEndpoints
         geometry.MapMethods("/lengths", GetOrPost, Lengths);
         geometry.MapMethods("/labelPoints", GetOrPost, LabelPoints);
 
+        // <b>In process, on flat arrays.</b> The geometry arrives in the request,
+        // so there is nothing to push down to \u2014 sending it to the datastore
+        // would create the round trip that four benchmark rounds identified as
+        // this system's ceiling, to avoid writing a monotone chain. See
+        // GeometryOperations.
+        geometry.MapMethods("/convexHull", GetOrPost, ConvexHull);
+        geometry.MapMethods("/densify", GetOrPost, Densify);
+        geometry.MapMethods("/generalize", GetOrPost, Generalize);
+
         foreach (string operation in Overlay)
         {
             string name = operation;
@@ -124,7 +195,7 @@ internal static class GeometryServerEndpoints
                 OverlayAsync(context, overlay, name, cancellation));
         }
 
-        foreach (string operation in Blocked)
+        foreach (string operation in Blocked.Keys)
         {
             string name = operation;
             geometry.MapMethods($"/{name}", GetOrPost, (HttpContext context) =>
@@ -254,7 +325,7 @@ internal static class GeometryServerEndpoints
         // <b>What is here, said as a list.</b> ArcGIS clients probe by calling;
         // saying so up front turns a series of 501s into one document.
         supportedOperations = Supported.Concat(Overlay).ToArray(),
-        unsupportedOperations = Blocked,
+        unsupportedOperations = Blocked.Keys,
         maximumVertices = MaximumVertices,
         maximumCandidatePairs = OverlayWorkerPool.MaximumCandidatePairs,
         overlayDeadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
@@ -306,14 +377,11 @@ internal static class GeometryServerEndpoints
             {
                 code = 501,
                     message =
-                        $"'{operation}' is not implemented. It needs general polygon overlay, and "
-                        + "measurement found that no cap on input size bounds that work: a "
-                        + "6,408-vertex adversarial input cost 153 seconds and 16.7 GB where a "
-                        + "real 72,919-vertex polygon cost 312 ms and 17 MB. Offering it would "
-                        + "mean one request could take this server down. See "
-                        + "benchmarks/geometry-overlay/RESULTS.md and Q-97. The operations that "
-                        + "are linear in their input — project, areasAndLengths, lengths, "
-                    + "labelPoints — are available.",
+                        $"'{operation}' is not implemented. "
+                    + (Blocked.TryGetValue(operation, out string? why)
+                        ? why
+                        : "No reason is recorded, which is itself a defect.")
+                    + " Available: " + string.Join(", ", Supported.Concat(Overlay)) + ".",
             },
         };
 
@@ -600,6 +668,154 @@ internal static class GeometryServerEndpoints
             note = "A point guaranteed to be inside the polygon, not its centroid — the centroid "
                  + "of a crescent falls outside it, which puts the label in the sea.",
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>The smallest convex polygon containing every input geometry.</summary>
+    /// <remarks>
+    /// <b>One hull for the whole set, which is what ArcGIS returns.</b> Hulling
+    /// each geometry separately would be a different and less useful operation,
+    /// and a caller who wanted that can send one geometry at a time.
+    /// </remarks>
+    private static async Task ConvexHull(HttpContext context)
+    {
+        if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(context, out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        Geometry hull = GeometryOperations.ConvexHull(geometries);
+
+        await Respond(context, "convexHull", new
+        {
+            geometry = ToJson(hull, srid),
+            note = "The hull of every input geometry together, which is what ArcGIS returns. "
+                 + "A hull of fewer than three distinct points is a point or a line rather than "
+                 + "a degenerate polygon.",
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Adds vertices so no segment exceeds a length.</summary>
+    private static async Task Densify(HttpContext context)
+    {
+        if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(context, out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryPositive(context, "maxSegmentLength", out double step, out string? stepError))
+        {
+            await Fail(context, stepError!).ConfigureAwait(false);
+            return;
+        }
+
+        await Respond(context, "densify", new
+        {
+            geometries = geometries
+                .Select(g => ToJson(GeometryOperations.Densify(g, step), srid)).ToArray(),
+            note = "Every original coordinate survives at its original value; densifying only "
+                 + "adds. Planar: the length is in the units of the spatial reference, and this "
+                 + "is not the geodesic densify ArcGIS also offers.",
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes vertices within a tolerance of the line they sit on.</summary>
+    private static async Task Generalize(HttpContext context)
+    {
+        if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(context, out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryPositive(context, "maxDeviation", out double tolerance, out string? tolError,
+                allowZero: true))
+        {
+            await Fail(context, tolError!).ConfigureAwait(false);
+            return;
+        }
+
+        await Respond(context, "generalize", new
+        {
+            geometries = geometries
+                .Select(g => ToJson(GeometryOperations.Generalize(g, tolerance), srid)).ToArray(),
+            note = "Douglas-Peucker. Every surviving vertex is an original one, and a ring keeps "
+                 + "enough coordinates to still enclose something. This does NOT repair topology "
+                 + "\u2014 that is ArcGIS 'simplify', which this server does not offer rather than "
+                 + "offering this in its place.",
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads a spatial reference from a request already read as a form.</summary>
+    private static bool TrySrid(HttpContext context, out int srid, out string? error)
+    {
+        srid = 0;
+        error = null;
+
+        return TryForm(context, out IFormCollection form, out error)
+               && TrySrid(form, "sr", out srid, out error);
+    }
+
+    /// <summary>Reads a numeric parameter, refusing the values that make no sense.</summary>
+    private static bool TryPositive(
+        HttpContext context, string name, out double value, out string? error,
+        bool allowZero = false)
+    {
+        value = 0;
+        error = null;
+
+        if (!TryForm(context, out IFormCollection form, out error))
+        {
+            return false;
+        }
+
+        string? raw = Field(form, name);
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            error = $"'{name}' is required, in the units of the spatial reference.";
+            return false;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            || double.IsNaN(value) || double.IsInfinity(value))
+        {
+            error = $"'{name}' must be a number.";
+            return false;
+        }
+
+        // <b>Zero is a real answer for one of these and an infinite loop for the
+        // other.</b> A zero deviation removes exactly the collinear vertices; a
+        // zero segment length asks for infinitely many.
+        if (value < 0 || (!allowZero && value == 0))
+        {
+            error = allowZero
+                ? $"'{name}' cannot be negative."
+                : $"'{name}' must be greater than zero \u2014 zero would ask for an unbounded "
+                  + "number of vertices.";
+            return false;
+        }
+
+        return true;
     }
 
     private const string PlanarNote =

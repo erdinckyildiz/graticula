@@ -303,7 +303,9 @@ public sealed class BrowsingConformanceTests : ArcGisClient
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("not implemented", html, StringComparison.Ordinal);
-        Assert.Contains("Q-97", html, StringComparison.Ordinal);
+        // The reason is buffer's own — curve construction — not the overlay
+        // argument that used to be pasted onto every refusal.
+        Assert.Contains("curve", html, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

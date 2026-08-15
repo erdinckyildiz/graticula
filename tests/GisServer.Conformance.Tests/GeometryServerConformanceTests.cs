@@ -221,7 +221,7 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     [Theory]
     [InlineData("cut")]
     [InlineData("buffer")]
-    [InlineData("convexHull")]
+    [InlineData("relation")]
     [InlineData("simplify")]
     public async Task An_unimplemented_operation_answers_501_rather_than_404(string operation)
     {
@@ -229,22 +229,56 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         // GeometryServer, which is a different and wrong thing to conclude.
         //
         // <b>intersect, difference and union left this list on 2026-08-15</b>,
-        // when \"-97 was answered and they were implemented. What remains needs
-        // its own reasoning rather than the overlay argument.
+        // when Q-97 was answered and they were implemented. <b>convexHull,
+        // densify and generalize left it the same day</b>, computed in process
+        // — they had been refused on an argument about asymptotics that
+        // ADR-022 condition 2 already called the kind measurement overturns.
         Assert.Equal(501, await StatusOfPostAsync(operation));
     }
 
+    /// <summary>
+    /// A refusal gives the reason for <em>that</em> operation.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every refusal used to give the same reason, and it was false for most
+    /// of them.</b> All twelve said "it needs general polygon overlay" —
+    /// true of <c>cut</c>, and nonsense for <c>distance</c>, which is a minimum
+    /// over segment pairs and does no overlay at all. The owner found it by
+    /// putting a real ArcGIS GeometryServer beside this one. Telling a caller
+    /// something untrue about why they cannot have a thing is worse than the
+    /// missing thing, so each refusal now carries its own reason and this test
+    /// asserts they differ.
+    /// </remarks>
     [Fact]
-    public async Task A_refusal_explains_itself_and_says_where_the_reasoning_is()
+    public async Task Each_refusal_gives_its_own_reason()
     {
-        JsonElement error = (await PostAsync("cut", ("f", "json"))).GetProperty("error");
+        string cut = await ReasonAsync("cut");
+        string distance = await ReasonAsync("distance");
+        string simplify = await ReasonAsync("simplify");
 
-        string message = error.GetProperty("message").GetString()!;
+        // cut is genuinely the overlay case, and says so.
+        Assert.Contains("overlay", cut, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Contains("overlay", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Q-97", message, StringComparison.Ordinal);
-        Assert.Contains("project", message, StringComparison.Ordinal);
+        // distance is not, and must not claim to be.
+        Assert.DoesNotContain("overlay", distance, StringComparison.OrdinalIgnoreCase);
+
+        // simplify is refused because it means topology repair, not because it
+        // is expensive — and the message has to say so, or a caller reads it as
+        // "generalize by another name".
+        Assert.Contains("topology", simplify, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("generalize", simplify, StringComparison.OrdinalIgnoreCase);
+
+        // And every one of them says what is available instead.
+        foreach (string message in (string[])[cut, distance, simplify])
+        {
+            Assert.Contains("project", message, StringComparison.Ordinal);
+            Assert.Contains("convexHull", message, StringComparison.Ordinal);
+        }
     }
+
+    private async Task<string> ReasonAsync(string operation) =>
+        (await PostAsync(operation, ("f", "json")))
+            .GetProperty("error").GetProperty("message").GetString()!;
 
     // ---------- overlay, and the bound that makes it offerable ----------
 

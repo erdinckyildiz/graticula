@@ -102,6 +102,80 @@ there is now one keyed pool that both callers use.
 
 ---
 
+### 4b. Where an operation runs, and the rule that decides — added 2026-08-15
+
+The owner put a real ArcGIS GeometryServer beside this one: **22 operations
+there, 7 here**, and asked why. Three answers came out of it, and the first is a
+rule that was missing.
+
+**Push down when the data is already there; compute in process when the caller
+brought it.**
+
+[ADR-021](ADR-021-tile-encoding.md) pushes tile encoding into PostGIS and is
+right to — the rows are already in the database, and a z16 tile read 201,580
+vertices to emit 2,080, so pushing down is what *avoids* the traffic. A
+GeometryServer request is the opposite shape: the geometry arrives in the request
+body. Sending it to the database **creates** the traffic instead of avoiding it —
+two more copies of every coordinate, WKB out and WKB back, plus a round trip, on
+a system four benchmark rounds found to be bound by memory traffic rather than
+CPU.
+
+I proposed exactly that wrong thing first, and the owner refused it: *"I don't
+use the datastore for every job — what has the datastore got to do with it?"*
+Then, more precisely: *"if you do it on PostgreSQL you'll also have to deal with
+converting the incoming ArcGIS geometry."* That conversion is not a nuisance
+around the edge of the design; by our own measurements it **is** the cost.
+
+**`project` remains the exception and is now marked as one.** It goes to the
+datastore because the alternative is shipping PROJ and its datum grids (Q-15),
+and because the accuracy is then the datastore's. Nothing in that reasoning
+transfers to `ST_Distance`.
+
+**Three operations moved from refused to supported**, computed in process on
+flat arrays (ADR-003 §6a tier 2): **`convexHull`** (Andrew's monotone chain),
+**`densify`** (interpolate, never move an original coordinate) and
+**`generalize`** (Douglas–Peucker). That is condition 2 arriving with evidence:
+they were refused on an argument about asymptotics, which this ADR already
+called the kind of reasoning measurement overturns.
+
+**PostGIS is the oracle, not the runtime.** They are verified against
+`ST_ConvexHull`, `ST_Segmentize` and `ST_SimplifyPreserveTopology` on real
+polygons from the datastore — hull vertices match exactly, and generalize agrees
+with PostGIS on **47 of 50** shapes. Using a database to check an implementation
+is a different thing from depending on one to run it, and it is the method
+`WkbReader` used against 6.5 million polygons.
+
+**Two defects were found by that comparison rather than by review.** Douglas–
+Peucker on a closed ring started from a degenerate segment — first and last
+coordinate are the same point, so the first split was chosen by distance from
+that point rather than deviation from a chord, and on a notched square it dropped
+a genuine corner. And the floor that stops a ring collapsing took the extreme x
+and y vertices, which resolve ties to the same corner and produced a triangle
+with half the area. **The test did not catch either, because it asserted a
+ceiling** — ours no coarser than twice PostGIS's — instead of comparing shapes.
+It now asserts an agreement rate.
+
+**And every refusal now carries its own reason.** All twelve used to say *"it
+needs general polygon overlay"*, which is true of `cut` and nonsense for
+`distance`, a minimum over segment pairs that does no overlay at all. Nine
+operations were being refused with a sentence written for a different one.
+Telling a caller something untrue about why they cannot have a thing is worse
+than the missing thing.
+
+**What is still absent, and why**, so the gap is a known one:
+
+| | |
+|---|---|
+| `buffer`, `offset` | Curve construction, bounded by the input unlike overlay. Not written; not unsafe |
+| `cut` | Genuinely overlay. Belongs in the worker beside intersect, and is not there yet |
+| `simplify` | ArcGIS `simplify` repairs topology. Offering `generalize` under that name would be the worst kind of compatibility |
+| `relation` | DE-9IM against a topology engine. One exists in the worker; nobody has wired it |
+| `distance` | O(n×m) over segment pairs, and the containment case needs point-in-polygon. Only not written |
+| `autoComplete`, `reshape`, `trimExtend` | Editing operations over existing features, not calculations on the geometry sent |
+| `toGeoCoordinateString`, `fromGeoCoordinateString`, `findTransformations` | **Were not even on the refusal list** until the comparison. No geometry engine needed — MGRS/USNG strings and enumerating PROJ's transformation paths |
+
+**10 of 22 supported, 9 refused with reasons, 3 newly discovered.**
+
 ## 5. Decision — measurement is planar, and says so in every response
 
 Area and length treat coordinates as being on a plane. In Web Mercator that

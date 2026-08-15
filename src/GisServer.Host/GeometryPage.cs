@@ -93,6 +93,31 @@ internal static class GeometryPage
             + "centroid of a crescent falls outside it.",
             [Sr, Geometries]),
 
+        new("convexHull",
+            "The smallest convex polygon containing every input geometry — one hull for the "
+            + "whole set, which is what ArcGIS returns. Computed in this process, not in the "
+            + "database: the geometry arrived in the request, so there is nothing to push down "
+            + "to.",
+            [Sr, Geometries]),
+
+        new("densify",
+            "Adds vertices so that no segment is longer than the given length. Every original "
+            + "coordinate survives at its original value — densifying only adds.",
+            [Sr, Geometries,
+             new("maxSegmentLength", "Maximum segment length",
+                 "The longest segment to leave alone, in the units of the spatial reference. "
+                 + "Must be greater than zero.", Default: "1000")]),
+
+        new("generalize",
+            "Removes vertices that sit within a tolerance of the line replacing them "
+            + "(Douglas–Peucker). This is not ArcGIS 'simplify', which repairs topology and "
+            + "is not offered here.",
+            [Sr, Geometries,
+             new("maxDeviation", "Maximum deviation",
+                 "How far a dropped vertex may be from the line replacing it, in the units of "
+                 + "the spatial reference. Zero removes only exactly-collinear vertices.",
+                 Default: "10")]),
+
         new("intersect",
             "The parts of each geometry in the list that fall inside the single geometry. Runs "
             + "in a worker process with a deadline.",
