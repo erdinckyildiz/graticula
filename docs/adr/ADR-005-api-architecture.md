@@ -199,6 +199,44 @@ of reasoning. Bundled decisions inherit the weakest justification in the bundle
 and nobody notices, because the sentence reads as though it covers everything.
 Per-service is more work to write and the only way to be right.
 
+### 3.3d. The single-operation edit endpoints — added 2026-08-15
+
+The owner asked whether this server has CRUD the way it has query. It does:
+`applyEdits` has carried adds, updates and deletes since
+[ADR-013](ADR-013-feature-service-data-model.md), with per-feature results and
+all-or-nothing by default. **But only `applyEdits`.**
+
+ArcGIS also offers `addFeatures`, `updateFeatures` and `deleteFeatures`, and a
+client written against the 10.x documentation posts to those — and got a 404
+from a server that could do exactly what was asked. **A 404 on a route the
+server implements under another name is the worst kind of compatibility gap**:
+it reads as a missing capability rather than a missing alias.
+
+All three are now mapped, as **thin rewrites onto the same batch**. `features`
+becomes adds or updates; `objectIds` becomes deletes. One writer, one audit
+path, one place where rollback is decided — a second implementation of editing
+is how the two drift on the rule that matters.
+
+**Each answers with only its own results array**, which is what ArcGIS does and
+what an older client parses; three arrays with two of them empty is a different
+document. The results still go through the same merge as `applyEdits`, so a
+feature the parser rejected keeps its position: a client matches results to its
+own features by index, and dropping one shifts every later result onto the wrong
+feature — silently, and in the client rather than here.
+
+**`deleteFeatures` refuses a `where` clause, and that is a deliberate departure
+from ArcGIS.** Deleting by predicate removes an unknown number of features and
+this server has no versioning and no soft delete to undo it with; one mistyped
+clause takes a layer. The refusal names the alternative — run the clause through
+`/query` with `returnIdsOnly=true`, look at what it selects, pass those ids. A
+refusal costs a round trip and a wiped layer costs the data, so the asymmetry
+decides it. Revisit when there is something to undo with.
+
+**Still absent from the edit surface**, listed so it is a known gap rather than
+a discovered one: `updateAttachment` (add and delete exist), `globalId` (always
+null), editor tracking, domains and subtypes ([Q-58c](../open-questions.md)),
+and versioned or disconnected editing.
+
 ## 2. Alternatives
 
 ### Alternative A — Protocol adapters over a protocol-neutral internal interface
