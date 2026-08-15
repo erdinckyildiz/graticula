@@ -65,6 +65,15 @@ becomes a specification with a measured target attached.
 - Every ADR carries a **status** (`DRAFT`, `ACCEPTED`, `ACCEPTED WITH CONDITIONS`,
   `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`, `REJECTED`, `DEFERRED`, `REOPENED`)
   and a **confidence** level (`HIGH`, `MEDIUM`, `LOW`).
+- **A condition is discharged by an emphasised marker in its own text** —
+  `**DISCHARGED` or `*(Discharged …)*` — anywhere in the item, and
+  `PARTLY DISCHARGED` is a third state rather than a synonym for the first.
+  [tools/conditions.py](tools/conditions.py) is the only implementation of that
+  rule and [tools/status-page.py](tools/status-page.py) imports it. Added
+  2026-08-15 after the two disagreed: the count was 22 of 99 and the truth was
+  24, because three notes saying a condition was met sat past the first 200
+  characters of a paragraph-long item, and one *partly* met was being counted as
+  done.
 - Assumptions go in [architecture-assumptions.md](docs/architecture-assumptions.md)
   with a status. Invalidating an assumption triggers review of every ADR that
   depends on it (§11).

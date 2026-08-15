@@ -18,6 +18,7 @@ Usage:  python tools/status-page.py [output.html]
 """
 
 import html
+import importlib.util
 import io
 import os
 import re
@@ -26,6 +27,14 @@ import sys
 from collections import Counter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Loaded by path because "conditions.py" is not importable as a module name from
+# here, and because a copy of the rule is what this import exists to prevent.
+_spec = importlib.util.spec_from_file_location(
+    "gis_conditions",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "conditions.py"))
+_conditions = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_conditions)
 
 
 def read(*parts):
@@ -67,21 +76,15 @@ def adrs():
         # CLAUDE.md carried "roughly twenty-five, none discharged" into Phase 1
         # and both halves were wrong.
         #
-        # A condition is discharged when its text is struck through or opens
-        # with the marker. That convention is the whole contract, and
-        # tools/conditions.py states it in the one other place it is relied on.
-        conditions = 0
-        discharged = 0
-        section = re.search(r"^##\s*\d*\.?\s*Conditions\b(.*?)(^##\s|\Z)", text, re.M | re.S)
-
-        if section:
-            for item in re.finditer(
-                    r"^\d+\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
-                conditions += 1
-                body = item.group(1).lstrip()
-
-                if body.startswith("~~") or "DISCHARGED" in body[:200].upper():
-                    discharged += 1
+        # <b>What counts as discharged is decided in tools/conditions.py and
+        # imported, not restated here.</b> It was restated, and the two drifted:
+        # this page counted a PARTLY DISCHARGED condition as done when the tool
+        # did not, and both missed three conditions whose discharge note sat
+        # past the first 200 characters of a paragraph-long item. One
+        # convention, one implementation — the same lesson as layer.sharing.
+        found = _conditions.conditions(text)
+        conditions = len(found)
+        discharged = sum(1 for _, _, done in found if done)
 
         out.append({
             "id": name.split("-")[1],

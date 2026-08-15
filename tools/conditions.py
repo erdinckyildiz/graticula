@@ -8,9 +8,26 @@ into Phase 1. Both halves of that sentence were guesses, and by 2026-08-15 the
 count was wrong by more than double while several had quietly been met by
 shipped code. A number nobody can reproduce is a number nobody maintains.
 
-A condition counts as discharged when its text is struck through (`~~`) or opens
-with a DISCHARGED marker. That convention is the only thing this relies on, and
-it is stated here so it can be followed rather than guessed at.
+A condition counts as discharged when it carries an emphasised marker anywhere in
+its text: `**DISCHARGED` or `*(Discharged`. Both forms are already in use and
+both are accepted; the emphasis is what makes it a marker rather than a word.
+
+**The rule used to be "struck through, or DISCHARGED in the first 200
+characters", and it undercounted.** Conditions in this project run to a
+paragraph, so the note saying one was met naturally lands at the end — past the
+window. Three conditions were discharged, said so, and were counted as open
+(2026-08-15). A convention that only works for short text is a convention that
+stops working exactly as a project matures.
+
+Two things are deliberately *not* discharged, and the marker requirement is what
+separates them from a false positive:
+
+- **`PARTLY DISCHARGED`** is its own state. Half a condition met is an open
+  condition with progress, and counting it as closed is how a register starts
+  lying.
+- **prose.** "found while discharging condition 1" is a sentence about another
+  condition, and "is not discharged" says the opposite. Neither carries the
+  emphasis marker, which is why the marker is required rather than the word.
 
 Usage:  python tools/conditions.py [--list]
 """
@@ -22,6 +39,23 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADRS = os.path.join(ROOT, "docs", "adr")
+
+
+def discharged(body):
+    """Whether a condition carries a discharge marker. See the module docstring."""
+    if body.lstrip().startswith("~~"):
+        return True
+
+    for match in re.finditer(r"(\*\*|\*\()\s*DISCHARGED", body, re.IGNORECASE):
+        # PARTLY DISCHARGED is a state of its own and is not this one.
+        before = body[max(0, match.start() - 12):match.start()].upper()
+
+        if "PARTLY" in before or "PARTIALLY" in before:
+            continue
+
+        return True
+
+    return False
 
 
 def conditions(text):
@@ -36,7 +70,7 @@ def conditions(text):
     for match in re.finditer(r"^(\d+)\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
         body = match.group(2).strip()
         first = " ".join(body.split())[:150]
-        done = body.lstrip().startswith("~~") or "DISCHARGED" in body[:200].upper()
+        done = discharged(body)
         found.append((int(match.group(1)), first, done))
 
     return found
