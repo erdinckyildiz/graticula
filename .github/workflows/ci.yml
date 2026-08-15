@@ -157,6 +157,124 @@ jobs:
       - name: host and geometry worker
         run: dotnet test tests/GisServer.Host.Tests -c Release --no-build
 
+  conformance:
+    name: conformance
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: gis
+          POSTGRES_PASSWORD: gis
+          POSTGRES_DB: gis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      GISSERVER_TEST_URL: "https://127.0.0.1:8443"
+      GISSERVER_TEST_USER: "ci"
+      GISSERVER_TEST_PASSWORD: "conformance-run-password"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build
+        run: dotnet build gis-server.sln -c Release
+
+      # <b>The schema, then the migration, then the server.</b> Migrating is an
+      # explicit operation on purpose (ADR-016 §4b: refuse rather than migrate),
+      # so a server pointed at an empty store refuses to start and says so. The
+      # schema has to exist first: the migrator creates tables, not the namespace
+      # it was told to put them in, and against a brand-new database it fails
+      # with Postgres's own "no schema has been selected to create in" — D-36.
+      - name: create the platform schema
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1             -c 'create schema if not exists gisserver;'
+
+      - name: migrate
+        env:
+          GisServer__PlatformStore: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver"
+          GisServer__SecretKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        run: |
+          src/GisServer.Host/bin/Release/net9.0/GisServer.Host migrate --apply
+
+      # <b>The server runs from its build output, not from `dotnet run`.</b> The
+      # overlay worker is copied into an 'overlay' directory beside the host by
+      # the host's own build, and a run that starts from source can miss it —
+      # which is a packaging regression this job should catch rather than route
+      # around.
+      #
+      # <b>The key is generated per run and never reused.</b> The migration step
+      # above uses a placeholder because it seals nothing; this one seals data
+      # source credentials, and a fixed key in a public workflow would be a
+      # credential in the repository.
+      - name: start the server
+        run: |
+          GisServer__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
+          GisServer__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
+          GisServer__Port=8443 \
+            nohup src/GisServer.Host/bin/Release/net9.0/GisServer.Host \
+              > server.log 2>&1 &
+          echo "started, waiting for the setup token"
+
+      # The first-start token is printed once, to the log, and is single-use.
+      # There is no other way in: everything is refused until an administrator
+      # exists, which is the point of the design (ADR-015).
+      - name: take the setup token from the log
+        run: |
+          for attempt in $(seq 1 60); do
+            token=$(grep -oE '^ {4}[A-Za-z0-9._-]{20,}$' server.log | head -1 | tr -d ' ') || true
+            if [ -n "$token" ]; then
+              echo "SETUP_TOKEN=$token" >> "$GITHUB_ENV"
+              echo "found the setup token after ${attempt}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::No setup token appeared in server.log within 60s."
+          tail -50 server.log
+          exit 1
+
+      - name: seed the fixtures
+        run: |
+          python tools/seed-conformance.py \
+            --url "$GISSERVER_TEST_URL" \
+            --name "$GISSERVER_TEST_USER" \
+            --password "$GISSERVER_TEST_PASSWORD" \
+            --setup-token "$SETUP_TOKEN" \
+            --prefix ci \
+            --github-env "$GITHUB_ENV"
+
+      - name: conformance
+        run: dotnet test tests/GisServer.Conformance.Tests -c Release --no-build
+
+      # <b>The server's own log, whatever happened.</b> A conformance failure is
+      # usually a 500 with a stack trace on the other side of the wire, and
+      # without this the only evidence is "an ArcGIS client stops here".
+      - name: server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log
+          path: server.log
+          if-no-files-found: warn
+
   registers:
     name: registers
     runs-on: ubuntu-latest
@@ -193,7 +311,7 @@ jobs:
   coverage-gap:
     name: what CI does not cover
     runs-on: ubuntu-latest
-    needs: [unit, datastore]
+    needs: [unit, datastore, conformance]
 
     steps:
       # <b>Stated, because a green tick is read as "everything passed".</b> The
@@ -205,15 +323,21 @@ jobs:
       - name: say what is missing
         run: |
           {
-            echo "### Not covered by this workflow"
+            echo "### What this workflow does and does not reach"
             echo
-            echo "**GisServer.Conformance.Tests does not run here.** It needs a running server"
-            echo "with published fixtures — a multi-layer service, a group layer, a tile"
-            echo "service, an editable layer — and no script creates them yet. Those tests"
-            echo "fail rather than skip when \`GISSERVER_TEST_URL\` is unset, so including"
-            echo "them would make this build permanently red."
+            echo "All eight suites run: five that need nothing, two against a PostGIS"
+            echo "service container, and the conformance suite against a server this"
+            echo "workflow starts and seeds with \`tools/seed-conformance.py\`."
             echo
-            echo "That is about 167 of roughly 995 tests, and they are the ones that check"
-            echo "the ArcGIS compatibility claim end to end. D-29 stays open until a seed"
-            echo "step exists."
+            echo "**Still not reached, and worth knowing:**"
+            echo
+            echo "- **The geometry corpus is generated, not real.** \`tools/ci-corpus.sql\`"
+            echo "  makes sixty irregular polygons; real cadastral data has collinear runs"
+            echo "  and near-degenerate slivers that generated shapes do not, and those are"
+            echo "  what found the Douglas–Peucker ring defects."
+            echo "- **One PostGIS version.** Pinned to 16-3.4 with PROJ 7.2, which is what"
+            echo "  the oracle tests were written against. A newer PROJ may legitimately"
+            echo "  pick a different transformation path."
+            echo "- **No performance gate.** D-30: the feature query path has never been"
+            echo "  measured, here or anywhere."
           } >> "$GITHUB_STEP_SUMMARY"

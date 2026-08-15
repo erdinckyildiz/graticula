@@ -61,10 +61,13 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
             catalogue, "services", "This is the list. Without it there is nothing to add.");
 
         Assert.Equal(JsonValueKind.Array, services.ValueKind);
-        Assert.True(
-            services.GetArrayLength() > 0,
-            "No services are visible anonymously. Publish a layer and share it publicly, or this "
-            + "suite is checking an empty server.");
+
+        // <b>Somewhere, not necessarily at the root.</b> A client enumerates the
+        // folders too, and every hosted layer lands in one -- so a server
+        // published entirely through the hosting API has an empty root array and
+        // is perfectly addressable. This used to demand a root service and
+        // failed against exactly that server.
+        Assert.NotNull(await AnyServiceNameAsync());
 
         foreach (JsonElement service in services.EnumerateArray())
         {
@@ -249,12 +252,13 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
 
     private async Task<string> FirstServiceNameAsync()
     {
-        JsonElement services = (await GetJsonAsync("/rest/services")).GetProperty("services");
+        string? name = await AnyServiceNameAsync();
 
-        Assert.True(
-            services.GetArrayLength() > 0,
-            "No services are visible anonymously; this suite needs one publicly shared layer.");
+        Assert.False(
+            string.IsNullOrWhiteSpace(name),
+            "No FeatureServer is visible anonymously, at the root or in any folder; this suite "
+            + "needs one publicly shared layer.");
 
-        return services.EnumerateArray().First().GetProperty("name").GetString()!;
+        return name!;
     }
 }

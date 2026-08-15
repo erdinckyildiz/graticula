@@ -89,6 +89,75 @@ public abstract class ArcGisClient : IDisposable
     /// reports that a compatibility claim holds, which is the one thing it
     /// exists to check.
     /// </remarks>
+    /// <summary>
+    /// The address of some service a client could add, folders included.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Following the folders is what a client does, and several tests were
+    /// not doing it.</b> They read <c>/rest/services</c>, took the first entry
+    /// of its <c>services</c> array, and failed with "no services are visible
+    /// anonymously" against a server whose services all live in a folder. Every
+    /// hosted layer lands in <c>hosted</c>, so that is every server published
+    /// entirely from the hosting API -- including the one CI builds from
+    /// nothing. The old shape passed only on a machine that happened to have a
+    /// service at the root, which is a fact about that machine.
+    /// </para>
+    /// <para>
+    /// <b>The returned name already carries its folder</b>, so the caller
+    /// composes <c>/rest/services/{name}/FeatureServer</c> exactly as before.
+    /// </para>
+    /// </remarks>
+    protected async Task<string?> AnyServiceNameAsync()
+    {
+        JsonElement catalogue = await GetJsonAsync("/rest/services");
+
+        if (catalogue.TryGetProperty("services", out JsonElement services)
+            && services.ValueKind == JsonValueKind.Array
+            && services.GetArrayLength() > 0)
+        {
+            return services[0].GetProperty("name").GetString();
+        }
+
+        if (!catalogue.TryGetProperty("folders", out JsonElement folders)
+            || folders.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (JsonElement folder in folders.EnumerateArray())
+        {
+            string? name = folder.GetString();
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            JsonElement inside = await GetJsonAsync($"/rest/services/{name}");
+
+            if (inside.TryGetProperty("services", out JsonElement found)
+                && found.ValueKind == JsonValueKind.Array
+                && found.GetArrayLength() > 0)
+            {
+                // <b>Feature services only.</b> The Utilities folder holds the
+                // geometry service, which has no layers and would fail every
+                // assertion the callers make about one.
+                foreach (JsonElement service in found.EnumerateArray())
+                {
+                    if (service.TryGetProperty("type", out JsonElement type)
+                        && string.Equals(type.GetString(), "FeatureServer",
+                            StringComparison.Ordinal))
+                    {
+                        return service.GetProperty("name").GetString();
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     protected async Task<string> RequireServerAsync()
     {
         Assert.False(

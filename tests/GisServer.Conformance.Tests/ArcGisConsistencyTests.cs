@@ -263,15 +263,23 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         return (layer, query);
     }
 
+    /// <summary>Some FeatureServer a client could add, folders included.</summary>
+    /// <remarks>
+    /// <b>Folders included, because every hosted layer lands in one.</b> This
+    /// read only the root array and failed with "no services are visible
+    /// anonymously" against a server published entirely through the hosting API
+    /// -- which is every server CI builds from nothing.
+    /// </remarks>
     private async Task<string> FirstServiceNameAsync()
     {
-        JsonElement services = (await GetJsonAsync("/rest/services")).GetProperty("services");
+        string? name = await AnyServiceNameAsync();
 
-        Assert.True(
-            services.GetArrayLength() > 0,
-            "No services are visible anonymously; this suite needs one publicly shared layer.");
+        Assert.False(
+            string.IsNullOrWhiteSpace(name),
+            "No FeatureServer is visible anonymously, at the root or in any folder; this suite "
+            + "needs one publicly shared layer.");
 
-        return services.EnumerateArray().First().GetProperty("name").GetString()!;
+        return name!;
     }
 
     // ---------- paging ----------

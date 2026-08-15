@@ -378,10 +378,43 @@ public static class Program
             return 0;
         }
 
-        MigrationReport applied = await migrator.ApplyAsync(CancellationToken.None).ConfigureAwait(false);
-        Console.WriteLine();
-        Console.WriteLine($"Applied {applied.Pending.Count} migration(s). Now at {applied.To}.");
-        return 0;
+        try
+        {
+            MigrationReport applied =
+                await migrator.ApplyAsync(CancellationToken.None).ConfigureAwait(false);
+
+            Console.WriteLine();
+            Console.WriteLine($"Applied {applied.Pending.Count} migration(s). Now at {applied.To}.");
+            return 0;
+        }
+        catch (PostgresException failure) when (failure.SqlState == "3F000")
+        {
+            // <b>The first thing a new operator sees, and it used to be a raw
+            // Npgsql stack trace saying "no schema has been selected to create
+            // in".</b> That is Postgres telling us the search path names a
+            // schema that does not exist — which on a brand-new database is the
+            // normal state, not a fault. Found 2026-08-15 while making CI build
+            // a server from nothing, which is the first time anything had
+            // installed this product against an empty database. D-36.
+            //
+            // <b>It creates tables, not the namespace it was pointed at</b>, and
+            // that stays true: creating a schema is a privileged act and doing
+            // it silently would mean a typo in a connection string quietly
+            // producing a second, empty installation.
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "The platform store's search path names a schema that does not exist.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "  Create it once, as a user that may:  CREATE SCHEMA gisserver;");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "This tool creates tables, not the schema it was told to put them in — a "
+                + "typo in SearchPath would otherwise produce a second, empty installation "
+                + "rather than an error.");
+
+            return 1;
+        }
     }
 
     /// <summary>

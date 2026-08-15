@@ -79,6 +79,19 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// Feature layers each report their own geometry type and field list.
+    /// </summary>
+    /// <remarks>
+    /// <b>Feature layers, and skipping the groups is a correction rather than a
+    /// concession.</b> This used to walk every entry in the document and demand
+    /// a <c>geometryType</c> from each, which crashes on a group layer — and a
+    /// group layer having none is asserted two tests below as correct
+    /// behaviour. It passed only because the fixture it was written against had
+    /// no groups, and it would have failed on any real service that did. Found
+    /// 2026-08-15 when the fixtures became a script instead of something
+    /// somebody had made by hand.
+    /// </remarks>
     [Fact]
     public async Task Each_layer_reports_its_own_geometry_type_and_fields()
     {
@@ -91,6 +104,11 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
 
         foreach (JsonElement entry in document.GetProperty("layers").EnumerateArray())
         {
+            if (IsGroup(entry))
+            {
+                continue;
+            }
+
             JsonElement layer = await GetJsonAsync(
                 $"/rest/services/{service}/FeatureServer/{entry.GetProperty("id").GetInt32()}");
 
@@ -113,10 +131,26 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
             });
         }
 
+        Assert.True(
+            geometryTypes.Count >= 2,
+            $"only {geometryTypes.Count} feature layers were found, and a multi-layer service "
+            + "is the thing under test.");
+
         Assert.Equal(
             geometryTypes.Count,
             geometryTypes.Distinct(StringComparer.Ordinal).Count());
     }
+
+    /// <summary>Whether a service-document entry is a group rather than data.</summary>
+    /// <remarks>
+    /// <b>By its declared type, not by the absence of a geometry type.</b>
+    /// Inferring it from what is missing would let a feature layer that forgot
+    /// to report its geometry pass as a group, which is the defect this file
+    /// exists to catch.
+    /// </remarks>
+    private static bool IsGroup(JsonElement entry) =>
+        entry.TryGetProperty("type", out JsonElement type)
+        && string.Equals(type.GetString(), "Group Layer", StringComparison.Ordinal);
 
     [Fact]
     public async Task A_layer_id_the_service_does_not_have_is_refused_rather_than_served()
@@ -144,6 +178,14 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
 
         foreach (JsonElement entry in document.GetProperty("layers").EnumerateArray())
         {
+            // A group holds no rows, so querying one is not a thing a client
+            // does and not a thing this asserts. It is covered by
+            // A_group_layer_declares_no_geometry_type instead.
+            if (IsGroup(entry))
+            {
+                continue;
+            }
+
             int id = entry.GetProperty("id").GetInt32();
 
             JsonElement result = await GetJsonAsync(
