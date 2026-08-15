@@ -71,6 +71,34 @@ public sealed class PostGisImporter
     /// <summary>What tiles are served on, and therefore what hosted data is stored in.</summary>
     public const int StoredSrid = 3857;
 
+    /// <summary>
+    /// Whether an imported layer keeps the reference it arrived in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner correction, 2026-08-15: "the imported shapefiles need to stay in
+    /// their own projection. If we use a 3857 basemap, it shall be projected on
+    /// the fly."</b> Until then every import was transformed to Web Mercator on
+    /// the way in, and the original coordinates were gone.
+    /// </para>
+    /// <para>
+    /// <b>That was lossy in a way the response actively denied.</b> A layer
+    /// imported as EPSG:5254 came back saying <em>"EPSG:4326 to EPSG:3857 is a
+    /// closed formula with no datum shift, so nothing was lost"</em> — a
+    /// sentence about 4326 printed over a national-grid import where it is
+    /// false. TUREF to WGS 84 is a datum transformation, and survey data does
+    /// not survive one unremarked.
+    /// </para>
+    /// <para>
+    /// <b>The reason it was done is real and is answered elsewhere.</b> Tiles
+    /// are cut on a Web Mercator grid, so something must transform. Doing it
+    /// once at import is cheaper per tile and destroys the source; doing it per
+    /// tile costs 3.5× on a cache miss (Q-96) and keeps it. The cache pays that
+    /// once per tile, and the data is the thing that cannot be recreated.
+    /// </para>
+    /// </remarks>
+    public const bool KeepsNativeReference = true;
+
     private readonly NpgsqlDataSource _dataSource;
 
     /// <summary>Creates an importer over the datastore.</summary>
@@ -136,11 +164,10 @@ public sealed class PostGisImporter
         await ExecuteAsync(connection, null, $"analyze {Qualified(table)}", cancellationToken)
             .ConfigureAwait(false);
 
-        string? engine = dataset.Srid == StoredSrid
-            ? null
-            : await ProjVersionAsync(connection, cancellationToken).ConfigureAwait(false);
-
-        return new ImportResult(HostedSchema, table, rows, dataset.Srid, StoredSrid, engine);
+        // Nothing was transformed, so there is no engine to name and no
+        // provenance to report. The reference in and the reference stored are
+        // the same one.
+        return new ImportResult(HostedSchema, table, rows, dataset.Srid, dataset.Srid, null);
     }
 
     /// <summary>
@@ -326,7 +353,7 @@ public sealed class PostGisImporter
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (\n")
            .Append("  objectid integer generated always as identity primary key,\n")
            .Append(CultureInfo.InvariantCulture,
-               $"  geom geometry({GeometryTypeName(dataset.GeometryType)}, {StoredSrid})");
+               $"  geom geometry({GeometryTypeName(dataset.GeometryType)}, {dataset.Srid})");
 
         foreach (InferredColumn column in dataset.Columns)
         {
@@ -464,12 +491,17 @@ public sealed class PostGisImporter
         }
 
         // One statement for the whole table: read the WKB, tag it with the
-        // file's SRID, transform to the stored one.
+        // <b>The reference is stamped on, and the coordinates are left
+        // alone.</b> Owner correction 2026-08-15: a layer keeps the projection
+        // it arrived in, and the tile path transforms per request instead
+        // (Q-96). Transforming here was cheaper per tile and destroyed the only
+        // copy of the survey coordinates — and for a national grid it is a datum
+        // change, not a formula.
         await ExecuteAsync(
             connection, transaction,
             $"""
              update {Qualified(table)}
-             set geom = ST_Transform(ST_SetSRID(ST_GeomFromWKB(import_wkb), {dataset.Srid}), {StoredSrid})
+             set geom = ST_SetSRID(ST_GeomFromWKB(import_wkb), {dataset.Srid})
              where import_wkb is not null
              """,
             cancellationToken).ConfigureAwait(false);

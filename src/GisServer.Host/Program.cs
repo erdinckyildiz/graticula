@@ -638,17 +638,15 @@ public static class Program
                     Type: s.Kind)),
         ];
 
-        // <b>Only hosted services have tile services (Q-67)</b>, and only those
-        // whose layers are all in Web Mercator can actually serve one — the tile
-        // path refuses any other SRID rather than answering an empty tile
-        // (Q-96), so listing one here would be advertising a 400.
+        // <b>Only hosted services have tile services (Q-67).</b> The spatial
+        // reference no longer decides: a layer keeps the projection it arrived
+        // in and the tile path transforms per request (owner correction
+        // 2026-08-15, Q-96). Filtering on 3857 here would hide a tile service
+        // that works.
         List<PublishedService> tileable =
         [
             .. visible.Where(s =>
-                s.Layers.Count > 0
-                && s.Layers.All(l =>
-                    l.Definition.IsHosted
-                    && l.Definition.Srid == VectorTileEndpoints.WebMercator)),
+                s.Layers.Count > 0 && s.Layers.All(l => l.Definition.IsHosted)),
         ];
 
         List<(string Name, string Type)> everything =

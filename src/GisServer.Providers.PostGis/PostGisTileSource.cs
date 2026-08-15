@@ -48,6 +48,17 @@ public sealed class PostGisTileSource : ITileSource
     /// </remarks>
     public const int Buffer = 64;
 
+    /// <summary>
+    /// The grid every tile is cut on, whatever the layer is stored in.
+    /// </summary>
+    /// <remarks>
+    /// <c>ST_TileEnvelope</c> produces a Web Mercator box because the XYZ scheme
+    /// is defined in Web Mercator. That is a property of tiling, not a
+    /// requirement on the data — which is why the layer keeps its own reference
+    /// and the transform happens here.
+    /// </remarks>
+    public const int WebMercator = 3857;
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<string> _attributes;
@@ -129,17 +140,37 @@ public sealed class PostGisTileSource : ITileSource
         // position, so it is escaped rather than quoted as an identifier.
         string safeName = layerName.Replace("'", "''", StringComparison.Ordinal);
 
+        string column = LayerDefinition.Quote(_layer.GeometryColumn);
+        bool native = _layer.Srid == WebMercator;
+
+        // <b>Two envelopes, and that is what keeps the index in play.</b> The
+        // tile is a Web Mercator box by definition, so the geometry has to reach
+        // ST_AsMVTGeom in 3857. The obvious way — transform every row and
+        // compare — cannot use the spatial index, because the index is built on
+        // the stored column. So the box is transformed <em>once</em> into the
+        // layer's own reference for the `&&` test, and only the rows that
+        // survive it are transformed for output. Q-96 measured the difference at
+        // 74.6 ms against 21.6 ms on the same tile, which the tile cache pays
+        // once.
+        string filterBox = native
+            ? "bounds.geom"
+            : $"ST_Transform(bounds.geom, {_layer.Srid.ToString(CultureInfo.InvariantCulture)})";
+
+        string outputGeometry = native
+            ? $"t.{column}"
+            : $"ST_Transform(t.{column}, {WebMercator.ToString(CultureInfo.InvariantCulture)})";
+
         return string.Create(
             CultureInfo.InvariantCulture,
             $"""
              with bounds as (select ST_TileEnvelope(@z, @x, @y) as geom),
              tile as (
                  select ST_AsMVTGeom(
-                            t.{LayerDefinition.Quote(_layer.GeometryColumn)},
+                            {outputGeometry},
                             bounds.geom, {Extent}, {Buffer}, true) as geom{columns}
                  from {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)} t,
                       bounds
-                 where t.{LayerDefinition.Quote(_layer.GeometryColumn)} && bounds.geom
+                 where t.{column} && {filterBox}
              )
              select ST_AsMVT(tile.*, '{safeName}', {Extent}, 'geom') from tile
              """);

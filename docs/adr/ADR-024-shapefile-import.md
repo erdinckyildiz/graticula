@@ -104,6 +104,11 @@ refusal, and an extension allow-list of `.shp`, `.dbf`, `.prj`, `.cpg` that does
 not include `.zip`. Nothing is written to disk and no path inside the archive is
 honoured. The reader is ours, Tier 1, alongside the GeoJSON reader.
 
+**The layer keeps the reference it arrived in.** Amended the same day by owner
+direction: the importer does not transform, and the tile path projects per
+request ([ADR-021](ADR-021-tile-encoding.md) §5a, Q-96). A shapefile in a
+national grid is stored in that grid.
+
 **Rings are grouped by containment, not by winding.** **The DBF encoding is
 asked for when the file does not declare it.** **The SRID is asked for**: a
 `.prj` is WKT, and matching WKT to an EPSG code by comparing strings is how a

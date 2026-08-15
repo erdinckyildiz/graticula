@@ -327,19 +327,19 @@ internal static class HostedDataEndpoints
             fields = dataset.Columns.Select(c => new { c.Name, type = c.Type.ToString() }),
             sharing = sharing.ToString().ToLowerInvariant(),
 
-            // Said out loud because it is a change to the caller's data. ArcGIS
-            // Online does the same and does not mention it, which is how people
-            // are surprised later.
+            // <b>Nothing is reprojected on the way in any more.</b> Owner
+            // correction 2026-08-15. The previous version transformed every
+            // import to Web Mercator and reported "EPSG:4326 to EPSG:3857 is a
+            // closed formula with no datum shift, so nothing was lost" — a
+            // sentence about 4326 printed over a national-grid import, where it
+            // is false and the survey coordinates were already gone.
             storedIn = new
             {
                 sourceSR = result.SourceSrid,
                 storedSR = result.StoredSrid,
-                engine = result.ProjEngine,
-                note = result.SourceSrid == result.StoredSrid
-                    ? "Stored as uploaded."
-                    : $"Reprojected from {result.SourceSrid} to {result.StoredSrid} once, on the "
-                      + "way in, so the layer can serve vector tiles. EPSG:4326 to EPSG:3857 is a "
-                      + "closed formula with no datum shift, so nothing was lost.",
+                note = "Stored in the reference it arrived in. Vector tiles are cut on the Web "
+                     + "Mercator grid, so the tile path transforms per request and caches the "
+                     + "result; the stored coordinates are the ones you uploaded.",
             },
             services = Services(published.ServiceName, published.LayerIndex),
         }).ExecuteAsync(context).ConfigureAwait(false);

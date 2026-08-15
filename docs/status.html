@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>9dafe44</code> · 2026-08-15 14:31</p>
+<p class="stamp">Generated from commit <code>2513478</code> · 2026-08-15 14:45</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">19/74</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">775</div><div class="kpi-l">tests</div><div class="kpi-n">111 source files, 30,844 lines</div></div>
+<div class="kpi good"><div class="kpi-v">775</div><div class="kpi-l">tests</div><div class="kpi-n">111 source files, 30,897 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -199,7 +199,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-93</span><span class="owner">**[OWNER]**</span></div><p>Answered by the owner, 2026-08-14: no.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-94</span><span class="owner">**[OWNER]**</span></div><p>Largely dissolved the same day it was opened, by the owner clarifying that the licence in question is ArcGIS Enterprise, not ArcGIS Pro.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-96</span><span class="owner">Owner</span></div><p>Should the tile path reproject, and how far?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-96</span><span class="owner">Owner</span></div><p>RESOLVED 2026-08-15 by owner direction, implemented the same day.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-97</span><span class="owner">Owner</span></div><p>RESOLVED 2026-08-15 by owner decision, and implemented the same day — worker process plus pre-flight, ADR-022 §9.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-98</span><span class="owner">Owner</span></div><p>RESOLVED 2026-08-15 by owner decision, implemented the same day — a bounded exception (ADR-024).</p></article>
 </div></section>
@@ -235,6 +235,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-29</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-30</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-32</td><td>A transformation PROJ could not do accurately is reported as though it were accurate.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -313,6 +314,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>2513478</code><time>2026-08-15</time><span>failure gate: run, failed, and one green probe in front of a red server</span></li>
 <li><code>9dafe44</code><time>2026-08-15</time><span>Q-98: shapefiles, and the security rule that had to give</span></li>
 <li><code>89bcb36</code><time>2026-08-15</time><span>D-25: tile freshness is per layer, and one number governs every cache</span></li>
 <li><code>b6c0746</code><time>2026-08-15</time><span>D-28: every data route now has to name what governs it</span></li>
@@ -326,7 +328,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9706f38</code><time>2026-08-15</time><span>the service list a browser can read, and the service nothing was guarding</span></li>
 <li><code>741f4ad</code><time>2026-08-15</time><span>the licensing gate passes, the consistency gate fails, and composite stops lying</span></li>
 <li><code>7fc1b9c</code><time>2026-08-15</time><span>contradiction sweep round 2, and three carried debts that were carrying wrong numbers</span></li>
-<li><code>4e04084</code><time>2026-08-15</time><span>related records: declared, validated, and one query rather than N+1</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

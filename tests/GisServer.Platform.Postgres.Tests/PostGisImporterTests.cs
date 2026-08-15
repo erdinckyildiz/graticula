@@ -117,28 +117,53 @@ public sealed class PostGisImporterTests : PostgresFixture
         }
     }
 
+    /// <summary>
+    /// The geometry is stored in the reference it arrived in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This asserted the opposite until 2026-08-15.</b> Every import was
+    /// transformed to Web Mercator on the way in, and the response said
+    /// <em>"EPSG:4326 to EPSG:3857 is a closed formula with no datum shift, so
+    /// nothing was lost"</em> — which is true of 4326 and was printed over
+    /// national-grid imports where it is false. A layer uploaded as EPSG:5254
+    /// came back as 3857 with its survey coordinates gone.
+    /// </para>
+    /// <para>
+    /// <b>Owner correction: "the imported shapefiles need to stay in their own
+    /// projection. If we use a 3857 basemap, it shall be projected on the
+    /// fly."</b> Tiles are cut on a Web Mercator grid, so something has to
+    /// transform; doing it per tile costs 3.5× on a cache miss (Q-96) and the
+    /// data is the thing that cannot be recreated.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task The_geometry_is_stored_in_Web_Mercator_and_lands_where_it_should()
+    public async Task The_geometry_is_stored_in_the_reference_it_arrived_in()
     {
-        // <b>The check that the reprojection happened and was right.</b> A
-        // transform that silently did nothing leaves 4326 degrees in a column
-        // declared 3857, which every later query treats as metres near the
-        // origin — off the coast of Africa.
         ImportResult result = await new PostGisImporter(DataSource)
-            .ImportAsync(Parse(Sample), "projected", CancellationToken.None);
+            .ImportAsync(Parse(Sample), "native", CancellationToken.None);
 
         try
         {
             Assert.Equal(4326, result.SourceSrid);
-            Assert.Equal(PostGisImporter.StoredSrid, result.StoredSrid);
-            Assert.False(string.IsNullOrWhiteSpace(result.ProjEngine));
+            Assert.Equal(4326, result.StoredSrid);
 
-            // Istanbul in Web Mercator is about 3,225,000 / 5,013,000. Degrees
-            // left untransformed would be about 29 / 41.
+            // Nothing was transformed, so there is no engine to name. A version
+            // string here would be provenance for a transform that never ran.
+            Assert.Null(result.ProjEngine);
+
+            int srid = await ScalarAsync<int>(
+                $"select ST_SRID(geom) from {result.SchemaName}.\"{result.TableName}\" limit 1");
+
+            Assert.Equal(4326, srid);
+
+            // Istanbul in degrees is about 29 / 41. Web Mercator metres would be
+            // about 3,225,000 — so this also catches a transform that ran when
+            // it should not have.
             double x = await ScalarAsync<double>(
                 $"select ST_X(ST_Centroid(geom)) from {result.SchemaName}.\"{result.TableName}\" limit 1");
 
-            Assert.InRange(x, 3_200_000, 3_250_000);
+            Assert.InRange(x, 28.0, 30.0);
         }
         finally
         {

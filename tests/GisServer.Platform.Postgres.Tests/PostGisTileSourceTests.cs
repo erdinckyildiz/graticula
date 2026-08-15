@@ -193,21 +193,31 @@ public sealed class PostGisTileSourceTests : PostgresFixture
 
     // ---------- the spatial reference ----------
 
+    /// <summary>
+    /// A layer in another reference is tiled, not refused and not empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test used to assert the opposite, and the opposite was a
+    /// symptom.</b> ST_TileEnvelope returns a Web Mercator rectangle; against a
+    /// 4326 layer the <c>&amp;&amp;</c> operator compared two boxes whose
+    /// numbers are in different units, found no overlap, and ST_AsMVTGeom
+    /// clipped everything away — with nothing raising. Every tile on Earth came
+    /// back empty, silently. The first fix was to refuse SRID ≠ 3857 at the
+    /// endpoint.
+    /// </para>
+    /// <para>
+    /// <b>Owner correction 2026-08-15: refusing was the wrong fix.</b> A layer
+    /// keeps the projection it arrived in, and the tile path transforms per
+    /// request — the envelope once into the layer's reference so the index still
+    /// answers the filter, each surviving row on the way out. So this asserts a
+    /// non-empty tile from a 4326 layer, which is the behaviour the silent
+    /// emptiness was hiding all along.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_layer_in_another_spatial_reference_produces_an_empty_tile_and_no_error()
+    public async Task A_layer_in_another_spatial_reference_is_tiled_by_transforming_it()
     {
-        // <b>This test exists to pin PostGIS behaviour, not ours.</b>
-        // ST_TileEnvelope returns a Web Mercator rectangle. Against a 4326
-        // layer, && compares two boxes whose numbers are in different units,
-        // finds no overlap, and ST_AsMVTGeom clips everything away — and
-        // *nothing raises*. A 4326 layer published for tiles therefore answered
-        // 204 for every tile on Earth, silently, which is how it shipped.
-        //
-        // The endpoint now refuses SRID != 3857 before reaching here. If PostGIS
-        // ever starts raising on mixed SRIDs this test fails, and that is the
-        // signal that the guard's reasoning has changed — the guard would still
-        // be right, but for a different reason, and the comment explaining it
-        // would be wrong.
         await using (NpgsqlCommand setup = DataSource.CreateCommand("""
             drop table if exists public.srid_probe;
             create table public.srid_probe (
@@ -235,12 +245,16 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                 objectIdColumn: "objectid",
                 isHosted: true);
 
-            // The tile covering that longitude and latitude in Web Mercator, so
-            // this is not empty because the address is wrong.
+            // The tile covering that longitude and latitude in Web Mercator.
             byte[] tile = await new PostGisTileSource(DataSource, wgs84, [])
                 .BuildAsync(new TileAddress(12, 2377, 1535), "probe", CancellationToken.None);
 
-            Assert.Empty(tile);
+            Assert.NotEmpty(tile);
+
+            Mvt.Layer only = Assert.Single(Mvt.Decode(tile));
+
+            Assert.Equal("probe", only.Name);
+            Assert.NotEmpty(only.Features);
         }
         finally
         {

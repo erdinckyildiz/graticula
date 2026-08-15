@@ -205,4 +205,39 @@ written.
 
 **Against, second.** Condition 1 is a real hole and this ADR is being accepted
 with it open. The honest position is that the decision is right for the
-deployments we can measure and untested for the one ADR-019 made mandatory.
+deployments we can measure and untested for the one ADR-019 made mandatory.## 5a. The tile path transforms — 2026-08-15
+
+**Owner direction:** *"the imported shapefiles need to stay in their own
+projection. If we use a 3857 basemap, it shall be projected on the fly."*
+
+This reverses two things that were true until today.
+
+**Imports no longer transform.** Every hosted import used to be moved to Web
+Mercator on the way in, and the response said *"EPSG:4326 to EPSG:3857 is a
+closed formula with no datum shift, so nothing was lost"* — a sentence that is
+true of 4326 and was printed over national-grid imports where it is false. A
+layer uploaded as EPSG:5254 came back as 3857 with its survey coordinates
+already gone, and the response reassured the uploader about it.
+
+**The tile path refused non-Mercator layers.** That refusal was the fix for
+Q-96's silent-empty-tile defect, and it fixed the silence by telling people to
+republish their data in a different projection — which is asking somebody to
+destroy their coordinates so a tile is cheaper to cut.
+
+**What happens now.** `ST_TileEnvelope` still produces a Web Mercator box,
+because the XYZ scheme is defined in Web Mercator; that is a property of tiling
+and not a requirement on the data. So the box is transformed **once** into the
+layer's own reference for the `&&` filter — which keeps the spatial index in
+play, and is the whole reason this is affordable — and each surviving row is
+transformed on the way out. Q-96 measured 74.6 ms against 21.6 ms on the same
+tile, produced from a 4326 layer, and the cache pays it once.
+
+**What this leaves open, and it is not small.** PROJ chooses the pipeline. When
+the shift grids for an accurate path are missing it falls back to a ballpark
+transformation *without failing*, and a national grid can land metres from where
+it should — on exactly the data where metres are legally significant. Recorded
+as **D-32**, and the FeatureServer's `outSR` has the identical exposure.
+
+---
+
+

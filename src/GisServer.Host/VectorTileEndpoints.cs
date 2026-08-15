@@ -117,7 +117,7 @@ internal static class VectorTileEndpoints
 
         foreach (PublishedLayer each in service.Layers)
         {
-            if (!each.Definition.IsHosted || each.Definition.Srid != WebMercator)
+            if (!each.Definition.IsHosted)
             {
                 layer = each;
                 break;
@@ -146,29 +146,21 @@ internal static class VectorTileEndpoints
             return null;
         }
 
-        if (layer.Definition.Srid != WebMercator)
-        {
-            await Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 400,
-                        message =
-                            $"Layer '{layerName}' is in SRID {layer.Definition.Srid} and vector "
-                            + $"tiles are served on the Web Mercator grid ({WebMercator}). This "
-                            + "server does not reproject on the tile path, so the layer needs a "
-                            + $"{WebMercator} geometry column — add one, or publish a view that "
-                            + "transforms it, and index it. Its FeatureServer at "
-                            + $"/rest/services/{layerName}/FeatureServer serves the native "
-                            + "spatial reference and is unaffected.",
-                    },
-                },
-                statusCode: StatusCodes.Status400BadRequest)
-                .ExecuteAsync(context).ConfigureAwait(false);
-            return null;
-        }
-
+        // <b>No spatial-reference refusal any more.</b> Owner correction
+        // 2026-08-15: a layer keeps the projection it arrived in and the tile
+        // path transforms per request. What used to sit here was a 400 telling
+        // the caller to republish their data in Web Mercator — which is asking
+        // somebody to destroy their survey coordinates so that a tile is
+        // cheaper to cut. PostGisTileSource transforms the tile envelope once
+        // into the layer's reference for the index test and each surviving row
+        // on the way out; Q-96 measured that at 74.6 ms against 21.6 ms, paid
+        // once per tile by the cache.
+        //
+        // <b>What is still worth watching.</b> 4326 to 3857 is a closed formula,
+        // but a national grid needs a datum transformation and PROJ falls back
+        // to a ballpark path when the shift grids are missing — quietly, and by
+        // metres. That is Q-96's remaining half and is recorded there rather
+        // than solved here.
         return service;
     }
 
