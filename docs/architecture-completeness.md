@@ -73,9 +73,9 @@ finished, however confident the ADR sounds.
 Each gate is run against the whole architecture, not per-ADR, and a failure
 reopens the relevant decisions rather than being noted and passed over.
 
-**Three of nine run, and the six blanks are deliberate.** A gate ticked without
+**Four of nine run, and the five blanks are deliberate.** A gate ticked without
 evidence is worse than one left open: it converts an unknown into a false
-assurance, and nothing afterwards re-examines it. The two below were run because
+assurance, and nothing afterwards re-examines it. The four below were run because
 the evidence to run them exists; the rest are named with what each is waiting
 for.
 
@@ -86,7 +86,7 @@ for.
 | Performance | — | **Evidence exists and the gate does not.** Four benchmark rounds ([mvt-generation](../benchmarks/mvt-generation/RESULTS.md), [geometry-overlay](../benchmarks/geometry-overlay/RESULTS.md)) overturned two assumptions. What is missing is the architecture-wide pass that asks what they imply together |
 | **Failure** | **2026-08-15** | **FAIL, and repaired in part.** [failure-gate-1.md](reviews/failure-gate-1.md): five of twelve scenarios executed against a running server. **`/healthz/ready` answered 200 while every query answered 503** during recovery — it probed the platform store and not the datastore, so a green probe stood in front of a red server. Fixed, and the probe is now conservative in the safe direction. **N1 and N2 are confirmed not built**: a platform-store outage is total rather than degrading, and a warm tile for a public layer is inside the blast radius — which is [Q-95](open-questions.md) with evidence attached. Seven scenarios were not run and are named rather than ticked |
 | Operations | — | Needs a deployment somebody operates. A-051's break-glass path and D-18 are the known holes |
-| Security | — | [security.md](security.md) has grown three rules from implementation this week. A gate would ask what is missing, which is a different question from what has been added |
+| **Security** | **2026-08-15** | **FAIL, and repaired in part.** [security-gate-1.md](reviews/security-gate-1.md). Three findings. **Not one security header on any response except attachment downloads**, which had been hardened by hand — the shape of the gap being that protecting surfaces one at a time leaves a bare default, and `Referrer-Policy` closes a `Referer` leak security.md names and never mitigated. **`/admin/health` told an anonymous caller there were 26 layers** while the catalogue showed them 2 services, on a server that answers 404 for private content precisely so nobody learns it exists. Both fixed. **No CI at all** — nothing runs the vulnerability check that ADR-025's 90-day fix promise now depends on ([D-29](architecture-debt.md)). Ten controls were tested and held, including the login throttle and the where-clause parser. Self-review, so §67's objection applies |
 | Extensibility | — | ADR-006 is `REOPENED` and no plugin code exists; the gate has nothing to examine |
 | **Licensing** | **2026-08-15** | **PASS.** All six shipped and test dependencies verified from their own nuspecs — Npgsql (PostgreSQL licence), Argon2 (MIT), xunit ×2 (Apache-2.0), test SDK and TimeProvider.Testing (MIT). No GPL or AGPL anywhere. Found and corrected a register whose stated purpose contradicted Q-73. Transitive dependencies not checked — [D-06](architecture-debt.md) narrowed, not closed |
 | **Consistency** | **2026-08-15** | **FAIL, and repaired in part.** [Contradiction sweep 2](reviews/contradiction-sweep-2.md): twelve findings. The largest is that twelve of twenty-two ADRs still describe a three-database product ([D-27](architecture-debt.md)). Four findings were new; four were already recorded at their point of decision; four are now fixed |

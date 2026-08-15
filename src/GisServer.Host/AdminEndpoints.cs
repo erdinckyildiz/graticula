@@ -757,58 +757,91 @@ internal static class AdminEndpoints
         // detail is shown only to a caller who has proved they operate the
         // server, and during an outage that is nobody. D-03's rule, and the
         // reason ADR-017 §6's break-glass path is still owed (A-051).
+        //
+        // <b>The redaction covered the error and nothing else, until the §66
+        // security gate on 2026-08-15.</b> An anonymous caller was told there
+        // are 26 layers while the catalogue showed them 2 services — so this
+        // endpoint published the existence of private content, on a server that
+        // answers 404 for a private layer precisely so that nobody can learn it
+        // is there. Every other surface refuses to confirm; this one counted.
+        //
+        // So an anonymous caller now gets what the endpoint is for and nothing
+        // else: is it alive, and is the store reachable. Inventory, cache state
+        // and our own version are operational detail, and operational detail is
+        // for operators.
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         bool maySeeDetail = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        await Results.Json(new
+        Dictionary<string, object?> health = new()
         {
-            status = storeError is null ? "ok" : "degraded",
-            version = typeof(AdminEndpoints).Assembly.GetName().Version?.ToString() ?? "unknown",
+            ["status"] = storeError is null ? "ok" : "degraded",
 
-            platformStore = new
+            ["platformStore"] = new
             {
                 reachable = storeError is null,
-                layers,
                 error = maySeeDetail ? storeError : storeError is null ? null : "redacted",
             },
+        };
 
-            // Not a vanity statistic. This is the one piece of state the request
-            // path carries between requests, and a cache nobody can see is a
-            // cache nobody suspects when the answers go stale. The lifetime is
-            // reported alongside the count so an operator reading a wrong field
-            // list knows exactly how long to wait, or that /refresh exists.
-            // ADR-010 §6b: cache state must be readable. An operator asking
-            // "is this seeded" or "why is the disk full" has no other way to
-            // find out, and a cache nobody can see is one nobody suspects when
-            // the datastore starts working harder than it should.
-            tileCache = new
-            {
-                entries = tiles.Report(null).Entries,
-                megabytes = Math.Round(tiles.Report(null).Bytes / 1048576.0, 1),
-                note = "Tiles held on disk. A miss is datastore load (ADR-021), so this is the "
-                     + "number that says how much of the tile traffic the datastore is actually "
-                     + "seeing. X-Tile-Cache on a tile response says HIT or MISS.",
-            },
+        if (!maySeeDetail)
+        {
+            health["note"] =
+                "Liveness only. Counts, cache state and the server version are shown to a caller "
+                + "holding admin:manageServer, because an inventory is a disclosure about content "
+                + "this server otherwise refuses to confirm exists.";
 
-            describedShapes = new
-            {
-                count = contexts.Count,
-                lifetimeSeconds = (int)ServiceContexts.Lifetime.TotalSeconds,
-                note = "Table shapes remembered from the data source (D-17). Sharing and "
-                     + "started/stopped are deliberately NOT cached and are read per request. "
-                     + "POST /admin/layers/{name}/refresh to forget one immediately.",
-            },
+            await Results.Json(health).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
 
-            // Said explicitly in the degraded case, because an administrator
-            // reading this during an outage should not have to infer which half
-            // of the answer they are allowed to trust.
-            note = storeError is null
-                ? "The platform store is reachable, so everything below is current."
-                : "The platform store is unreachable. Serving may continue for layers already "
-                  + "resolved, but the catalogue, identity and audit are unavailable, so most of "
-                  + "this API will refuse. This is the failure ADR-019 accepted when it fused the "
-                  + "catalogue and the runtime into one deployable.",
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        health["version"] =
+            typeof(AdminEndpoints).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+        health["platformStore"] = new
+        {
+            reachable = storeError is null,
+            layers,
+            error = storeError,
+        };
+
+        // Not a vanity statistic. This is the one piece of state the request
+        // path carries between requests, and a cache nobody can see is a
+        // cache nobody suspects when the answers go stale. The lifetime is
+        // reported alongside the count so an operator reading a wrong field
+        // list knows exactly how long to wait, or that /refresh exists.
+        // ADR-010 §6b: cache state must be readable. An operator asking
+        // "is this seeded" or "why is the disk full" has no other way to
+        // find out, and a cache nobody can see is one nobody suspects when
+        // the datastore starts working harder than it should.
+        health["tileCache"] = new
+        {
+            entries = tiles.Report(null).Entries,
+            megabytes = Math.Round(tiles.Report(null).Bytes / 1048576.0, 1),
+            note = "Tiles held on disk. A miss is datastore load (ADR-021), so this is the "
+                 + "number that says how much of the tile traffic the datastore is actually "
+                 + "seeing. X-Tile-Cache on a tile response says HIT or MISS.",
+        };
+
+        health["describedShapes"] = new
+        {
+            count = contexts.Count,
+            lifetimeSeconds = (int)ServiceContexts.Lifetime.TotalSeconds,
+            note = "Table shapes remembered from the data source (D-17). Sharing and "
+                 + "started/stopped are deliberately NOT cached and are read per request. "
+                 + "POST /admin/layers/{name}/refresh to forget one immediately.",
+        };
+
+        // Said explicitly in the degraded case, because an administrator
+        // reading this during an outage should not have to infer which half
+        // of the answer they are allowed to trust.
+        health["note"] = storeError is null
+            ? "The platform store is reachable, so everything below is current."
+            : "The platform store is unreachable. Serving continues for public layers already "
+              + "seen (ADR-026), but the catalogue, identity and audit are unavailable, so most "
+              + "of this API will refuse. This is the failure ADR-019 accepted when it fused the "
+              + "catalogue and the runtime into one deployable.";
+
+        await Results.Json(health).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

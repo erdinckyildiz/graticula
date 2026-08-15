@@ -257,6 +257,12 @@ public static class Program
         // the two must be allowed to disagree.
         app.MapGet("/healthz/live", () => Results.Ok(new { status = "live" }));
 
+        // <b>First, so that everything answers with them — including a 404 from
+        // routing and a 500 from the exception handler, which are exactly the
+        // responses a hardening pass forgets.</b> Added by the §66 security
+        // gate; see SecurityHeaders.
+        app.UseSecurityHeaders(settings.RequireHttps);
+
         app.Use(async (context, next) =>
         {
             RequestPrincipal current = await context.RequestServices

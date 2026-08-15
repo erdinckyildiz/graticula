@@ -357,6 +357,15 @@ mitigations bound it, all required rather than advisable: query strings are
 preferred and advertised; compatibility tokens are short-lived and **cannot
 reach the admin API**; and they are revocable and listed like any other session.
 
+**The `Referer` channel is closed as of 2026-08-15, and was not before.** The
+four mitigations above address logs, the header form, lifetime and revocation —
+none of them touches the browser sending our URL to the next site somebody
+clicks through to. The §66 security gate
+([security-gate-1.md](reviews/security-gate-1.md), F1) found no `Referrer-Policy`
+on any response; every response now carries `no-referrer`. Recorded here rather
+than only in the gate, because this paragraph is where somebody counts the
+mitigations.
+
 **This is a deliberate weakening of the posture in exchange for the migration
 path.** Recorded here rather than in a footnote, because if never-degrade-
 silently applies to capabilities it applies to security trade-offs.
