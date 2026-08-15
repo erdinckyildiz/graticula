@@ -51,4 +51,14 @@
     <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!--
+      The glyph ranges are data the server serves, not code it compiles. Copied
+      rather than embedded so an operator can see what shipped, and so that
+      adding a font stack is dropping a directory in rather than a rebuild.
+      Q-15: nothing is fetched at runtime, so they have to be in the image.
+    -->
+    <Content Include="glyphs\**\*.pbf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

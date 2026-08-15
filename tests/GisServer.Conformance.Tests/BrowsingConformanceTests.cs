@@ -305,4 +305,70 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         Assert.Contains("not implemented", html, StringComparison.Ordinal);
         Assert.Contains("Q-97", html, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Under load, every page says who asked for it and nobody else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written because the banner state was <c>[ThreadStatic]</c>, and that
+    /// is wrong in a way only concurrency shows.</b> An ASP.NET Core request
+    /// resumes on whichever thread the pool hands it after an await, so the name
+    /// set by the middleware was often invisible when the page rendered — and a
+    /// thread carrying a leftover name could render it into a different
+    /// request's page. One browsing user's name shown to another is a
+    /// disclosure.
+    /// </para>
+    /// <para>
+    /// <b>It was found as a flake.</b> The test above passed on its own and
+    /// failed in the full run, which is exactly how this class of bug announces
+    /// itself and exactly the announcement that usually gets rerun until it goes
+    /// green. Interleaving signed-in and anonymous requests makes it a
+    /// repeatable failure instead of a mood.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Concurrent_readers_never_see_each_other_in_the_banner()
+    {
+        string root = await RequireServerAsync();
+        string name = Environment.GetEnvironmentVariable(UserVariable) ?? "root";
+
+        CookieContainer jar = new();
+        using HttpClient signedIn = Browser(jar);
+
+        using (HttpResponseMessage _ = await SignInAsync(signedIn, root, "/rest/services"))
+        {
+        }
+
+        using HttpClient stranger = Browser(new CookieContainer());
+
+        // Interleaved deliberately: the failure needs one identity's request to
+        // be in flight while another renders.
+        List<Task<(bool Mine, string Html)>> work = [];
+
+        for (int i = 0; i < 24; i++)
+        {
+            bool mine = i % 2 == 0;
+            HttpClient client = mine ? signedIn : stranger;
+
+            work.Add(Task.Run(async () =>
+                (mine, await HtmlAsync(client, root + "/rest/services/Utilities"))));
+        }
+
+        (bool Mine, string Html)[] pages = await Task.WhenAll(work);
+
+        foreach ((bool mine, string html) in pages)
+        {
+            if (mine)
+            {
+                Assert.Contains($"Signed in: <b>{name}</b>", html, StringComparison.Ordinal);
+            }
+            else
+            {
+                // The stranger must never be told a name — not the wrong one,
+                // and not the right one belonging to somebody else.
+                Assert.DoesNotContain("Signed in:", html, StringComparison.Ordinal);
+            }
+        }
+    }
 }

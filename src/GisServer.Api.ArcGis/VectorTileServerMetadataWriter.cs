@@ -157,17 +157,40 @@ public static class VectorTileServerMetadataWriter
     /// style that loads and a map that stays empty, with nothing in the console.
     /// </para>
     /// </remarks>
-    public static object Style(IReadOnlyList<(string Name, GeometryKind Geometry)> sourceLayers)
+    /// <param name="fontStack">
+    /// The font stack the server can actually serve, or null when it shipped
+    /// without glyphs. It becomes the <c>glyphs</c> URL, and a style without one
+    /// cannot draw a label at all — which is what this server did until
+    /// 2026-08-15.
+    /// </param>
+    public static object Style(
+        IReadOnlyList<(string Name, GeometryKind Geometry)> sourceLayers,
+        string? fontStack = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
 
-        return new
+        Dictionary<string, object> style = new()
         {
-            version = 8,
-            sources = new Dictionary<string, object>
+            ["version"] = 8,
+            ["sources"] = new Dictionary<string, object>
             {
                 ["esri"] = new { type = "vector", url = "../../" },
             },
+        };
+
+        if (fontStack is { Length: > 0 })
+        {
+            // <b>{fontstack} and {range} are the client's placeholders, not
+            // ours.</b> They are left in the URL literally; a client substitutes
+            // the stack from each layer's text-font and the range it needs. The
+            // default written here is the stack we have, so a style that names
+            // nothing still resolves.
+            style["glyphs"] = "../fonts/{fontstack}/{range}.pbf";
+            style["sprite"] = "../sprites/sprite";
+        }
+
+        return Merge(style, new
+        {
 
             // A dictionary rather than an anonymous type, because the style spec
             // spells it "source-layer" and a C# member cannot carry a hyphen.
@@ -175,7 +198,22 @@ public static class VectorTileServerMetadataWriter
             // then apply to every other document this assembly writes and rename
             // fields ArcGIS clients match exactly.
             layers = sourceLayers.Select(StyleLayer).ToArray(),
-        };
+        });
+    }
+
+    /// <summary>
+    /// Folds the optional keys in ahead of the rest, keeping the order a reader
+    /// expects: version, sources, glyphs, sprite, layers.
+    /// </summary>
+    private static Dictionary<string, object> Merge(
+        Dictionary<string, object> head, object tail)
+    {
+        foreach (System.Reflection.PropertyInfo property in tail.GetType().GetProperties())
+        {
+            head[property.Name] = property.GetValue(tail)!;
+        }
+
+        return head;
     }
 
     /// <summary>One style layer, keyed and painted by its geometry.</summary>

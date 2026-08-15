@@ -361,6 +361,27 @@ reach the admin API**; and they are revocable and listed like any other session.
 path.** Recorded here rather than in a footnote, because if never-degrade-
 silently applies to capabilities it applies to security trade-offs.
 
+### Per-request state is per request, not per thread — added 2026-08-15
+
+The REST directory's banner said *Signed in: <name>*, and the name lived in a
+`[ThreadStatic]` field set by middleware. **An ASP.NET Core request does not stay
+on one thread** — it resumes on whichever thread the pool hands it after an await
+— so two things happened: the name was often invisible when the page rendered,
+and a thread still carrying a previous request's name could render it into
+somebody else's page. **One browsing user's name shown to another is a
+disclosure**, and the account browsing this directory is typically an
+administrator.
+
+It was found as a flake: a conformance test that passed alone and failed in the
+full run. That is how this class of defect announces itself, and it is exactly
+the announcement that normally gets rerun until it goes green.
+
+**The rule:** request-scoped state goes in `HttpContext.Items`, or in an
+`AsyncLocal<T>` when the consumer has no context to reach — never in a
+`[ThreadStatic]` or a static dictionary. This project has now got that wrong
+twice, in different ways: a static `ConcurrentDictionary<HttpContext, string>`
+for a Z/M warning, and this. Both looked correct under a serial test.
+
 ### An outage narrows what is served, it does not widen it — added 2026-08-15
 
 [ADR-026](adr/ADR-026-serving-through-a-platform-store-outage.md) answers Q-95:

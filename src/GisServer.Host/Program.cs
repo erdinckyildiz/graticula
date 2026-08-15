@@ -80,6 +80,11 @@ public static class Program
             services.GetRequiredService<TimeProvider>(),
             settings.CatalogFallbackWindow));
 
+        // <b>Read once at startup.</b> The directory listing is the set of font
+        // stacks and it cannot change while the process runs, so scanning it per
+        // request would be work in exchange for nothing.
+        builder.Services.AddSingleton(_ => new GlyphStore(GlyphStore.BesideThisOne()));
+
         builder.Services.AddSingleton<LayerConnections>();
 
         builder.Services.AddSingleton(services =>

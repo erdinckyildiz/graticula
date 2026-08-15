@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Text.Json;
 
 namespace GisServer.Host;
@@ -463,16 +464,33 @@ internal static class RestDirectory
     /// </remarks>
     /// <summary>Who the current request is, for the banner.</summary>
     /// <remarks>
+    /// <para>
     /// <b>Set per request rather than passed through every renderer.</b> Every
     /// page wants it and no page's content depends on it, so threading it
     /// through eight signatures would be ceremony.
+    /// </para>
+    /// <para>
+    /// <b>This was <c>[ThreadStatic]</c> until 2026-08-15, and that was wrong in
+    /// a way that only concurrency shows.</b> An ASP.NET Core request does not
+    /// stay on one thread: it resumes on whichever thread the pool hands it
+    /// after an await. So the name set by the middleware was frequently invisible
+    /// by the time the page rendered — the banner said <em>Sign in</em> to
+    /// somebody who was signed in — and, worse, a thread carrying a leftover name
+    /// could render it into another request's page. That is one browsing user's
+    /// name shown to another, which is a disclosure and not a cosmetic bug.
+    /// </para>
+    /// <para>
+    /// <b><see cref="AsyncLocal{T}"/> is the fix, because it flows with the
+    /// request rather than with the thread.</b> It was found by a conformance
+    /// test that passed alone and failed in the full run; the flake was the
+    /// symptom and the leak was the defect.
+    /// </para>
     /// </remarks>
-    [System.ThreadStatic]
-    private static string? _signedInAs;
+    private static readonly AsyncLocal<string?> Current = new();
 
     /// <summary>Records who is browsing, for the pages rendered after it.</summary>
     /// <param name="name">Their name, or null for anonymous.</param>
-    public static void SignedInAs(string? name) => _signedInAs = name;
+    public static void SignedInAs(string? name) => Current.Value = name;
 
     private static string Page(string path, string body, bool close = true)
     {
@@ -579,7 +597,7 @@ internal static class RestDirectory
     {
         string here = U(path);
 
-        return _signedInAs is { Length: > 0 } name
+        return Current.Value is { Length: > 0 } name
             ? $"Signed in: <b>{H(name)}</b> &middot; "
               + $"<a href=\"/rest/auth/logout?f=html\">Sign out</a>"
             : $"<a href=\"/rest/login?return={here}\">Sign in</a>";

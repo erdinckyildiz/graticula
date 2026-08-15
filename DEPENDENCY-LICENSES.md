@@ -41,6 +41,7 @@ fact.
 | xunit.runner.visualstudio | 2.8.2 | **Apache-2.0** | nuspec | **Yes** |
 | Microsoft.NET.Test.Sdk | 17.12.0 | **MIT** | nuspec | **Yes** |
 | Microsoft.Extensions.TimeProvider.Testing | 9.0.0 | **MIT** | nuspec | **Yes** |
+| **DejaVu Sans** (font, redistributed) | 2.37 | **Bitstream Vera** (permissive) + public-domain DejaVu changes | the licence text shipped in [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) | **Yes**, with one obligation that is not the usual one — see below |
 
 **Result: pass.** No GPL or AGPL component is linked into anything shipped,
 which is the one class the Apache-2.0 outbound choice (Q-73) made disqualifying.
@@ -71,6 +72,32 @@ run by reading six nuspecs, and it is recorded rather than implied — see
 [D-06](docs/architecture-debt.md), which is narrowed rather than closed.
 
 ---
+
+### The font is not like the other rows
+
+**Added 2026-08-15 with [ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md).** The
+vector tile service ships signed-distance-field glyphs so that a style can draw a
+label at all, and they are generated from **DejaVu Sans**. Two things make this
+row different from every other one in the table:
+
+- **The artefact is redistributed, not linked.** The `.ttf` is in the repository
+  ([tools/fonts/DejaVuSans.ttf](tools/fonts/DejaVuSans.ttf)) and its glyph
+  outlines are baked into the `.pbf` ranges the server serves. That is
+  distribution of the Font Software, which is exactly what the licence governs.
+- **The notice must travel with it.** Bitstream Vera requires the copyright and
+  permission notice to be included in all copies, so
+  [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) sits beside
+  the font rather than only being referenced here.
+
+One condition of that licence is worth stating because it constrains a future
+change: **modified versions may not keep the Bitstream or Vera names.** If
+anybody ever subsets or edits this font, the derived font must be renamed — and
+the font stack name the server serves it under is user-visible, so that rename
+would reach the API.
+
+The generated ranges are derived from the outlines and are covered by the same
+permission. They are not a separate licence question, and they are not a
+different obligation.
 
 ## ⚠ Verification status
 
