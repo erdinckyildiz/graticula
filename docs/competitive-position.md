@@ -14,7 +14,7 @@ the *category* of GIS server and never justifies *this product*
 
 | | GeoServer | GeoNode | Honua | ArcGIS Enterprise | Us |
 |---|---|---|---|---|---|
-| Age / maturity | ~20 years, large base | Mature, OSGeo | 4,608 commits, 4 stars, no release | Decades, dominant | Nothing built |
+| Age / maturity | ~20 years, large base | Mature, OSGeo | **8 months**, 4,894 commits, 4 stars, no release (verified 2026-08-15) | Decades, dominant | Nothing built |
 | Licence | GPL | GPL | Elastic 2.0, open core | Commercial | Copyleft, TBD |
 | Governance | OSGeo, multi-vendor | OSGeo | Single vendor | Esri | — |
 | Self-service publishing | **No** | **Yes** | No | **Yes** | Planned |

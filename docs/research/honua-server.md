@@ -1,6 +1,9 @@
 # Honua Server — the closest direct peer found so far
 
-**Status:** FIRST PASS — from the public README only. Everything marked `VERIFY`.
+**Status:** **VERIFIED against the live repository 2026-08-15** — owner
+instruction: check GitHub directly from now on rather than trusting this file's
+first pass. Facts below are from repository metadata and their **published
+documentation**; `VERIFY` marks that survive are things neither can answer.
 **Source:** <https://github.com/honua-io/honua-server>
 **Raised by:** project owner, 2026-08-12
 **Feeds:** Q-49 (competitive position), Q-50 (providers versus migration),
@@ -49,7 +52,8 @@ GeometryServer, GPServer), OGC API (Features, Maps, Tiles, Coverages, Processes,
 Records, EDR, Styles), classic WMS/WFS/WMTS/WCS, STAC, OData v4, MVT, 3D Tiles,
 gRPC with h2c, and MCP over JSON-RPC for AI agents.
 
-**Maturity:** `VERIFY` 4 stars, 1 fork, 4,608 commits, 56 open issues, **no
+**Maturity, 2026-08-15:** 4 stars, **2 forks**, 1 watcher, **4,894 commits**,
+**76 open issues**, **0 releases and 0 tags**, last push **today**. **no
 tagged releases** — nightly container builds only.
 
 ## 1a. Dependency manifest — established, 2026-08-12
@@ -217,10 +221,91 @@ Consequences:
   cannot be a serving provider. That is a clean test, and it lands exactly where
   §2a's line falls.
 
+## 2b. Verified 2026-08-15 — what the first pass got wrong, and the A-003 answer
+
+Checked against the live repository at the owner's instruction. Four corrections
+and one finding.
+
+**The repository is eight months old, not four years.** Created
+**2025-12-17**. This file said *"a project with a four-year head start in
+commits"* and that was an inference from the commit count, never checked. 4,894
+commits in eight months is roughly **twenty a day**, and the root of the
+repository carries `AGENTS.md` and `CLAUDE.md` — **it is an AI-assisted project,
+like this one.** That reframes the comparison entirely: the commit count is not
+evidence of years of accumulated judgement, and the honest read is that we are
+looking at a peer working the same way, further along.
+
+**Their protocol surface is broader than recorded.** The repository description
+now advertises GeoServices REST, OGC API, WMS/WFS/WMTS/WCS, **STAC**, **OData
+v4**, vector tiles, **MCP** and **gRPC**. The last three were not in the first
+pass.
+
+**They have the CI this project does not.** Roughly **78 GitHub Actions
+workflows**, including `codeql.yml`, `security-nightly.yml`,
+`load-soak-nightly.yml`, `flaky-detection.yml`, a merge train, and **a dozen OGC
+CITE conformance suites** run as jobs. A `.trivyignore` at the root says
+containers are scanned. This is [D-29](../architecture-debt.md), opened the same
+day by the §66 security gate, standing next to a peer who has solved it —
+and it is also the *"protocol conformance testing — absent from the
+architecture"* line in
+[architecture-completeness.md](../architecture-completeness.md), which is
+absent here and automated there.
+
+### The finding: how they handle A-003
+
+**They do not answer it. They make it not apply**, and the mechanism is the
+dependency we rejected.
+
+Their published architecture document says two things that settle it:
+
+> **One process, two ports.** […] All REST protocols, OGC services, admin API,
+> health checks.
+
+> **Scaling.** Server instances are **stateless**: catalog state lives in
+> PostGIS, shared cache and job state in **Redis**, and files in the configured
+> file store. To scale, run more containers behind a load balancer.
+
+So on the ArcSOC question they bet exactly as we did — **one process, no
+per-service process, no instance sizing per service**. That is independent
+support for [ADR-007](../adr/ADR-007-service-runtime.md) §2, and it is the
+strongest agreement between the two designs.
+
+**But A-003 is load-bearing for us and not for them, and the reason is §4.4.**
+[A-003](../architecture-assumptions.md) — *most published services are idle most
+of the time, making shared workers viable* — matters to us because our workers
+hold **warm per-service context** and route requests toward the worker already
+warm for a service (ADR-007 §4.4, A-014). How many services are simultaneously
+hot therefore determines whether the context budget holds.
+
+Honua holds no warm per-service state in the instance at all. State is in
+PostGIS and Redis; an instance is disposable. **The idle ratio cannot exhaust a
+budget that does not exist.** They pay a network round trip where we pay memory,
+and they took the Redis dependency that `CLAUDE.md` §6 and §82 rejected.
+
+**What this is worth to us:**
+
+- **It does not validate A-003.** Nothing in their documentation says anything
+  about idle ratios, and no README can: A-003 is a fact about somebody's
+  workload, not about anybody's architecture. It is not a `VERIFY` that further
+  reading can discharge.
+- **It prices our position.** Our A-003 and A-014 exposure is **the cost of not
+  taking Redis**. That trade was made under §82 and is defensible, but it has
+  never been written down as a trade — it was written down as a rejected
+  dependency, and the assumption it created was recorded separately.
+- **It weakens "the runtime that holds 1,000 services on one machine"** as the
+  differentiator §5 lists, because a competitor reaches the same scale by adding
+  containers and a cache. Ours is cheaper to run and theirs needs nothing
+  validated. That is not obviously the better side of the trade.
+- **Their observable behaviour would still not settle A-003**, even though §0
+  permits running it: 4 stars and no release means nobody is running it at a
+  scale that would produce a workload sample.
+
 ## 3. What it tells us about ADR-001
 
 Someone built a full multi-protocol GIS server in **.NET**, one of our two
-prototype candidates, with 4,608 commits behind it.
+prototype candidates, with 4,894 commits behind it — and **63.5 MB of C#**,
+which is a scale of implementation this project will not reach by writing
+carefully.
 
 That is not a benchmark and must not be treated as one. It is evidence that the
 runtime is *adequate* for this workload, which is a weaker claim than our
@@ -255,7 +340,7 @@ Honua sharpens rather than answers it, in two directions.
 multi-protocol access over PostGIS with an ArcGIS-compatible surface — and
 committed thousands of commits to it. The gap is not imagined.
 
-**Against us:** `VERIFY` 4,608 commits have produced 4 stars, 1 fork and no
+**Against us:** 4,894 commits have produced 4 stars, 2 forks and no
 tagged release. Whatever the gap is, it is **hard to convert into users**, and
 that is a caution rather than an encouragement. It may be very new, it may be a
 solo effort, it may be under-promoted — but a competitor's difficulty finding an
@@ -263,7 +348,7 @@ audience is data about the market, not only about them.
 
 **And it narrows the space.** If our answer to Q-49 turns out to be "multi-
 protocol access over PostGIS", that answer is now taken, by a project with a
-four-year head start in commits and a commercial licence. Our differentiator has
+large head start in commits and a commercial licence. Our differentiator has
 to be something else.
 
 Candidates, none tested: the runtime that holds 1,000 services on one machine;
