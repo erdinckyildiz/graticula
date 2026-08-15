@@ -73,7 +73,11 @@ becomes a specification with a measured target attached.
   2026-08-15 after the two disagreed: the count was 22 of 99 and the truth was
   24, because three notes saying a condition was met sat past the first 200
   characters of a paragraph-long item, and one *partly* met was being counted as
-  done.
+  done. A condition may also be **deferred with its decision** — marked
+  `*(Deferred …)*` — when v1 removed the thing it is a condition on. That is a
+  third state, not a synonym for open: counting it beside live work makes the
+  pile look larger than it is and makes the two indistinguishable to whoever is
+  choosing what to do next.
 - Assumptions go in [architecture-assumptions.md](docs/architecture-assumptions.md)
   with a status. Invalidating an assumption triggers review of every ADR that
   depends on it (§11).

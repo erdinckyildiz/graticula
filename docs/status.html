@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>e913f52</code> · 2026-08-15 20:11</p>
+<p class="stamp">Generated from commit <code>6814e77</code> · 2026-08-15 20:27</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">24/99</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi warn"><div class="kpi-v">24/99</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">71 live · 4 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">41</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
@@ -126,28 +126,27 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">112 items</span></div><p><b>77 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>31 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">106 items</span></div><p><b>71 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>31 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">5</div></div>
-<div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-027 · Glyphs and sprites: the tile servi</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-019 · One deployable, three fused tiers</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
@@ -178,10 +177,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">003</td><td>Geometry Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span><div class="muted-t">single-provider scope.</div></td><td class="muted-t">HIGH for the split, which is measured.</td><td class="num"></td></tr>
 <tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">DEFERRED</span><div class="muted-t">confirmed 2026-08-12 (WMS out of v1) and re-confirmed 2026-08-13 by the owner, who at the same time recorded a clear preference for the capability…</div></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-88</span><div class="muted-t">v1 ships ArcGIS only and OGC API Features moves to v2, which inverts this ADR&#x27;s central decision.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
-<tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17b</span><div class="muted-t">see §0.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/2</td></tr>
+<tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/2</td></tr>
 <tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">0/4</td></tr>
 <tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
-<tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-17c</span><div class="muted-t">see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
 <tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
@@ -372,6 +371,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>6814e77</code><time>2026-08-15</time><span>the condition count was wrong, and the rule had two implementations</span></li>
 <li><code>e913f52</code><time>2026-08-15</time><span>Â§66 performance gate: FAIL, and nothing repaired</span></li>
 <li><code>accf478</code><time>2026-08-15</time><span>tile ETag, the multi-node deployment note, and a test that was fighting itself</span></li>
 <li><code>dca9a99</code><time>2026-08-15</time><span>tile single-flight: twelve callers, one build</span></li>
@@ -385,7 +385,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>0732409</code><time>2026-08-15</time><span>regenerate the status page after ADR-027</span></li>
 <li><code>84c6645</code><time>2026-08-15</time><span>glyphs and sprites: the tile service could not draw a label</span></li>
 <li><code>5f173e8</code><time>2026-08-15</time><span>Q-95: serve public-only while blind, and a shipped authorization defect</span></li>
-<li><code>8c63493</code><time>2026-08-15</time><span>Q-72: what a gift owes, and what it does not</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

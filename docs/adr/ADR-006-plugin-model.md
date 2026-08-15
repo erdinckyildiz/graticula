@@ -2,13 +2,33 @@
 
 | | |
 |---|---|
-| **Status** | `REOPENED` 2026-08-13 by Q-17b — see §0. Previously: | `ACCEPTED WITH CONDITIONS` — decision is "not yet" |
+| **Status** | `ACCEPTED WITH CONDITIONS` — re-closed 2026-08-15, see §0. Reopened 2026-08-13 by Q-17b and closed again when v1-scope §3c cut GPServer | `ACCEPTED WITH CONDITIONS` — decision is "not yet" |
 | **Confidence** | `MEDIUM-HIGH` |
 | **Decided** | 2026-08-12 |
 
 ---
 
 ## 0. `REOPENED` 2026-08-13 — by the exact trigger this ADR named
+
+> **RE-CLOSED 2026-08-15. The trigger was removed before it was answered.**
+>
+> Q-17b put a Python GPServer in scope and that is what reopened this. **v1-scope
+> §3c then cut GPServer, the Python SDK, the sandbox and the curated wheel set
+> out of v1 entirely**, and says so in its own words: *"ADR-006 can re-close —
+> the plugin model was reopened by exactly this."* It never did, and the
+> conditions of a decision nobody is implementing have been counted as
+> outstanding work since.
+>
+> **So this reverts to what §2 decided: internal extension points only**, no
+> published contract for third parties. Nothing below is retracted — the
+> analysis of *why geoprocessing is the safest place to start* is the right
+> starting point for whoever reopens this, and the reopening trigger is unchanged
+> and precise: somebody needing a provider, format or operation we have decided
+> not to build. **GPServer returning to scope is that trigger arriving again.**
+>
+> Recorded as bookkeeping rather than as a decision: v1-scope is authoritative
+> and had already stated this consequence. What was missing was somebody applying
+> it.
 
 This ADR decided **internal extension points only**, and stated its reopening
 trigger precisely: *someone needing a provider, format or operation we have

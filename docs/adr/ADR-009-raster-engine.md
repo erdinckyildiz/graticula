@@ -2,13 +2,34 @@
 
 | | |
 |---|---|
-| **Status** | `REOPENED` 2026-08-13 by Q-17c — see §0. Previously: | `ACCEPTED WITH CONDITIONS` |
+| **Status** | `ACCEPTED WITH CONDITIONS` — re-closed 2026-08-15, see §0. Reopened 2026-08-13 by Q-17c and closed again when v1-scope cut ImageServer | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-08-12 |
 
 ---
 
 ## 0. `REOPENED` 2026-08-13 — ImageServer is in scope
+
+> **RE-CLOSED 2026-08-15. The trigger was removed before it was answered.**
+>
+> Q-17c put ArcGIS ImageServer in scope and that is what reopened this.
+> **v1-scope cut ImageServer**, and says so directly: *"ADR-009 can re-close."*
+> It never did, and three conditions of a decision nobody is implementing have
+> been counted as outstanding work since.
+>
+> **So this reverts to what the ADR decided: serve COG, let the client render**,
+> with raster imagery catalogued rather than rasterised. The decomposition below
+> is not retracted and is the most useful thing in this document — whoever
+> reopens this should start from the three groups rather than from *ImageServer
+> support*, because that is the mistake Q-17a made and this table exists to avoid
+> repeating.
+>
+> **The reopening trigger is ImageServer, or any part of the expensive group,
+> returning to scope.** Q-77 still owns the Tier 1 line that has to be drawn
+> first.
+>
+> Recorded as bookkeeping rather than as a decision: v1-scope is authoritative
+> and had already stated this consequence.
 
 This ADR decided **serve COG, let the client render**, and that raster imagery is
 catalogued rather than rasterised. Q-17c puts ArcGIS **ImageServer** in scope,

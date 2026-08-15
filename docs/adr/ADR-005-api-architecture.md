@@ -518,15 +518,29 @@ pipeline, ADR-006.
 
 ## 8. Conditions
 
+> **Deferred with the decision, recorded 2026-08-15.** These four are conditions
+> on **OGC API Features 1+2+3**, which [v1-scope](../v1-scope.md) §4 moved to v2
+> — that move is what left this ADR `REOPENED`. They are not v1 work and were
+> being counted as outstanding alongside conditions that are. They come back the
+> moment OGC API Features does, unchanged, and none of them is retracted.
+>
+> The one that survives the deferral in spirit is condition 2 — *the capability
+> report is generated, never hand-maintained* — because ADR-008 §2 makes the
+> same demand for the ArcGIS surface that v1 does ship. It is tracked there.
+
+
 1. **Part 3 ships with Part 1.** Publishing a filterless feature service and
    calling it OGC API Features conformant would be technically true and
-   practically useless.
-2. **The capability report is generated, never hand-maintained.**
+   practically useless. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+
+2. **The capability report is generated, never hand-maintained.** *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+
 3. **Every extension is reviewed against the additive-only rule** in §3.2 before
-   it ships. This is the rule most likely to erode quietly.
+   it ships. This is the rule most likely to erode quietly. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+
 4. **Optimistic concurrency must be built on database-maintained state** (§3.8),
    never on our own record of what we saw. Getting this wrong produces silent
-   lost updates, which is the worst defect class an editing API can have.
+   lost updates, which is the worst defect class an editing API can have. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
 
 ## 9. Revisit triggers
 

@@ -41,6 +41,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADRS = os.path.join(ROOT, "docs", "adr")
 
 
+def deferred(body):
+    """Whether a condition is deferred with a decision nobody is implementing.
+
+    <b>A third state, and the register was lying without it.</b> A condition on
+    a decision that v1 removed is not outstanding work — counting it beside one
+    that is makes the pile look larger than it is and, worse, makes the two
+    indistinguishable to whoever is deciding what to do next. Marked per item
+    rather than per section so that a decision can be partly deferred, and in
+    the same emphasised-marker shape as a discharge so there is one convention
+    to remember.
+    """
+    return re.search(r"(\*\*|\*\()\s*DEFERRED", body, re.IGNORECASE) is not None
+
+
 def discharged(body):
     """Whether a condition carries a discharge marker. See the module docstring."""
     if body.lstrip().startswith("~~"):
@@ -71,7 +85,7 @@ def conditions(text):
         body = match.group(2).strip()
         first = " ".join(body.split())[:150]
         done = discharged(body)
-        found.append((int(match.group(1)), first, done))
+        found.append((int(match.group(1)), first, done, deferred(body)))
 
     return found
 
@@ -80,6 +94,7 @@ def main():
     show = "--list" in sys.argv
     total = 0
     done = 0
+    postponed = 0
 
     for name in sorted(os.listdir(ADRS)):
         if not name.startswith("ADR-") or not name.endswith(".md"):
@@ -91,20 +106,28 @@ def main():
         if not items:
             continue
 
-        met = sum(1 for _, _, d in items if d)
+        met = sum(1 for _, _, d, _ in items if d)
+        put_off = sum(1 for _, _, d, f in items if f and not d)
         total += len(items)
         done += met
+        postponed += put_off
 
-        marker = "" if met == 0 else f"  ({met} discharged)"
+        marker = "".join([
+            f"  ({met} discharged)" if met else "",
+            f"  ({put_off} deferred)" if put_off else "",
+        ])
         print(f"{name.split('-')[0]}-{name.split('-')[1]}: {len(items)} conditions{marker}")
 
         if show:
-            for number, first, is_done in items:
-                print(f"    {'x' if is_done else ' '} {number}. {first}")
+            for number, first, is_done, is_deferred in items:
+                mark = "x" if is_done else "~" if is_deferred else " "
+                print(f"    {mark} {number}. {first}")
 
     print()
-    print(f"{done} of {total} ADR conditions discharged "
-          f"({100 * done / total:.0f}%)" if total else "no conditions found")
+    live = total - done - postponed
+
+    print(f"{done} discharged, {postponed} deferred with their decision, "
+          f"{live} live — of {total} ADR conditions" if total else "no conditions found")
 
 
 if __name__ == "__main__":

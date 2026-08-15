@@ -84,7 +84,13 @@ def adrs():
         # convention, one implementation — the same lesson as layer.sharing.
         found = _conditions.conditions(text)
         conditions = len(found)
-        discharged = sum(1 for _, _, done in found if done)
+        discharged = sum(1 for _, _, done, _ in found if done)
+
+        # <b>A third state, added 2026-08-15.</b> A condition on a decision v1
+        # removed is not outstanding work, and counting it beside one that is
+        # makes the pile look larger than it is — and makes the two
+        # indistinguishable to whoever is choosing what to do next.
+        postponed = sum(1 for _, _, done, off in found if off and not done)
 
         out.append({
             "id": name.split("-")[1],
@@ -94,6 +100,7 @@ def adrs():
             "confidence": confidence,
             "conditions": conditions,
             "discharged": discharged,
+            "deferred": postponed,
         })
 
     return out
@@ -283,7 +290,7 @@ def open_conditions():
                 r"^(\d+)\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
             body = item.group(2).lstrip()
 
-            if body.startswith("~~") or "DISCHARGED" in body[:200].upper():
+            if _conditions.discharged(body) or _conditions.deferred(body):
                 continue
 
             out.append({
@@ -460,9 +467,13 @@ def build():
         # project is accepted without conditions attached to it.
         "none accepted unconditionally" if plain == 0 else f"{plain} accepted outright",
         "warn" if plain == 0 else ""))
+    deferred = sum(x["deferred"] for x in a)
+    live = conditions - discharged - deferred
+
     parts.append(kpi(
         f"{discharged}/{conditions}", "ADR conditions discharged",
-        "the largest open commitment", "warn" if discharged < conditions / 2 else "good"))
+        f"{live} live · {deferred} deferred with their decision",
+        "warn" if discharged < live / 2 else "good"))
     parts.append(kpi(len(q_open), "open questions",
                      f"{sum(1 for x in q if x['resolved'])} answered"
                      + (f" · {len(q_blocking)} blocking" if q_blocking else "")))
