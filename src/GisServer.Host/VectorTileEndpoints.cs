@@ -447,6 +447,7 @@ internal static class VectorTileEndpoints
         ServiceContexts contexts,
         LayerConnections connections,
         ITileCache cache,
+        TileSingleFlight building,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -480,7 +481,8 @@ internal static class VectorTileEndpoints
         // layer, a new layer simply has no entries yet and the other three keep
         // theirs.
         List<byte[]> parts = [];
-        bool everyPartCached = true;
+        bool builtSomething = false;
+        bool waitedForSomething = false;
 
         // <b>The shortest of the service's layers wins.</b> One tile carries
         // every layer, so it can only be as fresh as its most volatile part —
@@ -528,26 +530,61 @@ internal static class VectorTileEndpoints
                 continue;
             }
 
-            everyPartCached = false;
-
             ITileSource source = connections.TileSourceFor(layer, attributes);
 
-            byte[] part = await source
-                .BuildAsync(address, layer.Definition.Name, cancellation)
-                .ConfigureAwait(false);
+            // <b>One build per cold tile, however many callers arrive at
+            // once.</b> Measured before this existed: twelve simultaneous
+            // requests for one cold tile produced twelve datastore builds and
+            // threw eleven of the results away. See TileSingleFlight.
+            TileSingleFlight.Result made = await building.BuildAsync(
+                key,
+                async () =>
+                {
+                    byte[] bytes = await source
+                        .BuildAsync(address, layer.Definition.Name, CancellationToken.None)
+                        .ConfigureAwait(false);
 
-            // Empty is stored too — a zero-length marker. Most of a pyramid is
-            // emptiness and rebuilding the ocean on every request is the waste
-            // ADR-010 §2's negative caching exists to stop.
-            await cache.WriteAsync(key, part, cancellation).ConfigureAwait(false);
+                    // Written inside the shared build, so the waiters do not
+                    // each write the same bytes over each other — and so the
+                    // next caller finds it cached rather than joining a build
+                    // that has already returned.
+                    //
+                    // Empty is stored too — a zero-length marker. Most of a
+                    // pyramid is emptiness and rebuilding the ocean on every
+                    // request is the waste ADR-010 §2's negative caching exists
+                    // to stop.
+                    await cache.WriteAsync(key, bytes, CancellationToken.None)
+                        .ConfigureAwait(false);
 
-            parts.Add(part);
+                    return bytes;
+                },
+                cancellation).ConfigureAwait(false);
+
+            if (made.Built)
+            {
+                builtSomething = true;
+            }
+            else
+            {
+                waitedForSomething = true;
+            }
+
+            parts.Add(made.Bytes);
         }
+
+        // <b>Three states, not two, because the third is the one worth
+        // seeing.</b> MISS means this request made the datastore work.
+        // COALESCED means it wanted a cold tile and got somebody else's build
+        // for free — which is the whole point of TileSingleFlight, and is
+        // invisible if both are reported as a miss.
+        string disposition = builtSomething
+            ? "MISS"
+            : waitedForSomething ? "COALESCED" : "HIT";
 
         await WriteTileAsync(
             context,
             Concatenate(parts),
-            everyPartCached ? "HIT" : "MISS",
+            disposition,
             shortest == TimeSpan.MaxValue ? defaultLifetime : shortest,
             cancellation)
             .ConfigureAwait(false);

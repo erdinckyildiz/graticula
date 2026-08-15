@@ -735,6 +735,7 @@ internal static class AdminEndpoints
         IAdminCatalog catalog,
         ServiceContexts contexts,
         ITileCache tiles,
+        TileSingleFlight flight,
         CancellationToken cancellation)
     {
         string? storeError = null;
@@ -817,6 +818,11 @@ internal static class AdminEndpoints
         {
             entries = tiles.Report(null).Entries,
             megabytes = Math.Round(tiles.Report(null).Bytes / 1048576.0, 1),
+
+            // Builds in flight. A number that stays high is a datastore that
+            // cannot keep up with cold tiles, which looks like a slow server and
+            // is actually a slow query.
+            building = flight.InFlight,
             note = "Tiles held on disk. A miss is datastore load (ADR-021), so this is the "
                  + "number that says how much of the tile traffic the datastore is actually "
                  + "seeing. X-Tile-Cache on a tile response says HIT or MISS.",

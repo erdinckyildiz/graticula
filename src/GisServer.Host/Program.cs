@@ -85,6 +85,8 @@ public static class Program
         // request would be work in exchange for nothing.
         builder.Services.AddSingleton(_ => new GlyphStore(GlyphStore.BesideThisOne()));
 
+        builder.Services.AddSingleton<TileSingleFlight>();
+
         builder.Services.AddSingleton<LayerConnections>();
 
         builder.Services.AddSingleton(services =>

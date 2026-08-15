@@ -51,6 +51,66 @@ repeated request* case, and nothing more ambitious until evidence says otherwise
 layers and regenerating them is pure waste. An empty tile is cached as a marker
 rather than as bytes.
 
+## 2c. One build per cold tile — added 2026-08-15
+
+**Measured first, and the first measurement was wrong.** Twelve `curl` calls in a
+shell loop reported one miss and eleven hits, which looked like request
+coalescing. It was process start-up latency: the first request finished and
+warmed the cache before the second had opened a socket. A harness that opens
+every connection and releases the threads from a barrier reports the truth —
+**twelve simultaneous callers, twelve builds, eleven results written over each
+other.** A concurrency test that does not synchronise its clients measures its
+own start-up.
+
+That is the thundering herd, and it arrives at the worst moment: a map opened for
+the first time, a cache cleared, a layer republished. The datastore is asked for
+the same tile N times precisely when N is largest.
+
+**`TileSingleFlight` gives one build per cache key.** Keyed on the full
+`TileCacheKey`, so a layer whose shape changed is a different key and never waits
+on a stale build. Three details are load-bearing, each commented where it lives:
+
+- **The shared build does not carry any one caller's cancellation token.** A
+  browser that navigates away must not fail the eleven callers waiting on that
+  build — and they cannot retry, because they are waiting on that exact task.
+  The bound is the statement timeout ([D-08](../architecture-debt.md)), not the
+  caller.
+- **The waiters keep their own cancellation**, through `WaitAsync`, so leaving is
+  free for them.
+- **The key is removed on completion, always.** A pyramid has millions of
+  addresses, and a dictionary that only grows is a leak that surfaces months
+  later in a component nobody suspects.
+
+**`X-Tile-Cache` now has three values, not two.** `MISS` means this request made
+the datastore work; **`COALESCED`** means it wanted a cold tile and got somebody
+else's build for free; `HIT` is unchanged. The middle one is the whole point and
+would be invisible if reported as a miss. `/admin/health` also reports builds in
+flight, because a number that stays high is a slow query wearing the costume of
+a slow server.
+
+| | Before | After |
+|---|---|---|
+| 12 simultaneous callers, cold tile | 12 builds | **1 build**, 11 coalesced |
+| Wall clock for the twelve | 33 ms | 25 ms |
+
+The latency gain is small and is not the point — the datastore doing a twelfth
+of the work is. On a real cold pyramid with a slow query the two numbers
+separate.
+
+**Node-local, deliberately.** Across nodes the herd arrives once per node, and
+the answer there is a caching reverse proxy: tiles already carry
+`Cache-Control: public, max-age=3600`, and every real deployment has a proxy in
+front for TLS. A distributed lock would be a dependency bought for the smaller
+half of the problem — see
+[ADR-029](ADR-029-affinity-routing-is-not-the-default.md), where the same
+reasoning refused Redis.
+
+**Regression guard:** `Twelve_callers_racing_for_one_cold_tile_cause_one_build`
+asserts the *number of builds*, not the number that coalesced — if the runtime
+staggers the requests the losers report `HIT` instead of `COALESCED` and still
+did not build, so the assertion is exact rather than flaky. Verified by removing
+the sharing and watching it report twelve.
+
 ## 3. Layers
 
 | Layer | Where | Mandatory? |
