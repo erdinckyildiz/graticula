@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -335,6 +336,16 @@ internal static class VectorTileEndpoints
         List<byte[]> parts = [];
         bool everyPartCached = true;
 
+        // <b>The shortest of the service's layers wins.</b> One tile carries
+        // every layer, so it can only be as fresh as its most volatile part —
+        // telling a browser to keep it for a day because two of three layers
+        // are static would serve the third stale for a day.
+        TimeSpan defaultLifetime = cache is FileSystemTileCache disk
+            ? disk.DefaultLifetime
+            : TimeSpan.FromHours(1);
+
+        TimeSpan shortest = TimeSpan.MaxValue;
+
         foreach (PublishedLayer layer in service.Layers)
         {
             (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
@@ -352,7 +363,18 @@ internal static class VectorTileEndpoints
                     PostGisTileSource.Buffer),
                 address);
 
-            CachedTile cached = await cache.ReadAsync(key, cancellation).ConfigureAwait(false);
+            // <b>The layer's own lifetime, not the server's.</b> D-25: a
+            // cadastral layer and an incident layer need opposite answers, and
+            // A-028 records that only the administrator knows which is which.
+            TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
+
+            if (lifetime < shortest)
+            {
+                shortest = lifetime;
+            }
+
+            CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
+                .ConfigureAwait(false);
 
             if (cached.Answered)
             {
@@ -377,7 +399,11 @@ internal static class VectorTileEndpoints
         }
 
         await WriteTileAsync(
-            context, Concatenate(parts), everyPartCached ? "HIT" : "MISS", cancellation)
+            context,
+            Concatenate(parts),
+            everyPartCached ? "HIT" : "MISS",
+            shortest == TimeSpan.MaxValue ? defaultLifetime : shortest,
+            cancellation)
             .ConfigureAwait(false);
     }
 
@@ -444,9 +470,25 @@ internal static class VectorTileEndpoints
     /// working — until the datastore falls over under load nobody expected.
     /// </remarks>
     private static async Task WriteTileAsync(
-        HttpContext context, byte[] tile, string cacheState, CancellationToken cancellation)
+        HttpContext context,
+        byte[] tile,
+        string cacheState,
+        TimeSpan lifetime,
+        CancellationToken cancellation)
     {
         context.Response.Headers["X-Tile-Cache"] = cacheState;
+
+        // <b>The same number the server caches by, told to everyone downstream.</b>
+        // A browser and a CDN each keep their own copy, and until now we told
+        // them nothing — so they either re-fetched every tile or invented a
+        // policy. Sending the layer's own volatility means one setting governs
+        // every cache in the chain, which is the only way they can agree.
+        //
+        // Zero means never cache, and no-store says that in the vocabulary an
+        // intermediary already understands.
+        context.Response.Headers.CacheControl = lifetime <= TimeSpan.Zero
+            ? "no-store"
+            : $"public, max-age={((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture)}";
 
         if (tile.Length == 0)
         {

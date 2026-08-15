@@ -63,9 +63,33 @@ public interface ITileCache
 {
     /// <summary>Looks a tile up.</summary>
     /// <param name="key">Which tile, and of what shape.</param>
+    /// <param name="lifetime">
+    /// How long an entry for this layer stays fresh.
+    /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>What was found.</returns>
-    Task<CachedTile> ReadAsync(TileCacheKey key, CancellationToken cancellationToken);
+    /// <remarks>
+    /// <para>
+    /// <b>The lifetime is a parameter, not a property of the cache</b> — D-25,
+    /// and [ADR-010](../../../docs/adr/ADR-010-caching.md) §5.3 said so from the
+    /// start. Volatility belongs to the data: a cadastral layer changes twice a
+    /// year and an incident layer changes every minute, and A-028 records that
+    /// the administrator is the only person who knows which is which. One global
+    /// number is wrong in both directions at once, and the two failures look
+    /// nothing alike — too long shows an hour-old picture with nothing to say
+    /// so; too short rebuilds a pyramid that has not changed since spring, which
+    /// is the datastore load ADR-021 relies on this cache to absorb.
+    /// </para>
+    /// <para>
+    /// <b>Passed on read rather than stored in the key.</b> The key is what
+    /// identifies a tile, and a lifetime is not part of that identity —
+    /// including it would make every entry a miss the moment an administrator
+    /// changed the number, throwing away a whole seeded pyramid to apply a
+    /// setting that does not affect a single byte of content.
+    /// </para>
+    /// </remarks>
+    Task<CachedTile> ReadAsync(
+        TileCacheKey key, TimeSpan lifetime, CancellationToken cancellationToken);
 
     /// <summary>Stores a tile, or the fact that it is empty.</summary>
     /// <param name="key">Which tile.</param>

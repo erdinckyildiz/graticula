@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(12);
+    public static SchemaVersion ComponentSchemaVersion => new(13);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -47,6 +47,7 @@ public static class PlatformMigrations
         SystemServicesV10,
         ServicesV11,
         GroupLayersV12,
+        TileLifetimeV13,
     ]);
 
     /// <summary>
@@ -924,4 +925,42 @@ public static class PlatformMigrations
         """,
 
         "create index group_layer_service_idx on group_layer (service_id)");
+
+    /// <summary>
+    /// How long a layer's tiles stay fresh, set by whoever knows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-25, and [ADR-010](../../../docs/adr/ADR-010-caching.md) §5.3 asked
+    /// for this from the start.</b> Tile cache lifetime was one global number —
+    /// an hour — applied to a cadastral reference layer and a live incident
+    /// layer alike. A-028 records why that cannot work: volatility is domain
+    /// knowledge nobody but the administrator has.
+    /// </para>
+    /// <para>
+    /// <b>Nullable, and null is not zero.</b> Null means <em>this layer has
+    /// never been told</em>, and the server's configured default applies. A
+    /// zero would mean <em>never cache</em>, which is a real and different
+    /// answer that an administrator may want for a layer that changes
+    /// continuously.
+    /// </para>
+    /// <para>
+    /// <b>On the layer rather than the service.</b> Tiles are cached per layer
+    /// and volatility is a property of the data, not of the container — a
+    /// service may hold a monthly boundary layer beside a live sensor layer,
+    /// and one number for both is the problem being fixed rather than a
+    /// smaller version of it.
+    /// </para>
+    /// <para><b>Expand.</b> One nullable column; nothing existing is touched.</para>
+    /// </remarks>
+    private static Migration TileLifetimeV13 => Migration.Expand(
+        new SchemaVersion(13),
+        "Per-layer tile cache lifetime, so volatility is set by whoever knows it.",
+
+        "alter table layer add column cache_seconds integer",
+
+        """
+        alter table layer add constraint layer_cache_seconds_not_negative
+          check (cache_seconds is null or cache_seconds >= 0)
+        """);
 }

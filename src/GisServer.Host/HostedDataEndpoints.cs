@@ -333,6 +333,11 @@ internal static class HostedDataEndpoints
     /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms.</param>
     /// <param name="Fields">Its attribute columns.</param>
     /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
+    /// <param name="CacheSeconds">
+    /// How long this layer's tiles stay fresh, or null for the server default.
+    /// Zero means never serve a cached tile. Asked here because whoever is
+    /// designing the layer knows how often it changes (D-25, A-028).
+    /// </param>
     /// <param name="ParentLayerId">
     /// A group layer inside that service to nest this layer under, or null for
     /// the top level. Create the group first with
@@ -351,7 +356,8 @@ internal static class HostedDataEndpoints
         IReadOnlyList<FieldDesign>? Fields,
         string? Sharing,
         string? ServiceName = null,
-        int? ParentLayerId = null);
+        int? ParentLayerId = null,
+        int? CacheSeconds = null);
 
     /// <summary>One designed column.</summary>
     /// <param name="Name">Its name.</param>
@@ -446,7 +452,8 @@ internal static class HostedDataEndpoints
                     string.IsNullOrWhiteSpace(design.ServiceName)
                         ? null
                         : design.ServiceName.Trim(),
-                    design.ParentLayerId),
+                    design.ParentLayerId,
+                    design.CacheSeconds),
                 current.Principal.Id,
                 cancellation).ConfigureAwait(false);
         }

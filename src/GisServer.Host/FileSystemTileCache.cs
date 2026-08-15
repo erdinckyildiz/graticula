@@ -50,7 +50,17 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     private readonly string _root;
     private readonly long _budget;
     private readonly long _perLayerBudget;
-    private readonly TimeSpan _lifetime;
+    /// <summary>
+    /// The lifetime used when a layer names none of its own.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept as a fallback rather than removed with D-25.</b> A layer that has
+    /// never had its volatility set still needs an answer, and the honest one is
+    /// the server's configured default — not "forever", which would serve stale
+    /// tiles indefinitely to anyone who forgot to set it.
+    /// </remarks>
+    public TimeSpan DefaultLifetime { get; }
+
     private readonly TimeProvider _clock;
     private readonly ILogger _log;
 
@@ -81,7 +91,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         _root = root;
         _budget = budget;
         _perLayerBudget = perLayerBudget;
-        _lifetime = lifetime;
+        DefaultLifetime = lifetime;
         _clock = clock;
         _log = loggerFactory.CreateLogger("tilecache");
 
@@ -89,7 +99,8 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task<CachedTile> ReadAsync(TileCacheKey key, CancellationToken cancellationToken)
+    public async Task<CachedTile> ReadAsync(
+        TileCacheKey key, TimeSpan lifetime, CancellationToken cancellationToken)
     {
         string path = System.IO.Path.Combine(_root, key.Path());
 
@@ -105,7 +116,14 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             // Expiry is read from the file rather than the index, so a cache
             // adopted from a previous run behaves the same as one this process
             // filled. Anything else makes a restart silently serve stale tiles.
-            if (_clock.GetUtcNow() - file.LastWriteTimeUtc > _lifetime)
+            // <b>Zero means never, including within the same tick.</b> A plain
+            // age comparison makes a freshly written entry younger than a
+            // zero lifetime by exactly nothing, and nothing is not greater than
+            // zero — so "never cache" served a cached tile for as long as the
+            // clock did not move. The header already said no-store; this is the
+            // half that decides what we ourselves hand back.
+            if (lifetime <= TimeSpan.Zero
+                || _clock.GetUtcNow() - file.LastWriteTimeUtc > lifetime)
             {
                 return CachedTile.Miss;
             }

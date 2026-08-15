@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>b80eea9</code> · 2026-08-15 12:45</p>
+<p class="stamp">Generated from commit <code>b6c0746</code> · 2026-08-15 13:11</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">17/69</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">735</div><div class="kpi-l">tests</div><div class="kpi-n">108 source files, 29,051 lines</div></div>
+<div class="kpi good"><div class="kpi-v">745</div><div class="kpi-l">tests</div><div class="kpi-n">108 source files, 29,333 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -229,7 +229,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-22</td><td>where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">When the query AST exists</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-24</td><td>layer.ishosted is a column nobody reads and every insert still writes.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-25</td><td>Tile cache TTL is one global number for every layer.</td><td class="muted-t">Before anybody publishes a layer that changes faster than the TTL</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -304,8 +303,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">192</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:69.8%"></div></div><div class="bar-n">134</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:66.1%"></div></div><div class="bar-n">127</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:73.4%"></div></div><div class="bar-n">141</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:67.7%"></div></div><div class="bar-n">130</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.6%"></div></div><div class="bar-n">103</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
@@ -313,6 +312,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b6c0746</code><time>2026-08-15</time><span>D-28: every data route now has to name what governs it</span></li>
 <li><code>b80eea9</code><time>2026-08-15</time><span>Q-97: overlay ships, bounded by a process rather than by a number</span></li>
 <li><code>4eebd6a</code><time>2026-08-15</time><span>the query link opens the form; the button runs the query</span></li>
 <li><code>3278f09</code><time>2026-08-15</time><span>the whole query surface, and the where clause that was refusing everybody</span></li>
@@ -326,7 +326,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4e04084</code><time>2026-08-15</time><span>related records: declared, validated, and one query rather than N+1</span></li>
 <li><code>59e03f2</code><time>2026-08-15</time><span>do not commit a session token</span></li>
 <li><code>467a4d9</code><time>2026-08-15</time><span>attachments, and the streaming requirement that turned out not to be free</span></li>
-<li><code>eb3a35f</code><time>2026-08-14</time><span>the layer designer screen, which is where the two ways into the datastore meet</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

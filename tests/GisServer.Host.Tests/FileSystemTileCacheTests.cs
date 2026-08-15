@@ -57,7 +57,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
         byte[] tile = Tile();
 
         await cache.WriteAsync(Key(), tile, CancellationToken.None);
-        CachedTile found = await cache.ReadAsync(Key(), CancellationToken.None);
+        CachedTile found = await cache.ReadAsync(Key(), Lifetime, CancellationToken.None);
 
         Assert.Equal(TileCacheOutcome.Hit, found.Outcome);
         Assert.Equal(tile, found.Bytes);
@@ -70,7 +70,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
         using FileSystemTileCache cache = Build();
 
         await cache.WriteAsync(Key(), [], CancellationToken.None);
-        CachedTile found = await cache.ReadAsync(Key(), CancellationToken.None);
+        CachedTile found = await cache.ReadAsync(Key(), Lifetime, CancellationToken.None);
 
         Assert.Equal(TileCacheOutcome.Empty, found.Outcome);
         Assert.True(found.Answered, "an empty tile is an answer, so the caller must not rebuild it");
@@ -96,8 +96,8 @@ public sealed class FileSystemTileCacheTests : IDisposable
         await cache.WriteAsync(Key(x: 1), Tile(10), CancellationToken.None);
         await cache.WriteAsync(Key(x: 2), Tile(20), CancellationToken.None);
 
-        Assert.Equal(10, (await cache.ReadAsync(Key(x: 1), CancellationToken.None)).Bytes.Length);
-        Assert.Equal(20, (await cache.ReadAsync(Key(x: 2), CancellationToken.None)).Bytes.Length);
+        Assert.Equal(10, (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Bytes.Length);
+        Assert.Equal(20, (await cache.ReadAsync(Key(x: 2), Lifetime, CancellationToken.None)).Bytes.Length);
     }
 
     // ---------- expiry ----------
@@ -112,7 +112,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await cache.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     // ---------- the fingerprint ----------
@@ -145,7 +145,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(after, CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(after, Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -189,10 +189,10 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(Key(x: 1), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await cache.ReadAsync(Key(layer: Other), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(layer: Other), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -250,13 +250,13 @@ public sealed class FileSystemTileCacheTests : IDisposable
         for (int i = 0; i < 6; i++)
         {
             _clock.Advance(TimeSpan.FromSeconds(1));
-            await cache.ReadAsync(Key(x: 1), CancellationToken.None);
+            await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None);
             await cache.WriteAsync(Key(x: 10 + i), Tile(100), CancellationToken.None);
         }
 
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await cache.ReadAsync(Key(x: 1), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -270,10 +270,10 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await cache.ReadAsync(Key(x: 1), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(Key(x: 2), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(x: 2), Lifetime, CancellationToken.None)).Outcome);
     }
 
     // ---------- surviving a restart ----------
@@ -296,7 +296,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
         Assert.Equal((2, 500L), second.Report(null));
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await second.ReadAsync(Key(x: 1), CancellationToken.None)).Outcome);
+            (await second.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -316,7 +316,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await second.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await second.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     // ---------- failing soft ----------
@@ -337,7 +337,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Miss,
-            (await cache.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     [Fact]
@@ -351,7 +351,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         Assert.Equal(
             TileCacheOutcome.Hit,
-            (await cache.ReadAsync(Key(), CancellationToken.None)).Outcome);
+            (await cache.ReadAsync(Key(), Lifetime, CancellationToken.None)).Outcome);
     }
 
     // ---------- reporting ----------
@@ -432,5 +432,56 @@ public sealed class FileSystemTileCacheTests : IDisposable
         {
             // A leaked temp directory is not worth failing a test run over.
         }
+    }
+
+    /// <summary>
+    /// Two layers with different volatility expire at different times.
+    /// </summary>
+    /// <remarks>
+    /// <b>D-25.</b> The lifetime used to be a property of the cache, so a
+    /// cadastral layer and an incident layer got the same answer — wrong in both
+    /// directions at once. It is now a parameter of the read, which is what lets
+    /// the administrator who knows set it (A-028).
+    /// </remarks>
+    [Fact]
+    public async Task Each_read_expires_by_the_lifetime_it_was_given()
+    {
+        FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), new byte[10], CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromMinutes(30));
+
+        // A layer that changes every minute: half an hour is long past stale.
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadAsync(Key(), TimeSpan.FromMinutes(1), CancellationToken.None)).Outcome);
+
+        // The same entry, for a layer that changes twice a year.
+        Assert.Equal(
+            TileCacheOutcome.Hit,
+            (await cache.ReadAsync(Key(), TimeSpan.FromDays(30), CancellationToken.None)).Outcome);
+    }
+
+    [Fact]
+    public async Task A_zero_lifetime_means_never_serve_from_cache()
+    {
+        // Distinct from "nobody has set one". An administrator asking for zero
+        // on a continuously changing layer is asking for something real.
+        FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), new byte[10], CancellationToken.None);
+
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadAsync(Key(), TimeSpan.Zero, CancellationToken.None)).Outcome);
+    }
+
+    [Fact]
+    public void The_configured_default_is_still_available_for_layers_that_name_none()
+    {
+        // Removing it entirely would leave a layer nobody has configured with no
+        // answer, and "forever" is the wrong one.
+        Assert.Equal(Lifetime, Build().DefaultLifetime);
     }
 }

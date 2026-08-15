@@ -35,7 +35,7 @@ public sealed class PostgresLayerCatalog
         -- second time, on the column that decides who sees what.
         s.owner_principal_id, s.sharing, s.status, l.attachment_quota_bytes,
         s.id, l.layer_index, s.name, s.folder, s.kind, s.description,
-        l.parent_layer_index
+        l.parent_layer_index, l.cache_seconds
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -171,7 +171,8 @@ public sealed class PostgresLayerCatalog
             reader.GetInt32(18),
             reader.GetString(19),
             reader.IsDBNull(20) ? null : reader.GetString(20),
-            reader.IsDBNull(23) ? null : reader.GetInt32(23));
+            reader.IsDBNull(23) ? null : reader.GetInt32(23),
+            reader.IsDBNull(24) ? null : TimeSpan.FromSeconds(reader.GetInt32(24)));
     }
 
     /// <summary>Every group layer, by the service that holds it.</summary>

@@ -42,7 +42,8 @@ internal sealed record PublishRequest(
     string? GeometryType,
     string? Sharing,
     string? ServiceName = null,
-    int? ParentLayerId = null);
+    int? ParentLayerId = null,
+    int? CacheSeconds = null);
 
 /// <summary>A group layer to create inside a service.</summary>
 /// <param name="Name">What to call it.</param>
@@ -60,6 +61,14 @@ internal sealed record ServiceRequest(
 
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
+
+/// <summary>How long a layer's tiles stay fresh.</summary>
+/// <param name="Seconds">
+/// Seconds, or null to fall back to the server default. <b>Zero is not
+/// null</b>: zero means never serve a cached tile, which is a real answer for
+/// a layer that changes continuously.
+/// </param>
+internal sealed record CacheLifetimeRequest(int? Seconds);
 
 /// <summary>
 /// The administrative surface (ADR-017).
@@ -98,6 +107,7 @@ internal static class AdminEndpoints
         app.MapPost("/admin/layers", PublishAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
+        app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -379,6 +389,76 @@ internal static class AdminEndpoints
                       + "layer cannot contain anything, and no client would know how to draw it."
                     : "A group layer cannot be its own parent.").ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Sets a layer's tile cache lifetime.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-25, and the number is domain knowledge rather than tuning.</b>
+    /// [ADR-010](../../docs/adr/ADR-010-caching.md) §5.3 says volatility is a
+    /// per-layer property set by the administrator, and A-028 records why: a
+    /// cadastral layer changes twice a year, an incident layer changes every
+    /// minute, and nobody but the person who publishes them knows which is
+    /// which. Until now it was one global hour, wrong in both directions.
+    /// </para>
+    /// <para>
+    /// <b>Publishing, not administration.</b> Whoever published the layer knows
+    /// how often it changes; requiring a server administrator to set it would
+    /// put the decision with the person who has the least information.
+    /// </para>
+    /// </remarks>
+    private static async Task SetCacheLifetimeAsync(
+        HttpContext context,
+        string name,
+        CacheLifetimeRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.Seconds is < 0)
+        {
+            await Refuse(context, 400,
+                "'seconds' cannot be negative. Use 0 for 'never serve a cached tile', or omit it "
+                + "to fall back to the server default.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetCacheLifetimeAsync(name, request.Seconds, cancellation)
+            .ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "layer.cache", name,
+            Detail(new { seconds = request.Seconds }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            cacheSeconds = request.Seconds,
+            note = request.Seconds switch
+            {
+                null => "This layer now uses the server's default tile lifetime.",
+                0 => "Tiles for this layer are never served from cache, and Cache-Control says "
+                     + "no-store so nothing downstream keeps one either.",
+                _ => "Tiles for this layer expire after this many seconds, here and in every "
+                     + "cache downstream — the same number is sent as Cache-Control max-age. "
+                     + "Nothing was purged: changing freshness does not make a cached tile wrong.",
+            },
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Every service that is not a layer, and how it is shared.</summary>

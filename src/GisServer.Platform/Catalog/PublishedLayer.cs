@@ -30,7 +30,8 @@ public sealed class PublishedLayer
         int layerIndex = 0,
         string? serviceName = null,
         string? folder = null,
-        int? parentIndex = null)
+        int? parentIndex = null,
+        TimeSpan? cacheLifetime = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -50,7 +51,19 @@ public sealed class PublishedLayer
         ServiceName = serviceName ?? definition.Name;
         Folder = folder;
         ParentIndex = parentIndex;
+        CacheLifetime = cacheLifetime;
     }
+
+    /// <summary>
+    /// How long this layer's tiles stay fresh, or null for the server default.
+    /// </summary>
+    /// <remarks>
+    /// <b>Null and zero are different answers.</b> Null is <em>nobody has
+    /// said</em>; zero is <em>never cache this</em>, which is what an
+    /// administrator wants for a layer that changes continuously. Collapsing
+    /// them would make it impossible to ask for the second.
+    /// </remarks>
+    public TimeSpan? CacheLifetime { get; }
 
     /// <summary>The group layer above it, or null when it sits at the top.</summary>
     public int? ParentIndex { get; }

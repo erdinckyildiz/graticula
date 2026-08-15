@@ -146,16 +146,17 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                   and coalesce(lower(s.folder), '') = coalesce(lower(f.name), '')
             ),
             created as (
-                insert into service (id, name, folder, kind, owner_principal_id, sharing)
-                select gen_random_uuid(), @service, f.name, 'FeatureServer', @owner, @sharing
+                -- next_layer_index starts at 1 because this statement is about
+                -- to put a layer at 0. See `slot` for why it cannot be bumped
+                -- afterwards.
+                insert into service
+                    (id, name, folder, kind, owner_principal_id, sharing, next_layer_index)
+                select gen_random_uuid(), @service, f.name, 'FeatureServer', @owner, @sharing, 1
                 from folder f
                 where not exists (select 1 from existing)
-                returning id
+                returning id, 0 as layer_index
             ),
-            target as (
-                select id from existing union all select id from created
-            ),
-            slot as (
+            bumped as (
                 -- <b>The index comes from a counter on the service row, not from
                 -- max(index) + 1.</b> Group layers and feature layers live in
                 -- different tables and cannot share a unique constraint, so a
@@ -167,17 +168,33 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 -- again to something new.
                 update service
                 set next_layer_index = next_layer_index + 1, updated_at = now()
-                where id = (select id from target)
+                where id = (select id from existing)
                 returning id, next_layer_index - 1 as layer_index
+            ),
+            slot as (
+                -- <b>Two branches, because one statement cannot update a row it
+                -- just inserted.</b> Every data-modifying CTE sees the same
+                -- snapshot, so an `update service` that targeted the row
+                -- `created` had produced matched nothing — and the layer insert,
+                -- selecting from an empty slot, inserted nothing. The result was
+                -- a service created with no layers and a 201 saying it worked,
+                -- which is exactly what publishing into a brand-new service did
+                -- from the moment the counter was introduced. It went unnoticed
+                -- because every test afterwards published into a service that
+                -- already existed.
+                select id, layer_index from bumped
+                union all
+                select id, layer_index from created
             )
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type, is_hosted,
-               owner_principal_id, sharing, service_id, layer_index, parent_layer_index)
+               owner_principal_id, sharing, service_id, layer_index, parent_layer_index,
+               cache_seconds)
             select
                @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type, false,
-               @owner, @sharing, slot.id, slot.layer_index, @parent
+               @owner, @sharing, slot.id, slot.layer_index, @parent, @cache
             from slot
             returning layer_index
             """;
@@ -187,6 +204,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("service", publication.ServiceName ?? publication.Name);
         command.Parameters.AddWithValue(
             "parent", (object?)publication.ParentLayerIndex ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "cache", (object?)publication.CacheSeconds ?? DBNull.Value);
         command.Parameters.AddWithValue("source", publication.DataSourceId);
         command.Parameters.AddWithValue("name", publication.Name);
         command.Parameters.AddWithValue("schema", publication.SchemaName);
@@ -208,6 +227,21 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             id,
             publication.ServiceName ?? publication.Name,
             index is int at ? at : 0);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetCacheLifetimeAsync(
+        string name, int? seconds, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set cache_seconds = @seconds, updated_at = now() where name = @name");
+
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("seconds", (object?)seconds ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
     /// <inheritdoc/>

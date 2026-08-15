@@ -34,6 +34,13 @@ public readonly record struct RegisteredDataSource(
 /// <param name="Srid">Its SRID.</param>
 /// <param name="GeometryType">Its declared geometry type.</param>
 /// <param name="Sharing">Who may read it.</param>
+/// <param name="CacheSeconds">
+/// How long this layer's tiles stay fresh, or null for the server default.
+/// <b>Asked at publish time because that is when somebody knows.</b> D-25 and
+/// A-028: volatility is domain knowledge held by whoever is publishing, and the
+/// alternative is that it is never set at all — a default nobody chose, applied
+/// to a layer somebody could have described in one number.
+/// </param>
 /// <param name="ParentLayerIndex">
 /// A group layer to nest this layer under, or null to put it at the top level.
 /// The index must already name a group in the same service; the database
@@ -61,7 +68,8 @@ public sealed record LayerPublication(
     GeometryKind GeometryType,
     SharingScope Sharing,
     string? ServiceName = null,
-    int? ParentLayerIndex = null);
+    int? ParentLayerIndex = null,
+    int? CacheSeconds = null);
 
 /// <summary>Where a freshly created group layer lives.</summary>
 /// <param name="Id">Its catalogue identity.</param>
@@ -184,6 +192,22 @@ public interface IAdminCatalog
     /// <returns>Where the layer landed.</returns>
     Task<PublishedLayerAddress> PublishLayerAsync(
         LayerPublication publication, Guid owner, CancellationToken cancellationToken);
+
+    /// <summary>Sets how long a layer's tiles stay fresh.</summary>
+    /// <param name="name">The layer's name.</param>
+    /// <param name="seconds">Seconds, or null to fall back to the server default.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer existed.</returns>
+    /// <remarks>
+    /// <b>No purge afterwards, deliberately.</b> Changing how long a tile stays
+    /// fresh does not make any cached byte wrong — it changes when the next read
+    /// decides an entry is stale. Purging would throw away a seeded pyramid to
+    /// apply a number that does not affect content, which is the same reasoning
+    /// [ADR-010](../../../docs/adr/ADR-010-caching.md) §5.1 gets right for
+    /// sharing changes and would get wrong here.
+    /// </remarks>
+    Task<bool> SetCacheLifetimeAsync(
+        string name, int? seconds, CancellationToken cancellationToken);
 
     /// <summary>Creates an empty service.</summary>
     /// <param name="name">Its name within the folder.</param>
