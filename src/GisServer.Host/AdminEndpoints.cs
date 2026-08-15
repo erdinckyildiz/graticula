@@ -41,7 +41,22 @@ internal sealed record PublishRequest(
     int Srid,
     string? GeometryType,
     string? Sharing,
-    string? ServiceName = null);
+    string? ServiceName = null,
+    int? ParentLayerId = null);
+
+/// <summary>A group layer to create inside a service.</summary>
+/// <param name="Name">What to call it.</param>
+/// <param name="Folder">Which folder the service is in, or null for the root.</param>
+/// <param name="ParentLayerId">A group to nest it under, or null for the top level.</param>
+internal sealed record GroupLayerRequest(string? Name, string? Folder, int? ParentLayerId);
+
+/// <summary>An empty service to create.</summary>
+/// <param name="Name">Its name within the folder.</param>
+/// <param name="Folder">Its folder, or null for the root.</param>
+/// <param name="Description">What it is for, or null.</param>
+/// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
+internal sealed record ServiceRequest(
+    string? Name, string? Folder, string? Description, string? Sharing);
 
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
@@ -96,6 +111,202 @@ internal static class AdminEndpoints
         // and was therefore governed by nothing.
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+
+        // Group layers. Owner request 2026-08-15: "enable group layers also."
+        app.MapPost("/admin/featureservices", CreateServiceAsync);
+        app.MapPost("/admin/services/{name}/groups", CreateGroupLayerAsync);
+    }
+
+    /// <summary>
+    /// Creates an empty service, ready for groups and layers.
+    /// </summary>
+    /// <remarks>
+    /// <b>At <c>/admin/featureservices</c>, not <c>/admin/services</c>.</b> That
+    /// path already lists the system services — the geometry service and
+    /// whatever joins it — and those are a different kind of thing: they have no
+    /// layers, are not published by anybody, and cannot be created. One path
+    /// covering both would make <c>GET</c> and <c>POST</c> on the same URL
+    /// return and accept unrelated shapes.
+    /// </remarks>
+    private static async Task CreateServiceAsync(
+        HttpContext context,
+        ServiceRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
+            return;
+        }
+
+        SharingScope scope = SharingScope.Private;
+
+        if (request.Sharing is not null
+            && !TryReadScope(request.Sharing, out scope, out string? error))
+        {
+            await Refuse(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        // Opening a service to the public is the same act whether it is done at
+        // creation or afterwards, so it takes the same privilege.
+        if (scope != SharingScope.Private)
+        {
+            Privilege needed = scope == SharingScope.Public
+                ? Privilege.SharingShareToPublic
+                : Privilege.SharingShareToOrganization;
+
+            if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        string? folder = string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim();
+        string name = request.Name.Trim();
+
+        Guid? id = await catalog.CreateServiceAsync(
+            name, folder, request.Description, scope, current.Principal.Id, cancellation)
+            .ConfigureAwait(false);
+
+        if (id is not { } created)
+        {
+            await AuditAsync(
+                context, audit, "service.create", name,
+                Detail(new { folder }), succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(context, 409,
+                $"A service named '{name}' already exists"
+                + (folder is null ? " at the root." : $" in folder '{folder}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.create", name,
+            Detail(new { folder, sharing = PostgresSharing(scope) }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(
+            new
+            {
+                id = created,
+                name,
+                folder,
+                sharing = PostgresSharing(scope),
+                url = folder is null
+                    ? $"/rest/services/{name}/FeatureServer"
+                    : $"/rest/services/{folder}/{name}/FeatureServer",
+                note = "The service has no layers yet. Add group layers with "
+                     + $"POST /admin/services/{name}/groups, and layers by publishing with "
+                     + "serviceName set to this service.",
+            },
+            statusCode: StatusCodes.Status201Created)
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Creates a group layer inside a service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Publishing, not administration.</b> Adding a group is arranging your
+    /// own content, which is what <c>content:publishFeatures</c> covers — the
+    /// same privilege that put the layers there. Requiring an administrative
+    /// privilege to tidy them into folders would mean the person who published
+    /// three layers cannot group them.
+    /// </para>
+    /// <para>
+    /// <b>A bad parent is refused by the database, and the message says so
+    /// plainly.</b> The foreign key requires the parent index to name a group in
+    /// the same service, so naming a feature layer as a parent — which no client
+    /// knows how to draw — cannot be written at all.
+    /// </para>
+    /// </remarks>
+    private static async Task CreateGroupLayerAsync(
+        HttpContext context,
+        string name,
+        GroupLayerRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            GroupLayerAddress? created = await catalog.CreateGroupLayerAsync(
+                string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim(),
+                name,
+                request.Name.Trim(),
+                request.ParentLayerId,
+                cancellation).ConfigureAwait(false);
+
+            if (created is not { } address)
+            {
+                await Refuse(context, 404,
+                    $"No service '{name}'"
+                    + (string.IsNullOrWhiteSpace(request.Folder)
+                        ? " at the root. Pass 'folder' if it is in one, e.g. \"hosted\"."
+                        : $" in folder '{request.Folder}'.")).ConfigureAwait(false);
+                return;
+            }
+
+            await AuditAsync(
+                context, audit, "service.group.create", $"{name}/{address.LayerIndex}",
+                Detail(new { group = request.Name, parent = request.ParentLayerId }),
+                succeeded: true, cancellation).ConfigureAwait(false);
+
+            await Results.Json(
+                new
+                {
+                    id = address.Id,
+                    name = request.Name,
+                    layerId = address.LayerIndex,
+                    parentLayerId = request.ParentLayerId ?? -1,
+                    type = "Group Layer",
+                },
+                statusCode: StatusCodes.Status201Created)
+                .ExecuteAsync(context).ConfigureAwait(false);
+        }
+        catch (PostgresException e) when (e.SqlState is "23503" or "23514")
+        {
+            await AuditAsync(
+                context, audit, "service.group.create", name,
+                Detail(new { sqlState = e.SqlState }), succeeded: false, cancellation)
+                .ConfigureAwait(false);
+
+            await Refuse(context, 400,
+                e.SqlState == "23503"
+                    ? $"Layer {request.ParentLayerId} of '{name}' is not a group layer, or does "
+                      + "not exist. A group can only be nested inside another group — a feature "
+                      + "layer cannot contain anything, and no client would know how to draw it."
+                    : "A group layer cannot be its own parent.").ConfigureAwait(false);
+        }
     }
 
     /// <summary>Every service that is not a layer, and how it is shared.</summary>

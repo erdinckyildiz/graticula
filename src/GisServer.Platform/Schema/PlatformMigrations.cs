@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(11);
+    public static SchemaVersion ComponentSchemaVersion => new(12);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -46,6 +46,7 @@ public static class PlatformMigrations
         RelationshipsV9,
         SystemServicesV10,
         ServicesV11,
+        GroupLayersV12,
     ]);
 
     /// <summary>
@@ -832,4 +833,95 @@ public static class PlatformMigrations
         alter table layer add constraint layer_name_unique_in_service
           unique (service_id, name)
         """);
+
+    /// <summary>
+    /// Group layers: a service's layer list becomes a tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner request, 2026-08-15: "enable group layers also."</b> The
+    /// screenshot behind the previous correction showed exactly this — one
+    /// service whose first entry contained three others — and the previous
+    /// migration flattened it, on the mistaken grounds that group layers were a
+    /// MapServer concept. ArcGIS documents <c>type: "Group Layer"</c> with
+    /// <c>subLayerIds</c> for feature services too.
+    /// </para>
+    /// <para>
+    /// <b>A group layer holds no data, so it is not a row in <c>layer</c>.</b>
+    /// Putting it there would mean making <c>data_source_id</c>,
+    /// <c>schema_name</c>, <c>table_name</c>, <c>geometry_column</c> and
+    /// <c>srid</c> nullable — five columns that are currently guaranteed and
+    /// that every reader would then have to defend against — to store a row that
+    /// is a name and a parent. The tables are separate and the thing they share
+    /// is the number.
+    /// </para>
+    /// <para>
+    /// <b>Which makes index allocation the real problem, and
+    /// <c>next_layer_index</c> the answer.</b> Two tables cannot share a unique
+    /// constraint, so nothing at the database level would stop a group and a
+    /// feature layer both taking index 3 — and <c>/FeatureServer/3</c> would then
+    /// be ambiguous. Computing <c>max(index) + 1</c> across both tables reads
+    /// correct and races: two concurrent publishes see the same maximum. A
+    /// counter on the service row makes allocation a single <c>update … returning</c>,
+    /// which takes a row lock and therefore serialises. It also gives
+    /// <em>never reused</em> for free — the counter does not go backwards when a
+    /// layer is removed, and a saved web map that stored index 2 can never be
+    /// silently repointed at something new.
+    /// </para>
+    /// <para>
+    /// <b>Cycles are impossible by construction rather than by a check.</b> A
+    /// parent must already exist when its child is created — that is what the
+    /// foreign key says — and nothing can be re-parented. A cycle needs one of
+    /// those two to be false. If re-parenting is ever added, it needs its own
+    /// guard, and this paragraph is where to look for why.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> One new table and two new columns; the counter is
+    /// backfilled from what each service already has, so nothing is renumbered.
+    /// </para>
+    /// </remarks>
+    private static Migration GroupLayersV12 => Migration.Expand(
+        new SchemaVersion(12),
+        "Group layers, so a service's layer list can be a tree as ArcGIS's is.",
+
+        "alter table service add column next_layer_index integer not null default 0",
+
+        """
+        update service s
+        set next_layer_index =
+            coalesce((select max(l.layer_index) + 1 from layer l where l.service_id = s.id), 0)
+        """,
+
+        """
+        create table group_layer (
+            id                 uuid        not null primary key,
+            service_id         uuid        not null references service (id) on delete cascade,
+            layer_index        integer     not null,
+            name               text        not null,
+            parent_layer_index integer,
+            created_at         timestamptz not null default now(),
+            constraint group_layer_name_not_blank check (length(btrim(name)) > 0),
+            constraint group_layer_index_unique unique (service_id, layer_index),
+            constraint group_layer_not_its_own_parent check (parent_layer_index <> layer_index)
+        )
+        """,
+
+        // The parent of anything is a group layer, and the database says so.
+        // Without this a client could be handed a subLayerIds list naming a
+        // feature layer as a container, which no client knows how to draw.
+        """
+        alter table group_layer add constraint group_layer_parent_is_a_group
+          foreign key (service_id, parent_layer_index)
+          references group_layer (service_id, layer_index)
+        """,
+
+        "alter table layer add column parent_layer_index integer",
+
+        """
+        alter table layer add constraint layer_parent_is_a_group
+          foreign key (service_id, parent_layer_index)
+          references group_layer (service_id, layer_index)
+        """,
+
+        "create index group_layer_service_idx on group_layer (service_id)");
 }

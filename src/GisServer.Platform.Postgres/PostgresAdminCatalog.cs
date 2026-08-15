@@ -154,23 +154,39 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             ),
             target as (
                 select id from existing union all select id from created
+            ),
+            slot as (
+                -- <b>The index comes from a counter on the service row, not from
+                -- max(index) + 1.</b> Group layers and feature layers live in
+                -- different tables and cannot share a unique constraint, so a
+                -- maximum computed across both races: two concurrent publishes
+                -- read the same number and both succeed, and /FeatureServer/3
+                -- becomes ambiguous. This update takes the service's row lock,
+                -- which serialises allocation — and the counter never goes
+                -- backwards, so an index freed by a removal is never handed out
+                -- again to something new.
+                update service
+                set next_layer_index = next_layer_index + 1, updated_at = now()
+                where id = (select id from target)
+                returning id, next_layer_index - 1 as layer_index
             )
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type, is_hosted,
-               owner_principal_id, sharing, service_id, layer_index)
+               owner_principal_id, sharing, service_id, layer_index, parent_layer_index)
             select
                @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type, false,
-               @owner, @sharing, t.id,
-               coalesce((select max(l.layer_index) + 1 from layer l where l.service_id = t.id), 0)
-            from target t
+               @owner, @sharing, slot.id, slot.layer_index, @parent
+            from slot
             returning layer_index
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("service", publication.ServiceName ?? publication.Name);
+        command.Parameters.AddWithValue(
+            "parent", (object?)publication.ParentLayerIndex ?? DBNull.Value);
         command.Parameters.AddWithValue("source", publication.DataSourceId);
         command.Parameters.AddWithValue("name", publication.Name);
         command.Parameters.AddWithValue("schema", publication.SchemaName);
@@ -192,6 +208,89 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             id,
             publication.ServiceName ?? publication.Name,
             index is int at ? at : 0);
+    }
+
+    /// <inheritdoc/>
+    public async Task<Guid?> CreateServiceAsync(
+        string name,
+        string? folder,
+        string? description,
+        SharingScope sharing,
+        Guid owner,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        Guid id = Guid.NewGuid();
+
+        // on conflict do nothing against the (folder, lower(name)) index, so a
+        // repeated create is a 409 rather than a second service that nobody can
+        // address unambiguously.
+        const string Sql = """
+            insert into service (id, name, folder, kind, description, owner_principal_id, sharing)
+            values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing)
+            on conflict do nothing
+            returning id
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("sharing", Wire(sharing));
+
+        object? created = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return created is Guid made ? made : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<GroupLayerAddress?> CreateGroupLayerAsync(
+        string? folder,
+        string serviceName,
+        string name,
+        int? parentLayerIndex,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        Guid id = Guid.NewGuid();
+
+        // Same counter, same row lock, same guarantee as publishing a layer:
+        // one index, allocated once, never reused.
+        const string Sql = """
+            with target as (
+                select id from service
+                where lower(name) = lower(@service)
+                  and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            ),
+            slot as (
+                update service
+                set next_layer_index = next_layer_index + 1, updated_at = now()
+                where id = (select id from target)
+                returning id, next_layer_index - 1 as layer_index
+            )
+            insert into group_layer (id, service_id, layer_index, name, parent_layer_index)
+            select @id, slot.id, slot.layer_index, @name, @parent
+            from slot
+            returning layer_index
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("service", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("parent", (object?)parentLayerIndex ?? DBNull.Value);
+
+        object? index = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        // No rows means no such service. The foreign key covers a parent that is
+        // not a group; this covers a service that is not there at all.
+        return index is int at ? new GroupLayerAddress(id, at) : null;
     }
 
     /// <inheritdoc/>

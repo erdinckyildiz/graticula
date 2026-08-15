@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>9706f38</code> · 2026-08-15 09:07</p>
+<p class="stamp">Generated from commit <code>02434a6</code> · 2026-08-15 09:43</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
@@ -118,7 +118,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">621</div><div class="kpi-l">tests</div><div class="kpi-n">101 source files, 23,559 lines</div></div>
+<div class="kpi good"><div class="kpi-v">632</div><div class="kpi-l">tests</div><div class="kpi-n">101 source files, 24,488 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -234,7 +234,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-28</td><td>Nothing structurally prevents the next service without a layer from shipping ungoverned.</td><td class="muted-t">Before a third kind of service is added — a MapServer, a print service, a tile-package service</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-30</td><td>A layer cannot be moved between services, renumbered, or removed from a service without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-30</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -305,14 +305,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">152</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.2%"></div></div><div class="bar-n">134</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:63.8%"></div></div><div class="bar-n">97</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:67.1%"></div></div><div class="bar-n">102</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:50.7%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.0%"></div></div><div class="bar-n">76</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:39.5%"></div></div><div class="bar-n">60</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">66</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:14.5%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>02434a6</code><time>2026-08-15</time><span>a service is a container of layers, which is what a service is</span></li>
 <li><code>9706f38</code><time>2026-08-15</time><span>the service list a browser can read, and the service nothing was guarding</span></li>
 <li><code>741f4ad</code><time>2026-08-15</time><span>the licensing gate passes, the consistency gate fails, and composite stops lying</span></li>
 <li><code>7fc1b9c</code><time>2026-08-15</time><span>contradiction sweep round 2, and three carried debts that were carrying wrong numbers</span></li>
@@ -326,7 +327,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7ae23fe</code><time>2026-08-14</time><span>GeometryServer, the half of it that cannot be used as a weapon</span></li>
 <li><code>d85dbe1</code><time>2026-08-14</time><span>A-042 invalidated: a vertex cap is not a control, and the proof took the host down</span></li>
 <li><code>7ef4990</code><time>2026-08-14</time><span>the tile cache: 4x, and the row of ADR-010 I refused to implement</span></li>
-<li><code>fff97c0</code><time>2026-08-14</time><span>tiles in another projection: silently empty, now refused</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

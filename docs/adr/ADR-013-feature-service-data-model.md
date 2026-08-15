@@ -287,12 +287,48 @@ The model now:
   layer, so adding a fourth layer does not serve three-layer tiles from every
   warm entry in the pyramid.
 
-**Group layers are not part of this.** The screenshot shows nesting —
-`EarlyAlert_Reports_HD (0)` with `GeoPoint (1)`, `GeoLine (2)`, `GeoFence (3)`
-beneath it — and that is a `MapServer` group layer, which is a MapServer concept.
-MapServer is not in [v1-scope](../v1-scope.md). FeatureServer's layer list is
-flat, and `parentLayerId: -1` with `subLayerIds: null` is written out rather than
-omitted so a client reads *no parent* instead of *unknown*.
+### 4g-i. Group layers — added the same day, after being wrongly scoped out
+
+**§4g said group layers were a MapServer concept and out of v1. That was
+wrong**, and the owner's next message — *"enable group layers also"* — is what
+prompted checking. ArcGIS documents `type: "Group Layer"` with `subLayerIds` and
+`parentLayerId` for feature services, not only map services. The nesting in the
+screenshot was the shape being asked for, and reading it as a MapServer artefact
+threw away the part of the request that carried the structure.
+
+A service's layer list is now a tree:
+
+- A **group layer** holds no data: a name, an index, and a parent. It is not a
+  row in `layer`, because putting it there would mean making `data_source_id`,
+  `schema_name`, `table_name`, `geometry_column` and `srid` nullable — five
+  columns every reader currently gets to assume — to store two fields.
+- **One numbering across both**, because `/FeatureServer/{id}` has to resolve to
+  exactly one thing. Two tables cannot share a unique constraint, so the index
+  comes from a **counter on the service row** (`next_layer_index`), allocated by
+  a single `update … returning` that takes the row lock. `max(index) + 1` across
+  both tables reads correct and races. The counter also never goes backwards,
+  which is where *never reused* stops being a convention and becomes a fact.
+- **The JSON is flat and the structure is in the fields**, which is ArcGIS's
+  shape: one `layers` array holding groups and feature layers, with
+  `parentLayerId` and `subLayerIds` carrying the tree. `-1` means *no parent*;
+  `null` would mean *unknown*, and clients treat those differently.
+- **A group answers at its own index**, as a `Group Layer` document with its
+  children and no `fields`. The service document advertises the id, so 404ing on
+  it would be the service contradicting itself. **Querying one is a 400** that
+  names the group and points at `subLayerIds` — an empty result would read as
+  *this group has no features* and send somebody hunting for missing data.
+- **Cycles are impossible by construction, not by a check.** A parent must
+  already exist when its child is created — a foreign key says so — and nothing
+  can be re-parented (D-30). A cycle needs one of those to be false; if
+  re-parenting is added, it needs its own guard.
+- **Empty services exist now**, because the tree is built downwards: a group
+  needs a service, and a nested layer needs the group, so the first thing
+  created cannot be a layer. `POST /admin/featureservices` makes one.
+
+**A group is not a way to share differently.** Sharing stays on the service
+(§4g), so grouping is presentation and nothing else. A group that could be
+private inside a public service would be an authorization boundary drawn in a
+place no client enforces.
 
 ---
 

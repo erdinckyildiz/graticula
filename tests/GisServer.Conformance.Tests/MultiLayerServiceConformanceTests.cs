@@ -217,4 +217,163 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
                         s.GetProperty("type").GetString(), "FeatureServer", StringComparison.Ordinal))
                 .ToArray());
     }
+
+    // ---------- group layers ----------
+
+    /// <summary>
+    /// Set to a service containing a group layer, e.g. <c>hosted/EarlyAlert</c>.
+    /// </summary>
+    public const string GroupedVariable = "GISSERVER_TEST_GROUPED";
+
+    private async Task<(string Service, JsonElement Document)> GroupedAsync()
+    {
+        string? name = Environment.GetEnvironmentVariable(GroupedVariable);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(name),
+            $"{GroupedVariable} is not set, so these tests FAIL rather than skip. Name a service "
+            + "with a group layer in it. Group layers exist to carry structure, and structure is "
+            + "the thing that silently flattens.");
+
+        return (name!, await GetJsonAsync($"/rest/services/{name}/FeatureServer"));
+    }
+
+    [Fact]
+    public async Task A_group_layer_appears_in_the_same_list_as_the_feature_layers()
+    {
+        // ArcGIS's shape: one flat array, one numbering, structure carried by
+        // parentLayerId and subLayerIds. A separate "groups" array would be our
+        // invention and no client would read it.
+        (_, JsonElement document) = await GroupedAsync();
+
+        JsonElement[] entries = [.. document.GetProperty("layers").EnumerateArray()];
+
+        Assert.Contains(entries, e => e.GetProperty("type").GetString() == "Group Layer");
+        Assert.Contains(entries, e => e.GetProperty("type").GetString() == "Feature Layer");
+
+        // One numbering across both kinds. A repeated id makes /FeatureServer/{id}
+        // ambiguous, which is the failure two tables and no shared constraint
+        // would produce.
+        int[] ids = [.. entries.Select(e => e.GetProperty("id").GetInt32())];
+        Assert.Equal(ids.Length, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Parent_and_child_agree_with_each_other()
+    {
+        // The two directions are stored once and written twice, so they can
+        // disagree — and a client that trusts subLayerIds would then draw a
+        // layer under a group that does not claim it.
+        (_, JsonElement document) = await GroupedAsync();
+
+        JsonElement[] entries = [.. document.GetProperty("layers").EnumerateArray()];
+
+        foreach (JsonElement entry in entries)
+        {
+            int id = entry.GetProperty("id").GetInt32();
+            int parent = entry.GetProperty("parentLayerId").GetInt32();
+
+            if (parent < 0)
+            {
+                continue;
+            }
+
+            JsonElement above = Assert.Single(
+                entries.Where(e => e.GetProperty("id").GetInt32() == parent).ToArray());
+
+            Assert.Equal("Group Layer", above.GetProperty("type").GetString());
+
+            int[] children =
+            [
+                .. above.GetProperty("subLayerIds").EnumerateArray().Select(c => c.GetInt32()),
+            ];
+
+            Assert.Contains(id, children);
+        }
+    }
+
+    [Fact]
+    public async Task Every_sub_layer_id_names_something_that_exists()
+    {
+        // A client follows these. One pointing at nothing is a broken tree that
+        // renders as a missing layer with no error anywhere.
+        (string service, JsonElement document) = await GroupedAsync();
+
+        JsonElement[] entries = [.. document.GetProperty("layers").EnumerateArray()];
+        int[] ids = [.. entries.Select(e => e.GetProperty("id").GetInt32())];
+
+        foreach (JsonElement entry in entries)
+        {
+            if (entry.GetProperty("subLayerIds").ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement child in entry.GetProperty("subLayerIds").EnumerateArray())
+            {
+                Assert.Contains(child.GetInt32(), ids);
+
+                // And it answers, which is the claim the list is making.
+                _ = await GetJsonAsync(
+                    $"/rest/services/{service}/FeatureServer/{child.GetInt32()}");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task A_group_layer_answers_at_its_own_id_as_a_group()
+    {
+        // A 404 for an id the service itself advertised is the kind of
+        // self-contradiction that makes a client abandon the whole service.
+        (string service, JsonElement document) = await GroupedAsync();
+
+        JsonElement group = document.GetProperty("layers").EnumerateArray()
+            .First(e => e.GetProperty("type").GetString() == "Group Layer");
+
+        int id = group.GetProperty("id").GetInt32();
+
+        JsonElement fetched = await GetJsonAsync($"/rest/services/{service}/FeatureServer/{id}");
+
+        Assert.Equal("Group Layer", fetched.GetProperty("type").GetString());
+        Assert.Equal(id, fetched.GetProperty("id").GetInt32());
+
+        // No fields, because it has no data — absent rather than empty, which is
+        // the difference between "none" and "not applicable".
+        Assert.False(fetched.TryGetProperty("fields", out _));
+    }
+
+    [Fact]
+    public async Task Querying_a_group_layer_is_refused_and_says_why()
+    {
+        // Not an empty result, which would read as "the group has no features"
+        // and send somebody looking for missing data.
+        (string service, JsonElement document) = await GroupedAsync();
+
+        int id = document.GetProperty("layers").EnumerateArray()
+            .First(e => e.GetProperty("type").GetString() == "Group Layer")
+            .GetProperty("id").GetInt32();
+
+        Assert.Equal(
+            400,
+            await StatusOfAsync(
+                $"/rest/services/{service}/FeatureServer/{id}/query?where=1%3D1&f=json"));
+    }
+
+    [Fact]
+    public async Task A_group_layer_declares_no_geometry_type()
+    {
+        // A group drawn as a feature layer of unknown geometry is the failure a
+        // defaulted type would produce.
+        (_, JsonElement document) = await GroupedAsync();
+
+        foreach (JsonElement entry in document.GetProperty("layers").EnumerateArray())
+        {
+            if (entry.GetProperty("type").GetString() != "Group Layer")
+            {
+                continue;
+            }
+
+            Assert.Equal(JsonValueKind.Null, entry.GetProperty("geometryType").ValueKind);
+        }
+    }
 }

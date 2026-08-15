@@ -5,6 +5,20 @@ using GisServer.Platform.Identity;
 
 namespace GisServer.Platform.Catalog;
 
+/// <summary>A group layer: a name with layers under it, and no data of its own.</summary>
+/// <param name="Id">Its catalogue identity.</param>
+/// <param name="Index">Its number within the service — the URL segment.</param>
+/// <param name="Name">What it is called.</param>
+/// <param name="ParentIndex">The group above it, or null at the top.</param>
+/// <remarks>
+/// <b>It holds no data, which is why it is not a <see cref="PublishedLayer"/>.</b>
+/// A group layer is organisation: it has no table, no geometry, no fields and
+/// nothing to query. Modelling it as a layer with all of that nulled out would
+/// make five guaranteed columns optional everywhere, to store a name and a
+/// parent.
+/// </remarks>
+public readonly record struct GroupLayer(Guid Id, int Index, string Name, int? ParentIndex);
+
 /// <summary>
 /// A service: a named, shared, startable container of layers.
 /// </summary>
@@ -42,6 +56,7 @@ public sealed class PublishedService
     /// <param name="sharing">Who may read it.</param>
     /// <param name="status">Whether it is served.</param>
     /// <param name="layers">Its layers, in any order.</param>
+    /// <param name="groups">Its group layers, in any order.</param>
     public PublishedService(
         Guid id,
         string name,
@@ -51,7 +66,8 @@ public sealed class PublishedService
         Guid? owner,
         SharingScope sharing,
         ServiceStatus status,
-        IEnumerable<PublishedLayer> layers)
+        IEnumerable<PublishedLayer> layers,
+        IEnumerable<GroupLayer>? groups = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -66,6 +82,7 @@ public sealed class PublishedService
         Sharing = sharing;
         Status = status;
         Layers = [.. layers.OrderBy(l => l.LayerIndex)];
+        Groups = [.. (groups ?? []).OrderBy(g => g.Index)];
     }
 
     /// <summary>The catalogue identity.</summary>
@@ -94,6 +111,60 @@ public sealed class PublishedService
 
     /// <summary>Its layers, ordered by index.</summary>
     public IReadOnlyList<PublishedLayer> Layers { get; }
+
+    /// <summary>Its group layers, ordered by index.</summary>
+    public IReadOnlyList<GroupLayer> Groups { get; }
+
+    /// <summary>The group at this index, or null.</summary>
+    /// <param name="index">The number from the URL.</param>
+    /// <returns>The group, or null if the index is not a group.</returns>
+    public GroupLayer? Group(int index)
+    {
+        foreach (GroupLayer group in Groups)
+        {
+            if (group.Index == index)
+            {
+                return group;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The indices directly under a group, or under the root when null.
+    /// </summary>
+    /// <param name="parent">The group's index, or null for the top level.</param>
+    /// <returns>The children, in index order.</returns>
+    /// <remarks>
+    /// <b>Direct children only.</b> ArcGIS's <c>subLayerIds</c> is one level: a
+    /// nested group appears in its parent's list, and its own children appear in
+    /// its own. Flattening the tree here would list a grandchild twice and draw
+    /// it under both.
+    /// </remarks>
+    public IReadOnlyList<int> ChildrenOf(int? parent)
+    {
+        List<int> children = [];
+
+        foreach (GroupLayer group in Groups)
+        {
+            if (group.ParentIndex == parent)
+            {
+                children.Add(group.Index);
+            }
+        }
+
+        foreach (PublishedLayer layer in Layers)
+        {
+            if (layer.ParentIndex == parent)
+            {
+                children.Add(layer.LayerIndex);
+            }
+        }
+
+        children.Sort();
+        return children;
+    }
 
     /// <summary>Whether requests for it should be served.</summary>
     public bool IsRunning => Status == ServiceStatus.Started;

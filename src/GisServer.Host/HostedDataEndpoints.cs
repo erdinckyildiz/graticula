@@ -333,6 +333,11 @@ internal static class HostedDataEndpoints
     /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms.</param>
     /// <param name="Fields">Its attribute columns.</param>
     /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
+    /// <param name="ParentLayerId">
+    /// A group layer inside that service to nest this layer under, or null for
+    /// the top level. Create the group first with
+    /// <c>POST /admin/services/{name}/groups</c>.
+    /// </param>
     /// <param name="ServiceName">
     /// The service to put this layer in, or null for a service of its own.
     /// <b>This is what lets a portal screen design three layers into one
@@ -345,7 +350,8 @@ internal static class HostedDataEndpoints
         string? GeometryType,
         IReadOnlyList<FieldDesign>? Fields,
         string? Sharing,
-        string? ServiceName = null);
+        string? ServiceName = null,
+        int? ParentLayerId = null);
 
     /// <summary>One designed column.</summary>
     /// <param name="Name">Its name.</param>
@@ -439,7 +445,8 @@ internal static class HostedDataEndpoints
                     "geom", "objectid", "objectid", result.StoredSrid, kind, sharing,
                     string.IsNullOrWhiteSpace(design.ServiceName)
                         ? null
-                        : design.ServiceName.Trim()),
+                        : design.ServiceName.Trim(),
+                    design.ParentLayerId),
                 current.Principal.Id,
                 cancellation).ConfigureAwait(false);
         }

@@ -142,6 +142,10 @@ internal static class RestDirectory
     /// both the same thing makes a service page read as though its layers were
     /// alternative renderings of it.
     /// </param>
+    /// <param name="tree">
+    /// A layer tree, depth-first, with one entry per layer and group and its
+    /// depth. Rendered as nested lists above the property table.
+    /// </param>
     /// <returns>An HTML document.</returns>
     /// <remarks>
     /// <b>Rendered by walking the serialised JSON</b>, rather than by a template
@@ -153,7 +157,8 @@ internal static class RestDirectory
         string title,
         object document,
         IEnumerable<(string Label, string Href)>? links = null,
-        string linksLabel = "View in")
+        string linksLabel = "View in",
+        IEnumerable<(string Label, string Href, int Depth)>? tree = null)
     {
         StringBuilder body = new();
 
@@ -172,6 +177,11 @@ internal static class RestDirectory
             }
         }
 
+        if (tree is not null)
+        {
+            AppendTree(body, [.. tree]);
+        }
+
         using JsonDocument parsed = JsonDocument.Parse(JsonSerializer.Serialize(document));
 
         body.Append("<table class=\"props\">");
@@ -179,6 +189,77 @@ internal static class RestDirectory
         body.Append("</table>");
 
         return Page(path, body.ToString());
+    }
+
+    /// <summary>
+    /// A layer tree as nested lists, one level of indent per depth.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nested, because that is the whole point of a group layer.</b> The
+    /// service document carries the tree as <c>parentLayerId</c> and
+    /// <c>subLayerIds</c> on a flat array, which a client can rebuild and a
+    /// person cannot. Rendering it flat here would show the structure exists and
+    /// hide what it is.
+    /// </remarks>
+    private static void AppendTree(
+        StringBuilder body, List<(string Label, string Href, int Depth)> entries)
+    {
+        if (entries.Count == 0)
+        {
+            body.Append("<h3>Layers:</h3><p><i>None yet.</i></p>");
+            return;
+        }
+
+        body.Append("<h3>Layers:</h3><ul>");
+
+        int depth = 0;
+        bool open = false;
+
+        foreach ((string label, string href, int at) in entries)
+        {
+            if (at > depth)
+            {
+                // <b>The child list goes inside its parent's still-open
+                // &lt;li&gt;, not beside it.</b> A &lt;ul&gt; as a sibling of
+                // the &lt;li&gt; it belongs to is invalid, and browsers render
+                // it close enough to right that the mistake survives being
+                // looked at — until a screen reader reads the tree flat.
+                body.Append("<ul>");
+                depth = at;
+            }
+            else
+            {
+                if (open)
+                {
+                    body.Append("</li>");
+                    open = false;
+                }
+
+                while (depth > at)
+                {
+                    body.Append("</ul></li>");
+                    depth--;
+                }
+            }
+
+            body.Append(CultureInfo.InvariantCulture,
+                $"<li><a href=\"{H(href)}\">{H(label)}</a>");
+
+            open = true;
+        }
+
+        if (open)
+        {
+            body.Append("</li>");
+        }
+
+        while (depth > 0)
+        {
+            body.Append("</ul></li>");
+            depth--;
+        }
+
+        body.Append("</ul>");
     }
 
     /// <summary>Walks a JSON object into table rows.</summary>

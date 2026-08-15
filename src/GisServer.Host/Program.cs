@@ -633,6 +633,59 @@ public static class Program
     }
 
     /// <summary>
+    /// A service's layers and groups, depth-first, with their nesting depth.
+    /// </summary>
+    /// <remarks>
+    /// <b>Depth-first from the roots, not a sort by index.</b> Sorting by index
+    /// puts a group's children next to it only while nothing was added
+    /// afterwards; a layer published into group 0 after group 5 exists would sit
+    /// at the bottom of the list under the wrong heading. Walking the tree is
+    /// the only ordering that stays true.
+    /// </remarks>
+    private static List<(string Label, string Href, int Depth)> LayerTree(
+        PublishedService service, string path)
+    {
+        List<(string Label, string Href, int Depth)> entries = [];
+
+        void Walk(int? parent, int depth)
+        {
+            foreach (int index in service.ChildrenOf(parent))
+            {
+                bool isGroup = service.Group(index) is not null;
+
+                entries.Add((
+                    Label: NameOf(service, index),
+                    Href: $"{path}/{index}",
+                    Depth: depth));
+
+                if (isGroup)
+                {
+                    Walk(index, depth + 1);
+                }
+            }
+        }
+
+        Walk(null, 0);
+        return entries;
+    }
+
+    /// <summary>What sits at an index — a layer's name, a group's, or the number.</summary>
+    private static string NameOf(PublishedService service, int index)
+    {
+        if (service.Layer(index) is { } layer)
+        {
+            return $"{layer.Definition.Name} ({index})";
+        }
+
+        if (service.Group(index) is { } group)
+        {
+            return $"{group.Name} ({index}) — group";
+        }
+
+        return index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// A layer's relationships, in the shape an ArcGIS client reads.
     /// </summary>
     /// <remarks>
@@ -750,11 +803,20 @@ public static class Program
                 layer.Definition.Name,
                 layer.GeometryType,
                 layer.Definition.Srid,
-                described.Extent));
+                described.Extent)
+            {
+                ParentId = layer.ParentIndex,
+            });
         }
 
+        List<FeatureServerMetadataWriter.ServiceGroup> groups =
+        [
+            .. service.Groups.Select(g => new FeatureServerMetadataWriter.ServiceGroup(
+                g.Index, g.Name, g.ParentIndex, service.ChildrenOf(g.Index))),
+        ];
+
         object document = FeatureServerMetadataWriter.Service(
-            layers, CapabilitiesFor(context, service), service.Description);
+            layers, CapabilitiesFor(context, service), service.Description, groups);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -766,10 +828,9 @@ public static class Program
 
                     // A link per layer, because the layers are what somebody
                     // came for and a service document says little on its own.
-                    [.. layers.Select(l => (
-                        Label: $"{l.Name} ({l.Id})",
-                        Href: $"{context.Request.Path}/{l.Id}"))],
-                    linksLabel: "Layers"),
+                    links: null,
+                    linksLabel: "Layers",
+                    tree: LayerTree(service, context.Request.Path)),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -788,6 +849,49 @@ public static class Program
         PostgresRelationshipCatalog relationships,
         CancellationToken cancellation)
     {
+        // <b>A group answers at its own index.</b> The service document lists
+        // it, so a client following subLayerIds — or a person clicking it in the
+        // directory — arrives here, and a 404 for an id the service advertised
+        // is the kind of self-contradiction that makes a client abandon the
+        // whole service.
+        PublishedService? owning = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (owning is null)
+        {
+            return;
+        }
+
+        if (owning.Group(layerId) is { } group)
+        {
+            FeatureServerMetadataWriter.ServiceGroup entry = new(
+                group.Index, group.Name, group.ParentIndex, owning.ChildrenOf(group.Index));
+
+            object groupDocument = FeatureServerMetadataWriter.GroupLayerDocument(
+                entry, CapabilitiesFor(context, owning));
+
+            if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+            {
+                await Results.Content(
+                    RestDirectory.Document(
+                        context.Request.Path,
+                        $"{owning.Name} - {group.Name} ({group.Index}, group layer)",
+                        groupDocument,
+                        [.. entry.ChildIds.Select(id => (
+                            Label: NameOf(owning, id),
+                            Href: $"/rest/services/{owning.QualifiedName}/FeatureServer/{id}"))],
+                        linksLabel: "Contains"),
+                    "text/html; charset=utf-8")
+                    .ExecuteAsync(context).ConfigureAwait(false);
+
+                return;
+            }
+
+            await Results.Ok(groupDocument).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         PublishedLayer? layer = await ServiceLookup
             .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);

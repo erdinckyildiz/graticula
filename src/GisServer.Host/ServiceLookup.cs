@@ -112,6 +112,34 @@ internal static class ServiceLookup
 
         if (service.Layer(layerId) is not { } layer)
         {
+            // <b>A group layer exists at this index and has no features.</b>
+            // Answering "no layer 1" about an index the service document
+            // advertises sends somebody hunting for a routing bug; naming what
+            // is actually there ends the search in one read.
+            if (service.Group(layerId) is { } group)
+            {
+                await Results.Json(
+                    new
+                    {
+                        error = new
+                        {
+                            code = 400,
+                            message =
+                                $"Layer {layerId} of '{serviceName}' is the group layer "
+                                + $"'{group.Name}'. A group organises other layers and holds no "
+                                + "data of its own, so it has nothing to query or edit. Its "
+                                + "children are listed in subLayerIds on "
+                                + $"/rest/services/{service.QualifiedName}/FeatureServer"
+                                + $"/{layerId}.",
+                        },
+                    },
+                    statusCode: StatusCodes.Status400BadRequest)
+                    .ExecuteAsync(context)
+                    .ConfigureAwait(false);
+
+                return null;
+            }
+
             // <b>Says which layers exist, and that is safe here.</b> The caller
             // has already been admitted to the service, so its layer numbering
             // is not something they can learn by guessing — and a client that

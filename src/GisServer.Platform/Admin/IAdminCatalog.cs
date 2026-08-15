@@ -34,6 +34,12 @@ public readonly record struct RegisteredDataSource(
 /// <param name="Srid">Its SRID.</param>
 /// <param name="GeometryType">Its declared geometry type.</param>
 /// <param name="Sharing">Who may read it.</param>
+/// <param name="ParentLayerIndex">
+/// A group layer to nest this layer under, or null to put it at the top level.
+/// The index must already name a group in the same service; the database
+/// enforces it with a foreign key, so a typo is a refusal rather than a layer
+/// hanging off nothing.
+/// </param>
 /// <param name="ServiceName">
 /// The service to publish into, or null to give this layer one of its own.
 /// <b>Null is the ordinary case and keeps the old behaviour exactly:</b> a layer
@@ -54,7 +60,13 @@ public sealed record LayerPublication(
     int Srid,
     GeometryKind GeometryType,
     SharingScope Sharing,
-    string? ServiceName = null);
+    string? ServiceName = null,
+    int? ParentLayerIndex = null);
+
+/// <summary>Where a freshly created group layer lives.</summary>
+/// <param name="Id">Its catalogue identity.</param>
+/// <param name="LayerIndex">Its number within the service — the URL segment.</param>
+public readonly record struct GroupLayerAddress(Guid Id, int LayerIndex);
 
 /// <summary>Where a freshly published layer lives.</summary>
 /// <param name="Id">Its catalogue identity.</param>
@@ -166,8 +178,55 @@ public interface IAdminCatalog
     /// the caller can compute, because the index depends on what was already in
     /// the service when this ran.
     /// </remarks>
+    /// <param name="publication">What to publish.</param>
+    /// <param name="owner">Who will own it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Where the layer landed.</returns>
     Task<PublishedLayerAddress> PublishLayerAsync(
         LayerPublication publication, Guid owner, CancellationToken cancellationToken);
+
+    /// <summary>Creates an empty service.</summary>
+    /// <param name="name">Its name within the folder.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="description">What it is for, or null.</param>
+    /// <param name="sharing">Who may read it.</param>
+    /// <param name="owner">Who owns it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Its id, or null when a service of that name is already there.</returns>
+    /// <remarks>
+    /// <b>Empty services exist because the tree has to be built downwards.</b> A
+    /// group layer needs a service to live in, and a layer nested in a group
+    /// needs the group — so the first thing created cannot be a layer. Until
+    /// this existed the only way to get a service was to publish one into
+    /// existence, which put a layer at index 0 that could never be moved under
+    /// the group that came after it.
+    /// </remarks>
+    Task<Guid?> CreateServiceAsync(
+        string name,
+        string? folder,
+        string? description,
+        SharingScope sharing,
+        Guid owner,
+        CancellationToken cancellationToken);
+
+    /// <summary>Creates a group layer inside a service.</summary>
+    /// <param name="folder">The service's folder, or null for the root.</param>
+    /// <param name="serviceName">The service's name.</param>
+    /// <param name="name">What to call the group.</param>
+    /// <param name="parentLayerIndex">A group to nest it under, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Where it landed, or null when there is no such service.</returns>
+    /// <remarks>
+    /// <b>A group holds no data, so creating one is metadata and nothing else.</b>
+    /// It cannot fail partway: there is no table to make and none to clean up if
+    /// the catalogue write is refused.
+    /// </remarks>
+    Task<GroupLayerAddress?> CreateGroupLayerAsync(
+        string? folder,
+        string serviceName,
+        string name,
+        int? parentLayerIndex,
+        CancellationToken cancellationToken);
 
     /// <summary>Lists published layers.</summary>
     Task<IReadOnlyList<AdminLayer>> ListLayersAsync(CancellationToken cancellationToken);

@@ -34,7 +34,8 @@ public sealed class PostgresLayerCatalog
         -- container. Reading l.sharing here would be the is_hosted mistake a
         -- second time, on the column that decides who sees what.
         s.owner_principal_id, s.sharing, s.status, l.attachment_quota_bytes,
-        s.id, l.layer_index, s.name, s.folder, s.kind, s.description
+        s.id, l.layer_index, s.name, s.folder, s.kind, s.description,
+        l.parent_layer_index
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -169,7 +170,55 @@ public sealed class PostgresLayerCatalog
             reader.GetGuid(17),
             reader.GetInt32(18),
             reader.GetString(19),
-            reader.IsDBNull(20) ? null : reader.GetString(20));
+            reader.IsDBNull(20) ? null : reader.GetString(20),
+            reader.IsDBNull(23) ? null : reader.GetInt32(23));
+    }
+
+    /// <summary>Every group layer, by the service that holds it.</summary>
+    /// <remarks>
+    /// <b>A second query rather than a third join.</b> Group layers and feature
+    /// layers are different tables with no relationship to each other beyond
+    /// their service, so joining both would multiply the rows: three layers and
+    /// two groups would come back as six rows and the layers would be read
+    /// twice. Two queries and a dictionary is the honest shape.
+    /// </remarks>
+    private async Task<Dictionary<Guid, List<GroupLayer>>> GroupsAsync(
+        Guid? serviceId, CancellationToken cancellationToken)
+    {
+        string where = serviceId is null ? string.Empty : " where service_id = @service";
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select id, service_id, layer_index, name, parent_layer_index from group_layer"
+            + where + " order by layer_index");
+
+        if (serviceId is { } id)
+        {
+            command.Parameters.AddWithValue("service", id);
+        }
+
+        Dictionary<Guid, List<GroupLayer>> groups = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            Guid service = reader.GetGuid(1);
+
+            if (!groups.TryGetValue(service, out List<GroupLayer>? list))
+            {
+                list = [];
+                groups[service] = list;
+            }
+
+            list.Add(new GroupLayer(
+                reader.GetGuid(0),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetInt32(4)));
+        }
+
+        return groups;
     }
 
     /// <summary>Every service, with its layers.</summary>
@@ -187,7 +236,7 @@ public sealed class PostgresLayerCatalog
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Columns} {ServiceFrom} order by s.name, l.layer_index");
 
-        return await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
+        return await ReadServicesAsync(command, null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>One service by folder and name, or null.</summary>
@@ -216,49 +265,60 @@ public sealed class PostgresLayerCatalog
             "folder", (object?)folder ?? DBNull.Value);
 
         IReadOnlyList<PublishedService> services =
-            await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
+            await ReadServicesAsync(command, null, cancellationToken).ConfigureAwait(false);
 
         return services.Count == 0 ? null : services[0];
     }
 
     private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
-        NpgsqlCommand command, CancellationToken cancellationToken)
+        NpgsqlCommand command, Guid? serviceId, CancellationToken cancellationToken)
     {
         Dictionary<Guid, List<PublishedLayer>> byService = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status)> heads = [];
         List<Guid> order = [];
 
-        await using NpgsqlDataReader reader =
-            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        // <b>Its own scope, so the reader is closed before the group query
+        // runs.</b> Disposing it by hand and letting `await using` dispose it
+        // again put the connector in a state Npgsql reports as "Received
+        // backend message BindComplete while expecting ReadyForQueryMessage.
+        // Please file a bug" — which is a real bug, in this file, and the
+        // message sends you looking in the wrong place.
         {
-            Guid serviceId = reader.GetGuid(17);
+            await using NpgsqlDataReader reader =
+                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-            if (!byService.TryGetValue(serviceId, out List<PublishedLayer>? layers))
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                layers = [];
-                byService[serviceId] = layers;
-                order.Add(serviceId);
+                Guid owning = reader.GetGuid(17);
 
-                heads[serviceId] = (
-                    reader.GetString(19),
-                    reader.IsDBNull(20) ? null : reader.GetString(20),
-                    reader.GetString(21),
-                    reader.IsDBNull(22) ? null : reader.GetString(22),
-                    reader.IsDBNull(13) ? null : reader.GetGuid(13),
-                    ParseSharing(reader.GetString(14)),
-                    ParseStatus(reader.GetString(15)));
-            }
+                if (!byService.TryGetValue(owning, out List<PublishedLayer>? layers))
+                {
+                    layers = [];
+                    byService[owning] = layers;
+                    order.Add(owning);
 
-            // A left join, so a service with no layers arrives as one row of
-            // nulls. That is a service, not a broken row.
-            if (!reader.IsDBNull(0))
-            {
-                layers.Add(Map(reader));
+                    heads[owning] = (
+                        reader.GetString(19),
+                        reader.IsDBNull(20) ? null : reader.GetString(20),
+                        reader.GetString(21),
+                        reader.IsDBNull(22) ? null : reader.GetString(22),
+                        reader.IsDBNull(13) ? null : reader.GetGuid(13),
+                        ParseSharing(reader.GetString(14)),
+                        ParseStatus(reader.GetString(15)));
+                }
+
+                // A left join, so a service with no layers arrives as one row of
+                // nulls. That is a service, not a broken row.
+                if (!reader.IsDBNull(0))
+                {
+                    layers.Add(Map(reader));
+                }
             }
         }
+
+        Dictionary<Guid, List<GroupLayer>> groups =
+            await GroupsAsync(serviceId, cancellationToken).ConfigureAwait(false);
 
         List<PublishedService> services = [];
 
@@ -268,7 +328,8 @@ public sealed class PostgresLayerCatalog
 
             services.Add(new PublishedService(
                 id, head.Name, head.Folder, head.Kind, head.Description,
-                head.Owner, head.Sharing, head.Status, byService[id]));
+                head.Owner, head.Sharing, head.Status, byService[id],
+                groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : []));
         }
 
         return services;

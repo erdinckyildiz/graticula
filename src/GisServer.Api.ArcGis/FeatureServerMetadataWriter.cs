@@ -161,7 +161,19 @@ public static class FeatureServerMetadataWriter
     /// <param name="Srid">Its spatial reference.</param>
     /// <param name="Extent">Where its features are, or null if unknown.</param>
     public readonly record struct ServiceLayer(
-        int Id, string Name, GeometryKind GeometryType, int Srid, Envelope? Extent);
+        int Id, string Name, GeometryKind GeometryType, int Srid, Envelope? Extent)
+    {
+        /// <summary>The group above it, or null at the top level.</summary>
+        public int? ParentId { get; init; }
+    }
+
+    /// <summary>One group layer's entry in a service document.</summary>
+    /// <param name="Id">Its number within the service.</param>
+    /// <param name="Name">Its name.</param>
+    /// <param name="ParentId">The group above it, or null at the top level.</param>
+    /// <param name="ChildIds">The indices directly beneath it.</param>
+    public readonly record struct ServiceGroup(
+        int Id, string Name, int? ParentId, IReadOnlyList<int> ChildIds);
 
     /// <summary>
     /// The service document at <c>/rest/services/{name}/FeatureServer</c>.
@@ -169,6 +181,12 @@ public static class FeatureServerMetadataWriter
     /// <param name="layers">Its layers, in index order.</param>
     /// <param name="capabilities">What the caller may do — see the remarks on the type.</param>
     /// <param name="description">What the service is for, or null.</param>
+    /// <param name="groups">
+    /// Its group layers. They share one numbering with the feature layers and
+    /// appear in the same <c>layers</c> array, because that is ArcGIS's shape:
+    /// the tree is carried by <c>parentLayerId</c> and <c>subLayerIds</c> rather
+    /// than by nesting the JSON.
+    /// </param>
     /// <remarks>
     /// <para>
     /// <b>A service is a container of layers</b> — owner correction 2026-08-15.
@@ -186,7 +204,8 @@ public static class FeatureServerMetadataWriter
     public static object Service(
         IReadOnlyList<ServiceLayer> layers,
         string capabilities,
-        string? description = null)
+        string? description = null,
+        IReadOnlyList<ServiceGroup>? groups = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
@@ -220,25 +239,117 @@ public static class FeatureServerMetadataWriter
             allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal),
             units = UnitsOf(srid),
 
-            layers = layers.Select(l => new
-            {
-                id = l.Id,
-                name = l.Name,
+            // <b>One flat array holding a tree, which is ArcGIS's shape and not
+            // an approximation of it.</b> Groups and feature layers share one
+            // numbering and one list; the structure is carried by
+            // <c>parentLayerId</c> and <c>subLayerIds</c> rather than by
+            // nesting. A client reads the list once and rebuilds the tree.
+            //
+            // <b>-1 means no parent; null would mean unknown.</b> The two are
+            // different answers and clients treat them differently, so the
+            // field is always written.
+            layers = Tree(layers, groups ?? []),
+            tables = Array.Empty<object>(),
+        };
+    }
 
-                // <b>-1 and null: this service has no group layers.</b> Group
-                // layers are a MapServer concept and MapServer is not in
-                // [v1-scope](../../docs/v1-scope.md). The fields are present
-                // because ArcGIS clients read them and an absent field is a
-                // different answer from "no parent".
-                parentLayerId = -1,
+    /// <summary>
+    /// Groups and feature layers as one list, ordered by index.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ordered by id, because the ids are the order.</b> A client that draws
+    /// the list in the order given, with a group's children indented beneath it,
+    /// gets the publisher's arrangement — and indices are allocated in
+    /// publication order, so sorting by id is sorting by when things were added.
+    /// </remarks>
+    private static object[] Tree(
+        IReadOnlyList<ServiceLayer> layers, IReadOnlyList<ServiceGroup> groups)
+    {
+        List<(int Id, object Entry)> entries = [];
+
+        foreach (ServiceGroup group in groups)
+        {
+            entries.Add((group.Id, new
+            {
+                id = group.Id,
+                name = group.Name,
+                parentLayerId = group.ParentId ?? -1,
+                defaultVisibility = true,
+
+                // <b>Empty stays an empty array, never null.</b> A group with no
+                // children is a real state — it was just created — and a client
+                // reading null there may treat it as a leaf and draw the group
+                // as though it were a layer with no geometry.
+                subLayerIds = group.ChildIds.ToArray(),
+                minScale = 0,
+                maxScale = 0,
+                type = "Group Layer",
+
+                // A group has no geometry, and saying so as null rather than
+                // omitting the field keeps every entry the same shape.
+                geometryType = (string?)null,
+            }));
+        }
+
+        foreach (ServiceLayer layer in layers)
+        {
+            entries.Add((layer.Id, new
+            {
+                id = layer.Id,
+                name = layer.Name,
+                parentLayerId = layer.ParentId ?? -1,
                 defaultVisibility = true,
                 subLayerIds = (int[]?)null,
                 minScale = 0,
                 maxScale = 0,
                 type = "Feature Layer",
-                geometryType = ArcGisGeometryWriter.TypeName(l.GeometryType),
-            }).ToArray(),
-            tables = Array.Empty<object>(),
+                geometryType = (string?)ArcGisGeometryWriter.TypeName(layer.GeometryType),
+            }));
+        }
+
+        entries.Sort((a, b) => a.Id.CompareTo(b.Id));
+
+        return [.. entries.Select(e => e.Entry)];
+    }
+
+    /// <summary>
+    /// The document for a group layer at <c>/FeatureServer/{id}</c>.
+    /// </summary>
+    /// <param name="group">The group.</param>
+    /// <param name="capabilities">What the caller may do in this service.</param>
+    /// <returns>The document.</returns>
+    /// <remarks>
+    /// <b>A group answers at its own index, and answers as a group.</b> A client
+    /// that follows a <c>subLayerIds</c> entry, or a person who clicks it in the
+    /// directory, arrives here — and getting a 404 for an id the service itself
+    /// advertised is the kind of inconsistency that makes a client give up on
+    /// the whole service. It has no fields and no extent because it has no data;
+    /// those are absent rather than empty, which is the honest difference
+    /// between <em>none</em> and <em>not applicable</em>.
+    /// </remarks>
+    public static object GroupLayerDocument(ServiceGroup group, string capabilities)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
+
+        return new
+        {
+            currentVersion = CurrentVersion,
+            id = group.Id,
+            name = group.Name,
+            type = "Group Layer",
+            description = string.Empty,
+            parentLayerId = group.ParentId ?? -1,
+            subLayerIds = group.ChildIds.ToArray(),
+            defaultVisibility = true,
+            minScale = 0,
+            maxScale = 0,
+            capabilities,
+
+            // Said out loud rather than left to inference. A client that tries
+            // to query a group gets a refusal from the query endpoint; this is
+            // where it can find out first.
+            note = "A group layer organises other layers and holds no data of its own. It has no "
+                 + "fields and cannot be queried; query the layers listed in subLayerIds.",
         };
     }
 

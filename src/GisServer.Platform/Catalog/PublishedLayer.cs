@@ -29,7 +29,8 @@ public sealed class PublishedLayer
         Guid serviceId = default,
         int layerIndex = 0,
         string? serviceName = null,
-        string? folder = null)
+        string? folder = null,
+        int? parentIndex = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -48,7 +49,11 @@ public sealed class PublishedLayer
         LayerIndex = layerIndex;
         ServiceName = serviceName ?? definition.Name;
         Folder = folder;
+        ParentIndex = parentIndex;
     }
+
+    /// <summary>The group layer above it, or null when it sits at the top.</summary>
+    public int? ParentIndex { get; }
 
     /// <summary>The service that contains it.</summary>
     public Guid ServiceId { get; }
