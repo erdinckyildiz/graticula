@@ -137,5 +137,12 @@ These came from the project owner and are inputs, not open questions. See
 
 ## 8. Documentation language
 
-Repository documentation is written in English. **Conversation with the project
-owner is also in English**, from 2026-08-12 at the owner's request.
+**Repository documentation is written in English**, and that has not changed:
+ADRs, registers, reviews, code comments and commit messages stay English, because
+the project is given away and its reasoning has to be readable by whoever picks
+it up.
+
+**Conversation with the project owner is in Turkish**, from 2026-08-15 at the
+owner's request. It was English from 2026-08-12, also at their request; the
+earlier line is left here rather than overwritten, because a rule that changes
+twice is worth being able to see change.
