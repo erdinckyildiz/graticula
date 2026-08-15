@@ -16,6 +16,16 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
+  <ItemGroup Label="Geometry — Tier 2, and in a separate process">
+    <!-- NetTopologySuite: BSD-3-Clause, compatible with our Apache-2.0
+         outbound. Referenced by GisServer.Overlay.Worker and by nothing else,
+         which is not tidiness: benchmarks/geometry-overlay measured a
+         6,408-vertex adversarial input costing 153 seconds and 16.7 GB, and
+         OverlayNG cannot be interrupted. Keeping the library out of the server
+         process is what makes the cost killable (Q-97, ADR-022 §9). -->
+    <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Data access — Tier 2, adapters only">
     <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0
          outbound. Referenced only by GisServer.Platform.Postgres; the

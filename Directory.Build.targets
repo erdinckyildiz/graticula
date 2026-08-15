@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    The overlay worker is a sibling executable rather than a library, because
+    general overlay cannot be interrupted in-process and has to be killable
+    (Q-97, ADR-022 §9, benchmarks/geometry-overlay). Whoever needs to RUN it —
+    the host, and the tests that prove the deadline works — needs its whole
+    dependency closure in a directory beside them.
+
+    Opt in with <CopyOverlayWorker>true</CopyOverlayWorker>. Defined here rather
+    than duplicated in two project files so the two cannot drift; the first
+    version lived only in the host, and every pool test failed with "the overlay
+    worker is not at ..." because the test assembly runs from its own directory.
+  -->
+  <Target Name="CopyOverlayWorker"
+          AfterTargets="Build"
+          Condition="'$(CopyOverlayWorker)' == 'true'">
+    <ItemGroup>
+      <OverlayWorkerFiles
+        Include="$(MSBuildThisFileDirectory)src\GisServer.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(OverlayWorkerFiles)"
+          DestinationFolder="$(OutDir)overlay\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

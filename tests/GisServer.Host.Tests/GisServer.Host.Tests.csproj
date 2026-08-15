@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- OverlayWorkerPoolTests runs the real worker: the bound being tested is
+         a process being killed, and a fake would test the bookkeeping. -->
+    <CopyOverlayWorker>true</CopyOverlayWorker>
     <RootNamespace>GisServer.Host.Tests</RootNamespace>
   </PropertyGroup>
 

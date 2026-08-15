@@ -153,4 +153,13 @@ internal static partial class Log
         Message = "Listening on {Scheme}://{Address}:{Port}")]
     public static partial void Listening(
         ILogger logger, string scheme, System.Net.IPAddress address, int port);
+
+    [LoggerMessage(
+        EventId = 1008,
+        Level = LogLevel.Warning,
+        Message = "An overlay ran past its {DeadlineMs} ms deadline and its worker process was "
+                + "killed. This is the designed bound rather than a fault (Q-97): no property of "
+                + "the input predicts overlay cost, so the only reliable limit is on execution.")]
+    public static partial void OverlayKilled(
+        ILogger logger, long deadlineMs, System.Exception? exception);
 }

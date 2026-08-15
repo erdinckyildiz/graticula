@@ -136,10 +136,71 @@ that is how a planar answer comes back labelled geodesic.
   becoming a pattern worth naming: a refusal that cites a measurement is a
   design record a client can read.
 
+## 9. Q-97 answered — overlay ships, in a process that can be killed
+
+**Owner's choice, taken 2026-08-15: worker process plus pre-flight.**
+Implemented the same day. `intersect`, `union` and `difference` are now offered.
+
+**What the answer is not.** It is not a cap on anything the caller sends.
+[Measurement](../../benchmarks/geometry-overlay/RESULTS.md) established that no
+property of the input predicts the cost: a 6,408-vertex adversarial comb pair
+cost 153 seconds and 16.7 GB where a real 72,919-vertex national outline cost
+312 ms and 17 MB. Vertex count fails outright; candidate segment pairs narrow
+the gap by an order of magnitude and leave one.
+
+**Three mechanisms, and only two of them are bounds.**
+
+| | What it does | Is it a bound? |
+|---|---|---|
+| **Pre-flight** — candidate segment pairs, limit 100,000 | Refuses obviously explosive inputs before any arithmetic | **No.** Finding 16 measured it under-predicting the adversarial case fourteenfold. It is a filter and is documented as one |
+| **Deadline** — 10 seconds, worker killed | Stops the work | **Yes**, and it is the only one that stops it |
+| **Heap ceiling** — 1 GB via `DOTNET_GCHeapHardLimit` | The worker throws `OutOfMemoryException` instead of asking the OS for more | **Yes**, for memory |
+
+**The isolation is the decision, not an implementation detail.**
+NetTopologySuite is referenced by `GisServer.Overlay.Worker` and by nothing
+else — the host never loads it, so an overlay cannot allocate a byte in the
+server's heap. That is what makes "kill it" available at all: OverlayNG offers
+no cooperative cancellation, `Thread.Abort` does not exist on .NET Core, and the
+run that produced the 16.7 GB figure took the machine into swap and killed the
+Docker daemon with it.
+
+**Where the threshold sits, and why it is placed there.** The largest real case
+measured 48,066 pairs at 62 ms; the 200-teeth comb measured 131,049 at 3.4
+seconds. 100,000 admits every real case that was measured and turns the larger
+combs away before any arithmetic. It **does not** catch the 100-teeth comb at
+40,201 pairs and roughly 1.5 seconds — finding 16 says nothing at this layer
+will — and that case is what the deadline and the pool size are for.
+
+**The operator-facing number is workers × ceiling.** Two workers at 1 GB. Not
+"one process per request", which would make the exposure unbounded in exactly
+the way the pre-flight already fails to bound.
+
+**What this costs.** A serialisation boundary (WKB over a pipe), a process
+launch on first use — warmed outside the deadline, because the deadline bounds
+the overlay and not the runtime's start-up — and a second executable to ship.
+
+**What is still refused, and now for its own reasons rather than for Q-97's:**
+`cut` (a different algorithm, not overlay), `buffer`, `offset`, `convexHull`,
+`simplify`, `densify`, `generalize`, `distance`, and the topological predicates.
+ADR-022 condition 2 stands: each of those is refused on an argument about
+asymptotics, which is the kind of reasoning A-042 was, and each returns only
+with a number.
+
+**What this does not settle.** The benchmark's own *what this does not show*
+list is untouched: one engine, one adversarial shape, `union` and `difference`
+measured only on real data, and **no concurrency**. The pool bounds concurrency
+to two, which makes the unmeasured case much smaller — it does not measure it.
+Recorded as **D-31**.
+
+---
+
 ## 7. Conditions
 
-1. **Q-97 is answered before any overlay operation ships.** Not softened, not
-   partially implemented behind a flag.
+1. ~~**Q-97 is answered before any overlay operation ships.** Not softened, not
+   partially implemented behind a flag.~~ **DISCHARGED 2026-08-15** — answered by
+   the owner and implemented in full the same day (§9). Not behind a flag: the
+   operations are in `supportedOperations` and the service document states the
+   limits it enforces.
 2. **The over-conservative refusals get measured, individually.** `convexHull`,
    `generalize`, `densify` and `distance` are refused on an argument about
    asymptotics, which is the kind of reasoning A-042 was and which measurement

@@ -10,6 +10,7 @@
   -->
 
   <PropertyGroup>
+    <CopyOverlayWorker>true</CopyOverlayWorker>
     <RootNamespace>GisServer.Host</RootNamespace>
     <AssemblyName>GisServer.Host</AssemblyName>
     <UserSecretsId>gis-server-host</UserSecretsId>
@@ -21,6 +22,20 @@
     <ProjectReference Include="..\GisServer.Security.Argon2\GisServer.Security.Argon2.csproj" />
     <ProjectReference Include="..\GisServer.Providers.PostGis\GisServer.Providers.PostGis.csproj" />
   </ItemGroup>
+
+  <!--
+    The overlay worker is a sibling executable, not a library, and the host
+    looks for it in an `overlay` directory beside itself at run time
+    (OverlayWorkerPool). ReferenceOutputAssembly=false so the host BUILDS it
+    without linking against it — which is the whole point: NetTopologySuite must
+    not load in this process (Q-97, ADR-022 §9).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\GisServer.Overlay.Worker\GisServer.Overlay.Worker.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
+  </ItemGroup>
+
 
   <ItemGroup>
     <!-- The host's decision logic is internal because nothing outside the

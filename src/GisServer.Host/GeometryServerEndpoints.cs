@@ -68,9 +68,18 @@ internal static class GeometryServerEndpoints
     private static readonly string[] Supported =
         ["project", "areasAndLengths", "lengths", "labelPoints"];
 
-    /// <summary>Operations that need general overlay, and are therefore refused.</summary>
+    /// <summary>Overlay, which runs in a worker process it can be killed in.</summary>
+    /// <remarks>
+    /// <b>These were refused until Q-97 was answered.</b> The answer is not a
+    /// cap — measurement showed no property of the input predicts the cost — it
+    /// is a process with a deadline and a heap ceiling. See
+    /// <see cref="OverlayWorkerPool"/>.
+    /// </remarks>
+    private static readonly string[] Overlay = ["intersect", "difference", "union"];
+
+    /// <summary>Operations still not implemented, each for its own reason.</summary>
     private static readonly string[] Blocked =
-        ["intersect", "difference", "union", "cut", "buffer", "offset", "relation", "autoComplete",
+        ["cut", "buffer", "offset", "relation", "autoComplete",
          "reshape", "trimExtend", "convexHull", "simplify", "densify", "generalize", "distance"];
 
     /// <summary>Maps the surface.</summary>
@@ -95,6 +104,14 @@ internal static class GeometryServerEndpoints
         geometry.MapPost("/areasAndLengths", AreasAndLengths);
         geometry.MapPost("/lengths", Lengths);
         geometry.MapPost("/labelPoints", LabelPoints);
+
+        foreach (string operation in Overlay)
+        {
+            string name = operation;
+            geometry.MapPost($"/{name}", (
+                HttpContext context, IOverlay overlay, CancellationToken cancellation) =>
+                OverlayAsync(context, overlay, name, cancellation));
+        }
 
         foreach (string operation in Blocked)
         {
@@ -184,14 +201,18 @@ internal static class GeometryServerEndpoints
 
         // <b>What is here, said as a list.</b> ArcGIS clients probe by calling;
         // saying so up front turns a series of 501s into one document.
-        supportedOperations = Supported,
+        supportedOperations = Supported.Concat(Overlay).ToArray(),
         unsupportedOperations = Blocked,
         maximumVertices = MaximumVertices,
-        note = "Operations requiring general polygon overlay are not offered. Measurement "
-             + "(benchmarks/geometry-overlay) found a 6,408-vertex input costing 153 seconds and "
-             + "16.7 GB where a real 72,919-vertex polygon cost 312 ms — so no cap on input size "
-             + "bounds the work, and an unauthenticated request could take the server down. "
-             + "Tracked as Q-97.",
+        maximumCandidatePairs = OverlayWorkerPool.MaximumCandidatePairs,
+        overlayDeadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
+        note = "Overlay operations run in a separate worker process with a "
+             + $"{OverlayWorkerPool.Deadline.TotalSeconds:0}-second deadline and a "
+             + "1 GB heap ceiling, and a pre-flight refuses inputs whose estimated crossing count "
+             + "exceeds maximumCandidatePairs. Measurement (benchmarks/geometry-overlay) found a "
+             + "6,408-vertex input costing 153 seconds and 16.7 GB where a real 72,919-vertex "
+             + "polygon cost 312 ms, so no cap on input size bounds the work — the bound is the "
+             + "process, not the input. Q-97.",
         };
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -225,6 +246,150 @@ internal static class GeometryServerEndpoints
             },
             statusCode: StatusCodes.Status501NotImplemented)
             .ExecuteAsync(context);
+
+    // ---------- overlay ----------
+
+    /// <summary>
+    /// intersect, union and difference, in a process with a deadline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The endpoint is thin because the interesting part is elsewhere.</b>
+    /// All this does is read two sets of geometries and hand them to
+    /// <see cref="IOverlay"/>; the bound that makes the operation safe to offer
+    /// is a worker process being killed, and that lives in
+    /// <see cref="OverlayWorkerPool"/>.
+    /// </para>
+    /// <para>
+    /// <b>Every refusal is its own status.</b> A pre-flight refusal is a 400 —
+    /// the caller sent something too expensive and can send something smaller.
+    /// A deadline or an out-of-memory is a 503 with <c>Retry-After</c> absent
+    /// deliberately: retrying the same request produces the same outcome, and
+    /// saying "try in 30 seconds" would be a lie.
+    /// </para>
+    /// </remarks>
+    private static async Task OverlayAsync(
+        HttpContext context, IOverlay overlay, string operation, CancellationToken cancellation)
+    {
+        if (!TryForm(context, out IFormCollection form, out string? formError))
+        {
+            await Fail(context, formError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(form, "sr", out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryGeometries(form, srid, out List<Geometry> left, out _, out string? error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        List<Geometry> right = [];
+
+        // union takes one set; intersect and difference take a second operand,
+        // which ArcGIS spells "geometry" beside the "geometries" list.
+        if (!string.Equals(operation, "union", StringComparison.Ordinal))
+        {
+            if (!TrySingleGeometry(form, srid, out right, out error))
+            {
+                await Fail(context, error!).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        OverlayOperation kind = operation switch
+        {
+            "intersect" => OverlayOperation.Intersect,
+            "difference" => OverlayOperation.Difference,
+            _ => OverlayOperation.Union,
+        };
+
+        OverlayResult result = await overlay
+            .ComputeAsync(kind, left, right, srid, cancellation)
+            .ConfigureAwait(false);
+
+        if (result.Refusal is not OverlayRefusal.None)
+        {
+            int status = result.Refusal switch
+            {
+                OverlayRefusal.TooLarge or OverlayRefusal.Invalid => 400,
+                _ => 503,
+            };
+
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = status,
+                        message = result.Message,
+                        reason = result.Refusal.ToString(),
+                        candidatePairs = result.CandidatePairs,
+                    },
+                },
+                statusCode: status).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
+
+            // <b>Reported, because a caller cannot otherwise tell a cheap
+            // overlay from one that nearly hit the deadline.</b> Somebody
+            // batching these needs to know they are close to the edge before
+            // they cross it.
+            cost = new
+            {
+                candidatePairs = result.CandidatePairs,
+                milliseconds = result.Milliseconds,
+                candidatePairLimit = OverlayWorkerPool.MaximumCandidatePairs,
+                deadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
+            },
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The single-geometry operand, which ArcGIS calls "geometry".</summary>
+    private static bool TrySingleGeometry(
+        IFormCollection form, int srid, out List<Geometry> geometries, out string? error)
+    {
+        geometries = [];
+        error = null;
+
+        string raw = form["geometry"].ToString();
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            error =
+                "'geometry' is required: it is the shape the list in 'geometries' is overlaid "
+                + "against. Only 'union' takes a single list.";
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+
+            if (!ArcGisGeometryReader.TryRead(document.RootElement, srid, out Geometry? geometry,
+                    out error))
+            {
+                return false;
+            }
+
+            geometries = [geometry!];
+            return true;
+        }
+        catch (JsonException e)
+        {
+            error = $"'geometry' is not valid JSON: {e.Message}";
+            return false;
+        }
+    }
 
     // ---------- project ----------
 

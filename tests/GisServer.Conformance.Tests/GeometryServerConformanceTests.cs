@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Linq;
 using Xunit;
 
 namespace GisServer.Conformance.Tests;
@@ -218,28 +219,189 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     // ---------- the refusals ----------
 
     [Theory]
-    [InlineData("intersect")]
-    [InlineData("difference")]
-    [InlineData("union")]
     [InlineData("cut")]
     [InlineData("buffer")]
-    public async Task An_overlay_operation_answers_501_rather_than_404(string operation)
+    [InlineData("convexHull")]
+    [InlineData("simplify")]
+    public async Task An_unimplemented_operation_answers_501_rather_than_404(string operation)
     {
         // 501 says the server made a decision. 404 says it has no
         // GeometryServer, which is a different and wrong thing to conclude.
+        //
+        // <b>intersect, difference and union left this list on 2026-08-15</b>,
+        // when \"-97 was answered and they were implemented. What remains needs
+        // its own reasoning rather than the overlay argument.
         Assert.Equal(501, await StatusOfPostAsync(operation));
     }
 
     [Fact]
     public async Task A_refusal_explains_itself_and_says_where_the_reasoning_is()
     {
-        JsonElement error = (await PostAsync("intersect", ("f", "json"))).GetProperty("error");
+        JsonElement error = (await PostAsync("cut", ("f", "json"))).GetProperty("error");
 
         string message = error.GetProperty("message").GetString()!;
 
         Assert.Contains("overlay", message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Q-97", message, StringComparison.Ordinal);
         Assert.Contains("project", message, StringComparison.Ordinal);
+    }
+
+    // ---------- overlay, and the bound that makes it offerable ----------
+
+    /// <summary>
+    /// A comb of the given number of teeth, wound the way ArcGIS requires.
+    /// </summary>
+    /// <remarks>
+    /// <b>Fixed span, narrowing teeth.</b> Widening the comb with its tooth
+    /// count makes two combs at right angles stop overlapping, and the
+    /// adversarial input quietly becomes a cheap one — a test that passes for
+    /// the wrong reason.
+    /// </remarks>
+    private static string Comb(int teeth, bool horizontal, double span = 100)
+    {
+        double width = span / (2 * teeth);
+
+        List<double[]> points = [];
+
+        void Add(double x, double y) => points.Add(horizontal ? [y, x] : [x, y]);
+
+        for (int i = 0; i < teeth; i++)
+        {
+            double left = i * 2 * width;
+
+            Add(left, 0);
+            Add(left, span);
+            Add(left + width, span);
+            Add(left + width, 0);
+        }
+
+        Add(0, 0);
+
+        // ArcGIS reads a counter-clockwise first ring as a hole, and refuses a
+        // hole with no shell. Clockwise is a negative shoelace area.
+        double area = 0;
+
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            area += (points[i][0] * points[i + 1][1]) - (points[i + 1][0] * points[i][1]);
+        }
+
+        if (area > 0)
+        {
+            points.Reverse();
+        }
+
+        return JsonSerializer.Serialize(new { rings = new[] { points } });
+    }
+
+    private static string Polygons(string ring) =>
+        JsonSerializer.Serialize(new { geometryType = "esriGeometryPolygon" })
+            .TrimEnd('}')
+        + ",\"geometries\":[" + ring + "]}";
+
+    [Fact]
+    public async Task An_ordinary_intersection_is_computed()
+    {
+        JsonElement result = await PostAsync(
+            "intersect",
+            ("sr", "3857"),
+            ("geometries", Polygons("{\"rings\":[[[0,0],[0,10],[10,10],[10,0],[0,0]]]}")),
+            ("geometry", "{\"rings\":[[[5,5],[5,15],[15,15],[15,5],[5,5]]]}"),
+            ("f", "json"));
+
+        Assert.False(
+            result.TryGetProperty("error", out JsonElement failed),
+            failed.ValueKind == JsonValueKind.Object
+                ? failed.GetProperty("message").GetString()
+                : string.Empty);
+
+        Assert.Single(result.GetProperty("geometries").EnumerateArray().ToArray());
+
+        // The cost is reported so a caller batching these can see how close to
+        // the limits they are before they cross one.
+        JsonElement cost = Require(result, "cost",
+            "A caller cannot otherwise tell a cheap overlay from one that nearly hit the deadline.");
+
+        Assert.True(cost.GetProperty("candidatePairs").GetInt64() > 0);
+    }
+
+    /// <summary>
+    /// The input that took the machine down is refused, and the server lives.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the whole of \"-97 in one test.</b> benchmarks/geometry-overlay
+    /// measured a 6,408-vertex comb pair costing 153 seconds and 16.7 GB — the
+    /// run pushed the host into swap and killed the Docker daemon with it, and
+    /// the finding was recorded as: one unauthenticated request would have done
+    /// that. The same shape now answers 400 in well under a second, and the
+    /// assertion after it is that the server is still answering at all.
+    /// </remarks>
+    [Fact]
+    public async Task The_adversarial_input_that_took_the_host_down_is_refused()
+    {
+        JsonElement result = await PostAsync(
+            "intersect",
+            ("sr", "3857"),
+            ("geometries", Polygons(Comb(800, horizontal: false))),
+            ("geometry", Comb(800, horizontal: true)),
+            ("f", "json"));
+
+        JsonElement error = Require(
+            result, "error", "The 6,408-vertex comb pair was computed rather than refused.");
+
+        Assert.Equal(400, error.GetProperty("code").GetInt32());
+        Assert.Equal("TooLarge", error.GetProperty("reason").GetString());
+
+        Assert.True(
+            error.GetProperty("candidatePairs").GetInt64() > 1_000_000,
+            "The pre-flight did not see a large crossing count, so this input is no longer the "
+            + "adversarial case.");
+
+        // Still serving, which is the property the whole design exists for.
+        Assert.Equal(200, await StatusOfAsync("/healthz/ready"));
+    }
+
+    [Fact]
+    public async Task A_real_sized_overlay_is_not_refused_by_the_pre_flight()
+    {
+        // <b>The other half of the threshold.</b> A limit low enough to be safe
+        // is worthless if it is also low enough to refuse ordinary work — that
+        // was the second question A-042 asked and the one that is easy to skip.
+        JsonElement result = await PostAsync(
+            "intersect",
+            ("sr", "3857"),
+            ("geometries", Polygons(Comb(50, horizontal: false))),
+            ("geometry", Comb(50, horizontal: true)),
+            ("f", "json"));
+
+        Assert.False(
+            result.TryGetProperty("error", out JsonElement failed),
+            failed.ValueKind == JsonValueKind.Object
+                ? failed.GetProperty("message").GetString()
+                : string.Empty);
+
+        Assert.NotEmpty(result.GetProperty("geometries").EnumerateArray().ToArray());
+    }
+
+    [Fact]
+    public async Task The_service_document_states_the_limits_it_enforces()
+    {
+        // A caller should be able to find out what will be refused without
+        // being refused first.
+        JsonElement document = await GetJsonAsync(Root);
+
+        string[] supported =
+        [
+            .. document.GetProperty("supportedOperations").EnumerateArray()
+                .Select(o => o.GetString()!),
+        ];
+
+        Assert.Contains("intersect", supported);
+        Assert.Contains("union", supported);
+        Assert.Contains("difference", supported);
+
+        Assert.True(document.GetProperty("maximumCandidatePairs").GetInt64() > 0);
+        Assert.True(document.GetProperty("overlayDeadlineSeconds").GetDouble() > 0);
     }
 
     [Fact]

@@ -99,7 +99,7 @@ bundled components frequently differ from the parent project.
 | PROJ | Coordinate transformation | 2 | MIT-style | `UNVERIFIED` | Grid data files carry **separate** licences and must be checked individually. |
 | GDAL | Raster and vector I/O | 2 | MIT-style (core) | `UNVERIFIED` | **Drivers vary.** Individual drivers and their upstream libraries carry their own licences, some copyleft, some patent-encumbered. A GDAL build is not one licence — it is a bill of materials. |
 | JTS | Geometry (JVM) | 2 | EPL/EDL dual | `UNVERIFIED` | Only if ADR-001 selects the JVM. |
-| NetTopologySuite | Geometry (.NET) | 2 | BSD-style | `UNVERIFIED` | Only if ADR-001 selects .NET. |
+| NetTopologySuite | Geometry (.NET) | 2 | BSD-3-Clause | `UNVERIFIED` | **Actually referenced since 2026-08-15**, by `GisServer.Overlay.Worker` and by nothing else. Not merely a tier boundary: the worker is a separate *process*, so the library never loads in the server (Q-97, [ADR-022](docs/adr/ADR-022-geometry-server.md) §9). BSD-3-Clause is permissive and unproblematic under Apache-2.0 outbound; the row stays `UNVERIFIED` because nobody has read the shipped nuspec, and D-06's trigger is the first binary that bundles it. |
 | `geo` / `geo-types` | Geometry (Rust) | 2 | MIT/Apache-2.0 | `UNVERIFIED` | Only if ADR-001 selects Rust. |
 | Skia | Rasterisation | 2 | BSD-3-Clause | `UNVERIFIED` | Large native build; distribution size and toolchain cost matter as much as licence. |
 | Cairo | Rasterisation | 2 | LGPL-2.1 / MPL dual | `UNVERIFIED` | |

@@ -37,7 +37,8 @@ internal sealed record HostSettings(
     string TileCachePath,
     long TileCacheBudgetBytes,
     long TileCacheLayerBudgetBytes,
-    TimeSpan TileCacheLifetime)
+    TimeSpan TileCacheLifetime,
+    int OverlayWorkers)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -137,7 +138,15 @@ internal sealed record HostSettings(
             // is, and it is written here rather than left at some library
             // default so the gap is visible.
             TimeSpan.FromMinutes(
-                configuration.GetValue("GisServer:TileCacheMinutes", defaultValue: 60)));
+                configuration.GetValue("GisServer:TileCacheMinutes", defaultValue: 60)),
+
+            // <b>Two, and the number is a memory budget rather than a
+            // throughput one.</b> Each overlay worker may allocate up to its
+            // 1 GB ceiling, so the server's total exposure to overlay is this
+            // number times that ceiling and nothing else — which is the property
+            // Q-97 exists to give an operator. Raising it raises the worst case
+            // linearly, and that is the trade to state rather than to bury.
+            Math.Max(1, configuration.GetValue("GisServer:OverlayWorkers", defaultValue: 2)));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>

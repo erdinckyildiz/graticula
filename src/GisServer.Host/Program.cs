@@ -124,6 +124,19 @@ public static class Program
         builder.Services.AddSingleton<IProjector>(services =>
             new PostGisProjector(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
 
+        // <b>Overlay runs in its own process, and the pool is what kills it.</b>
+        // Q-97, answered by the owner: no property of the input predicts overlay
+        // cost, so the bound is a deadline on a process rather than a cap on a
+        // number. NetTopologySuite is referenced by that worker and by nothing
+        // in this assembly, so an overlay cannot allocate a byte in this heap.
+        builder.Services.AddSingleton(services => new OverlayWorkerPool(
+            OverlayWorkerPool.ExecutableBesideThisOne(),
+            settings.OverlayWorkers,
+            services.GetRequiredService<ILoggerFactory>()));
+
+        builder.Services.AddSingleton<IOverlay>(services =>
+            services.GetRequiredService<OverlayWorkerPool>());
+
         builder.Services.AddSingleton<ITileCache>(services => new FileSystemTileCache(
             settings.TileCachePath,
             settings.TileCacheBudgetBytes,
