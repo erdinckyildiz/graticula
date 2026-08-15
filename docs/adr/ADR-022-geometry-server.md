@@ -279,6 +279,15 @@ Recorded as **D-31**.
    `generalize`, `densify` and `distance` are refused on an argument about
    asymptotics, which is the kind of reasoning A-042 was and which measurement
    overturned. Each returns only with a number.
+   **PARTLY DISCHARGED 2026-08-15** (§4b) — `convexHull`, `densify` and
+   `generalize` now ship, computed in process and verified against
+   `ST_ConvexHull`, `ST_Segmentize` and `ST_SimplifyPreserveTopology` on real
+   polygons from the datastore: hull vertices match exactly, generalize agrees
+   on 47 of 50 shapes. **The comparison is the number, and it found two defects
+   review had not** — a degenerate first segment in Douglas–Peucker on a closed
+   ring, and a collapse floor that resolved ties to one corner and returned a
+   triangle with half the area. `distance` is still refused, now with its own
+   reason rather than the overlay sentence that had been pasted onto it.
 3. **The vertex cap is not validated, only argued.** 500,000 comes from the
    corpus and a JSON size estimate, not from a measurement of what a request at
    that size actually costs this server under concurrency.
