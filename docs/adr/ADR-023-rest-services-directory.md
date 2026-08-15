@@ -248,6 +248,96 @@ now a test that sends both together. Every existing caller sends `f=json`; if
 the header ever won, the query endpoint would start returning HTML to machines,
 and the JSON suite would not catch it because it sends no `Accept` header at all.
 
+### 4c. A browser could not sign in — added 2026-08-15
+
+The owner asked:
+
+> *"why are geometryserver and its capabilities not listed under utilities?"*
+
+`/rest/services/Utilities` was empty in a browser and correct in `curl`. Both
+answers came from the same code, and both were right:
+
+```
+anonymous  : {"services":[]}
+bearer root: {"name":"Utilities/Geometry","type":"GeometryServer"}
+```
+
+**Authentication read `Authorization: Bearer` and nothing else.** A browser
+following a link cannot set that header, so every page of this directory saw an
+anonymous caller — permanently, with no way for the person reading it to become
+anybody. The geometry service is shared with the organisation (owner correction,
+same day), so it was invisible in the one surface built for browsing. So was
+every private and organisation-shared feature service; the geometry service is
+simply where it was noticed.
+
+**This defect was created by this ADR.** Before the directory existed, "the
+credential is a bearer header" was complete: the only clients were programs.
+Adding a browsable surface added a client class that cannot hold one, and
+nothing in the decision noticed.
+
+**The fix is a session cookie that authenticates `GET` and `HEAD` only.** It
+carries the same opaque token, with `HttpOnly`, `Secure`, `SameSite=Strict` — and
+a fourth control that is not a flag: `Authentication.CookieToken` returns null
+for any other method. A forged cross-site request can therefore only read, which
+is what the directory is for; every mutation still requires the header a browser
+cannot be tricked into attaching. That is stronger than an antiforgery token,
+because there is no token to get wrong.
+
+**The cost is real and stated rather than discovered later:** an HTML form cannot
+`POST` to this server on a cookie. Any future write surface in the browser needs
+a deliberate design, not a `<form>` tag. `The_cookie_does_not_authenticate_a_post`
+holds the line, and was verified by removing the method check and watching it
+fail.
+
+**Two things broke on the way, both worth recording.** The sign-in form returned
+`415`: the endpoint bound its body from JSON, and a browser cannot post JSON from
+a form — so the page this ADR had just added could not sign anybody in. And the
+`return` parameter is now filtered by `Safe()`, because a sign-in page that
+forwards anywhere is a phishing primitive: our link, our credential prompt,
+somebody else's landing page. `//host` is rejected explicitly; it passes a
+"starts with a slash" check and is a protocol-relative URL.
+
+### 4d. Capabilities that could not be clicked — added 2026-08-15
+
+The second half of the same question. The GeometryServer document did list its
+operations, like this:
+
+```html
+<th>Supported Operations</th><td><ul><li>project</li><li>areasAndLengths</li>…
+```
+
+Words in a list. ArcGIS renders each operation as a link to a page you can fill
+in and run, and that page is how anybody learns what an operation takes. "It is
+listed" was technically true and answered nothing.
+
+**Each operation now has a form page**, built from a parameter table beside the
+handlers (`GeometryPage.Operations`) — the form's field names are the field names
+the handler reads, so a rename breaks a round-trip test rather than drifting
+quietly.
+
+**The forms use `GET`, and that is a decision.** Every operation on this surface
+is a pure function of its input: nothing is stored, and running one twice differs
+from running it once only in the electricity. `GET` is the honest verb, it gives
+each answer a URL somebody can keep or paste into a ticket, and — the part that
+forced it — it is the only verb the browsing cookie authenticates. A form
+posting on a cookie is exactly the shape of request §4c refuses. `POST` is
+unchanged for clients with a bearer token and a body too large for a URL, which
+is what ArcGIS clients send.
+
+**Following a link shows the form; it does not run the operation.** The layer
+query page shipped doing the opposite and had to be corrected
+("*the query page queries directly. It shouldn't be that way*"), so the check is
+a route-group filter rather than eight handlers each remembering, and the trigger
+is the presence of geometry rather than the presence of any parameter — a browser
+submits prefilled fields, and keying off "did anything arrive" is the same bug
+in a new place.
+
+Refusals render too: a refused operation is reachable by clicking, so `buffer`
+answers `501` as a page carrying the measurement and the Q-97 reference, and a
+bad parameter re-renders the form with the message above it and **the values
+kept** — a refusal that empties the box somebody pasted a polygon into is a
+refusal they work around by not using the page.
+
 ## 5. Decision
 
 `/rest/services`, its folders, each `FeatureServer` and layer document, and the
@@ -260,6 +350,13 @@ two representations cannot describe different fields. **Every value passes
 through one HTML-encoding helper**, and every value that reaches a URL passes
 through a segment-wise URL escape. The page is deliberately plain and loads no
 external resource, because it must be legible when it is the only thing working.
+
+**Amended 2026-08-15 (§4c, §4d).** A browser signs in at `/rest/login`, which
+sets a session cookie that **authenticates `GET` and `HEAD` only**; every
+mutation still requires `Authorization: Bearer`. Each GeometryServer operation
+has a form page at its own URL, listed as a link from the service document and
+run with `GET`, because every operation on that surface is a pure function and
+because `GET` is the only verb the cookie authenticates.
 
 ## 6. Consequences
 
@@ -345,6 +442,14 @@ which job needs stating before both grow.
    Two browsable surfaces with no boundary is how both end up half-built.
 5. **The conformance suite's sign-in stays optional and stays off by default**,
    so that "is this resource public?" remains a question the suite can answer.
+6. **The cookie never becomes a general credential.** It authenticates `GET` and
+   `HEAD`, and the day somebody needs a browser to write, that needs its own
+   decision — antiforgery tokens, a same-origin check, or a deliberate narrowing
+   — not a quiet removal of the method test. *(Held by
+   `The_cookie_does_not_authenticate_a_post`, verified by breaking it.)*
+7. **A form page exists for every operation the service document links**, and the
+   field names on it are the field names the handler reads. Two lists that can
+   disagree is a directory that documents an API the server does not have.
 
 ## 11. Dissent
 

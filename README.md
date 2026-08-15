@@ -121,6 +121,24 @@ test that goes green with its subject absent is worse than no test — this
 project has caught three instruments lying already, and each was found by trying
 to make it fail rather than by reading it.
 
+The conformance suite needs a **running server** and the name of a fixture for
+each shape it checks. It also fails rather than skips, and each failure names the
+variable it wanted, so a first run reads as a checklist:
+
+```bash
+export GISSERVER_TEST_URL="https://127.0.0.1:8443"
+export GISSERVER_TEST_USER="root"
+export GISSERVER_TEST_PASSWORD="…"
+export GISSERVER_TEST_QUERYABLE="buildings"                     # a feature service
+export GISSERVER_TEST_MULTILAYER="hosted/EarlyAlert_Reports_HD" # more than one layer
+export GISSERVER_TEST_GROUPED="hosted/EarlyAlert"               # contains a group layer
+export GISSERVER_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTileServer
+```
+
+The fixtures cannot be discovered from the catalogue: a published layer may
+legitimately have no tiles, and a server that had silently gone back to one layer
+per service would pass every suite that looked for "a service".
+
 ## Layout
 
 | | |

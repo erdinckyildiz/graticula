@@ -95,8 +95,44 @@ internal sealed class Authentication
         }
     }
 
+    /// <summary>
+    /// The cookie a browser carries, which is a <em>read-only</em> credential.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-15, because the browsable directory could never be
+    /// anything but anonymous.</b> The only credential channel was
+    /// <c>Authorization: Bearer</c>, which a browser following a link cannot
+    /// send — so every page of the REST Services Directory saw a stranger, and
+    /// any service shared with the organisation was invisible in the one surface
+    /// built for browsing. The owner found it by opening
+    /// <c>/rest/services/Utilities</c> and seeing nothing.
+    /// </para>
+    /// <para>
+    /// <b>It holds the same opaque session token, and the cookie flags are the
+    /// security.</b> <c>HttpOnly</c> so script cannot read it, <c>Secure</c> so
+    /// it never crosses plaintext, <c>SameSite=Strict</c> so another origin
+    /// cannot cause the browser to send it.
+    /// </para>
+    /// </remarks>
+    public const string SessionCookie = "gis-session";
+
     private async Task<AuthenticatedSession?> FindSessionAsync(
         HttpContext context, CancellationToken cancellationToken)
+    {
+        string? token = BearerToken(context) ?? CookieToken(context);
+
+        if (string.IsNullOrEmpty(token))
+        {
+            return null;
+        }
+
+        return await _store
+            .FindSessionAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static string? BearerToken(HttpContext context)
     {
         string? header = context.Request.Headers.Authorization;
 
@@ -107,14 +143,49 @@ internal sealed class Authentication
 
         string token = header[BearerPrefix.Length..].Trim();
 
-        if (token.Length == 0)
+        return token.Length == 0 ? null : token;
+    }
+
+    /// <summary>
+    /// The session cookie, and only for a request that cannot change anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Safe methods only, and this is what makes the cookie safe to have.</b>
+    /// A cookie is sent by the browser whatever caused the request, which is the
+    /// whole of cross-site request forgery: another site can make your browser
+    /// POST here with your credentials attached. <c>SameSite=Strict</c> is the
+    /// usual answer and it is set — but it is one flag, honoured by the browser,
+    /// and browsers have had bugs.
+    /// </para>
+    /// <para>
+    /// <b>So the cookie authenticates GET and HEAD and nothing else.</b> A
+    /// forged cross-site request can then only read, and reading is what the
+    /// directory is for. Every mutation — publish, applyEdits, sharing,
+    /// import — still requires the bearer header, which a browser cannot be
+    /// tricked into attaching. That is a stronger property than an antiforgery
+    /// token, because there is no token to get wrong: the credential simply does
+    /// not work for the requests that matter.
+    /// </para>
+    /// <para>
+    /// <b>The cost is real and small.</b> An HTML form cannot POST to this
+    /// server on a cookie, so any future write surface in the browser needs a
+    /// deliberate design rather than a form tag. Recorded as the trade rather
+    /// than discovered later.
+    /// </para>
+    /// </remarks>
+    private static string? CookieToken(HttpContext context)
+    {
+        if (!HttpMethods.IsGet(context.Request.Method)
+            && !HttpMethods.IsHead(context.Request.Method))
         {
             return null;
         }
 
-        return await _store
-            .FindSessionAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken)
-            .ConfigureAwait(false);
+        return context.Request.Cookies.TryGetValue(SessionCookie, out string? token)
+            && token.Length > 0
+                ? token
+                : null;
     }
 }
 

@@ -361,6 +361,50 @@ reach the admin API**; and they are revocable and listed like any other session.
 path.** Recorded here rather than in a footnote, because if never-degrade-
 silently applies to capabilities it applies to security trade-offs.
 
+### A browser holds a read-only credential — added 2026-08-15
+
+The REST Services Directory ([ADR-023](adr/ADR-023-rest-services-directory.md))
+created a client class that cannot hold a bearer header. Until 2026-08-15 that
+meant every browser was permanently anonymous, and every organisation-shared
+service was invisible in the surface built for browsing.
+
+**A browser now signs in and gets `gis-session`, and that cookie authenticates
+`GET` and `HEAD` and nothing else.**
+
+Three flags and one rule, and the rule is the important part:
+
+- `HttpOnly` — script cannot read it, which matters because this directory
+  renders user-supplied layer names and that is where an XSS would come from.
+- `Secure` — never on plaintext.
+- `SameSite=Strict` — another origin cannot cause the browser to send it.
+- **Method restriction** — `Authentication.CookieToken` returns null for any
+  method that is not `GET` or `HEAD`.
+
+The first three are the conventional answer and the fourth is why this is safe
+to have. A cookie is attached by the browser whatever caused the request; that
+is the whole of cross-site request forgery, and `SameSite` is one flag honoured
+by a browser, and browsers have had bugs. Because the credential does not work
+for the methods that matter, a forged request can only read — and there is no
+antiforgery token to get wrong, because there is no token.
+
+**What it costs.** An HTML form cannot `POST` to this server on a cookie. Any
+write surface in a browser needs a deliberate design rather than a `<form>` tag.
+GeometryServer's operation pages are the first thing to meet this and the reason
+they use `GET`: every operation there is a pure function, so the safe method is
+also the honest one.
+
+**Two rules this adds:**
+
+- **A sign-in page's `return` parameter is filtered, always.** Only a path
+  beginning with a single slash is honoured. An open redirect on a credential
+  prompt is a phishing primitive — our link, our prompt, somebody else's landing
+  page — and `//host` is the case that catches people, because it passes a
+  "starts with a slash" check and is a protocol-relative URL.
+- **A credential channel is a client class.** The bearer-only rule was complete
+  until a surface arrived whose clients cannot use it. Adding a client class
+  without asking what credential it can carry is how a security surface acquires
+  a hole that reads as a missing feature.
+
 ### Publishing data and publishing code are different grants
 
 Q-75 asked who may publish a Python geoprocessing tool. Partly answered: **not

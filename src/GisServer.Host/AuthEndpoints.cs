@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,10 +73,47 @@ internal static class AuthEndpoints
 
     private static async Task LoginAsync(
         HttpContext context,
-        LoginRequest request,
         LoginService login,
         CancellationToken cancellation)
     {
+        // <b>JSON for a client, a form for a browser.</b> The endpoint took a
+        // JSON body only, so the sign-in page's form got 415 Unsupported Media
+        // Type — a browser cannot set a JSON content type on a form post. Read
+        // by hand rather than by two routes, because two routes is two places
+        // for the throttle and the audit record to diverge.
+        LoginRequest request;
+
+        // Where a browser wants to be afterwards. Captured here rather than read
+        // back off the request twice, because the two failure paths below both
+        // need it and a re-read is a second thing to get wrong.
+        string? returnTo = null;
+        bool fromForm = context.Request.HasFormContentType;
+
+        if (fromForm)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            request = new LoginRequest(form["name"].ToString(), form["password"].ToString());
+            returnTo = form["return"].ToString();
+        }
+        else
+        {
+            try
+            {
+                request = await context.Request
+                    .ReadFromJsonAsync<LoginRequest>(cancellation)
+                    .ConfigureAwait(false)
+                    ?? new LoginRequest(null, null);
+            }
+            catch (JsonException)
+            {
+                await Refuse(context, 400, "The request body is not valid JSON.")
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrEmpty(request.Password))
         {
             await Refuse(context, 400, "name and password are required.").ConfigureAwait(false);
@@ -111,11 +149,38 @@ internal static class AuthEndpoints
                     "The name or password is incorrect."),
             };
 
+            if (fromForm)
+            {
+                // Back to the form with a message, not a JSON error a browser
+                // renders as a wall of text. The reason is deliberately the same
+                // for every failure — see the message above.
+                context.Response.Redirect(
+                    "/rest/login?failed=1&return="
+                    + Uri.EscapeDataString(Safe(returnTo)));
+                return;
+            }
+
             await Refuse(context, status, message).ConfigureAwait(false);
             return;
         }
 
         AuthenticatedSession session = result.Session!.Value;
+
+        // <b>The same token, also as a cookie, so a browser can browse.</b> The
+        // directory could never show anything but public content before this:
+        // the only credential channel was the Authorization header, which a
+        // browser following a link cannot send. The cookie authenticates GET and
+        // HEAD only (Authentication.CookieToken), so it cannot be used to change
+        // anything even if another origin manages to send it.
+        SetSessionCookie(context, result.Token!, session.ExpiresAt);
+
+        // A browser that posted the sign-in form wants the directory back, not
+        // a JSON document it has no way to read.
+        if (fromForm)
+        {
+            context.Response.Redirect(Safe(returnTo));
+            return;
+        }
 
         await Results.Json(new
         {
@@ -146,8 +211,72 @@ internal static class AuthEndpoints
         }
 
         await store.RevokeSessionAsync(sessionId, cancellation).ConfigureAwait(false);
+
+        ClearSessionCookie(context);
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            context.Response.Redirect("/rest/services");
+            return;
+        }
+
         await Results.Json(new { revoked = true }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Writes the browsing cookie.
+    /// </summary>
+    /// <remarks>
+    /// <b>Three flags, and each closes something.</b> <c>HttpOnly</c> keeps it
+    /// away from script, so an XSS in the directory cannot read a session — and
+    /// the directory renders user-supplied layer names, which is exactly where
+    /// an XSS would come from. <c>Secure</c> keeps it off plaintext.
+    /// <c>SameSite=Strict</c> stops another origin causing the browser to send
+    /// it at all. The fourth control is not a flag: the cookie only
+    /// authenticates GET and HEAD.
+    /// </remarks>
+    private static void SetSessionCookie(
+        HttpContext context, string token, DateTimeOffset expires) =>
+        context.Response.Cookies.Append(
+            Authentication.SessionCookie,
+            token,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = expires,
+                Path = "/",
+            });
+
+    private static void ClearSessionCookie(HttpContext context) =>
+        context.Response.Cookies.Delete(
+            Authentication.SessionCookie,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = "/",
+            });
+
+    /// <summary>
+    /// A return path that cannot leave this server.
+    /// </summary>
+    /// <remarks>
+    /// <b>An open redirect is what this prevents.</b> A sign-in page that
+    /// forwards to whatever <c>return</c> says is a phishing primitive: the link
+    /// is genuinely ours, the credential prompt is genuinely ours, and the
+    /// landing page is the attacker's. Only a path beginning with a single
+    /// slash is honoured, and <c>//host</c> is rejected because a
+    /// protocol-relative URL also begins with one.
+    /// </remarks>
+    private static string Safe(string? target) =>
+        !string.IsNullOrEmpty(target)
+        && target.StartsWith('/')
+        && !target.StartsWith("//", StringComparison.Ordinal)
+            ? target
+            : "/rest/services";
 
     /// <summary>
     /// Changes the caller's own password.

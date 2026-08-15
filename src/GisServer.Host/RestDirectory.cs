@@ -64,6 +64,49 @@ internal static class RestDirectory
             && accept.Contains("text/html", StringComparison.OrdinalIgnoreCase);
     }
 
+
+    /// <summary>
+    /// The sign-in page, which is the only way a browser gets a session.
+    /// </summary>
+    /// <remarks>
+    /// <b>The directory was anonymous-only until this existed.</b> A bearer
+    /// header is not something a browser following a link can send, so every
+    /// page showed a stranger and any service shared with the organisation was
+    /// invisible — in the one surface built for browsing.
+    /// </remarks>
+    public static string SignIn(string returnTo, string? failed)
+    {
+        StringBuilder body = new();
+
+        body.Append("<h2>Sign in</h2>");
+
+        if (failed is not null)
+        {
+            body.Append(CultureInfo.InvariantCulture, $"<p class=\"hint\">{H(failed)}</p>");
+        }
+
+        string escapedReturn = H(returnTo);
+
+        // No format provider: the whole expression is a concatenation and so
+        // resolves to Append(string), which the culture overload cannot accept.
+        body.Append(
+            "<form action=\"/rest/auth/login\" method=\"post\"><table class=\"form\">"
+            + "<input type=\"hidden\" name=\"return\" value=\"" + escapedReturn + "\">"
+            + "<input type=\"hidden\" name=\"f\" value=\"html\">"
+            + "<tr><th>Name:</th><td><input type=\"text\" name=\"name\" size=\"28\" autofocus></td></tr>"
+            + "<tr><th>Password:</th><td><input type=\"password\" name=\"password\" size=\"28\"></td></tr>"
+            + "<tr><th></th><td><button type=\"submit\">Sign in</button></td></tr>"
+            + "</table></form>");
+
+        body.Append(
+            "<p class=\"hint\">Signing in stores a cookie that authenticates <b>reading</b> only. "
+            + "Publishing, editing and administration still need an "
+            + "<code>Authorization: Bearer</code> header, so nothing a browser is tricked into "
+            + "sending can change anything here.</p>");
+
+        return Page("/rest/login", body.ToString());
+    }
+
     /// <summary>A folder listing: its folders and its services.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>
     /// <param name="folder">The folder being listed, or null for the root.</param>
@@ -418,6 +461,19 @@ internal static class RestDirectory
     /// also has to be legible when the only thing working is this page, which is
     /// an argument against anything it would need to load.
     /// </remarks>
+    /// <summary>Who the current request is, for the banner.</summary>
+    /// <remarks>
+    /// <b>Set per request rather than passed through every renderer.</b> Every
+    /// page wants it and no page's content depends on it, so threading it
+    /// through eight signatures would be ceremony.
+    /// </remarks>
+    [System.ThreadStatic]
+    private static string? _signedInAs;
+
+    /// <summary>Records who is browsing, for the pages rendered after it.</summary>
+    /// <param name="name">Their name, or null for anonymous.</param>
+    public static void SignedInAs(string? name) => _signedInAs = name;
+
     private static string Page(string path, string body, bool close = true)
     {
         StringBuilder crumbs = new("<a href=\"/rest/services\">Home</a>");
@@ -476,6 +532,7 @@ internal static class RestDirectory
                                font-weight: 600; white-space: nowrap; }
               table.props td { vertical-align: top; padding: 3px 0; }
               .fmt { font-size: 11px; padding: 5px 14px; }
+              .who { float: right; font-weight: 400; font-size: 12px; }
 
               /* A field list is a table, and a wide one scrolls in its own box
                  rather than pushing the page sideways. */
@@ -494,6 +551,11 @@ internal static class RestDirectory
               table.form td { padding: 3px 0; }
               table.form input, table.form select { font: inherit; padding: 2px 4px; }
               .hint { font-size: 11px; opacity: 0.75; }
+              .lede { max-width: 60em; margin: 0 0 14px; }
+              .warn { max-width: 60em; margin: 0 0 14px; padding: 7px 10px; font-size: 12px;
+                      background: #fff4e5; border: 1px solid #e3c08a; }
+              table.form textarea { font: 12px/1.45 Consolas, "Cascadia Mono", monospace;
+                                    padding: 4px 5px; }
               .paging { margin-top: 10px; }
               button { font: inherit; padding: 3px 14px; margin-top: 6px; }
               @media (prefers-color-scheme: dark) {
@@ -505,14 +567,36 @@ internal static class RestDirectory
                 table.grid tbody tr:nth-child(even) { background: #181d22; }
               }
             </style>
-            <div class="top">GIS Server REST Services Directory</div>
+            <div class="top">GIS Server REST Services Directory<span class="who">{{Who(path)}}</span></div>
             <div class="bar">{{crumbs}}</div>
             <div class="fmt"><a href="{{H(json)}}">JSON</a></div>
             <main>{{body}}{{(close ? "</main>" : string.Empty)}}
             """;
     }
 
+    /// <summary>The signed-in badge, or a link to sign in.</summary>
+    private static string Who(string path)
+    {
+        string here = U(path);
+
+        return _signedInAs is { Length: > 0 } name
+            ? $"Signed in: <b>{H(name)}</b> &middot; "
+              + $"<a href=\"/rest/auth/logout?f=html\">Sign out</a>"
+            : $"<a href=\"/rest/login?return={here}\">Sign in</a>";
+    }
+
     /// <summary>HTML-encodes a value. Nothing user-supplied is written without it.</summary>
+    /// <summary>HTML-encodes a value, for pages built outside this class.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The encoded value.</returns>
+    public static string Encode(string? value) => H(value);
+
+    /// <summary>Wraps a body in the directory chrome, for pages built elsewhere.</summary>
+    /// <param name="path">The request path, for the breadcrumb.</param>
+    /// <param name="body">The page body.</param>
+    /// <returns>The complete page.</returns>
+    public static string Wrap(string path, string body) => Page(path, body);
+
     private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
     /// <summary>

@@ -243,12 +243,29 @@ public static class Program
 
         app.Use(async (context, next) =>
         {
-            context.Features.Set(await context.RequestServices
+            RequestPrincipal current = await context.RequestServices
                 .GetRequiredService<Authentication>()
                 .ResolveAsync(context, context.RequestAborted)
-                .ConfigureAwait(false));
+                .ConfigureAwait(false);
 
-            await next(context).ConfigureAwait(false);
+            context.Features.Set(current);
+
+            // <b>Set per request and cleared after it.</b> The directory's
+            // banner needs to know who is browsing, and threading that through
+            // eight renderers would be ceremony — but a thread-static left set
+            // is the next request seeing the last request's name in the corner,
+            // which is a disclosure rather than a cosmetic bug.
+            RestDirectory.SignedInAs(
+                current.Principal.IsAnonymous ? null : current.Principal.Name);
+
+            try
+            {
+                await next(context).ConfigureAwait(false);
+            }
+            finally
+            {
+                RestDirectory.SignedInAs(null);
+            }
         });
 
         // After authentication, so setup is the only surface an unconfigured
@@ -537,6 +554,16 @@ public static class Program
         app.MapAuth();
         app.MapAdmin();
         app.MapPost("/rest/setup", AuthEndpoints.SetupAsync);
+
+        // The only way a browser gets a session. See Authentication.CookieToken
+        // for why that session can only read.
+        app.MapGet("/rest/login", (HttpContext context) => Results.Content(
+            RestDirectory.SignIn(
+                context.Request.Query["return"].ToString(),
+                context.Request.Query["failed"].Count > 0
+                    ? "That name and password were not accepted."
+                    : null),
+            "text/html; charset=utf-8"));
 
         app.MapGet("/rest/whoami", (HttpContext context) =>
         {

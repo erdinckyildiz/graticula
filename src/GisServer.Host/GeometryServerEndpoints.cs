@@ -98,18 +98,28 @@ internal static class GeometryServerEndpoints
         RouteGroupBuilder geometry = app
             .MapGroup("/rest/services/Utilities/Geometry/GeometryServer")
             .AddEndpointFilter(SharingFilter)
+            .AddEndpointFilter(FormFilter)
             .Governed(SharingGovernedExtensions.BySystemService);
 
         geometry.MapGet("", Describe);
-        geometry.MapPost("/project", ProjectAsync);
-        geometry.MapPost("/areasAndLengths", AreasAndLengths);
-        geometry.MapPost("/lengths", Lengths);
-        geometry.MapPost("/labelPoints", LabelPoints);
+
+        // <b>GET as well as POST, on every operation.</b> Two reasons, and both
+        // are decisions rather than convenience. Each of these is a pure
+        // function — nothing is stored and running one twice differs from
+        // running it once only in the electricity — so GET is the honest verb.
+        // And GET is the only verb the browsing cookie authenticates
+        // (Authentication.CookieToken), so it is the only verb a form page can
+        // use. POST stays for clients with a bearer token and a body too large
+        // for a URL, which is what ArcGIS clients send.
+        geometry.MapMethods("/project", GetOrPost, ProjectAsync);
+        geometry.MapMethods("/areasAndLengths", GetOrPost, AreasAndLengths);
+        geometry.MapMethods("/lengths", GetOrPost, Lengths);
+        geometry.MapMethods("/labelPoints", GetOrPost, LabelPoints);
 
         foreach (string operation in Overlay)
         {
             string name = operation;
-            geometry.MapPost($"/{name}", (
+            geometry.MapMethods($"/{name}", GetOrPost, (
                 HttpContext context, IOverlay overlay, CancellationToken cancellation) =>
                 OverlayAsync(context, overlay, name, cancellation));
         }
@@ -117,9 +127,12 @@ internal static class GeometryServerEndpoints
         foreach (string operation in Blocked)
         {
             string name = operation;
-            geometry.MapPost($"/{name}", (HttpContext context) => Refuse(context, name));
+            geometry.MapMethods($"/{name}", GetOrPost, (HttpContext context) =>
+                Refuse(context, name));
         }
     }
+
+    private static readonly string[] GetOrPost = ["GET", "POST"];
 
     /// <summary>The name this service carries in <c>system_service</c>.</summary>
     public const string ServiceName = "Geometry";
@@ -192,6 +205,44 @@ internal static class GeometryServerEndpoints
         return Refusal;
     }
 
+    /// <summary>
+    /// Shows the operation's form instead of running it, when that is what was
+    /// asked for.
+    /// </summary>
+    /// <remarks>
+    /// <b>A filter, so no handler can forget.</b> Eight handlers each checking
+    /// is eight chances to ship one that queries the moment its link is clicked
+    /// — which is exactly the correction the layer query page needed, and there
+    /// the check lived in the handler.
+    /// </remarks>
+    private static ValueTask<object?> FormFilter(
+        EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)
+    {
+        HttpContext context = invocation.HttpContext;
+
+        if (HttpMethods.IsGet(context.Request.Method)
+            && RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept)
+            && GeometryPage.WantsForm(context.Request)
+            && OperationOf(context) is { } operation)
+        {
+            return ValueTask.FromResult<object?>(Html(
+                GeometryPage.Form(context.Request.Path, operation, context.Request.Query)));
+        }
+
+        return next(invocation);
+    }
+
+    /// <summary>The operation this path names, or null if this surface has no page for it.</summary>
+    private static GeometryPage.Operation? OperationOf(HttpContext context)
+    {
+        string path = context.Request.Path.Value ?? string.Empty;
+        int slash = path.LastIndexOf('/');
+
+        return slash < 0 ? null : GeometryPage.Find(path[(slash + 1)..]);
+    }
+
+    private static IResult Html(string page) => Results.Content(page, "text/html; charset=utf-8");
+
     /// <summary>The service document.</summary>
     private static IResult Describe(HttpContext context)
     {
@@ -218,8 +269,23 @@ internal static class GeometryServerEndpoints
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
+            // <b>Each operation is a link to a page you can run it from.</b> The
+            // owner asked why the capabilities were not listed under Utilities;
+            // they were, as a bulleted list of words. A name you cannot click is
+            // documentation, and this is a services directory.
+            string root = context.Request.Path.Value!.TrimEnd('/');
+
+            var links = GeometryPage.Operations
+                .Select(o => (Label: o.Name, Href: $"{root}/{o.Name}"))
+                .ToArray();
+
             return Results.Content(
-                RestDirectory.Document(context.Request.Path, "Geometry (GeometryServer)", document),
+                RestDirectory.Document(
+                    context.Request.Path,
+                    "Geometry (GeometryServer)",
+                    document,
+                    links,
+                    "Supported operations"),
                 "text/html; charset=utf-8");
         }
 
@@ -227,13 +293,18 @@ internal static class GeometryServerEndpoints
     }
 
     /// <summary>Refuses an operation that needs overlay, and says why.</summary>
-    private static Task Refuse(HttpContext context, string operation) =>
-        Results.Json(
-            new
+    /// <remarks>
+    /// <b>Rendered as a page for a browser.</b> These are reachable by clicking:
+    /// the service document lists them under unsupportedOperations, and somebody
+    /// following that name deserves the reason rather than a JSON blob.
+    /// </remarks>
+    private static Task Refuse(HttpContext context, string operation)
+    {
+        object document = new
+        {
+            error = new
             {
-                error = new
-                {
-                    code = 501,
+                code = 501,
                     message =
                         $"'{operation}' is not implemented. It needs general polygon overlay, and "
                         + "measurement found that no cap on input size bounds that work: a "
@@ -242,11 +313,22 @@ internal static class GeometryServerEndpoints
                         + "mean one request could take this server down. See "
                         + "benchmarks/geometry-overlay/RESULTS.md and Q-97. The operations that "
                         + "are linear in their input — project, areasAndLengths, lengths, "
-                        + "labelPoints — are available.",
-                },
+                    + "labelPoints — are available.",
             },
-            statusCode: StatusCodes.Status501NotImplemented)
+        };
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            context.Response.StatusCode = StatusCodes.Status501NotImplemented;
+
+            return Html(RestDirectory.Document(
+                context.Request.Path, $"{operation} (not implemented)", document))
+                .ExecuteAsync(context);
+        }
+
+        return Results.Json(document, statusCode: StatusCodes.Status501NotImplemented)
             .ExecuteAsync(context);
+    }
 
     // ---------- overlay ----------
 
@@ -337,7 +419,7 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        await Results.Json(new
+        await Respond(context, operation, new
         {
             geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
 
@@ -352,7 +434,7 @@ internal static class GeometryServerEndpoints
                 candidatePairLimit = OverlayWorkerPool.MaximumCandidatePairs,
                 deadlineSeconds = OverlayWorkerPool.Deadline.TotalSeconds,
             },
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>The single-geometry operand, which ArcGIS calls "geometry".</summary>
@@ -431,7 +513,7 @@ internal static class GeometryServerEndpoints
         (IReadOnlyList<Geometry> projected, ProjectionProvenance provenance) =
             await projector.ProjectAsync(geometries, inSr, outSr, cancellation).ConfigureAwait(false);
 
-        await Results.Json(new
+        await Respond(context, "project", new
         {
             geometries = projected.Select(g => ToJson(g, outSr)).ToArray(),
             transformation = new
@@ -447,7 +529,7 @@ internal static class GeometryServerEndpoints
                 note = "The transformation path was chosen by PROJ. Where several exist they "
                      + "differ by metres, and pinning one is not yet supported.",
             },
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        }).ConfigureAwait(false);
 
         _ = kind;
     }
@@ -463,12 +545,12 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        await Results.Json(new
+        await Respond(context, "areasAndLengths", new
         {
             areas = geometries.Select(GeometryMeasures.Area).ToArray(),
             lengths = geometries.Select(GeometryMeasures.Length).ToArray(),
             note = PlanarNote,
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Planar length of each geometry.</summary>
@@ -480,11 +562,11 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        await Results.Json(new
+        await Respond(context, "lengths", new
         {
             lengths = geometries.Select(GeometryMeasures.Length).ToArray(),
             note = PlanarNote,
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>A point inside each polygon, for placing a label.</summary>
@@ -508,7 +590,7 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        await Results.Json(new
+        await Respond(context, "labelPoints", new
         {
             labelPoints = geometries
                 .Select(GeometryMeasures.LabelPoint)
@@ -517,7 +599,7 @@ internal static class GeometryServerEndpoints
                 .ToArray(),
             note = "A point guaranteed to be inside the polygon, not its centroid — the centroid "
                  + "of a crescent falls outside it, which puts the label in the sea.",
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     private const string PlanarNote =
@@ -549,6 +631,19 @@ internal static class GeometryServerEndpoints
     private static bool TryForm(HttpContext context, out IFormCollection form, out string? error)
     {
         error = null;
+
+        // <b>A GET carries its parameters in the query, and means the same
+        // thing.</b> Converted here rather than threading a second collection
+        // through every reader, because the parse rules — the vertex cap, the
+        // wkid forms, the two shapes of 'geometries' — must not have two
+        // implementations that can disagree about what a request said.
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            form = new FormCollection(context.Request.Query.ToDictionary(
+                pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
+
+            return true;
+        }
 
         if (context.Request.HasFormContentType)
         {
@@ -728,9 +823,58 @@ internal static class GeometryServerEndpoints
         return JsonDocument.Parse(buffer.ToArray()).RootElement.Clone();
     }
 
-    private static Task Fail(HttpContext context, string message) =>
-        Results.Json(
+    /// <summary>
+    /// Writes the answer, as HTML when the caller is a browser.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same object either way.</b> The HTML is a rendering of the JSON
+    /// document, not a second document — so what a person reads on the page and
+    /// what a client parses cannot describe different results.
+    /// </remarks>
+    private static Task Respond(HttpContext context, string title, object document)
+    {
+        if (!RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            return Results.Json(document).ExecuteAsync(context);
+        }
+
+        // A way back to the form. Without it the only route to a second attempt
+        // is the browser's back button, and the answer page is a dead end.
+        (string, string)[] links =
+        [
+            ("Change the parameters", context.Request.Path.Value!),
+            ("This answer as JSON", context.Request.Path + context.Request.QueryString + "&f=json"),
+        ];
+
+        return Html(RestDirectory.Document(
+            context.Request.Path, title, document, links, "Then"))
+            .ExecuteAsync(context);
+    }
+
+    /// <summary>
+    /// Refuses the request, and for a browser puts the reason above the form
+    /// rather than in a document it cannot read.
+    /// </summary>
+    /// <remarks>
+    /// <b>The values are kept.</b> A refusal that clears the box the caller
+    /// spent five minutes pasting a polygon into is a refusal they will work
+    /// around by not using the page.
+    /// </remarks>
+    private static Task Fail(HttpContext context, string message)
+    {
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept)
+            && OperationOf(context) is { } operation)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+
+            return Html(GeometryPage.Form(
+                context.Request.Path, operation, context.Request.Query, message))
+                .ExecuteAsync(context);
+        }
+
+        return Results.Json(
             new { error = new { code = 400, message } },
             statusCode: StatusCodes.Status400BadRequest)
             .ExecuteAsync(context);
+    }
 }
