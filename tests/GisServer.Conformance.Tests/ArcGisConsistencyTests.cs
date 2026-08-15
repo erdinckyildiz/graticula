@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -457,6 +458,126 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // machines and nothing in the JSON suite would catch it, because the
         // JSON suite sends no Accept header at all.
         string name = await FirstServiceNameAsync();
+
+        Assert.Equal(
+            "application/json",
+            await MediaTypeForAsync(
+                $"/rest/services/{name}/FeatureServer/0/query?where=1%3D1&outFields=*", "json"));
+    }
+
+    /// <summary>
+    /// The form's own default submission is accepted by the server that drew it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written after the server refused a request its own page generated.</b>
+    /// An HTML form submits every enabled control it has, including the ones
+    /// nobody touched — so <c>spatialRel=esriSpatialRelIntersects</c> arrived
+    /// with an empty <c>geometry</c> on every submission, and a validation rule
+    /// written for hand-built URLs refused it with a 400. Every parameter had
+    /// been tested individually and all of them passed; the failure was in the
+    /// combination the page itself produces, which is the one combination no
+    /// per-parameter test covers.
+    /// </remarks>
+    [Fact]
+    public async Task Pressing_the_query_button_works()
+    {
+        string name = await FirstServiceNameAsync();
+        string path = $"/rest/services/{name}/FeatureServer/0/query";
+
+        string form = await GetHtmlAsync(path);
+
+        List<string> submitted = [];
+
+        // Text inputs, as the browser sends them: name and current value, and
+        // disabled ones not at all.
+        foreach (Match match in Regex.Matches(
+            form, "<input type=\"text\" name=\"([^\"]*)\" value=\"([^\"]*)\"[^>]*>"))
+        {
+            if (match.Value.Contains("disabled", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            submitted.Add($"{match.Groups[1].Value}={Uri.EscapeDataString(match.Groups[2].Value)}");
+        }
+
+        // Selects send whichever option is selected, or the first.
+        foreach (Match match in Regex.Matches(
+            form, "<select name=\"([^\"]*)\">(.*?)</select>", RegexOptions.Singleline))
+        {
+            Match option = Regex.Match(match.Groups[2].Value, "<option value=\"([^\"]*)\" selected>");
+
+            if (!option.Success)
+            {
+                option = Regex.Match(match.Groups[2].Value, "<option value=\"([^\"]*)\"");
+            }
+
+            submitted.Add(
+                $"{match.Groups[1].Value}={Uri.EscapeDataString(option.Groups[1].Value)}");
+        }
+
+        // Radios send the checked one.
+        foreach (Match match in Regex.Matches(
+            form, "<input type=\"radio\" name=\"([^\"]*)\" value=\"([^\"]*)\" checked([^>]*)>"))
+        {
+            if (match.Groups[3].Value.Contains("disabled", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            submitted.Add($"{match.Groups[1].Value}={match.Groups[2].Value}");
+        }
+
+        Assert.True(
+            submitted.Count > 20,
+            $"Only {submitted.Count} controls were found on the form, so this test is not "
+            + "submitting what a browser would.");
+
+        string page = await GetHtmlAsync($"{path}?{string.Join("&", submitted)}");
+
+        Assert.Contains("<h3>Results:</h3>", page, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Opening the query page does not run a query.
+    /// </summary>
+    /// <remarks>
+    /// <b>A link somebody clicks must not be an unfiltered read of the whole
+    /// layer</b>, rendered as a table. The Query link on the layer document
+    /// carried <c>where=1=1&amp;outFields=*&amp;f=json</c> until 2026-08-15,
+    /// which meant clicking it executed exactly that.
+    /// </remarks>
+    [Fact]
+    public async Task The_query_link_opens_a_form_rather_than_running_a_query()
+    {
+        string name = await FirstServiceNameAsync();
+
+        string layer = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0");
+
+        Match link = Regex.Match(layer, "href=\"([^\"]*/query[^\"]*)\"");
+
+        Assert.True(link.Success, "The layer page has no link to the query page.");
+
+        // No query string, so nothing is filtered, ordered or executed.
+        Assert.DoesNotContain("?", link.Groups[1].Value, StringComparison.Ordinal);
+
+        string page = await GetHtmlAsync(link.Groups[1].Value);
+
+        Assert.Contains("<form", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("<h3>Results:</h3>", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_form_offers_both_output_formats()
+    {
+        // A table to read and a document to copy into a client, chosen with the
+        // control ArcGIS puts in the same place.
+        string name = await FirstServiceNameAsync();
+
+        string form = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
+
+        Assert.Contains("<option value=\"html\"", form, StringComparison.Ordinal);
+        Assert.Contains("<option value=\"json\"", form, StringComparison.Ordinal);
 
         Assert.Equal(
             "application/json",

@@ -591,8 +591,12 @@ internal static class QueryPage
         Select(body, "SQL Format:", "sqlFormat", q["sqlFormat"],
             [("none", "none"), ("standard", "standard")]);
 
+        // <b>Two, and the labels say what each one is.</b> "HTML" and "JSON"
+        // are format names; a person choosing between them is choosing between
+        // reading a table and copying a document into a client, and the labels
+        // may as well say that.
         Select(body, "Format:", "f", string.IsNullOrEmpty(q["f"]) ? "html" : q["f"],
-            [("html", "HTML"), ("json", "JSON")]);
+            [("html", "HTML (table)"), ("json", "JSON")]);
 
         body.Append(
             "<tr><th></th><td><button type=\"submit\">Query (GET)</button></td></tr>");

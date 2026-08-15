@@ -571,15 +571,30 @@ internal static class FeatureServerQueryParameters
 
         if (raw.Length == 0)
         {
-            // No geometry, so nothing else here applies. spatialRel without a
-            // geometry is meaningless rather than wrong, and saying so beats
-            // ignoring it.
-            if (!string.IsNullOrWhiteSpace(First(parameters, "spatialRel"))
-                || !string.IsNullOrWhiteSpace(First(parameters, "distance")))
+            // <b>Refused only on unambiguous intent, and the distinction is one
+            // the query page forced.</b> An HTML form submits every select it
+            // has, so `spatialRel=esriSpatialRelIntersects` arrives on every
+            // submission whether or not anybody touched the control — and the
+            // first version of this check refused the form's own default query,
+            // which is a server refusing a request its own page generated.
+            //
+            // A distance, a relate pattern, or a relationship that is not the
+            // default cannot come from an untouched form. Those still refuse,
+            // because ignoring them would answer an unfiltered query for a
+            // caller who believes they sent a filter.
+            string asked = First(parameters, "spatialRel");
+
+            bool deliberate =
+                First(parameters, "distance").Length > 0
+                || First(parameters, "relationParam").Length > 0
+                || (asked.Length > 0
+                    && !asked.Equals("esriSpatialRelIntersects", StringComparison.OrdinalIgnoreCase));
+
+            if (deliberate)
             {
                 error =
-                    "'spatialRel' and 'distance' describe how to compare against a filter "
-                    + "geometry, and no 'geometry' was given. Send one, or drop them.";
+                    "'spatialRel', 'distance' and 'relationParam' describe how to compare against "
+                    + "a filter geometry, and no 'geometry' was given. Send one, or drop them.";
                 return false;
             }
 

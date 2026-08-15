@@ -1095,7 +1095,14 @@ public static class Program
                     context.Request.Path,
                     $"{layer.ServiceName} - {layer.Definition.Name} ({layer.LayerIndex})",
                     document,
-                    [("Query", context.Request.Path + "/query?where=1%3D1&outFields=*&f=json")]),
+                    // <b>The query page, and nothing that runs a query.</b>
+                    // This link carried where=1%3D1&outFields=*&f=json until
+                    // 2026-08-15, because there was no page to send anybody to —
+                    // so clicking Query in a browser executed an unfiltered read
+                    // and printed a wall of JSON. Opening a form is what the
+                    // link should do; running the query is what the button in it
+                    // is for.
+                    [("Query", context.Request.Path + "/query")]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

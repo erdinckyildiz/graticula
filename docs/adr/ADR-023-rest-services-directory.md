@@ -224,6 +224,25 @@ polygon's coordinate list is thousands of numbers and pasting it into a cell
 makes the attributes impossible to find. The coordinates are one click away in
 the JSON.
 
+**Opening the page runs nothing; the button runs the query.** The Query link on
+the layer document carried `where=1=1&outFields=*&f=json` until the page
+existed, so clicking it executed an unfiltered read and printed a wall of JSON.
+Reported by the owner as *"I don't see a page when I click query"* and *"it
+should query when query is clicked"* — the link now goes to a bare `/query`, and
+a request with no filter parameters is a request for the form.
+
+**The server then refused a request its own page generated.** An HTML form
+submits every enabled control, including untouched ones, so
+`spatialRel=esriSpatialRelIntersects` arrived with an empty `geometry` on every
+submission — and a validation rule written for hand-built URLs answered 400.
+Every parameter had been tested individually and every one passed; the failure
+was in the combination the page itself produces, which is the one combination no
+per-parameter test covers. `Pressing_the_query_button_works` now walks the form,
+collects what a browser would send, and submits it. The rule was narrowed to
+refuse only unambiguous intent — a distance, a relate pattern, or a
+relationship that is not the default — since none of those can come from an
+untouched form.
+
 **An explicit `f=json` still beats a browser's `Accept` header**, and there is
 now a test that sends both together. Every existing caller sends `f=json`; if
 the header ever won, the query endpoint would start returning HTML to machines,
