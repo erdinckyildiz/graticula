@@ -667,17 +667,45 @@ public static class ShapefileReader
         return inside;
     }
 
-    /// <summary>Twice the signed area, which is all the sign needs.</summary>
+    /// <summary>Twice the signed area, about the ring's first vertex.</summary>
+    /// <remarks>
+    /// <b>The subtraction is not decoration.</b> The plain shoelace multiplies
+    /// coordinates together, and a shapefile in a state-plane or Web Mercator
+    /// system has coordinates in the millions: each product lands near 10¹³,
+    /// where a double's rounding error is around 0.003, while the answer for a
+    /// parcel is a few hundred. <c>GeometryMeasures.SignedArea</c> had the same
+    /// defect and it was measured at 1.6 × 10⁻⁵ relative on real polygons
+    /// (D-35). Translating a ring cannot change its area, so subtracting the
+    /// first vertex costs nothing and removes the cancellation.
+    /// </remarks>
+    /// <remarks>
+    /// <b>Fixed here on the same day and for the same reason, but the
+    /// consequence was smaller.</b> This value only ranks rings by size to
+    /// decide which contains which, and an error of one part in a hundred
+    /// thousand does not reorder rings that differ by orders of magnitude. It
+    /// is corrected because the correction is free and because leaving one
+    /// known-wrong shoelace in the tree invites the next one.
+    /// </remarks>
     private static double SignedArea(XySequence ring)
     {
+        int n = ring.Count - 1;
+
+        if (n < 3)
+        {
+            return 0;
+        }
+
+        double originX = ring.X(0);
+        double originY = ring.Y(0);
+
         double sum = 0;
 
-        for (int i = 0; i < ring.Count - 1; i++)
+        // From 1: with the origin at vertex zero the first and last terms are
+        // identically zero.
+        for (int i = 1; i < n; i++)
         {
-            (double x1, double y1) = (ring.X(i), ring.Y(i));
-            (double x2, double y2) = (ring.X(i + 1), ring.Y(i + 1));
-
-            sum += (x1 * y2) - (x2 * y1);
+            sum += ((ring.X(i) - originX) * (ring.Y(i + 1) - originY))
+                 - ((ring.X(i + 1) - originX) * (ring.Y(i) - originY));
         }
 
         return sum;

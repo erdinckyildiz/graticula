@@ -64,11 +64,25 @@ public sealed class LinearRing : LineString
     /// counter-clockwise in a y-up coordinate system.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Doubled because halving it would cost a division and every caller either
     /// compares it to zero or wants the sign. Orientation drives ring
     /// classification when converting to and from ArcGIS geometry, where winding
     /// order carries the shell-versus-hole distinction that Simple Features
     /// states explicitly.
+    /// </para>
+    /// <para>
+    /// <b>This is the trapezoid form, and it is not the one to measure with.</b>
+    /// <c>(x₂ − x₁)(y₂ + y₁)</c> subtracts the two large x values before
+    /// multiplying, so it avoids most of the cancellation that made the plain
+    /// shoelace wrong by 1.6 × 10⁻⁵ on real Web Mercator polygons (D-35) — but
+    /// it still multiplies a small difference by a <em>sum</em> of two
+    /// coordinates near 10⁷, so it is accurate to roughly 10⁻¹¹ rather than to
+    /// machine precision. That is far more than a sign needs and less than an
+    /// area deserves. <b>Area is
+    /// <see cref="GeometryMeasures.Area(Geometry)"/></b>, which subtracts a
+    /// local origin and agrees with PostGIS to better than 10⁻⁸.
+    /// </para>
     /// </remarks>
     public double SignedArea2()
     {
