@@ -143,6 +143,20 @@ than it was**: idle services cost a row in a table, not a process.
 
 ### 4.4 Affinity routing, with a bounded context budget
 
+> **AMENDED 2026-08-15 — this is no longer the default.**
+> [ADR-029](ADR-029-affinity-routing-is-not-the-default.md) takes the branch the
+> F2 amendment below already named: *plain balancing with pinning as the only
+> affinity*. Nothing tracks which worker holds which context and nothing routes
+> toward warm state. The reason is that the condition this section set for
+> itself was never met — `experiments/affinity-routing/` has not been run and
+> `benchmarks/worker-model` does not exist — and an unresolved conditional had
+> been defaulting to the more complicated branch because that branch was written
+> first. **A-003 and A-014 are downgraded to informational and become
+> load-bearing again the moment this is reconsidered.** The section is left
+> intact below because it is the design to return to if somebody runs the
+> experiment and it converges.
+
+
 The gap in every prior system
 ([runtime-models-compared.md](../research/runtime-models-compared.md) §3): warm
 state fragments across workers and the router does not know.
@@ -190,6 +204,13 @@ boundary. If stability cannot be demonstrated, the correct answer is plain
 balancing with pinning as the only affinity — simpler, and provably stable.
 
 ### 4.5 Escalation is observed, not configured
+
+> **AMENDED 2026-08-15 — auto-pinning is suspended**
+> ([ADR-029](ADR-029-affinity-routing-is-not-the-default.md)). With affinity gone
+> it is the last of F2's five feedback mechanisms that could oscillate, and
+> §4.12's budget-contention behaviour is unspecified. Explicit pinning by an
+> administrator is unaffected.
+
 
 Per-service min/max instances is rejected as the control surface
 ([arcgis-som-soc.md](../research/arcgis-som-soc.md) §4, A-008). At 1,000
@@ -342,6 +363,13 @@ administrator's question is "why is this service degraded", and the answer
 composes from the service, its data source and the workers serving it.
 
 ### 4.12 Pinning — keeping a hot service permanently warm
+
+> **Unchanged and now load-bearing**
+> ([ADR-029](ADR-029-affinity-routing-is-not-the-default.md)). With §4.4's
+> affinity removed, an explicit pin is the *only* way a service stays warm. It
+> survives the reversal because it is not a control loop — it is a flag that
+> exempts a context from eviction, and it does not steer a request.
+
 
 §4.3 binds contexts lazily and §4.4 evicts them LRU. A service under constant
 load must not pay either cost. This is ArcSOC's dedicated-instance problem, and

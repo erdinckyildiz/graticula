@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>5b49346</code> · 2026-08-15 18:31</p>
+<p class="stamp">Generated from commit <code>89a13fa</code> · 2026-08-15 19:26</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">22/95</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
+<div class="kpi warn"><div class="kpi-v">22/99</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">41</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">30</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">4/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">9/69</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi warn"><div class="kpi-v">9/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">908</div><div class="kpi-l">tests</div><div class="kpi-n">116 source files, 33,417 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">108 items</span></div><p><b>73 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>30 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>2 review gates</b> nobody else is blocking: Performance, Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">112 items</span></div><p><b>77 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>30 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>2 review gates</b> nobody else is blocking: Performance, Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -142,6 +142,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-027 · Glyphs and sprites: the tile servi</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -200,6 +201,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">1/5</td></tr>
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">1/5</td></tr>
 <tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/5</td></tr>
+<tr><td class="id">029</td><td>Affinity routing is not the default, and A-003 stops being load-bearing</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reversal · MEDIUM for what replaces it at scale</td><td class="num">0/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -287,7 +289,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="scroll"><table><thead><tr><th>ID</th><th>Assumption</th><th>State</th></tr></thead><tbody>
 <tr><td class="id">A-001</td><td>The tile path is CPU-bound enough that language performance materially affects capacity</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-002</td><td>Single-binary distribution is genuinely valuable for air-gapped installs, not just aesthetically pleasing</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
-<tr><td class="id">A-003</td><td>Most published services are idle most of the time, making shared workers viable</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-003</td><td>Most published services are idle most of the time, making shared workers viable</td><td><span class="pill warn">DOWNGRADED</span></td></tr>
 <tr><td class="id">A-004</td><td>Hot-path geometry overhead is material enough to justify our own primitives</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-005</td><td>Geometry running in the same runtime meaningfully reduces defect resolution time versus FFI</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-006</td><td>One internal geometry representation can serve both the feature path and the tile path without a second conversion</td><td><span class="pill warn">CONTESTED</span></td></tr>
@@ -296,7 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-011</td><td>A distinguished central manager process is a robustness and recovery liability, so placement and routing state must be recoverable without one</td><td><span class="pill warn">VALIDATING</span></td></tr>
 <tr><td class="id">A-012</td><td>The sharing question is really about per-service state size, binding cost and neighbour tolerance — not about &quot;shared versus dedicated&quot;</td><td><span class="pill warn">VALIDATING</span></td></tr>
 <tr><td class="id">A-013</td><td>Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model</td><td><span class="pill good">VALIDATED</span></td></tr>
-<tr><td class="id">A-014</td><td>Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-014</td><td>Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance</td><td><span class="pill warn">DOWNGRADED</span></td></tr>
 <tr><td class="id">A-015</td><td>Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-018</td><td>~~A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
 <tr><td class="id">A-019</td><td>In-process MVT encoding can meet our latency targets</td><td><span class="pill good">VALIDATED</span></td></tr>
@@ -354,6 +356,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-070</td><td>Substituting an unavailable font beats refusing the request</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-071</td><td>One style per service is enough to be useful, even though it is not enough to be finished</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-072</td><td>Refusing a style at write time costs an author less than a blank map costs them at read time</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-073</td><td>Warm-state fragmentation across workers costs less than the affinity control system would cost in instability</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 </tbody></table></div></section>
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
@@ -368,6 +371,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>89a13fa</code><time>2026-08-15</time><span>Honua: verified against the live repository, and it corrects us</span></li>
+<li><code>e253022</code><time>2026-08-15</time><span>Â§66 security gate: FAIL, and repaired in part</span></li>
 <li><code>5b49346</code><time>2026-08-15</time><span>ADR-005 Â§3.3d: record the single-operation edit endpoints</span></li>
 <li><code>625c6d7</code><time>2026-08-15</time><span>addFeatures, updateFeatures, deleteFeatures</span></li>
 <li><code>b5a5069</code><time>2026-08-15</time><span>style documents: the one part of a map a server cannot guess</span></li>
@@ -380,8 +385,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>47e92bb</code><time>2026-08-15</time><span>layers keep their own projection; tiles transform on the fly</span></li>
 <li><code>2513478</code><time>2026-08-15</time><span>failure gate: run, failed, and one green probe in front of a red server</span></li>
 <li><code>9dafe44</code><time>2026-08-15</time><span>Q-98: shapefiles, and the security rule that had to give</span></li>
-<li><code>89bcb36</code><time>2026-08-15</time><span>D-25: tile freshness is per layer, and one number governs every cache</span></li>
-<li><code>b6c0746</code><time>2026-08-15</time><span>D-28: every data route now has to name what governs it</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
