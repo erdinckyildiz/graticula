@@ -193,6 +193,105 @@ def assumptions():
     return out
 
 
+
+def gates():
+    """The nine §66 review gates, and what each is waiting for.
+
+    <b>The Run column is the fact, not the prose.</b> A gate is run when that
+    cell holds a date. The Result cell then says either what was found or what
+    the gate is blocked on, and the distinction between those two is what makes
+    the work queue below meaningful rather than a list of everything.
+    """
+    out = []
+    text = read("docs", "architecture-completeness.md")
+    section = re.search(r"^##\s*Review gates.*?$(.*?)(^##\s|\Z)", text, re.M | re.S)
+
+    for cells in rows(section.group(1) if section else "", r"^\*{0,2}[A-Z]"):
+        name = re.sub(r"[*`]", "", cells[0]).strip()
+
+        if name.lower() in ("gate", "---"):
+            continue
+
+        run = re.sub(r"[*`]", "", cells[1]).strip() if len(cells) > 1 else ""
+        result = cells[2] if len(cells) > 2 else ""
+
+        # Who can move it, taken from what the gate itself says it wants. A gate
+        # that names an outside reviewer or an operated deployment is not work
+        # anybody here can pick up, and putting it in the same list as work that
+        # is would make the list unusable.
+        outside = bool(re.search(
+            r"reviewer who did not|somebody other than the author|"
+            r"deployment somebody operates|did not participate",
+            result, re.I))
+
+        out.append({
+            "name": name,
+            "run": run if run and run != "—" else "",
+            "result": first_sentence(result, 200),
+            "outside": outside,
+        })
+
+    return out
+
+
+def unstarted():
+    """Capability areas the completeness register marks as not started."""
+    out = []
+    text = read("docs", "architecture-completeness.md")
+
+    for cells in rows(text, r"^\*{0,2}[A-Z]"):
+        if len(cells) < 9:
+            continue
+
+        status = cells[-1]
+
+        if not re.search(r"\bnot started\b", status, re.I):
+            continue
+
+        out.append({
+            "name": re.sub(r"[*`]|\s*\(§\d+\)", "", cells[0]).strip(),
+            "note": first_sentence(re.sub(r"^[—-]*\s*not started\s*[—-]*\s*", "", status,
+                                          flags=re.I), 150),
+        })
+
+    return out
+
+
+def open_conditions():
+    """Every ADR condition still outstanding, by ADR.
+
+    The same struck-through convention tools/conditions.py relies on, and it is
+    named in both places on purpose: it is the only thing either tool trusts.
+    """
+    out = []
+    folder = os.path.join(ROOT, "docs", "adr")
+
+    for name in sorted(os.listdir(folder)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        text = io.open(os.path.join(folder, name), encoding="utf-8").read()
+        section = re.search(r"^##\s*\d*\.?\s*Conditions\b(.*?)(^##\s|\Z)", text, re.M | re.S)
+
+        if not section:
+            continue
+
+        for item in re.finditer(
+                r"^(\d+)\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
+            body = item.group(2).lstrip()
+
+            if body.startswith("~~") or "DISCHARGED" in body[:200].upper():
+                continue
+
+            out.append({
+                "adr": name.split("-")[1],
+                "number": int(item.group(1)),
+                "text": first_sentence(body, 190),
+            })
+
+    return out
+
+
 # ---------------------------------------------------------------- code
 
 def tests():
@@ -273,6 +372,27 @@ def Conditions(adr):
     return f'{adr["discharged"]}/{adr["conditions"]}'
 
 
+def grade(status):
+    """The status word, separated from the paragraph explaining it.
+
+    <b>An ADR header's Status cell is often a sentence.</b> ADR-001's is
+    seventy words, and rendered whole into a pill it produced a coloured
+    paragraph that made the table unreadable and buried the one word somebody
+    scans for. The word goes in the pill and the rest goes beside it, so
+    nothing is dropped — a status qualified into meaninglessness is a fact
+    about the decision, not noise to hide.
+    """
+    text = re.sub(r"[*`]", "", status).strip()
+    head = re.split(r"\s+[—-]\s+|(?<=[a-z])\.\s", text, maxsplit=1)
+    word = head[0].strip().rstrip(".")
+    rest = text[len(head[0]):].lstrip(" .—-") if len(head) > 1 else ""
+
+    if len(word) > 46:
+        word, rest = word[:46].rsplit(" ", 1)[0] + "…", text
+
+    return word, first_sentence(rest, 150)
+
+
 def status_class(status):
     s = status.upper()
     if "REJECTED" in s:
@@ -294,6 +414,9 @@ def build():
     d = debts()
     s = assumptions()
     t = tests()
+    gate = gates()
+    left = open_conditions()
+    cold = unstarted()
     files, lines = source_size()
 
     q_open = [x for x in q if not x["resolved"] and not x["withdrawn"]]
@@ -344,9 +467,110 @@ def build():
     parts.append(kpi(len(d_open), "open debts",
                      f"{len(d) - len(d_open)} repaid" + (f" · {partly} partly" if partly else ""),
                      "warn" if len(d_open) > 10 else ""))
+    gates_run = sum(1 for x in gate if x["run"])
+    parts.append(kpi(f"{gates_run}/{len(gate)}", "review gates run",
+                     f"{sum(1 for x in gate if not x['run'] and x['outside'])} need an outside reviewer",
+                     "warn" if gates_run < len(gate) else "good"))
     parts.append(kpi(f"{validated}/{len(s)}", "assumptions validated", "the rest are unproven", "warn"))
     parts.append(kpi(total_tests, "tests", f"{files} source files, {lines:,} lines", "good"))
     parts.append('</div></section>')
+
+    # ---- what is left, grouped by who can move it
+    #
+    # <b>The grouping is derived, not typed.</b> Owner items are the questions
+    # whose own register names the owner; outside items are the gates that say
+    # in their own text that they need somebody who did not write this. Anything
+    # left over is ours, which is the only bucket that shrinks by working.
+    owner_q = [x for x in q_open if "OWNER" in x["owner"].upper()]
+    outside = [x for x in gate if not x["run"] and x["outside"]]
+    ours = [x for x in gate if not x["run"] and not x["outside"]]
+
+    parts.append('<section><h2>What is left</h2>')
+    parts.append('<p class="sub">Three buckets, sorted by who can move them. The sort is derived: '
+                 "an item is the owner's when the question register names them, and an outside "
+                 "reviewer's when the gate says in its own words that it needs somebody who did "
+                 'not write this. Everything else is ours, and it is the only bucket that shrinks '
+                 'by working.</p>')
+
+    parts.append('<div class="cards">')
+
+    parts.append(
+        f'<article class="card blocking"><div class="card-h"><span class="id">Owner</span>'
+        f'<span class="owner blocking-tag">{len(owner_q)} open</span></div>'
+        + "".join(f'<p><b>{esc(x["id"])}</b> — {esc(x["text"])}</p>' for x in owner_q)
+        + ('<p>Nothing is waiting on the owner.</p>' if not owner_q else '')
+        + '</article>')
+
+    parts.append(
+        f'<article class="card"><div class="card-h"><span class="id">An outside reviewer</span>'
+        f'<span class="owner">{len(outside)} gates</span></div>'
+        + "".join(f'<p><b>{esc(x["name"])}</b> — {esc(x["result"])}</p>' for x in outside)
+        + '<p class="muted-t">§67 also still owes a review round by somebody who did not '
+          'participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed '
+          'by the author.</p>'
+        + '</article>')
+
+    parts.append(
+        f'<article class="card"><div class="card-h"><span class="id">Ours</span>'
+        f'<span class="owner">{len(left) + len(d_open) + len(cold) + len(ours)} items</span></div>'
+        f'<p><b>{len(left)} ADR conditions</b> outstanding across '
+        f'{len({x["adr"] for x in left})} decisions — the largest commitment on this page.</p>'
+        f'<p><b>{len(d_open)} debts</b> with their repayment triggers already written down.</p>'
+        f'<p><b>{len(cold)} capability areas</b> not started: '
+        f'{esc(", ".join(x["name"] for x in cold))}.</p>'
+        + (f'<p><b>{len(ours)} review gates</b> nobody else is blocking: '
+           f'{esc(", ".join(x["name"] for x in ours))}.</p>' if ours else '')
+        + '</article>')
+
+    parts.append('</div>')
+
+    # ---- where the conditions actually sit
+    if left:
+        from collections import Counter as _C
+        per = _C(x["adr"] for x in left)
+        worst = per.most_common()
+        top = max(n for _, n in worst)
+
+        parts.append('<h2 style="margin-top:34px">Open conditions, by decision</h2>')
+        parts.append('<p class="sub">A condition is discharged when its text is struck through in '
+                     'the ADR itself. Nothing here is marked done by this page — it is counted '
+                     'from the decision that made the promise.</p>')
+        parts.append('<div class="bars">')
+
+        for adr, n in worst:
+            title = next((x["title"] for x in a if x["id"] == adr), adr)
+            parts.append(
+                f'<div class="bar"><div class="bar-l">ADR-{esc(adr)} · {esc(title[:34])}</div>'
+                f'<div class="bar-t"><div class="bar-f" style="width:{100 * n / top:.0f}%"></div></div>'
+                f'<div class="bar-n">{n}</div></div>')
+
+        parts.append('</div>')
+
+    parts.append('</section>')
+
+    # ---- the gates
+    parts.append('<section><h2>Review gates (§66)</h2>')
+    parts.append('<p class="sub">Each gate runs against the whole architecture, not per ADR, and '
+                 'a failure reopens decisions rather than being noted and passed over. A gate '
+                 'ticked without evidence is worse than one left open: it turns an unknown into a '
+                 'false assurance and nothing afterwards re-examines it.</p>')
+    parts.append('<div class="scroll"><table><thead><tr><th>Gate</th><th>Run</th>'
+                 '<th>Result, or what it is waiting for</th></tr></thead><tbody>')
+
+    for x in gate:
+        if not x["run"]:
+            pill = '<span class="pill muted">not run</span>'
+        elif re.search(r"\bFAIL\b", x["result"]):
+            pill = '<span class="pill bad">FAIL</span>'
+        elif re.search(r"\bPASS\b", x["result"]):
+            pill = '<span class="pill good">PASS</span>'
+        else:
+            pill = f'<span class="pill cond">{esc(x["run"])}</span>'
+
+        parts.append(f'<tr><td>{esc(x["name"])}</td><td>{pill}</td>'
+                     f'<td class="muted-t">{esc(x["result"])}</td></tr>')
+
+    parts.append('</tbody></table></div></section>')
 
     # ---- ADRs
     parts.append('<section><h2>Decisions</h2>')
@@ -358,8 +582,9 @@ def build():
     for x in a:
         parts.append(
             f'<tr><td class="id">{esc(x["id"])}</td><td>{esc(x["title"])}</td>'
-            f'<td><span class="pill {status_class(x["status"])}">{esc(x["status"])}</span></td>'
-            f'<td class="muted-t">{esc(x["confidence"])}</td>'
+            f'<td><span class="pill {status_class(x["status"])}">{esc(grade(x["status"])[0])}</span>'
+            f'{("<div class=" + chr(34) + "muted-t" + chr(34) + ">" + esc(grade(x["status"])[1]) + "</div>") if grade(x["status"])[1] else ""}</td>'
+            f'<td class="muted-t">{esc(first_sentence(x["confidence"], 90))}</td>'
             f'<td class="num">{Conditions(x)}</td></tr>')
     parts.append('</tbody></table></div></section>')
 
