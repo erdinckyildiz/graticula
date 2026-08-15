@@ -113,8 +113,80 @@ internal static class AdminEndpoints
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
 
         // Group layers. Owner request 2026-08-15: "enable group layers also."
+        app.MapGet("/admin/routes", ListRoutesAsync);
         app.MapPost("/admin/featureservices", CreateServiceAsync);
         app.MapPost("/admin/services/{name}/groups", CreateGroupLayerAsync);
+    }
+
+    /// <summary>
+    /// Every route, and what governs who may reach it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-28, and it exists because an absence has nothing for a reviewer to
+    /// look at.</b> The geometry service answered anonymously from the day it
+    /// shipped, and no amount of reading the sharing code would have found it —
+    /// the sharing code was correct. What was missing was a place for something
+    /// that is not content. This turns "is anything ungoverned?" from a question
+    /// somebody has to think of into a list they can read, and a test can assert
+    /// is empty.
+    /// </para>
+    /// <para>
+    /// <b>Administrative, because it enumerates every route including the ones
+    /// a caller may not reach.</b> That is the opposite of what the directory
+    /// does, and the reason it is not on the directory.
+    /// </para>
+    /// </remarks>
+    private static async Task ListRoutesAsync(
+        HttpContext context, EndpointDataSource endpoints, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        List<object> routes = [];
+
+        foreach (Endpoint endpoint in endpoints.Endpoints)
+        {
+            if (endpoint is not RouteEndpoint route)
+            {
+                continue;
+            }
+
+            string pattern = route.RoutePattern.RawText ?? string.Empty;
+
+            // Only the data surface. /admin is governed by privileges, which is
+            // a different mechanism with its own tests, and /healthz is
+            // deliberately open.
+            if (!pattern.StartsWith("rest/services", StringComparison.OrdinalIgnoreCase)
+                && !pattern.StartsWith("/rest/services", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            SharingGoverned? governed = endpoint.Metadata.GetMetadata<SharingGoverned>();
+
+            routes.Add(new
+            {
+                pattern = pattern.StartsWith('/') ? pattern : "/" + pattern,
+                methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                    ?? (IReadOnlyList<string>)["*"],
+                governed = governed is not null,
+                by = governed?.Source,
+            });
+        }
+
+        await Results.Json(new
+        {
+            routes = routes.OrderBy(r => r.GetType().GetProperty("pattern")!.GetValue(r) as string,
+                StringComparer.Ordinal),
+
+            // Stated rather than left for the reader to count. A non-zero number
+            // here is ADR-018 condition 5 failing.
+            ungoverned = routes.Count(r =>
+                !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

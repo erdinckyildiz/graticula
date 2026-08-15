@@ -48,15 +48,19 @@ internal static class VectorTileEndpoints
         foreach (string prefix in (string[])
             ["/rest/services", $"/rest/services/{Api.ArcGis.FeatureServerMetadataWriter.HostedFolder}"])
         {
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer", ServiceAsync);
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles", StyleAsync);
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", StyleAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer", ServiceAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles", StyleAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", StyleAsync)
+                .Governed(SharingGovernedExtensions.ByService);
 
             // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and
             // it is the reverse of almost every other tile scheme. Written once,
             // here, where the swap into TileAddress is visible on one line.
             app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/tile/{{z:int}}/{{y:int}}/{{x:int}}.pbf",
-                TileAsync);
+                TileAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 

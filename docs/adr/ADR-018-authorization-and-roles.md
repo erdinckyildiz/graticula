@@ -338,10 +338,15 @@ divergence a breaking change to our core.
 4. **The upgrade is walked on a store that already has layers**, and the
    operator is told that existing layers became private. Silently privatising
    somebody's published data is a worse regression than the closed default was.
-5. **No route under `/rest/services` is reachable without a sharing decision
-   behind it.** §3b-i closed the one instance; this condition asks for the check
-   that closes the class. Tracked as D-28. Until it is written, the property is
-   held by review, and review is what missed it the first time.
+5. ~~**No route under `/rest/services` is reachable without a sharing decision
+   behind it.**~~ **DISCHARGED 2026-08-15.** Every such route carries a
+   `SharingGoverned` marker naming what governs it; `GET /admin/routes` lists
+   them with an `ungoverned` count; a conformance test asserts that count is
+   zero, and was verified by adding an unmarked route and watching it fail.
+   **The marker is not the enforcement** — `ServiceLookup` and the geometry
+   group's filter are — it is what makes the absence of enforcement visible,
+   which is precisely what was missing when the geometry service shipped
+   answering anonymously.
 
 ## 9. Assumptions
 

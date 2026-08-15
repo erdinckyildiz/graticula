@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>4eebd6a</code> · 2026-08-15 12:05</p>
+<p class="stamp">Generated from commit <code>b80eea9</code> · 2026-08-15 12:45</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">16/69</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi warn"><div class="kpi-v">17/69</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">46 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">8/60</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">732</div><div class="kpi-l">tests</div><div class="kpi-n">107 source files, 28,892 lines</div></div>
+<div class="kpi good"><div class="kpi-v">735</div><div class="kpi-l">tests</div><div class="kpi-n">108 source files, 29,051 lines</div></div>
 </div></section>
 <section><h2>Decisions</h2>
 <p class="sub">Every architectural decision is an ADR. Status and confidence are read from each file's own header, so a decision cannot quietly change grade here without changing there.</p>
@@ -140,7 +140,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
 <tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">1/3</td></tr>
-<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/5</td></tr>
+<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction → **re-decided**, ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/5</td></tr>
 <tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">0/3</td></tr>
 <tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3/3</td></tr>
 <tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">1/3</td></tr>
@@ -232,7 +232,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-25</td><td>Tile cache TTL is one global number for every layer.</td><td class="muted-t">Before anybody publishes a layer that changes faster than the TTL</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-28</td><td>Nothing structurally prevents the next service without a layer from shipping ungoverned.</td><td class="muted-t">Before a third kind of service is added — a MapServer, a print service, a tile-package service</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-30</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -307,13 +306,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">192</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:69.8%"></div></div><div class="bar-n">134</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:66.1%"></div></div><div class="bar-n">127</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.1%"></div></div><div class="bar-n">100</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.6%"></div></div><div class="bar-n">103</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b80eea9</code><time>2026-08-15</time><span>Q-97: overlay ships, bounded by a process rather than by a number</span></li>
 <li><code>4eebd6a</code><time>2026-08-15</time><span>the query link opens the form; the button runs the query</span></li>
 <li><code>3278f09</code><time>2026-08-15</time><span>the whole query surface, and the where clause that was refusing everybody</span></li>
 <li><code>fc4363d</code><time>2026-08-15</time><span>the query page, and the capability document it caught lying</span></li>
@@ -327,7 +327,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>59e03f2</code><time>2026-08-15</time><span>do not commit a session token</span></li>
 <li><code>467a4d9</code><time>2026-08-15</time><span>attachments, and the streaming requirement that turned out not to be free</span></li>
 <li><code>eb3a35f</code><time>2026-08-14</time><span>the layer designer screen, which is where the two ways into the datastore meet</span></li>
-<li><code>3b10d13</code><time>2026-08-14</time><span>ignore TestResults, which a trx logger run committed by accident</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

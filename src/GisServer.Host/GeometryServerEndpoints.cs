@@ -97,7 +97,8 @@ internal static class GeometryServerEndpoints
         // call a guard is five chances to forget; the filter is one.
         RouteGroupBuilder geometry = app
             .MapGroup("/rest/services/Utilities/Geometry/GeometryServer")
-            .AddEndpointFilter(SharingFilter);
+            .AddEndpointFilter(SharingFilter)
+            .Governed(SharingGovernedExtensions.BySystemService);
 
         geometry.MapGet("", Describe);
         geometry.MapPost("/project", ProjectAsync);

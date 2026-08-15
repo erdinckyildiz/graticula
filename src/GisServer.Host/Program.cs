@@ -450,7 +450,8 @@ public static class Program
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
             CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, system, folder: null, cancellation));
+            CatalogueAsync(context, catalog, system, folder: null, cancellation))
+            .Governed(SharingGovernedExtensions.ByFiltering);
 
         // Everything the datastore owns. The literal segment is more specific
         // than {layerName}, so routing prefers it — and it is matched
@@ -462,7 +463,8 @@ public static class Program
             PostgresSystemServices system,
             CancellationToken cancellation) =>
             CatalogueAsync(
-                context, catalog, system, FeatureServerMetadataWriter.HostedFolder, cancellation));
+                context, catalog, system, FeatureServerMetadataWriter.HostedFolder, cancellation))
+            .Governed(SharingGovernedExtensions.ByFiltering);
 
         // Where the system services live. ArcGIS puts the geometry service in a
         // Utilities folder and every client that looks for one looks there.
@@ -471,7 +473,8 @@ public static class Program
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
             CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, system, "Utilities", cancellation));
+            CatalogueAsync(context, catalog, system, "Utilities", cancellation))
+            .Governed(SharingGovernedExtensions.ByFiltering);
 
         // <b>Two URL spaces, and a layer answers on exactly one.</b> Hosted
         // services live under the folder; registered ones live at the root. A
@@ -486,13 +489,22 @@ public static class Program
             // literal zero until 2026-08-15, because one published layer was one
             // service and there could never be a layer 1. A service is a
             // container of layers, so the number is now real.
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer", ServiceMetadataAsync);
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", LayerMetadataAsync);
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync);
-            app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync);
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer", ServiceMetadataAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", LayerMetadataAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapPost(
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/applyEdits",
-                ApplyEditsAsync);
+                ApplyEditsAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
 
         VectorTileEndpoints.Map(app);

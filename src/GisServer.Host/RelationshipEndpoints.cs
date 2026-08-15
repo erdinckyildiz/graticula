@@ -61,10 +61,12 @@ internal static class RelationshipEndpoints
         {
             app.MapGet(
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryRelatedRecords",
-                QueryRelatedAsync);
+                QueryRelatedAsync)
+                .Governed(SharingGovernedExtensions.ByService);
             app.MapPost(
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryRelatedRecords",
-                QueryRelatedAsync);
+                QueryRelatedAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 

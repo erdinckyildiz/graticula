@@ -63,10 +63,14 @@ internal static class AttachmentEndpoints
         {
             string layer = $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}";
 
-            app.MapGet($"{layer}/{{objectId:long}}/attachments", ListAsync);
-            app.MapGet($"{layer}/{{objectId:long}}/attachments/{{attachmentId:int}}", DownloadAsync);
-            app.MapPost($"{layer}/{{objectId:long}}/addAttachment", AddAsync).DisableAntiforgery();
-            app.MapPost($"{layer}/{{objectId:long}}/deleteAttachments", DeleteAsync);
+            app.MapGet($"{layer}/{{objectId:long}}/attachments", ListAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapGet($"{layer}/{{objectId:long}}/attachments/{{attachmentId:int}}", DownloadAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapPost($"{layer}/{{objectId:long}}/addAttachment", AddAsync).DisableAntiforgery()
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapPost($"{layer}/{{objectId:long}}/deleteAttachments", DeleteAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 

@@ -227,4 +227,95 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
             _ = await GetJsonAsync($"/rest/services/{name}/{type}");
         }
     }
+
+    // ---------- D-28: nothing under /rest/services is ungoverned ----------
+
+    /// <summary>
+    /// Every data route has a sharing decision behind it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-018 condition 5, and the class of defect it closes has one known
+    /// member.</b> The geometry service answered anonymously from the day it
+    /// shipped — not by anyone's decision, but because sharing was a property of
+    /// a layer and that service has none. No amount of reading the sharing code
+    /// would have found it: the sharing code was correct. What was missing was a
+    /// place for something that is not content, and an absence has nothing for a
+    /// reviewer to look at.
+    /// </para>
+    /// <para>
+    /// <b>Asks the running server, not the source.</b> A route added without the
+    /// marker appears here, whatever the file it was written in looks like.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task No_data_route_is_reachable_without_a_sharing_decision()
+    {
+        JsonElement audit = await GetJsonAsync("/admin/routes");
+
+        string[] ungoverned =
+        [
+            .. audit.GetProperty("routes").EnumerateArray()
+                .Where(r => !r.GetProperty("governed").GetBoolean())
+                .Select(r =>
+                    string.Join(",", r.GetProperty("methods").EnumerateArray()
+                        .Select(m => m.GetString()))
+                    + " " + r.GetProperty("pattern").GetString()),
+        ];
+
+        Assert.True(
+            ungoverned.Length == 0,
+            "These routes under /rest/services have no sharing decision behind them:\n  "
+            + string.Join("\n  ", ungoverned)
+            + "\n\nEach either needs to resolve through ServiceLookup, sit in a group with a "
+            + "sharing filter, or be marked .Governed(Public) with a reason. This is ADR-018 "
+            + "condition 5 and it exists because the geometry service shipped ungoverned.");
+
+        Assert.Equal(0, audit.GetProperty("ungoverned").GetInt32());
+    }
+
+    [Fact]
+    public async Task The_audit_covers_every_kind_of_service_route()
+    {
+        // <b>A check that enumerates nothing passes trivially.</b> If the
+        // pattern filter in /admin/routes ever stopped matching, this suite
+        // would report zero ungoverned routes out of zero routes and read as
+        // green.
+        JsonElement audit = await GetJsonAsync("/admin/routes");
+
+        string[] patterns =
+        [
+            .. audit.GetProperty("routes").EnumerateArray()
+                .Select(r => r.GetProperty("pattern").GetString()!),
+        ];
+
+        Assert.True(patterns.Length > 20, $"Only {patterns.Length} routes were audited.");
+
+        foreach (string family in (string[])
+            ["FeatureServer", "VectorTileServer", "GeometryServer", "attachments",
+             "queryRelatedRecords"])
+        {
+            Assert.Contains(patterns, p => p.Contains(family, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task The_audit_itself_is_administrative()
+    {
+        // It lists every route including ones the caller may not reach, which is
+        // the opposite of what the directory does — so it is not something an
+        // anonymous caller gets.
+        using HttpClient http = Anonymous();
+
+        using HttpResponseMessage response =
+            await http.GetAsync(new Uri(await RequireServerAsync() + "/admin/routes"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    private static HttpClient Anonymous() => new(new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback =
+            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+    });
 }
