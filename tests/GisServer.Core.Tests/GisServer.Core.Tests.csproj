@@ -14,4 +14,14 @@
     <ProjectReference Include="..\..\src\GisServer.Core\GisServer.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The shapefile corpus, written by pyshp and by PostGIS rather than by the
+    reader under test. Copied beside the test assembly because the tests read
+    real files: a parser verified only against files it generated itself proves
+    that it agrees with itself.
+  -->
+  <ItemGroup>
+    <Content Include="corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

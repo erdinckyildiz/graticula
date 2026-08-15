@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using GisServer.Api.ArcGis;
 using GisServer.Features;
 using GisServer.Formats;
+using System.Text;
 using GisServer.Geometries;
 using GisServer.Platform.Admin;
 using GisServer.Platform.Identity;
@@ -157,34 +158,61 @@ internal static class HostedDataEndpoints
         }
 
         // <b>The client's content type is not trusted</b> (security.md): the
-        // document is parsed and either is GeoJSON or is not. A .json extension
-        // and a text/plain header say nothing either way.
-        JsonElement json;
+        // bytes are read and either are a ZIP, or GeoJSON, or neither. A .zip
+        // extension and an application/octet-stream header say nothing.
+        ImportedDataset? dataset;
+        string? error;
 
-        try
-        {
-            await using System.IO.Stream stream = file.OpenReadStream();
+        byte[] head = new byte[4];
+        int peeked;
 
-            json = (await JsonDocument.ParseAsync(
-                stream,
-                new JsonDocumentOptions { MaxDepth = 32 },
-                cancellation).ConfigureAwait(false)).RootElement;
-        }
-        catch (JsonException e)
+        await using (System.IO.Stream probe = file.OpenReadStream())
         {
-            // MaxDepth is the defence against a document nested deeply enough to
-            // exhaust the stack — a parser bomb that costs the attacker almost
-            // nothing to write.
-            await Fail(context, 400, $"The file is not valid JSON: {e.Message}")
-                .ConfigureAwait(false);
-            return;
+            peeked = await probe.ReadAsync(head, cancellation).ConfigureAwait(false);
         }
 
-        if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out ImportedDataset? dataset,
-                out string? error))
+        if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
         {
-            await Fail(context, 400, error!).ConfigureAwait(false);
-            return;
+            (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
+                context, form, file, cancellation).ConfigureAwait(false);
+
+            if (!ok)
+            {
+                // TryShapefileAsync has already written the refusal.
+                return;
+            }
+
+            dataset = shapes;
+        }
+        else
+        {
+            JsonElement json;
+
+            try
+            {
+                await using System.IO.Stream stream = file.OpenReadStream();
+
+                json = (await JsonDocument.ParseAsync(
+                    stream,
+                    new JsonDocumentOptions { MaxDepth = 32 },
+                    cancellation).ConfigureAwait(false)).RootElement;
+            }
+            catch (JsonException e)
+            {
+                // MaxDepth is the defence against a document nested deeply enough
+                // to exhaust the stack — a parser bomb that costs the attacker
+                // almost nothing to write.
+                await Fail(context, 400,
+                    $"The file is neither a ZIP nor valid JSON: {e.Message}")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out dataset, out error))
+            {
+                await Fail(context, 400, error!).ConfigureAwait(false);
+                return;
+            }
         }
 
         SharingScope sharing = ParseSharing(form["sharing"].ToString());
@@ -284,10 +312,15 @@ internal static class HostedDataEndpoints
 
         context.Response.StatusCode = StatusCodes.Status201Created;
 
+        string? warning = context.Items.TryGetValue(WarningKey, out object? note)
+            ? note as string
+            : null;
+
         await Results.Json(new
         {
             id = published.Id,
             name,
+            warning,
             table = $"{result.SchemaName}.{result.TableName}",
             rows = result.Rows,
             geometryType = dataset!.GeometryType.ToString(),
@@ -327,6 +360,116 @@ internal static class HostedDataEndpoints
 
         return false;
     }
+
+
+    /// <summary>
+    /// Reads a shapefile out of an uploaded ZIP, or writes the refusal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the only place in the server that opens an archive</b>, and it
+    /// is a deliberate exception to security.md's <em>never decompress</em>
+    /// rule, taken by the owner in Q-98. The bounds that buy the exception are in
+    /// <see cref="BoundedArchive"/>; what happens here is choosing the one
+    /// shapefile, settling the encoding, and resolving the spatial reference.
+    /// </para>
+    /// <para>
+    /// <b>The .prj is not parsed.</b> It is WKT, and matching WKT to an EPSG
+    /// code by string comparison is how a layer ends up declared as something it
+    /// is not — the same authority writes several spellings of the same system.
+    /// The caller states the SRID; the .prj is echoed back so they can see what
+    /// the file claimed and disagree.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// Where the shapefile path leaves a note for the response to pick up.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>HttpContext.Items</c>, not a static dictionary.</b> The first
+    /// version of this was a static map keyed by the context — which is global
+    /// mutable state on a request path and leaks an entry whenever a request
+    /// fails between writing and reading. Items is per-request and goes when the
+    /// request does.
+    /// </remarks>
+    private const string WarningKey = "import.warning";
+
+    private static async Task<(bool Ok, ImportedDataset Dataset)> TryShapefileAsync(
+        HttpContext context,
+        IFormCollection form,
+        IFormFile file,
+        CancellationToken cancellation)
+    {
+        await using System.IO.Stream archive = file.OpenReadStream();
+
+        if (!BoundedArchive.TryRead(
+                archive,
+                ShapefileBundle.Extensions,
+                ArchiveLimits.ForShapefile,
+                out IReadOnlyList<ArchiveMember> members,
+                out string? archiveError))
+        {
+            await Fail(context, 400, archiveError!).ConfigureAwait(false);
+            return (false, null!);
+        }
+
+        if (!ShapefileBundle.TryAssemble(members, out ShapefileBundle bundle, out string? bundleError))
+        {
+            await Fail(context, 400, bundleError!).ConfigureAwait(false);
+            return (false, null!);
+        }
+
+        if (!bundle.TryEncoding(
+                form["encoding"].ToString(), out Encoding encoding, out string? encodingError))
+        {
+            await Fail(context, 400, encodingError!).ConfigureAwait(false);
+            return (false, null!);
+        }
+
+        string requestedSrid = form["srid"].ToString();
+
+        if (!int.TryParse(requestedSrid, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out int srid))
+        {
+            await Fail(context, 400,
+                "'srid' is required for a shapefile. The .prj beside it is WKT rather than an "
+                + "EPSG code, and matching WKT to a code by comparing strings is how a layer "
+                + "comes to be declared as a system it is not in — so this server asks instead of "
+                + "guessing."
+                + (bundle.Prj is null
+                    ? " This archive has no .prj at all."
+                    : $" The .prj in this archive says: {Shorten(bundle.Prj)}"))
+                .ConfigureAwait(false);
+
+            return (false, null!);
+        }
+
+        if (!ShapefileReader.TryRead(
+                bundle.Shp,
+                bundle.Dbf,
+                srid,
+                encoding,
+                ImportLimits.Default,
+                out ImportedDataset? read,
+                out string? readError))
+        {
+            await Fail(context, 400, readError!).ConfigureAwait(false);
+            return (false, null!);
+        }
+
+        if (ShapefileReader.DropsZOrM(bundle.Shp))
+        {
+            context.Items[WarningKey] =
+                "This shapefile carries z or m values and they were not stored. The geometry "
+                + "model here is two-dimensional and the layer document reports hasZ false, so "
+                + "there is no surface that could serve them — keep the original file.";
+        }
+
+        return (true, read!);
+    }
+
+    /// <summary>A .prj's first line, which is the part a person recognises.</summary>
+    private static string Shorten(string wkt) =>
+        wkt.Length <= 120 ? wkt : wkt[..120] + "…";
 
     /// <summary>What a caller sends to design a feature class.</summary>
     /// <param name="Name">The service name.</param>

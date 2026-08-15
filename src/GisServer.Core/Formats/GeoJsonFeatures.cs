@@ -149,13 +149,16 @@ public sealed record ImportedDataset(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>GeoJSON first, and the reason is a security rule rather than a
+/// <b>GeoJSON first, and the reason was a security rule rather than a
 /// preference.</b>
 /// <see href="../../../docs/security.md">security.md</see>'s upload section says
 /// <em>no decompression on upload — archives are not opened, inspected or
-/// expanded</em>. A shapefile is a ZIP of at least three files, so accepting one
-/// means either breaking that rule or writing an exception to it. GeoJSON is a
-/// single document and needs neither.
+/// expanded</em>. A shapefile is a ZIP of three to six files, so accepting one
+/// meant either breaking that rule or writing an exception to it; GeoJSON is a
+/// single document and needs neither, so it shipped first.
+/// <b>The exception was taken on 2026-08-15</b> (Q-98,
+/// <see cref="BoundedArchive"/>), so shapefile is accepted now — through one
+/// class, under five bounds. This one still needs none of them.
 /// </para>
 /// <para>
 /// <b>Written here rather than adopted.</b> GeoJSON is a small, stable, fully
