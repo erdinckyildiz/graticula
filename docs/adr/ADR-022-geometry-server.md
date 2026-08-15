@@ -157,9 +157,90 @@ belong on GeometryServer or on FeatureServer is an open design question —
 [Q-99](../open-questions.md). Saying "too expensive" about them would be the same
 lie in a new place.
 
-**16 of 22 supported, 3 refused with reasons, 3 discovered missing** — see §4b for
-`toGeoCoordinateString`, `fromGeoCoordinateString` and `findTransformations`,
-which were not on any list until the owner compared this service with a real one.
+**18 of 22 supported, 4 refused with reasons** — see §2c for the three that
+were not on any list until the owner compared this service with a real one.
+
+---
+
+## 2c. The three nobody had listed — grid strings ship, transformation paths do not
+
+The owner's comparison turned up three operations that were **neither supported
+nor refused**: `toGeoCoordinateString`, `fromGeoCoordinateString` and
+`findTransformations`. A caller asking for any of them got 404 — the answer for
+an operation that does not exist, given for three that do. The refusal list had
+been treated as the record of what is missing, and it was only a record of what
+somebody had thought about.
+
+### The two string operations ship, computed in process
+
+They write and read **DD, DDM, DMS, UTM, MGRS and USNG**. This is §4b's rule
+applied without exception: the input is a coordinate pair in the request, UTM is
+a closed-form series and MGRS is a lettering scheme over it, so a round trip to
+the datastore would cost more than the entire conversion.
+
+**The one thing that does go to the datastore is the datum**, and only when it
+has to. A caller already in 4326 pays no round trip; anything else is projected
+by the datastore's PROJ first, and the response names the engine — the same
+provenance rule `project` follows, for the same reason.
+
+**Verified against PROJ to the millimetre**, on ten places chosen to be cases
+rather than samples: both hemispheres, the equator on a central meridian, the
+widened zone 32 over Bergen, the rearranged Svalbard zones, and a point on a zone
+boundary. The transverse Mercator series agrees with PostGIS's own transform to
+EPSG:326nn and 327nn within a millimetre everywhere, which is three orders below
+the one metre MGRS's finest form can express. DMS is checked against
+`ST_AsLatLonText`.
+
+**The polar regions are refused rather than approximated.** Above 84°N and
+below 80°S, MGRS is Universal Polar Stereographic — a different projection
+with its own lettering. A UTM-based string there would be silently wrong, and a
+wrong grid reference is discovered by somebody standing in the wrong place.
+
+**Four things the tests caught that review would not have:**
+
+- The first test compared *formatted* UTM strings against PROJ and reported
+  half-metre disagreements that were entirely its own rounding. The unrounded
+  numbers are now public for exactly that reason — a test that can only see
+  whole metres cannot tell a correct series from one forty centimetres out.
+- `addSpaces=false` on DMS produced `39560.2400N`, which nothing can read back:
+  the parts are variable width. The flag now applies only to the grid notations,
+  where the packed form is standard and fixed width.
+- Packed UTM was unsplittable near the equator — a northing of 42 metres wrote
+  as `42`. It is padded to six and seven digits now.
+- **The rounding carry.** 39.99999999° at one decimal is 60.0 seconds, and a
+  formatter that rounds each part separately emits `39 59 60.0` — a minute
+  that does not exist. The rounding happens once, in the smallest unit, and
+  carries upward.
+
+**GARS and GEOREF are not written**, and the refusal says so rather than
+implying they are not ArcGIS types. Both are simple cell schemes; this is a gap.
+
+### findTransformations does not ship, and the reason is a decision nobody has made
+
+It lists the datum transformation paths between two references, **ranked by
+accuracy** — which is precisely the information geometry-crs-policy §3
+says a caller needs, because the paths differ by metres and that difference is
+legally significant for cadastral work.
+
+The paths live in PROJ's own operation database. **This server does not have
+PROJ**: §4 sends projection to the datastore to avoid shipping it, and
+PostGIS exposes no SQL function that enumerates candidate operations. PROJ's
+`proj.db` is right there inside the datastore container and unreachable from a
+SQL connection.
+
+**§4's reasoning does not obviously carry here, and that is worth saying
+plainly.** §4 declined to ship PROJ *and its datum grids* — hundreds of
+megabytes and a distribution commitment. `proj.db` is about 9 MB of metadata and
+no grids at all. Reading it in process to answer a question, while still letting
+the datastore perform the transformation, is a different trade from the one §4
+rejected. It has not been made: **[Q-100](../open-questions.md)**.
+
+**What was not done, and why it would have been worse than refusing.** We could
+transform a probe point and report that it worked. That answers *is there a
+path*, which is not the question; and dressing the single path PROJ happened to
+pick as a ranked list of one would give a surveyor a number with no accuracy and
+no alternatives, which is the exact failure geometry-crs-policy §3 exists to
+prevent.
 
 ---
 
@@ -281,9 +362,9 @@ than the missing thing.
 | `relation` | DE-9IM against a topology engine. One exists in the worker; nobody has wired it |
 | `distance` | O(n×m) over segment pairs, and the containment case needs point-in-polygon. Only not written |
 | `autoComplete`, `reshape`, `trimExtend` | Editing operations over existing features, not calculations on the geometry sent |
-| `toGeoCoordinateString`, `fromGeoCoordinateString`, `findTransformations` | **Were not even on the refusal list** until the comparison. No geometry engine needed — MGRS/USNG strings and enumerating PROJ's transformation paths |
+| `toGeoCoordinateString`, `fromGeoCoordinateString`, `findTransformations` | **Were not even on the refusal list** until the comparison. *(Resolved §2c: the two string operations ship; `findTransformations` is refused and its route is [Q-100](../open-questions.md).)* |
 
-**10 of 22 supported, 9 refused with reasons, 3 newly discovered.**
+**10 of 22 supported, 9 refused with reasons, 3 newly discovered.** *(Superseded within the day: §2b took it to 16, §2c to 18.)*
 
 ## 5. Decision — measurement is planar, and says so in every response
 

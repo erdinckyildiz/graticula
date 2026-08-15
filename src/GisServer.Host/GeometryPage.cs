@@ -132,6 +132,34 @@ internal static class GeometryPage
             "One geometry covering all of them. Runs in a worker process with a deadline.",
             [Sr, Geometries]),
 
+        new("toGeoCoordinateString",
+            "Writes coordinates as grid or sexagesimal strings. Coordinates in a reference "
+            + "other than 4326 are projected first by the datastore's PROJ, and the response "
+            + "says what did it.",
+            [Sr,
+             new("coordinates", "Coordinates",
+                 "A JSON array of <code>[x, y]</code> pairs, in the spatial reference above.",
+                 Rows: 5, Default: "[[32.8597, 39.9334]]"),
+             new("conversionType", "Notation",
+                 "DD, DDM, DMS, UTM, MGRS or USNG. GARS and GEOREF are ArcGIS types this "
+                 + "server does not write yet.", Default: "MGRS"),
+             new("numOfDigits", "Digits",
+                 "Digits per axis for the grid notations — five is one metre — or "
+                 + "decimal places for the angular ones."),
+             new("addSpaces", "Spaces",
+                 "<code>false</code> to run the parts together, which is the usual MGRS form.",
+                 Default: "true")]),
+
+        new("fromGeoCoordinateString",
+            "Reads grid or sexagesimal strings back into coordinates. A reference shorter than "
+            + "ten digits names a square, and reads back to that square's centre.",
+            [Sr,
+             new("strings", "Strings",
+                 "A JSON array of strings, all in the notation below.",
+                 Rows: 5, Default: "[\"36TWF1234567890\"]"),
+             new("conversionType", "Notation",
+                 "DD, DDM, DMS, UTM, MGRS or USNG.", Default: "MGRS")]),
+
         new("cut",
             "The pieces the target splits into along the cutter. A cutter that misses returns "
             + "the target unchanged, as one piece. Runs in a worker process with a deadline.",
@@ -239,7 +267,8 @@ internal static class GeometryPage
     /// </remarks>
     private static readonly string[] GeometryFields =
         ["geometries", "geometry", "target", "cutter",
-         "geometry1", "geometry2", "geometries1", "geometries2"];
+         "geometry1", "geometry2", "geometries1", "geometries2",
+         "coordinates", "strings"];
 
     /// <summary>Renders the form for an operation.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>

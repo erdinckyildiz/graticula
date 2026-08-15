@@ -217,12 +217,129 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         Assert.True(x < 30, $"the label landed at x={x}, inside the notch");
     }
 
+    // ---------- grid strings ----------
+
+    /// <summary>
+    /// A coordinate written as MGRS reads back to where it started.
+    /// </summary>
+    /// <remarks>
+    /// <b>Through HTTP, because the round trip crosses two operations.</b> The
+    /// converter is checked against PROJ in the platform tests; what this checks
+    /// is that the two endpoints agree on field names, notation names and the
+    /// shape of the answer. They are separate handlers reading separate
+    /// parameters, and nothing but a test makes them agree.
+    /// </remarks>
+    [Fact]
+    public async Task A_coordinate_survives_the_trip_through_MGRS_and_back()
+    {
+        JsonElement written = await PostAsync(
+            "toGeoCoordinateString",
+            ("sr", "4326"),
+            ("coordinates", "[[32.8597, 39.9334]]"),
+            ("conversionType", "MGRS"),
+            ("addSpaces", "false"),
+            ("f", "json"));
+
+        string reference = written.GetProperty("strings")[0].GetString()!;
+
+        // Zone 36, band S: Ankara. A wrong lettering scheme changes these.
+        Assert.StartsWith("36S", reference, StringComparison.Ordinal);
+
+        JsonElement read = await PostAsync(
+            "fromGeoCoordinateString",
+            ("sr", "4326"),
+            ("strings", $"[\"{reference}\"]"),
+            ("conversionType", "MGRS"),
+            ("f", "json"));
+
+        JsonElement pair = read.GetProperty("coordinates")[0];
+
+        Assert.Equal(32.8597, pair[0].GetDouble(), 4);
+        Assert.Equal(39.9334, pair[1].GetDouble(), 4);
+    }
+
+    /// <summary>
+    /// A coordinate in a projected reference goes through the datastore's PROJ.
+    /// </summary>
+    /// <remarks>
+    /// <b>The response says which engine did it</b>, for the reason
+    /// geometry-crs-policy §3 gives: several transformation paths usually exist
+    /// and they differ by metres. A caller cannot judge a grid reference without
+    /// knowing what produced the degrees behind it.
+    /// </remarks>
+    [Fact]
+    public async Task A_projected_coordinate_names_the_engine_that_converted_it()
+    {
+        JsonElement written = await PostAsync(
+            "toGeoCoordinateString",
+            ("sr", "3857"),
+            ("coordinates", "[[3657868.0, 4863676.0]]"),
+            ("conversionType", "MGRS"),
+            ("f", "json"));
+
+        Assert.StartsWith("36S", written.GetProperty("strings")[0].GetString()!,
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "PROJ",
+            written.GetProperty("transformation").GetString()!,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A polar coordinate is refused, and the refusal names the coordinate.
+    /// </summary>
+    /// <remarks>
+    /// <b>By index, because a caller sending two hundred cannot otherwise find
+    /// it.</b> "Outside the UTM grid" with no index leaves them bisecting their
+    /// own request.
+    /// </remarks>
+    [Fact]
+    public async Task A_polar_coordinate_is_refused_by_index()
+    {
+        JsonElement result = await PostAsync(
+            "toGeoCoordinateString",
+            ("sr", "4326"),
+            ("coordinates", "[[0, 10], [0, 88]]"),
+            ("conversionType", "MGRS"),
+            ("f", "json"));
+
+        string message = result.GetProperty("error").GetProperty("message").GetString()!;
+
+        Assert.Contains("Coordinate 1", message, StringComparison.Ordinal);
+        Assert.Contains("Polar Stereographic", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An unknown notation is refused with the list of the known ones.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_notation_lists_the_ones_that_work()
+    {
+        JsonElement result = await PostAsync(
+            "toGeoCoordinateString",
+            ("sr", "4326"),
+            ("coordinates", "[[0, 10]]"),
+            ("conversionType", "GARS"),
+            ("f", "json"));
+
+        string message = result.GetProperty("error").GetProperty("message").GetString()!;
+
+        Assert.Contains("MGRS", message, StringComparison.Ordinal);
+        Assert.Contains("DMS", message, StringComparison.Ordinal);
+
+        // GARS is a real ArcGIS type we have not written, and the message says
+        // so rather than implying it does not exist.
+        Assert.Contains("gap", message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ---------- the refusals ----------
 
     [Theory]
     [InlineData("autoComplete")]
     [InlineData("reshape")]
     [InlineData("trimExtend")]
+    [InlineData("findTransformations")]
     public async Task An_unimplemented_operation_answers_501_rather_than_404(string operation)
     {
         // 501 says the server made a decision. 404 says it has no
@@ -274,6 +391,15 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         // <b>None of them may blame cost.</b> The three that are left are open
         // design questions, not expensive operations, and saying "too expensive"
         // would be the same lie in a new place.
+        // findTransformations is the fourth refusal and is not an editing
+        // operation: it needs PROJ's operation database, which this server does
+        // not have. Its reason must not claim to be one of the other three.
+        string transformations = await ReasonAsync("findTransformations");
+
+        Assert.DoesNotContain("editing", transformations, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("PROJ", transformations, StringComparison.Ordinal);
+        Assert.Contains("Q-100", transformations, StringComparison.Ordinal);
+
         foreach (string message in (string[])[autoComplete, reshape, trimExtend])
         {
             Assert.Contains("editing", message, StringComparison.OrdinalIgnoreCase);
@@ -483,7 +609,8 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
             "project", "areasAndLengths", "lengths", "labelPoints",
             "convexHull", "densify", "generalize",
             "intersect", "union", "difference",
-            "cut", "buffer", "offset", "simplify", "relation", "distance"])
+            "cut", "buffer", "offset", "simplify", "relation", "distance",
+            "toGeoCoordinateString", "fromGeoCoordinateString"])
         {
             Assert.Contains(operation, supported);
         }

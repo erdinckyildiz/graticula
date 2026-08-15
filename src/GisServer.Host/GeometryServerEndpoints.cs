@@ -67,7 +67,8 @@ internal static class GeometryServerEndpoints
     /// <summary>What this surface offers, all of it linear in the input.</summary>
     private static readonly string[] Supported =
         ["project", "areasAndLengths", "lengths", "labelPoints",
-         "convexHull", "densify", "generalize"];
+         "convexHull", "densify", "generalize",
+         "toGeoCoordinateString", "fromGeoCoordinateString"];
 
     /// <summary>
     /// What runs in a worker process that can be killed.
@@ -125,6 +126,18 @@ internal static class GeometryServerEndpoints
     /// </remarks>
     private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
     {
+        ["findTransformations"] =
+            "It lists the datum transformation paths between two spatial references, ranked. "
+            + "The paths live in PROJ's own operation database, and this server does not have "
+            + "PROJ \u2014 projection is done by the datastore (ADR-022 \u00a74), and PostGIS "
+            + "exposes no SQL function that enumerates candidate operations. So this needs "
+            + "either PROJ's proj.db in this process, which is about 9 MB of metadata and a "
+            + "genuinely different cost from the datum grids ADR-022 \u00a74 declined to ship, "
+            + "or a new route to the datastore's copy of it. That choice has not been made "
+            + "\u2014 see Q-100. Returning the single path PROJ happened to pick, dressed as "
+            + "a ranked list of one, would answer the question a caller asked with something "
+            + "that is not an answer to it.",
+
         ["autoComplete"] =
             "It closes a polygon against its neighbours, which is an editing operation over a "
             + "set of existing features rather than a calculation on the geometry sent.",
@@ -182,6 +195,18 @@ internal static class GeometryServerEndpoints
         geometry.MapMethods("/convexHull", GetOrPost, ConvexHull);
         geometry.MapMethods("/densify", GetOrPost, Densify);
         geometry.MapMethods("/generalize", GetOrPost, Generalize);
+
+        // <b>These two were not on any list until 2026-08-15</b> — neither
+        // supported nor refused, so a caller asking for them got 404, which says
+        // the operation does not exist rather than that nobody had written it.
+        // The owner found them by comparing this service with a real one.
+        geometry.MapMethods("/toGeoCoordinateString", GetOrPost, (
+            HttpContext context, IProjector projector, CancellationToken cancellation) =>
+            ToGeoCoordinateStringAsync(context, projector, cancellation));
+
+        geometry.MapMethods("/fromGeoCoordinateString", GetOrPost, (
+            HttpContext context, IProjector projector, CancellationToken cancellation) =>
+            FromGeoCoordinateStringAsync(context, projector, cancellation));
 
         foreach (string operation in Engine)
         {
@@ -396,6 +421,331 @@ internal static class GeometryServerEndpoints
         return Results.Json(document, statusCode: StatusCodes.Status501NotImplemented)
             .ExecuteAsync(context);
     }
+
+    // ---------- grid and sexagesimal strings ----------
+
+    /// <summary>
+    /// The notations this server writes, by their ArcGIS names.
+    /// </summary>
+    /// <remarks>
+    /// <b>GARS and GEOREF are absent and that is a gap, not a decision.</b> Both
+    /// are simple cell schemes and neither is written here yet. They are named
+    /// in the refusal so a caller learns which of the eight they can have.
+    /// </remarks>
+    private static readonly Dictionary<string, GeoCoordinateNotation> Notations =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DD"] = GeoCoordinateNotation.DecimalDegrees,
+            ["DDM"] = GeoCoordinateNotation.DegreesDecimalMinutes,
+            ["DMS"] = GeoCoordinateNotation.DegreesMinutesSeconds,
+            ["UTM"] = GeoCoordinateNotation.Utm,
+            ["MGRS"] = GeoCoordinateNotation.Mgrs,
+            ["USNG"] = GeoCoordinateNotation.Usng,
+        };
+
+    /// <summary>Writes coordinates as grid or sexagesimal strings.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Projection first, conversion in process.</b> The conversion is
+    /// arithmetic on two doubles and belongs here (ADR-022 §4b). Getting the
+    /// caller's coordinates into geographic degrees is a datum question, and
+    /// that is the datastore's PROJ — the same exception <c>project</c> is.
+    /// </para>
+    /// <para>
+    /// <b>A caller already in 4326 pays no round trip.</b> Checked rather than
+    /// assumed: converting a batch of WGS84 points is the common case and would
+    /// otherwise cost a database call to change nothing.
+    /// </para>
+    /// </remarks>
+    private static async Task ToGeoCoordinateStringAsync(
+        HttpContext context, IProjector projector, CancellationToken cancellation)
+    {
+        if (!TryForm(context, out IFormCollection form, out string? formError))
+        {
+            await Fail(context, formError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(form, "sr", out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryNotation(form, out GeoCoordinateNotation notation, out string? error)
+            || !TryCoordinates(form, srid, out List<Geometry> points, out error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<Geometry> geographic = points;
+        ProjectionProvenance provenance = new("none \u2014 already geographic", null);
+
+        if (srid != 4326)
+        {
+            (geographic, provenance) = await projector
+                .ProjectAsync(points, srid, 4326, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        int digits = FieldInt(form, "numOfDigits", notation switch
+        {
+            GeoCoordinateNotation.Mgrs or GeoCoordinateNotation.Usng => 5,
+            GeoCoordinateNotation.Utm => 0,
+            _ => 4,
+        });
+
+        bool spaces = !string.Equals(Field(form, "addSpaces"), "false",
+            StringComparison.OrdinalIgnoreCase);
+
+        List<string> strings = [];
+
+        for (int i = 0; i < geographic.Count; i++)
+        {
+            Point point = (Point)geographic[i];
+
+            if (!GeoCoordinateString.TryWrite(
+                    point.X, point.Y, notation, digits, spaces, out string text, out error))
+            {
+                // <b>Named by index.</b> A caller sending two hundred coordinates
+                // and getting "outside the UTM grid" back has no way to find
+                // which one without bisecting their own request.
+                await Fail(context, $"Coordinate {i}: {error}").ConfigureAwait(false);
+                return;
+            }
+
+            strings.Add(text);
+        }
+
+        await Respond(context, "toGeoCoordinateString", new
+        {
+            strings,
+            transformation = provenance.Engine,
+            note = notation is GeoCoordinateNotation.Mgrs or GeoCoordinateNotation.Usng
+                ? "MGRS and USNG name a square rather than a point, and the digits are "
+                  + "truncated rather than rounded \u2014 rounding 99,999 up would name the "
+                  + "square next door. Five digits per axis is one metre."
+                : "Written on a WGS84-shaped ellipsoid. Coordinates in another reference are "
+                  + "projected to 4326 by the datastore's PROJ first, and 'transformation' "
+                  + "says what did it.",
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads grid or sexagesimal strings back into coordinates.</summary>
+    private static async Task FromGeoCoordinateStringAsync(
+        HttpContext context, IProjector projector, CancellationToken cancellation)
+    {
+        if (!TryForm(context, out IFormCollection form, out string? formError))
+        {
+            await Fail(context, formError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TrySrid(form, "sr", out int srid, out string? sridError))
+        {
+            await Fail(context, sridError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryNotation(form, out GeoCoordinateNotation notation, out string? error))
+        {
+            await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        string raw = Field(form, "strings") ?? string.Empty;
+
+        if (raw.Length == 0)
+        {
+            error = "'strings' is required: a JSON array of coordinate strings.";
+            await Fail(context, error).ConfigureAwait(false);
+            return;
+        }
+
+        List<string> inputs = [];
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                await Fail(context, "'strings' must be a JSON array.").ConfigureAwait(false);
+                return;
+            }
+
+            foreach (JsonElement element in document.RootElement.EnumerateArray())
+            {
+                inputs.Add(element.GetString() ?? string.Empty);
+            }
+        }
+        catch (JsonException e)
+        {
+            await Fail(context, $"'strings' is not valid JSON: {e.Message}")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (inputs.Count > MaximumStrings)
+        {
+            await Fail(
+                context,
+                $"{inputs.Count} strings were sent and the limit is {MaximumStrings}. Each one "
+                + "is parsed independently, so send them in batches.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        List<Geometry> points = [];
+
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            if (!GeoCoordinateString.TryRead(
+                    inputs[i], notation, out double longitude, out double latitude, out error))
+            {
+                await Fail(context, $"String {i}: {error}").ConfigureAwait(false);
+                return;
+            }
+
+            points.Add(new Point(longitude, latitude));
+        }
+
+        IReadOnlyList<Geometry> result = points;
+        ProjectionProvenance provenance = new("none \u2014 already geographic", null);
+
+        if (srid != 4326)
+        {
+            (result, provenance) = await projector
+                .ProjectAsync(points, 4326, srid, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        await Respond(context, "fromGeoCoordinateString", new
+        {
+            coordinates = result
+                .Select(g => new[] { ((Point)g).X, ((Point)g).Y }).ToArray(),
+            transformation = provenance.Engine,
+            note = "A grid reference names a square, so a reference shorter than ten digits "
+                 + "reads back to the centre of the square it names rather than its "
+                 + "south-west corner \u2014 a two-digit reference is a ten-kilometre square, "
+                 + "and returning its corner would be five kilometres of avoidable error.",
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>How many strings one request may convert.</summary>
+    /// <remarks>
+    /// <b>A designed limit rather than a framework one.</b> Parsing is linear and
+    /// cheap, so this is about the response size and about there being a stated
+    /// number at all: security.md's rule is that a framework limit is not a
+    /// designed limit.
+    /// </remarks>
+    public const int MaximumStrings = 10_000;
+
+    private static bool TryNotation(
+        IFormCollection form, out GeoCoordinateNotation notation, out string? error)
+    {
+        notation = GeoCoordinateNotation.DecimalDegrees;
+        error = null;
+
+        string requested = Field(form, "conversionType") ?? string.Empty;
+
+        if (requested.Length == 0)
+        {
+            error =
+                "'conversionType' is required: one of " + string.Join(", ", Notations.Keys) + ".";
+            return false;
+        }
+
+        if (Notations.TryGetValue(requested, out notation))
+        {
+            return true;
+        }
+
+        error =
+            $"'{requested}' is not a notation this server writes. Available: "
+            + string.Join(", ", Notations.Keys) + ". GARS and GEOREF are ArcGIS types that are "
+            + "not implemented here \u2014 both are simple cell schemes and this is a gap "
+            + "rather than a decision.";
+
+        return false;
+    }
+
+    /// <summary>
+    /// The coordinate list, which ArcGIS spells as bare number pairs.
+    /// </summary>
+    /// <remarks>
+    /// <b>Points, not geometries.</b> <c>toGeoCoordinateString</c> takes
+    /// <c>[[x, y], ...]</c> rather than the geometry wrapper every other
+    /// operation here uses, and accepting the wrapper as well would mean two
+    /// input shapes for one operation.
+    /// </remarks>
+    private static bool TryCoordinates(
+        IFormCollection form, int srid, out List<Geometry> points, out string? error)
+    {
+        points = [];
+        error = null;
+
+        string raw = Field(form, "coordinates") ?? string.Empty;
+
+        if (raw.Length == 0)
+        {
+            error = "'coordinates' is required: a JSON array of [x, y] pairs.";
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                error = "'coordinates' must be a JSON array of [x, y] pairs.";
+                return false;
+            }
+
+            int index = 0;
+
+            foreach (JsonElement pair in document.RootElement.EnumerateArray())
+            {
+                if (pair.ValueKind != JsonValueKind.Array || pair.GetArrayLength() < 2)
+                {
+                    error = $"Coordinate {index} is not a pair of numbers.";
+                    return false;
+                }
+
+                points.Add(new Point(pair[0].GetDouble(), pair[1].GetDouble()));
+                index++;
+            }
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException
+                                       or FormatException)
+        {
+            error = $"'coordinates' is not a valid array of number pairs: {e.Message}";
+            return false;
+        }
+
+        if (points.Count == 0)
+        {
+            error = "'coordinates' is empty.";
+            return false;
+        }
+
+        if (points.Count > MaximumStrings)
+        {
+            error =
+                $"{points.Count} coordinates were sent and the limit is {MaximumStrings}.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static int FieldInt(IFormCollection form, string name, int fallback) =>
+        int.TryParse(Field(form, name), NumberStyles.Integer, CultureInfo.InvariantCulture,
+            out int value)
+            ? value
+            : fallback;
 
     // ---------- the worker-backed operations ----------
 
