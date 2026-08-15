@@ -43,20 +43,35 @@ public sealed class GeometryOperationsAgainstPostgisTests : PostgresFixture
     /// </remarks>
     private async Task<IReadOnlyList<Geometry>> CorpusAsync(int count)
     {
+        // <b>Richest first, and that ordering is load-bearing.</b> This used to
+        // take the alphabetically first table with a geometry column, which made
+        // the corpus depend on a schema name. Adding tools/ci-corpus.sql to a
+        // developer database proved it: 'cicorpus' sorts before 'hosted', and
+        // both corpus suites silently switched from real cadastral polygons to
+        // sixty generated ones and stayed green. A test that quietly starts
+        // checking something easier is the failure mode this file exists to
+        // avoid.
+        //
+        // reltuples is the planner's estimate rather than a count, which is the
+        // point: counting every candidate would cost a sequential scan each, and
+        // an estimate orders them correctly without reading a row.
         const string Tables = """
-            select table_schema || '.' || quote_ident(table_name)
-            from information_schema.columns
-            where udt_name = 'geometry'
-              and column_name = 'geom'
-              and table_schema not in ('gisserver', 'tiger', 'topology')
+            select c.table_schema || '.' || quote_ident(c.table_name)
+            from information_schema.columns c
+            join pg_class p
+              on p.relname = c.table_name
+             and p.relnamespace = c.table_schema::regnamespace
+            where c.udt_name = 'geometry'
+              and c.column_name = 'geom'
+              and c.table_schema not in ('gisserver', 'tiger', 'topology')
               -- <b>and not another test's private schema.</b> PostgresFixture
               -- gives each test class a gisserver_test_* schema and drops it at
               -- the end, so a class running in parallel with this one can have
               -- its tables listed here and dropped before they are read. That
               -- surfaced as 42P01 on a table this query had just returned.
-              and table_schema not like 'gisserver\_test\_%'
-            group by 1
-            order by 1
+              and c.table_schema not like 'gisserver\_test\_%'
+            group by 1, p.reltuples
+            order by p.reltuples desc, 1
             """;
 
         List<string> candidates = [];
@@ -133,6 +148,87 @@ public sealed class GeometryOperationsAgainstPostgisTests : PostgresFixture
         object? result = await command.ExecuteScalarAsync(CancellationToken.None);
 
         return WkbReader.Read((byte[])result!);
+    }
+
+    // ---------- area ----------
+
+    /// <summary>
+    /// Our planar area matches ST_Area on real, far-from-origin polygons.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test did not exist while the defect it catches was shipping.</b>
+    /// <c>areasAndLengths</c> was one of the four operations that went out first,
+    /// and nothing compared it with anything. It was found sideways, on
+    /// 2026-08-15: a cut's pieces did not add up to their target, and the pieces
+    /// were innocent — both sides of that sum were the area function, and the
+    /// plain shoelace loses precision when coordinates are in the millions and
+    /// the answer is in the hundreds.
+    /// </para>
+    /// <para>
+    /// <b>Ten parts per billion, relative.</b> That is not a round number chosen
+    /// to pass: the shifted shoelace and PostGIS's <c>ptarray_signed_area</c> do
+    /// the same arithmetic in the same order, so they agree to near machine
+    /// precision, and the measured worst case across this corpus is far below
+    /// this bar. The old code failed it by three orders of magnitude.
+    /// </para>
+    /// <para>
+    /// <b>Far from the origin is the case that matters</b>, which is why the
+    /// corpus is used rather than a unit square. A square at the origin has no
+    /// cancellation to suffer from and passes either implementation.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Area_matches_PostGIS_on_real_polygons()
+    {
+        IReadOnlyList<Geometry> corpus = await CorpusAsync(40);
+
+        int compared = 0;
+        double worst = 0;
+        string where = string.Empty;
+
+        foreach (Geometry shape in corpus)
+        {
+            double theirs = await ScalarAsync(
+                "select ST_Area(ST_GeomFromWKB(@g0))", shape);
+
+            if (theirs <= 0)
+            {
+                continue;
+            }
+
+            double ours = GeometryMeasures.Area(shape);
+            double relative = Math.Abs(ours - theirs) / theirs;
+
+            if (relative > worst)
+            {
+                worst = relative;
+                where = $"{ours:F8} against PostGIS's {theirs:F8}";
+            }
+
+            compared++;
+        }
+
+        Assert.True(compared >= 20, $"only {compared} polygons were compared.");
+
+        Assert.True(
+            worst < 1e-8,
+            $"the worst disagreement was {worst:E3} relative — {where}. The shoelace sum "
+            + "must be taken about a local origin; without it, coordinates in the millions "
+            + "lose the answer to cancellation.");
+    }
+
+    /// <summary>
+    /// A scalar answer from PostGIS, for the comparisons that are not geometry.
+    /// </summary>
+    private async Task<double> ScalarAsync(string sql, Geometry operand)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("g0", WkbWriter.ToArray(operand));
+
+        return Convert.ToDouble(
+            await command.ExecuteScalarAsync(CancellationToken.None),
+            CultureInfo.InvariantCulture);
     }
 
     // ---------- convex hull ----------

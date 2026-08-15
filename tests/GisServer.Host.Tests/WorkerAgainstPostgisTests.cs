@@ -127,20 +127,35 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     /// <summary>Real geometry from the datastore, in whatever units it holds.</summary>
     private async Task<IReadOnlyList<Geometry>> CorpusAsync(int count)
     {
+        // <b>Richest first, and that ordering is load-bearing.</b> This used to
+        // take the alphabetically first table with a geometry column, which made
+        // the corpus depend on a schema name. Adding tools/ci-corpus.sql to a
+        // developer database proved it: 'cicorpus' sorts before 'hosted', and
+        // both corpus suites silently switched from real cadastral polygons to
+        // sixty generated ones and stayed green. A test that quietly starts
+        // checking something easier is the failure mode this file exists to
+        // avoid.
+        //
+        // reltuples is the planner's estimate rather than a count, which is the
+        // point: counting every candidate would cost a sequential scan each, and
+        // an estimate orders them correctly without reading a row.
         const string Tables = """
-            select table_schema || '.' || quote_ident(table_name)
-            from information_schema.columns
-            where udt_name = 'geometry'
-              and column_name = 'geom'
-              and table_schema not in ('gisserver', 'tiger', 'topology')
+            select c.table_schema || '.' || quote_ident(c.table_name)
+            from information_schema.columns c
+            join pg_class p
+              on p.relname = c.table_name
+             and p.relnamespace = c.table_schema::regnamespace
+            where c.udt_name = 'geometry'
+              and c.column_name = 'geom'
+              and c.table_schema not in ('gisserver', 'tiger', 'topology')
               -- <b>and not another test's private schema.</b> PostgresFixture
               -- gives each test class a gisserver_test_* schema and drops it at
               -- the end, so a class running in parallel with this one can have
               -- its tables listed here and dropped before they are read. That
               -- surfaced as 42P01 on a table this query had just returned.
-              and table_schema not like 'gisserver\_test\_%'
-            group by 1
-            order by 1
+              and c.table_schema not like 'gisserver\_test\_%'
+            group by 1, p.reltuples
+            order by p.reltuples desc, 1
             """;
 
         List<string> candidates = [];

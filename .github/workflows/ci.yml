@@ -1,0 +1,219 @@
+# Continuous integration.
+#
+# D-29: "there is no CI, so nothing runs the checks a published promise depends
+# on. No workflow of any kind: every test runs because somebody remembered."
+# ADR-025 commits in writing to fixing reported vulnerabilities within ninety
+# days, and until this file existed nothing reported one.
+#
+# **This project's suites fail rather than skip when their subject is absent**,
+# which is deliberate and stated in PostgresFixture: a test that goes green with
+# nothing under it is worse than no test. That makes CI's shape a consequence
+# rather than a choice — a job either provides what a suite needs or must not
+# run it, and the coverage this workflow does not reach is named in the summary
+# step rather than left to be inferred from a green tick.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  build:
+    name: build and audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: restore
+        run: dotnet restore gis-server.sln
+
+      # TreatWarningsAsErrors and EnforceCodeStyleInBuild are already on in
+      # Directory.Build.props, so this is the style gate as well as the build.
+      - name: build
+        run: dotnet build gis-server.sln -c Release --no-restore
+
+      # <b>ADR-025's ninety-day promise needs something that reports a dirty
+      # tree.</b> `dotnet list package --vulnerable` prints its findings and
+      # exits zero whatever it finds, so the exit code is derived from the
+      # output rather than trusted.
+      - name: vulnerable packages
+        run: |
+          dotnet list gis-server.sln package --vulnerable --include-transitive \
+            > vulnerable.txt 2>&1
+          cat vulnerable.txt
+          if grep -qE '^\s+>' vulnerable.txt; then
+            echo "::error::A dependency has a reported vulnerability. ADR-025 commits to fixing these within ninety days."
+            exit 1
+          fi
+
+      - name: deprecated packages
+        run: dotnet list gis-server.sln package --deprecated
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: build
+        run: dotnet build gis-server.sln -c Release
+
+      # The five suites that need nothing outside the process. Listed one per
+      # line rather than run as a solution-wide `dotnet test`, because the other
+      # three FAIL without their subject and a wildcard would turn that
+      # deliberate design into a permanently red build.
+      - name: architecture
+        run: dotnet test tests/GisServer.Architecture.Tests -c Release --no-build
+
+      - name: core
+        run: dotnet test tests/GisServer.Core.Tests -c Release --no-build
+
+      - name: arcgis api
+        run: dotnet test tests/GisServer.Api.ArcGis.Tests -c Release --no-build
+
+      - name: platform
+        run: dotnet test tests/GisServer.Platform.Tests -c Release --no-build
+
+      - name: argon2
+        run: dotnet test tests/GisServer.Security.Argon2.Tests -c Release --no-build
+
+  datastore:
+    name: datastore
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      postgis:
+        # Pinned to the version developed against. PostGIS 3.4 with PROJ 7.2 is
+        # what the oracle tests compare themselves to, and a newer PROJ can
+        # legitimately choose a different transformation path — which would look
+        # like our arithmetic drifting.
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: gis
+          POSTGRES_PASSWORD: gis
+          POSTGRES_DB: gis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      GISSERVER_TEST_PG: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: build
+        run: dotnet build gis-server.sln -c Release
+
+      # <b>Two suites discover a geometry table and compare against PostGIS on
+      # whatever they find.</b> A developer machine has real data; CI has none,
+      # and these suites fail loudly rather than skip. The generated corpus is a
+      # weaker check than the local one and tools/ci-corpus.sql says so in full.
+      - name: seed the geometry corpus
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
+            -f tools/ci-corpus.sql
+
+      # PostgresFixture creates a private schema per test class and migrates it
+      # itself, so nothing has to bootstrap the platform store here.
+      - name: platform store and providers
+        run: dotnet test tests/GisServer.Platform.Postgres.Tests -c Release --no-build
+
+      # Host.Tests needs the overlay worker, which the host build copies into an
+      # 'overlay' directory beside itself. If that copy step ever breaks, these
+      # fail with a message saying exactly that rather than with 503s.
+      - name: host and geometry worker
+        run: dotnet test tests/GisServer.Host.Tests -c Release --no-build
+
+  registers:
+    name: registers
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # <b>The condition count is derived, never remembered.</b> CLAUDE.md
+      # records why: the number was "roughly twenty-five" and was actually 69,
+      # and two tools disagreed because the discharge rule lived in both. This
+      # runs the one implementation so a malformed register is a failed build
+      # rather than a wrong number on a status page.
+      - name: ADR conditions
+        run: python tools/conditions.py
+
+      # <b>The numbers, not a diff.</b> The status page stamps the commit and the
+      # minute it was generated, so regenerating it and diffing reports a change
+      # on every run whatever the registers say — the first version of this
+      # workflow did exactly that and would have been permanently red.
+      # registers-check compares the counts instead, which is what actually goes
+      # stale when somebody edits a register and forgets to regenerate. Verified
+      # by breaking it: 29/100 was changed to 28/100 and the check named the
+      # mismatch and the command that fixes it.
+      - name: status page is not stale
+        run: python tools/registers-check.py
+
+      - name: status page still generates
+        run: python tools/status-page.py docs/status.html
+
+  coverage-gap:
+    name: what CI does not cover
+    runs-on: ubuntu-latest
+    needs: [unit, datastore]
+
+    steps:
+      # <b>Stated, because a green tick is read as "everything passed".</b> The
+      # conformance suite walks the request sequence a real ArcGIS client makes
+      # against a running, seeded server, and nothing here starts one. Until a
+      # seed script exists, roughly a sixth of the suite does not run in CI, and
+      # that fact belongs on the build page rather than in a debt register
+      # nobody opens.
+      - name: say what is missing
+        run: |
+          {
+            echo "### Not covered by this workflow"
+            echo
+            echo "**GisServer.Conformance.Tests does not run here.** It needs a running server"
+            echo "with published fixtures — a multi-layer service, a group layer, a tile"
+            echo "service, an editable layer — and no script creates them yet. Those tests"
+            echo "fail rather than skip when \`GISSERVER_TEST_URL\` is unset, so including"
+            echo "them would make this build permanently red."
+            echo
+            echo "That is about 167 of roughly 995 tests, and they are the ones that check"
+            echo "the ArcGIS compatibility claim end to end. D-29 stays open until a seed"
+            echo "step exists."
+          } >> "$GITHUB_STEP_SUMMARY"
