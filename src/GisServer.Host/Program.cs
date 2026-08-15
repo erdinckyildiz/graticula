@@ -23,6 +23,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -418,14 +419,34 @@ public static class Program
     private static void MapEndpoints(WebApplication app)
     {
         app.MapGet("/healthz/ready", async (
-            IAdminCatalog catalog, CancellationToken cancellation) =>
+            IAdminCatalog catalog,
+            [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
+            CancellationToken cancellation) =>
         {
             // Readiness DOES depend on the store, which is the whole difference
             // from liveness. A load balancer should stop sending traffic here;
             // an orchestrator should not kill the process.
+            //
+            // <b>Both pools, and the second one was added by the failure gate.</b>
+            // Checking only the platform store made this endpoint answer 200
+            // while every query answered 503: after the database came back, the
+            // catalogue pool reconnected several seconds before the datastore
+            // pool did, and for those seconds an orchestrator would have routed
+            // traffic to a server that could not serve it. A readiness probe
+            // that is green while the serving path is red is worse than none —
+            // it is the signal something acts on.
+            //
+            // <b>Only the datastore, not every registered source.</b> The
+            // datastore is mandatory (ADR-019) and every hosted layer needs it;
+            // a registered source being down should make its own layers fail,
+            // not take the server out of rotation.
             try
             {
                 await catalog.ListLayersAsync(cancellation);
+
+                await using NpgsqlCommand probe = datastore.CreateCommand("select 1");
+                await probe.ExecuteScalarAsync(cancellation);
+
                 return Results.Ok(new { status = "ready" });
             }
             catch (NpgsqlException e)

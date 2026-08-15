@@ -73,7 +73,7 @@ finished, however confident the ADR sounds.
 Each gate is run against the whole architecture, not per-ADR, and a failure
 reopens the relevant decisions rather than being noted and passed over.
 
-**Two of nine run, and the seven blanks are deliberate.** A gate ticked without
+**Three of nine run, and the six blanks are deliberate.** A gate ticked without
 evidence is worse than one left open: it converts an unknown into a false
 assurance, and nothing afterwards re-examines it. The two below were run because
 the evidence to run them exists; the rest are named with what each is waiting
@@ -84,7 +84,7 @@ for.
 | Correctness | — | Partly covered by [contradiction sweep 2](reviews/contradiction-sweep-2.md), which is a narrower exercise. A correctness gate over 22 ADRs and 21,000 lines needs a reviewer who did not write them |
 | Simplicity | — | Waiting on somebody other than the author. The anti-overengineering test — *what concrete problem does this solve* — cannot be applied honestly to one's own design |
 | Performance | — | **Evidence exists and the gate does not.** Four benchmark rounds ([mvt-generation](../benchmarks/mvt-generation/RESULTS.md), [geometry-overlay](../benchmarks/geometry-overlay/RESULTS.md)) overturned two assumptions. What is missing is the architecture-wide pass that asks what they imply together |
-| Failure | — | [failure-scenarios.md](failure-scenarios.md) covers N1–N10 and predates the code. Several of its predictions are now testable and untested |
+| **Failure** | **2026-08-15** | **FAIL, and repaired in part.** [failure-gate-1.md](reviews/failure-gate-1.md): five of twelve scenarios executed against a running server. **`/healthz/ready` answered 200 while every query answered 503** during recovery — it probed the platform store and not the datastore, so a green probe stood in front of a red server. Fixed, and the probe is now conservative in the safe direction. **N1 and N2 are confirmed not built**: a platform-store outage is total rather than degrading, and a warm tile for a public layer is inside the blast radius — which is [Q-95](open-questions.md) with evidence attached. Seven scenarios were not run and are named rather than ticked |
 | Operations | — | Needs a deployment somebody operates. A-051's break-glass path and D-18 are the known holes |
 | Security | — | [security.md](security.md) has grown three rules from implementation this week. A gate would ask what is missing, which is a different question from what has been added |
 | Extensibility | — | ADR-006 is `REOPENED` and no plugin code exists; the gate has nothing to examine |

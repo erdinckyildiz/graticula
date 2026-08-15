@@ -8,6 +8,13 @@ should happen, and what is missing.
 
 ---
 
+> **Walked against running code on 2026-08-15** —
+> [failure-gate-1.md](reviews/failure-gate-1.md). Five of the twelve below were
+> executed rather than reasoned about. Three predictions were wrong about the
+> built system; one of those is fixed and two are confirmed unbuilt and belong
+> to [Q-95](open-questions.md). **This document is the prediction; the gate is
+> the measurement**, and where they differ the gate wins.
+
 ## Summary of what this found
 
 The exercise was worth more than expected. Walking failures surfaced gaps that
