@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>417c7c2</code> · 2026-08-15 23:22</p>
+<p class="stamp">Generated from commit <code>53ec1e9</code> · 2026-08-15 23:56</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">29/100</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">67 live · 4 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">43</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">32</div><div class="kpi-l">open debts</div><div class="kpi-n">3 repaid · 3 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">open debts</div><div class="kpi-n">4 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">9/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">965</div><div class="kpi-l">tests</div><div class="kpi-n">119 source files, 36,806 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">103 items</span></div><p><b>67 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>32 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">102 items</span></div><p><b>67 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>31 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -285,7 +285,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-34</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-35</td><td>Planar area was computed by a shoelace sum with no local origin, and it shipped that way for a day.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class=""><td class="id">D-36</td><td>~~Nothing in the repository says how to install against an empty database, and the first command fails with a raw Postgres error.~~ CLOSED 2026-08-15, partly.</td><td class="muted-t">—</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class="done"><td class="id">D-36</td><td>~~Nothing in the repository says how to install against an empty database, and the first command fails with a raw Postgres error.~~ CLOSED 2026-08-15, partly.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-32</td><td>A transformation PROJ could not do accurately is reported as though it were accurate.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
@@ -375,6 +375,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>53ec1e9</code><time>2026-08-15</time><span>CI runs the conformance suite too, against a server it builds from nothing</span></li>
 <li><code>417c7c2</code><time>2026-08-15</time><span>CI, and the area bug that setting it up uncovered</span></li>
 <li><code>803dc6f</code><time>2026-08-15</time><span>toGeoCoordinateString and fromGeoCoordinateString â€” the two nobody had listed</span></li>
 <li><code>2d03d91</code><time>2026-08-15</time><span>cut, buffer, offset, simplify, relation and distance â€” the owner took the refusal away</span></li>
@@ -388,7 +389,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>accf478</code><time>2026-08-15</time><span>tile ETag, the multi-node deployment note, and a test that was fighting itself</span></li>
 <li><code>dca9a99</code><time>2026-08-15</time><span>tile single-flight: twelve callers, one build</span></li>
 <li><code>6f62541</code><time>2026-08-15</time><span>CLAUDE.md Â§8: conversation returns to Turkish, documentation stays English</span></li>
-<li><code>b48d3e7</code><time>2026-08-15</time><span>ADR-029: affinity routing is not the default, and Redis is not the answer</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

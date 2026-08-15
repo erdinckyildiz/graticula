@@ -1,8 +1,12 @@
 # Deployment
 
-**Status:** STUB — not written, apart from §1, which exists because
+**Status:** STUB — not written, apart from §0 and §1. §1 exists because
 [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md) condition 3
-required it before anybody is told to run more than one node.
+required it before anybody is told to run more than one node. **§0 exists
+because on 2026-08-15 CI installed this product against an empty database for
+the first time and the first command failed** (D-36) — the sequence below was
+nowhere in the repository, and the only place it existed in full was a workflow
+file. A workflow is not a manual.
 **Required by:** §53
 
 ---
@@ -16,6 +20,100 @@ concrete requirements of air-gapped operation (Q-15).
 
 Kubernetes is addressed only after the platform works correctly without it
 (§53, §79).
+
+---
+
+## 0. Installing against an empty database
+
+Four steps, in this order. Every one of them is exercised on every push by
+[the conformance job](../.github/workflows/ci.yml), which builds a server from
+nothing — so if this drifts, that job goes red rather than this page going
+quietly wrong.
+
+**1. A database with PostGIS.**
+
+```sql
+CREATE DATABASE gis;
+\c gis
+CREATE EXTENSION postgis;
+```
+
+**2. The schema the platform store lives in.**
+
+```sql
+CREATE SCHEMA gisserver;
+```
+
+**This is a separate step on purpose and the migrator will not do it for you.**
+Creating a schema is a privileged act, and doing it silently would mean a typo
+in `SearchPath` produces a second, empty installation rather than an error. If
+you skip it, `migrate` says so and exits 1; before 2026-08-15 it threw
+`3F000: no schema has been selected to create in`, which is Postgres's way of
+saying the same thing and nobody's idea of a first impression.
+
+**3. Configuration.** Two settings are required and the server refuses to start
+without either:
+
+| | |
+|---|---|
+| `GisServer__PlatformStore` | The connection string, including `SearchPath=gisserver` |
+| `GisServer__SecretKey` | Base64 of **exactly 32 bytes** — the AES-256 key that seals data source credentials (ADR-002 §4.7). Generate one with `head -c 32 /dev/urandom \| base64`, keep it, and understand that losing it means every stored data source credential is unreadable |
+
+Optional: `GisServer__Port` (8443), `GisServer__Listen` (0.0.0.0),
+`GisServer__HostName`, `GisServer__CertificatePath` and
+`GisServer__CertificatePassword`, `GisServer__StatePath`,
+`GisServer__TileCachePath`.
+
+**4. Migrate, explicitly.**
+
+```
+GisServer.Host migrate            # prints the plan and changes nothing
+GisServer.Host migrate --apply    # applies it
+```
+
+**The server does not migrate on startup and will refuse to serve against a
+store it does not match** ([ADR-016](adr/ADR-016-packaging-deployment-upgrade.md)
+§4b). That is not caution for its own sake: auto-migration is how an old
+container started by accident — a stale tag, a rollback, a stray `docker run` —
+silently rewrites a newer schema, and the result presents as corruption rather
+than as a mistake.
+
+### 0.1 The first administrator
+
+Start the server. It has no accounts, so it refuses everything and prints a
+**one-time setup token** to its log, valid for sixty minutes:
+
+```
+crit: startup[1009]
+      SETUP REQUIRED. This server has no administrator. One-time setup token,
+      valid for 60 minutes:
+
+    <token>
+```
+
+POST it with a name and a password of at least eight characters:
+
+```
+POST /rest/setup
+{"token": "<token>", "name": "admin", "password": "..."}
+```
+
+**It is printed once and is not reprinted.** A restart does not issue a second
+one — that would mean two live credentials for a one-time act — so if it is lost,
+delete the row from `setup_token` and restart. Everything else is refused until
+this is done, which is the whole point:
+[ADR-015](adr/ADR-015-authentication.md) has no default account and no default
+password.
+
+### 0.2 Checking it worked
+
+`GET /healthz/live` answers 200 once the process is up; `GET /healthz/ready`
+answers 200 once it can reach the platform store.
+
+`GET /admin/health` says more. **It answers anonymous callers as well, with the
+detail redacted** — that is [D-18](architecture-debt.md), recorded there as the
+wrong trade and the only one available, because a readiness endpoint a load
+balancer can reach is a readiness endpoint a stranger can reach.
 
 ---
 
