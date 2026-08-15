@@ -79,7 +79,7 @@ internal static class VectorTileEndpoints
     private static async Task<PublishedService?> TileableAsync(
         HttpContext context,
         string serviceName,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         CancellationToken cancellation)
     {
         PublishedService? service = await ServiceLookup
@@ -196,7 +196,7 @@ internal static class VectorTileEndpoints
     private static async Task ServiceAsync(
         HttpContext context,
         string serviceName,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         CancellationToken cancellation)
     {
@@ -249,7 +249,7 @@ internal static class VectorTileEndpoints
     private static async Task StyleAsync(
         HttpContext context,
         string serviceName,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -289,7 +289,7 @@ internal static class VectorTileEndpoints
         int z,
         int y,
         int x,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         LayerConnections connections,
         ITileCache cache,

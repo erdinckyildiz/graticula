@@ -360,7 +360,7 @@ internal static class RelationshipEndpoints
         HttpContext context,
         string serviceName,
         int layerId,
-        PostgresLayerCatalog layers,
+        CatalogFallback layers,
         PostgresRelationshipCatalog relationships,
         ServiceContexts contexts,
         LayerConnections connections,
@@ -428,7 +428,14 @@ internal static class RelationshipEndpoints
         string thisKey = fromOrigin ? relationship.OriginKey : relationship.RelatedKey;
         string otherKey = fromOrigin ? relationship.RelatedKey : relationship.OriginKey;
 
-        PublishedLayer? other = await layers.FindByIdAsync(otherId, cancellation).ConfigureAwait(false);
+        // <b>Straight to the catalogue, not through the fallback.</b> Related
+        // records are only reachable through a layer this caller was already
+        // admitted to, and there is no remembered copy of a relationship to
+        // serve from — so while the store is unreachable this read fails, which
+        // is the correct answer rather than a gap (Q-95).
+        PublishedLayer? other = layers.Catalog is null
+            ? null
+            : await layers.Catalog.FindByIdAsync(otherId, cancellation).ConfigureAwait(false);
 
         if (other is null)
         {

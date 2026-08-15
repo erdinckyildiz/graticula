@@ -1,4 +1,5 @@
 using System;
+using GisServer.Platform.Postgres;
 using System.IO;
 using System.Net;
 using Microsoft.Extensions.Configuration;
@@ -38,7 +39,8 @@ internal sealed record HostSettings(
     long TileCacheBudgetBytes,
     long TileCacheLayerBudgetBytes,
     TimeSpan TileCacheLifetime,
-    int OverlayWorkers)
+    int OverlayWorkers,
+    TimeSpan CatalogFallbackWindow)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -146,7 +148,17 @@ internal sealed record HostSettings(
             // number times that ceiling and nothing else — which is the property
             // Q-97 exists to give an operator. Raising it raises the worst case
             // linearly, and that is the trade to state rather than to bury.
-            Math.Max(1, configuration.GetValue("GisServer:OverlayWorkers", defaultValue: 2)));
+            Math.Max(1, configuration.GetValue("GisServer:OverlayWorkers", defaultValue: 2)),
+
+            // <b>How long a remembered catalogue entry may be served while the
+            // platform store is unreachable (Q-95).</b> Zero disables degraded
+            // serving entirely, which is the posture for a deployment that would
+            // rather stop than answer on a permission nobody can confirm — and
+            // that is a real preference, so it is reachable from configuration
+            // rather than only from a code change.
+            TimeSpan.FromMinutes(configuration.GetValue(
+                "GisServer:CatalogFallbackMinutes",
+                defaultValue: (int)CatalogFallback.DefaultWindow.TotalMinutes)));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>

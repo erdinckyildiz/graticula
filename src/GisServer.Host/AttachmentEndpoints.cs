@@ -81,7 +81,7 @@ internal static class AttachmentEndpoints
         string serviceName,
         int layerId,
         long objectId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         CancellationToken cancellation)
     {
@@ -138,7 +138,7 @@ internal static class AttachmentEndpoints
         int layerId,
         long objectId,
         int attachmentId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         CancellationToken cancellation)
     {
@@ -197,7 +197,7 @@ internal static class AttachmentEndpoints
         string serviceName,
         int layerId,
         long objectId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         IAuditLog audit,
         CancellationToken cancellation)
@@ -302,7 +302,7 @@ internal static class AttachmentEndpoints
         string serviceName,
         int layerId,
         long objectId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         IAuditLog audit,
         CancellationToken cancellation)
@@ -380,7 +380,7 @@ internal static class AttachmentEndpoints
         HttpContext context,
         string serviceName,
         int layerId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         bool write,
         CancellationToken cancellation)

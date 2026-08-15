@@ -404,6 +404,31 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Writes the service's scope, not the layer's, and that was a shipped
+    /// defect until 2026-08-15.</b> This statement said
+    /// <c>update layer set sharing</c>, and <c>layer.sharing</c> is read by
+    /// nothing: since migration 11 the serving path takes sharing from the
+    /// owning service, because a service holding three layers with three scopes
+    /// cannot answer <em>who may see this service</em>.
+    /// </para>
+    /// <para>
+    /// So an administrator making a layer private got <c>200</c> and
+    /// <c>{"from":"public","to":"private"}</c> back, the column changed, and the
+    /// layer stayed readable by anybody. It was found while testing something
+    /// else entirely (Q-95): a service that had just been made private answered
+    /// a request it should have refused, and the register said the service was
+    /// still public.
+    /// </para>
+    /// <para>
+    /// <b>The dead column is left alone rather than kept in step.</b> Writing
+    /// both is how the fact acquires two homes and they drift — which is the
+    /// <c>is_hosted</c> mistake, on the column that decides who sees what.
+    /// <see href="../../docs/architecture-debt.md">D-24</see> covers dropping
+    /// it.
+    /// </para>
+    /// </remarks>
     public async Task<AdminLayer?> SetSharingAsync(
         string layerName, SharingScope sharing, CancellationToken cancellationToken)
     {
@@ -413,9 +438,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // audit record, and the only moment the "before" is knowable is inside
         // the statement that replaces it.
         const string Sql = """
-            update layer set sharing = @sharing
-            where name = @name
-            returning id, name, sharing, owner_principal_id, object_id_column, schema_name, table_name
+            update service s set sharing = @sharing
+            from layer l
+            where l.service_id = s.id and l.name = @name
+            returning l.id, l.name, s.sharing, s.owner_principal_id,
+                      l.object_id_column, l.schema_name, l.table_name
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);

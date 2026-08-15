@@ -210,4 +210,80 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
 
         Assert.False(await admin.SetCacheLifetimeAsync("nosuch", 60, CancellationToken.None));
     }
+
+    /// <summary>
+    /// A change of sharing is visible to the code that decides who may read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This failed until 2026-08-15, and it had shipped.</b>
+    /// <c>SetSharingAsync</c> wrote <c>layer.sharing</c>; the serving path reads
+    /// the owning <em>service</em>. So making a layer private returned 200 with
+    /// <c>{"from":"public","to":"private"}</c>, updated a column nothing
+    /// reads, and left the layer readable by anybody.
+    /// </para>
+    /// <para>
+    /// <b>Nothing caught it because both sides were tested and neither round
+    /// trip was.</b> The write side asserted that the column changed; the read
+    /// side asserted that the service scope was honoured. The bug lived exactly
+    /// in the gap, which is where this test now sits — write with the admin
+    /// catalogue, read with the serving catalogue, and require them to agree.
+    /// </para>
+    /// <para>
+    /// It was found by accident, testing the Q-95 outage path: a service that
+    /// had just been made private answered a request it should have refused.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(SharingScope.Private)]
+    [InlineData(SharingScope.Organization)]
+    [InlineData(SharingScope.Public)]
+    public async Task Sharing_written_by_an_administrator_is_what_serving_reads(SharingScope scope)
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "shared"), owner, CancellationToken.None);
+
+        Assert.NotNull(await admin.SetSharingAsync("shared", scope, CancellationToken.None));
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService service =
+            (await catalog.FindServiceAsync(null, "shared", CancellationToken.None))!;
+
+        Assert.Equal(scope, service.Sharing);
+    }
+
+    /// <summary>
+    /// Sharing set through one layer covers every layer in its service.
+    /// </summary>
+    /// <remarks>
+    /// <b>A consequence worth asserting rather than discovering.</b> Since
+    /// migration 11 sharing belongs to the service, so an endpoint addressed by
+    /// layer name necessarily moves its siblings too. That is the model working
+    /// as designed — and it is exactly the kind of thing an administrator should
+    /// not learn from a support call.
+    /// </remarks>
+    [Fact]
+    public async Task Sharing_set_through_one_layer_moves_the_whole_service()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "first", service: "together"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "second", service: "together"), owner, CancellationToken.None);
+
+        await admin.SetSharingAsync("first", SharingScope.Public, CancellationToken.None);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService service =
+            (await catalog.FindServiceAsync(null, "together", CancellationToken.None))!;
+
+        Assert.Equal(2, service.Layers.Count);
+        Assert.Equal(SharingScope.Public, service.Sharing);
+    }
 }

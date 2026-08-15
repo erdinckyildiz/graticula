@@ -118,7 +118,21 @@ the platform store.
 > prefers surviving an outage; the implementation prefers a revocation taking
 > effect. **Neither is written here as settled**, and the ADR is left saying
 > what it decided rather than edited to agree with the code that disagrees with
-> it. Q-95 is owed to the owner. It does not create, start or reserve anything in a worker.
+> it. Q-95 is owed to the owner.
+>
+> **RESOLVED 2026-08-15 by owner decision —
+> [ADR-026](ADR-026-serving-through-a-platform-store-outage.md).** This paragraph
+> is **amended, not implemented**. Its rule — freeze rather than stop — now
+> holds for services whose last known sharing was `Public`: while the platform
+> store is unreachable the server keeps answering them, from the last catalogue
+> entry it saw, and a real query against a datastore it can no longer look up
+> still returns rows. Everything else is **refused** rather than frozen, which
+> restores this paragraph's *fails closed* guarantee for exactly the case it did
+> not consider: with two servers over one store the stale value is present and
+> wrong, so the only safe stale value is the one where being wrong costs nothing.
+> Authorization data is still not held in the bound context — it is remembered
+> beside the catalogue and used only while blind, so a revocation still takes
+> effect on the next request while the store answers. It does not create, start or reserve anything in a worker.
 
 This dissolves §26's problem rather than staging around it. A node restart
 brings up N workers with no bound contexts; load re-warms them at the rate real

@@ -27,9 +27,34 @@ namespace GisServer.Host;
 /// 404 either way. Only somebody already entitled to know it exists gets the 503
 /// that says an operator stopped it.
 /// </para>
+/// <para>
+/// <b>And there is now a third state: blind.</b> Q-95, answered by the owner
+/// 2026-08-15. When the platform store cannot be reached, this resolver answers
+/// from the last catalogue entry it saw — but only for services whose remembered
+/// sharing was <c>Public</c>. Everything else is refused while blind, because a
+/// remembered grant on data somebody chose not to make public is the one stale
+/// value with a real cost. See <see cref="CatalogFallback"/>.
+/// </para>
 /// </remarks>
 internal static class ServiceLookup
 {
+    private const string BlindKey = "gis-catalog-blind";
+
+    /// <summary>
+    /// The stale-catalogue answer behind this request, if it was one.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <returns>The answer, or null when the store was reachable.</returns>
+    public static CatalogAnswer? Blind(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return context.Items.TryGetValue(BlindKey, out object? value)
+            && value is CatalogAnswer answer
+                ? answer
+                : null;
+    }
+
     /// <summary>
     /// The service at this URL, or null with the refusal already written.
     /// </summary>
@@ -40,7 +65,7 @@ internal static class ServiceLookup
     /// <returns>The service, or null.</returns>
     public static async Task<PublishedService?> ServiceAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         string serviceName,
         CancellationToken cancellation)
     {
@@ -49,33 +74,64 @@ internal static class ServiceLookup
 
         string? folder = ServiceFolder.FolderOf(context.Request.Path);
 
-        PublishedService? service = await catalog
+        CatalogAnswer answer = await catalog
             .FindServiceAsync(folder, serviceName, cancellation)
             .ConfigureAwait(false);
 
         // Asked for in the wrong folder. Look in the other one and redirect,
         // rather than answering "no such service" about a service that exists.
-        if (service is null)
+        if (answer.Service is null && !answer.Blind)
         {
-            PublishedService? elsewhere = await catalog
+            CatalogAnswer elsewhere = await catalog
                 .FindServiceAsync(
                     folder is null ? FeatureServerMetadataWriter.HostedFolder : null,
                     serviceName,
                     cancellation)
                 .ConfigureAwait(false);
 
-            if (elsewhere is not null && await VisibleAsync(context, elsewhere, quiet: true)
-                .ConfigureAwait(false))
+            if (elsewhere.Service is { } other
+                && await VisibleAsync(context, other, elsewhere, quiet: true)
+                    .ConfigureAwait(false))
             {
-                await ServiceFolder.RedirectAsync(context, elsewhere).ConfigureAwait(false);
+                await ServiceFolder.RedirectAsync(context, other).ConfigureAwait(false);
                 return null;
             }
         }
 
-        if (service is null || !await VisibleAsync(context, service, quiet: false)
-            .ConfigureAwait(false))
+        // <b>Blind, with no memory of this name.</b> A 404 here would be a
+        // claim, and the claim is wrong for every service published since this
+        // process last read the catalogue — and for every service at all after
+        // a restart. 503 is the honest answer: ask again later.
+        if (answer.Service is null && answer.Blind)
         {
-            if (service is null)
+            await RefuseBlindAsync(context, serviceName, answer, unknown: true)
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        // <b>Left where the endpoints can find it.</b> A document built from a
+        // remembered catalogue must say so, and threading the answer through
+        // eight signatures to carry one boolean is how a signature grows a
+        // parameter nobody reads. HttpContext.Items rather than a static, which
+        // this project has already got wrong once.
+        if (answer.Blind)
+        {
+            context.Items[BlindKey] = answer;
+
+            // <b>On every blind response, including tiles and query results.</b>
+            // The ArcGIS JSON contract has nowhere to say this for most
+            // documents, and an operator watching a dashboard needs one signal
+            // that covers all of them rather than a field on the two that have
+            // room for it. Cheap, ignorable, and impossible to miss in a log.
+            context.Response.Headers["X-Catalog-Age"] =
+                ((int)answer.Age.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (answer.Service is not { } service
+            || !await VisibleAsync(context, service, answer, quiet: false).ConfigureAwait(false))
+        {
+            if (answer.Service is null)
             {
                 await Authorize.RefuseReadAsync(context, serviceName).ConfigureAwait(false);
             }
@@ -97,7 +153,7 @@ internal static class ServiceLookup
     /// <returns>The layer, or null.</returns>
     public static async Task<PublishedLayer?> LayerAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         string serviceName,
         int layerId,
         CancellationToken cancellation)
@@ -172,10 +228,29 @@ internal static class ServiceLookup
         return layer;
     }
 
-    /// <summary>Sharing, then status. Writes the refusal unless asked not to.</summary>
+    /// <summary>Blind, then sharing, then status. Writes the refusal unless asked not to.</summary>
+    /// <remarks>
+    /// <b>Blind goes first, and it has to.</b> The sharing check below is a
+    /// function of a remembered value when the store is unreachable, so running
+    /// it first would mean answering <em>yes, you may see this</em> on evidence
+    /// that may be minutes out of date. While blind the only scope that survives
+    /// is <c>Public</c> — the one where being wrong about it costs nothing that
+    /// was not already given away.
+    /// </remarks>
     private static async Task<bool> VisibleAsync(
-        HttpContext context, PublishedService service, bool quiet)
+        HttpContext context, PublishedService service, CatalogAnswer answer, bool quiet)
     {
+        if (answer.Blind && service.Sharing != SharingScope.Public)
+        {
+            if (!quiet)
+            {
+                await RefuseBlindAsync(context, service.Name, answer, unknown: false)
+                    .ConfigureAwait(false);
+            }
+
+            return false;
+        }
+
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (!LayerAccess
@@ -201,5 +276,42 @@ internal static class ServiceLookup
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Refuses because the platform store is unreachable, and says exactly that.
+    /// </summary>
+    /// <remarks>
+    /// <b>503, and the two cases are worth distinguishing.</b> A service we
+    /// remember but may not serve, and a service we have no memory of at all.
+    /// Neither is the caller's doing and neither is permanent, so both should be
+    /// retried — but only one of them tells an operator that this server is
+    /// running on a stale catalogue, which is the thing they need to know.
+    /// </remarks>
+    private static Task RefuseBlindAsync(
+        HttpContext context, string serviceName, CatalogAnswer answer, bool unknown)
+    {
+        string detail = unknown
+            ? "The platform store is unreachable, and this server has no record of a service "
+              + $"named '{serviceName}' from before it went quiet. It may exist; this server "
+              + "cannot currently tell you either way, which is why this is not a 404."
+            : "The platform store is unreachable. While it is, this server answers only "
+              + "services that were public the last time it could read the catalogue, and "
+              + $"'{serviceName}' was not one of them. Serving it would mean honouring a "
+              + "permission nobody can currently confirm.";
+
+        return Results.Json(
+            new
+            {
+                error = new
+                {
+                    code = 503,
+                    message = detail
+                        + " Public services are still being served, from a catalogue "
+                        + $"{(int)answer.Age.TotalSeconds}s old.",
+                    catalogAgeSeconds = (int)answer.Age.TotalSeconds,
+                },
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);
     }
 }

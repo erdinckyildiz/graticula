@@ -361,6 +361,44 @@ reach the admin API**; and they are revocable and listed like any other session.
 path.** Recorded here rather than in a footnote, because if never-degrade-
 silently applies to capabilities it applies to security trade-offs.
 
+### An outage narrows what is served, it does not widen it — added 2026-08-15
+
+[ADR-026](adr/ADR-026-serving-through-a-platform-store-outage.md) answers Q-95:
+when the platform store is unreachable, the server keeps answering from the last
+catalogue entry it saw — **but only for services whose remembered sharing was
+`Public`.** Everything else is refused with a 503.
+
+**The rule, stated so it cannot drift:** a remembered authorization decision may
+only ever be acted on when acting on it wrongly discloses nothing. `Public` is
+the only scope that qualifies, because it means *anonymous may read this* and a
+stale window cannot make that more true.
+
+Three properties hold this up, and each is a place a future change could quietly
+remove it:
+
+- **The healthy path is unchanged.** While the store answers, every request
+  reads it. This is not a read-through cache, and turning it into one — for
+  performance nobody has asked for — would end instant revocation.
+- **Only connectivity failures degrade.** A defect in our own SQL propagates as
+  an error. If falling back ever became *catch everything*, a typo would switch
+  the server into serving remembered authorization and it would look designed.
+- **A name with no remembered entry is 503, never 404.** A 404 would be a claim
+  about a catalogue nobody can read.
+
+**What this does not fix, stated rather than left to be found:** a *public*
+service stopped by an operator during the outage keeps answering until the
+memory expires. Stopping a private one takes effect, because private is not
+served while blind at all.
+
+**And the defect this found, which was worse than the thing it was testing
+for.** `PUT /admin/layers/{name}/sharing` wrote `layer.sharing`; the serving path
+reads the owning service's scope. An administrator making a layer private got
+`200`, a column changed, and the layer stayed readable by anybody. Both halves
+had tests — the write asserted the column changed, the read asserted the service
+scope was honoured — and the bug lived in the join between them. **A test on
+each side of a boundary is not a test of the boundary**, and on an authorization
+path that gap is the whole vulnerability.
+
 ### A browser holds a read-only credential — added 2026-08-15
 
 The REST Services Directory ([ADR-023](adr/ADR-023-rest-services-directory.md))

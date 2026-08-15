@@ -69,6 +69,17 @@ public static class Program
             services.GetRequiredService<NpgsqlDataSource>(),
             services.GetRequiredService<SecretProtector>()));
 
+        // <b>Q-95: the catalogue, plus the last answer it gave.</b> The serving
+        // path resolves services through this rather than through the catalogue
+        // directly, so that a platform-store outage degrades to public-only
+        // serving instead of stopping the server. While the store answers,
+        // every request still reads it and nothing about the healthy path
+        // changes — see CatalogFallback.
+        builder.Services.AddSingleton(services => new CatalogFallback(
+            services.GetRequiredService<PostgresLayerCatalog>(),
+            services.GetRequiredService<TimeProvider>(),
+            settings.CatalogFallbackWindow));
+
         builder.Services.AddSingleton<LayerConnections>();
 
         builder.Services.AddSingleton(services =>
@@ -940,14 +951,35 @@ public static class Program
     /// owners' lists its parcels — and reporting only the ones where this layer
     /// is the origin makes half of them undiscoverable.
     /// </remarks>
+    /// <remarks>
+    /// <b>Empty when the platform store is unreachable, and the document says
+    /// so.</b> Relationships live only in the platform store, so while blind
+    /// there is no way to report them and no remembered copy to report from
+    /// (Q-95). Reporting none is a lie by omission unless the caller is told,
+    /// which is what <c>catalogStale</c> on the layer document is for.
+    /// </remarks>
     private static async Task<IEnumerable<object>> RelationshipsForAsync(
         PublishedLayer layer,
         PostgresRelationshipCatalog relationships,
-        PostgresLayerCatalog layers,
+        CatalogFallback catalog,
         CancellationToken cancellation)
     {
-        IReadOnlyList<LayerRelationship> declared =
-            await relationships.ForLayerAsync(layer.Id, cancellation).ConfigureAwait(false);
+        if (catalog.Catalog is not { } layers)
+        {
+            return [];
+        }
+
+        IReadOnlyList<LayerRelationship> declared;
+
+        try
+        {
+            declared = await relationships.ForLayerAsync(layer.Id, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Exception e) when (CatalogFallback.IsUnreachable(e))
+        {
+            return [];
+        }
 
         if (declared.Count == 0)
         {
@@ -1019,7 +1051,7 @@ public static class Program
     private static async Task ServiceMetadataAsync(
         HttpContext context,
         string serviceName,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         CancellationToken cancellation)
     {
@@ -1090,7 +1122,7 @@ public static class Program
         HttpContext context,
         string serviceName,
         int layerId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         PostgresRelationshipCatalog relationships,
         CancellationToken cancellation)
@@ -1210,7 +1242,7 @@ public static class Program
         HttpContext context,
         string serviceName,
         int layerId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         LayerConnections connections,
         ServiceContexts contexts,
         IAuditLog audit,
@@ -1581,7 +1613,7 @@ public static class Program
         HttpContext context,
         string serviceName,
         int layerId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IAuditLog audit,
         ILoggerFactory loggerFactory,

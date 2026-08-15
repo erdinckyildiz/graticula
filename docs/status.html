@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f6f161f</code> · 2026-08-15 16:17</p>
+<p class="stamp">Generated from commit <code>8c63493</code> · 2026-08-15 16:25</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">19/80</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
-<div class="kpi "><div class="kpi-v">45</div><div class="kpi-l">open questions</div><div class="kpi-n">52 answered · 5 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">26</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
+<div class="kpi warn"><div class="kpi-v">20/85</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">the largest open commitment</div></div>
+<div class="kpi "><div class="kpi-v">41</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">2 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">3/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">8/62</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">785</div><div class="kpi-l">tests</div><div class="kpi-n">112 source files, 31,568 lines</div></div>
+<div class="kpi warn"><div class="kpi-v">9/65</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi good"><div class="kpi-v">804</div><div class="kpi-l">tests</div><div class="kpi-n">113 source files, 31,974 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-82</b> — Read-only or read/write for MySQL, MariaDB and DuckDB?</p><p><b>Q-95</b> — Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p><p><b>Q-90</b> — Which geometry vocabulary does the SDK expose — and can it round-trip?</p><p><b>Q-75</b> — How is user-supplied Python sandboxed?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">97 items</span></div><p><b>61 ADR conditions</b> outstanding across 20 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>5 capability areas</b> not started: Glyph &amp; sprite serving, Style document management, Publishing, Observability, Resource governance.</p><p><b>3 review gates</b> nobody else is blocking: Performance, Security, Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">101 items</span></div><p><b>65 ADR conditions</b> outstanding across 21 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>5 capability areas</b> not started: Glyph &amp; sprite serving, Style document management, Publishing, Observability, Resource governance.</p><p><b>3 review gates</b> nobody else is blocking: Performance, Security, Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -139,6 +139,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -194,6 +195,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/7</td></tr>
 <tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/5</td></tr>
 <tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/4</td></tr>
+<tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">1/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -233,16 +235,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-66</span><span class="owner">Council</span></div><p>Re-scoped 2026-08-14 to the feature path: there is no in-process tile path any more (ADR-021).</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-75</span><span class="owner">**[OWNER]** for the publish-rights half</span></div><p>How is user-supplied Python sandboxed?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-77</span><span class="owner">Council</span></div><p>Does the raster rendering engine get built, and where is the Tier 1 line?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-82</span><span class="owner">**[OWNER]**</span></div><p>Read-only or read/write for MySQL, MariaDB and DuckDB?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-86</span><span class="owner">Council</span></div><p>§82 answer, per newly-scoped capability — sweep S3, severe.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-87</span><span class="owner">Council</span></div><p>Where does DuckDB execute — job worker or request path?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-89</span><span class="owner">Council</span></div><p>Does v1 build ADR-005&#x27;s protocol-neutral internal interface, or the ArcGIS surface directly?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-90</span><span class="owner">Council, direction set by **[OWNER]**</span></div><p>Which geometry vocabulary does the SDK expose — and can it round-trip?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-91</span><span class="owner">Council</span></div><p>How does a streaming response report a failure that happens after bytes are on the wire?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-92</span><span class="owner">Council</span></div><p>Resolved by ADR-018, 2026-08-13.</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-95</span><span class="owner">Owner</span></div><p>Should serving survive a platform-store outage, and is it worth caching an authorization decision to get that?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -270,7 +268,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-21</td><td>Paging by resultOffset is not stable.</td><td class="muted-t">Before anyone syncs a large layer</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-22</td><td>where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">When the query AST exists</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-24</td><td>layer.ishosted is a column nobody reads and every insert still writes.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-24</td><td>layer.ishosted and layer.sharing are columns nobody reads, and writes still reach both.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -343,12 +341,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-061</td><td>An administrator&#x27;s first act against an unfamiliar server is to open its URL in a browser</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-064</td><td>A security report will arrive at some point after publication, and the cost of having nowhere to send it exceeds the cost of the policy</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-065</td><td>Requiring a DCO rather than a CLA does not deter contribution, and requiring a CLA would</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-066</td><td>A stale Public grant discloses nothing that was not already disclosed</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-067</td><td>Platform-store failures that leave the data sources up are common enough to be worth serving through</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-068</td><td>Fifteen minutes is longer than a transient outage and shorter than one nobody is handling</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 </tbody></table></div></section>
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">222</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:63.5%"></div></div><div class="bar-n">141</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:72.1%"></div></div><div class="bar-n">160</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:58.6%"></div></div><div class="bar-n">130</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:50.9%"></div></div><div class="bar-n">113</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.7%"></div></div><div class="bar-n">77</div></div>
@@ -357,6 +358,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>8c63493</code><time>2026-08-15</time><span>Q-72: what a gift owes, and what it does not</span></li>
 <li><code>f6f161f</code><time>2026-08-15</time><span>the status page answers &quot;what is left&quot;, and found five questions filed wrong</span></li>
 <li><code>4842fba</code><time>2026-08-15</time><span>the directory nobody could sign in to, and capabilities you could not click</span></li>
 <li><code>47e92bb</code><time>2026-08-15</time><span>layers keep their own projection; tiles transform on the fly</span></li>
@@ -370,7 +372,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>fc4363d</code><time>2026-08-15</time><span>the query page, and the capability document it caught lying</span></li>
 <li><code>0bad59d</code><time>2026-08-15</time><span>untrack a scratch page that followed a git add -A</span></li>
 <li><code>7956303</code><time>2026-08-15</time><span>group layers: the service&#x27;s layer list becomes a tree</span></li>
-<li><code>02434a6</code><time>2026-08-15</time><span>a service is a container of layers, which is what a service is</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
