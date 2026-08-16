@@ -73,6 +73,30 @@ public static class VectorTileServerMetadataWriter
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentNullException.ThrowIfNull(sourceLayerNames);
 
+        // <b>Refused rather than declared, and finding out why cost a working tile
+        // layer.</b> On 2026-08-16 this writer was changed to declare whatever
+        // reference the extent was in, on the reasoning that saying the truth beats
+        // saying Web Mercator about degrees. That is right about honesty and wrong
+        // about the format: a vector tile service's tiling scheme *is* Web Mercator,
+        // and clients read `fullExtent` in the scheme's reference. Handed a document
+        // whose extent said 4326 while `tileInfo` said 102100, the ArcGIS JS
+        // VectorTileLayer read the metadata, the style and the sprites — and then
+        // requested no tile at all, silently. Measured in the server log.
+        //
+        // So the extent must arrive already in Web Mercator, and a caller that has
+        // not projected it is refused here instead of producing a document that
+        // loads nothing. D-49.
+        if (srid is not (3857 or 102100))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(srid),
+                srid,
+                "A vector tile service's extent must be in Web Mercator, because its tiling "
+                + "scheme is. Project the layer's extent before writing the document — a "
+                + "document whose fullExtent and tileInfo disagree makes a client fetch the "
+                + "metadata and then no tiles.");
+        }
+
         object full = ExtentOf(extent, srid);
 
         return new
@@ -291,12 +315,9 @@ public static class VectorTileServerMetadataWriter
     /// </remarks>
     private static object ExtentOf(Envelope? extent, int srid)
     {
-        // The world, in the units the extent is declared in. A geographic fallback
-        // of ±20037508 degrees is not a wider guess, it is a nonsensical one.
-        double x = srid == 4326 ? 180 : WorldExtent;
-        double y = srid == 4326 ? 90 : WorldExtent;
+        _ = srid;   // Validated by the caller; kept so the requirement is in the signature.
 
-        Envelope box = extent ?? new Envelope(-x, -y, x, y);
+        Envelope box = extent ?? new Envelope(-WorldExtent, -WorldExtent, WorldExtent, WorldExtent);
 
         return new
         {
@@ -305,12 +326,9 @@ public static class VectorTileServerMetadataWriter
             xmax = box.MaxX,
             ymax = box.MaxY,
 
-            // 102100 is the ArcGIS well-known id for Web Mercator and clients
-            // expect that spelling rather than 3857; every other reference is
-            // itself in both fields.
-            spatialReference = srid == 3857
-                ? new { wkid = 102100, latestWkid = 3857 }
-                : new { wkid = srid, latestWkid = srid },
+            // 102100 is the ArcGIS well-known id for Web Mercator and clients match
+            // on that spelling rather than on 3857.
+            spatialReference = new { wkid = 102100, latestWkid = 3857 },
         };
     }
 }

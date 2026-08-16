@@ -525,7 +525,22 @@ async function showTiles(name) {
   $("mapPanel").classList.add("on");
 
   try {
-    await layer.when();
+    // <b>The same clock as the view's, for the same reason.</b> A tile layer that
+    // reads the service document and then gives up leaves this awaiting forever:
+    // that is exactly what happened when the document's fullExtent and tileInfo
+    // declared different references — the SDK fetched the metadata, the style and
+    // the sprites, requested no tile, and settled nothing. Only the server log
+    // showed it. D-49.
+    await Promise.race([
+      layer.when(),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(
+          "The tile layer did not become ready within 15 seconds. It fetched the service "
+          + "document and stopped, which usually means the document is inconsistent — check "
+          + "that fullExtent and tileInfo agree about the spatial reference.")),
+        15000)),
+    ]);
+
     if (layer.fullExtent) await mapView.goTo(layer.fullExtent.expand(1.2));
   } catch (e) {
     hide(tileKey(name));

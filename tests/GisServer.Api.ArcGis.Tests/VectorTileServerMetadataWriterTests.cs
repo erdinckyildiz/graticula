@@ -272,32 +272,29 @@ public sealed class VectorTileServerMetadataWriterTests
     // ---------- the extent's reference, which is not the grid's ----------
 
     /// <summary>
-    /// The extent declares the layer's reference; the grid stays Web Mercator.
+    /// An extent that is not in Web Mercator is refused, not declared.
     /// </summary>
     /// <remarks>
-    /// <b>D-49.</b> Both used to be stamped Web Mercator, so a layer stored in
-    /// EPSG:4326 published a degree extent labelled as metres — for Turkey, a box a
-    /// few tens of metres off West Africa. A client zooming to it left the data
-    /// behind, requested empty tiles, and showed a blank map with nothing logged.
-    /// The two references are genuinely different things: z/x/y is defined on Web
-    /// Mercator whatever the data is stored in.
+    /// <b>D-49, and its second attempt is the instructive one.</b> Both fields used
+    /// to be stamped Web Mercator, so a layer stored in EPSG:4326 published a degree
+    /// extent labelled as metres — for Turkey, a box off West Africa. The first fix
+    /// declared the extent's real reference, which is honest and non-conformant: a
+    /// tile service's tiling scheme *is* Web Mercator and clients read
+    /// <c>fullExtent</c> in the scheme's reference. Given a document whose two
+    /// references disagreed, the ArcGIS JS client read the metadata, the style and
+    /// the sprites, and then **requested no tile at all** — measured in the server
+    /// log, silent everywhere else.
+    ///
+    /// So the extent has to be projected before it gets here, and a caller that
+    /// skipped that is told rather than accommodated.
     /// </remarks>
     [Fact]
-    public void A_geographic_layer_declares_its_own_reference_on_the_extent()
+    public void An_extent_that_is_not_web_mercator_is_refused()
     {
-        JsonElement document = Service(new Envelope(24.7, 34.8, 45.5, 42.8), srid: 4326);
+        ArgumentOutOfRangeException refusal = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Service(new Envelope(24.7, 34.8, 45.5, 42.8), srid: 4326));
 
-        JsonElement extent = document.GetProperty("fullExtent");
-
-        Assert.Equal(4326, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
-        Assert.Equal(
-            4326, extent.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
-
-        // The grid is unaffected, and that is the point of the separation.
-        Assert.Equal(
-            102100,
-            document.GetProperty("tileInfo").GetProperty("spatialReference")
-                .GetProperty("wkid").GetInt32());
+        Assert.Contains("tiling scheme", refusal.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -313,20 +310,18 @@ public sealed class VectorTileServerMetadataWriterTests
             3857, extent.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
     }
 
-    /// <summary>The fallback world is in the units the extent is declared in.</summary>
+    /// <summary>An unknown extent is the whole world, in metres.</summary>
     /// <remarks>
-    /// A geographic layer with no measurable extent — a table never analysed — used
-    /// to fall back to ±20037508 <em>degrees</em>, which is not a wider guess but a
-    /// meaningless one.
+    /// Which is also what a failed projection produces: the endpoint hands null
+    /// rather than the unprojected numbers, because the world is a safe answer for a
+    /// client and degrees labelled as metres are not.
     /// </remarks>
     [Fact]
-    public void An_unknown_geographic_extent_falls_back_to_degrees()
+    public void An_unknown_extent_is_the_whole_world_in_metres()
     {
-        JsonElement extent = Service(null, srid: 4326).GetProperty("fullExtent");
+        JsonElement extent = Service(null).GetProperty("fullExtent");
 
-        Assert.Equal(-180, extent.GetProperty("xmin").GetDouble());
-        Assert.Equal(-90, extent.GetProperty("ymin").GetDouble());
-        Assert.Equal(180, extent.GetProperty("xmax").GetDouble());
-        Assert.Equal(90, extent.GetProperty("ymax").GetDouble());
+        Assert.Equal(-VectorTileServerMetadataWriter.WorldExtent, extent.GetProperty("xmin").GetDouble());
+        Assert.Equal(VectorTileServerMetadataWriter.WorldExtent, extent.GetProperty("ymax").GetDouble());
     }
 }

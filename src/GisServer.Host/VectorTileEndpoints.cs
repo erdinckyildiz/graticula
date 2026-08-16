@@ -212,6 +212,7 @@ internal static class VectorTileEndpoints
         string serviceName,
         CatalogFallback catalog,
         ServiceContexts contexts,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -234,20 +235,81 @@ internal static class VectorTileEndpoints
             extent = Widen(extent, described.Extent);
         }
 
-        // The extent is in whatever the layers are stored in, so its reference has
-        // to travel with it. Taken from the first layer, as the FeatureServer
-        // document does: a service whose layers disagree about their reference
-        // would have no single extent to report either, and nothing in the publish
-        // path produces one today.
-        int srid = service.Layers.Count > 0 ? service.Layers[0].Definition.Srid : 3857;
+        // The extent is in whatever the layers are stored in. Taken from the first
+        // layer, as the FeatureServer document does: a service whose layers
+        // disagree about their reference would have no single extent to report
+        // either, and nothing in the publish path produces one today.
+        int srid = service.Layers.Count > 0 ? service.Layers[0].Definition.Srid : WebMercator;
+
+        extent = await InWebMercatorAsync(extent, srid, projector, cancellation)
+            .ConfigureAwait(false);
 
         await Results.Ok(VectorTileServerMetadataWriter.Service(
             service.Name,
             [.. service.Layers.Select(l => l.Definition.Name)],
             extent,
             TileAddress.MaxZoom,
-            srid))
+            WebMercator))
             .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The extent in Web Mercator, because that is the only reference a tile
+    /// document's extent may be in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Projected, not relabelled, and the difference was measurable.</b> Saying
+    /// 4326 truthfully in the document made the ArcGIS JS client fetch the metadata,
+    /// the style and the sprites and then request no tile at all — the tiling scheme
+    /// is Web Mercator, so the extent has to be too. Projection goes to the
+    /// datastore's PROJ (ADR-022 §4) rather than to arithmetic here.
+    /// </para>
+    /// <para>
+    /// <b>Corners only, which is an approximation and worth naming.</b> A projected
+    /// rectangle's edges are curves in the general case, so the true envelope can be
+    /// slightly larger than the one its corners describe. For 4326 → Web Mercator
+    /// the transform is separable and monotonic in each axis, so the corners are
+    /// exact; for a projected source reference this may under-cover the box by a
+    /// fraction of its size. It is a metadata extent used to frame a view, not a
+    /// filter, so the error is a slightly tight initial zoom rather than missing
+    /// data.
+    /// </para>
+    /// <para>
+    /// <b>A failure falls back to nothing rather than to the wrong numbers.</b> The
+    /// writer then reports the whole world, which is the documented behaviour for an
+    /// unknown extent and is safe for a client; degrees labelled as metres are not.
+    /// </para>
+    /// </remarks>
+    private static async Task<Envelope?> InWebMercatorAsync(
+        Envelope? extent, int srid, IProjector projector, CancellationToken cancellation)
+    {
+        if (extent is not { } box || srid == WebMercator || srid == 102100)
+        {
+            return extent;
+        }
+
+        Geometry rectangle = new Polygon(new LinearRing(XySequence.Wrap(
+        [
+            box.MinX, box.MinY,
+            box.MaxX, box.MinY,
+            box.MaxX, box.MaxY,
+            box.MinX, box.MaxY,
+            box.MinX, box.MinY,
+        ])));
+
+        try
+        {
+            (IReadOnlyList<Geometry> projected, _) = await projector
+                .ProjectAsync([rectangle], srid, WebMercator, cancellation)
+                .ConfigureAwait(false);
+
+            return projected.Count > 0 ? projected[0].Envelope : null;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The smallest box containing both, treating null as nothing.</summary>
