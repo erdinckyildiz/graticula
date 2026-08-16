@@ -28,6 +28,14 @@ if (args.Length > 0 && args[0] == "load")
     return;
 }
 
+// D-30 / performance gate F1: the feature query path under concurrency, against
+// the real server over TLS, with a mandatory control run in front of it.
+if (args.Length > 0 && args[0] == "queryload")
+{
+    await QueryLoad.RunAsync(args);
+    return;
+}
+
 // Q-68: read-once-encode-many against one ST_AsMVT per tile. A console mode
 // rather than an endpoint, because the question is seeding throughput over a
 // pyramid, and putting HTTP in the middle of it would measure Kestrel.

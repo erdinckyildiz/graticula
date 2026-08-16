@@ -13,6 +13,12 @@ in-process instrumentation.
 
 ---
 
+> **§3 was superseded within the day by §3b.** The throughput half was void when
+> this was written; a C# generator replaced the Python one and the concurrency
+> question now has an answer. §3 is kept because the void numbers are the reason
+> the rest exists, and because §3c is about how nearly the same mistake was made
+> twice more.
+
 ## 0. Read this first: half of this run is void
 
 **The throughput half failed its own control and is reported as void.** F4's
@@ -178,6 +184,117 @@ runs on two days.
 
 ---
 
+## 3b. Concurrency, measured — and the ceiling is not what four rounds predicted
+
+§3's throughput table was void because the generator failed its own control.
+`benchmarks/harness` now has a C# one (`GisBench queryload`) that speaks TLS to
+the development certificate, signs in, and reads the server's own GC and CPU
+counters from `/admin/health`, where they sit behind `admin:manageServer`
+alongside everything else that route already redacts.
+
+100 features per request, four seconds per level, after a warm-up at each level:
+
+| conc | req/s | p50 ms | p95 ms | MB/s | alloc KB/req | gen2 | GC pause % | CPU cores |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 198 | 4.8 | 6.4 | 9.1 | 142 | 0 | **0.2%** | 0.78 of 16 |
+| 2 | 369 | 5.3 | 6.4 | 17.0 | 157 | 0 | 0.8% | 0.86 |
+| 4 | 641 | 6.0 | 8.3 | 29.4 | 156 | 0 | 2.5% | 2.14 |
+| 8 | **942** | 8.1 | 12.1 | 43.2 | 164 | 1 | 2.2% | 3.60 |
+| 16 | 792 | 19.0 | 33.2 | 36.4 | 156 | 1 | 2.0% | 3.54 |
+| 24 | 753 | 29.6 | 52.8 | 34.6 | 159 | 1 | 1.7% | 3.25 |
+| 32 | 772 | 39.3 | 61.3 | 35.4 | 158 | 1 | 1.6% | 3.11 |
+
+### 3b.1 It is not allocation, and that is the headline
+
+**GC pause is 0.2% at concurrency 1 and never exceeds 2.5%.** Allocation is
+142–164 kB per request and **flat across concurrency** — eight times the load
+does not change what a request allocates.
+
+Set that beside what the four earlier rounds concluded and what this gate carried
+forward: *the cost of this system is memory traffic and it is invisible at
+concurrency 1*, from a tile round that measured **80.9% of wall time in GC pause
+at 18% CPU**. F1's worry was that the feature path runs the same
+WKB-into-an-object-graph mechanism and would behave the same way.
+
+**On this shape of data it does not.** 2.5% against 80.9% is not a difference of
+degree. A-037 is not refuted — it was measured on tiles, where a single z12 tile
+allocated 404 MB — but **it does not transfer to the feature query path**, and
+that transfer was the assumption D-30 was opened on.
+
+### 3b.2 Nor is it CPU
+
+At its peak the server uses **3.6 of 16 cores** and serves 942 requests per
+second. Past that, throughput falls and latency grows linearly — the signature of
+a queue, not of saturation. The machine has twelve cores idle at the point where
+the server stops going faster.
+
+### 3b.3 What the ceiling is, and the honest limit of this run
+
+**The control saturates in the same place.** `/rest/info` reads nothing, touches
+no database, and goes through the same TLS, the same middleware and the same
+authentication. It peaks around 800 requests per second — and beyond concurrency
+4 the feature query is at 83%, then 108–124%, of it.
+
+So the query path is **not** the ceiling. Something shared by both is: the TLS
+and HTTP pipeline, the authentication that runs on every request, or the
+generator. This harness cannot separate those three, and saying which would need
+a run against a second machine or a server with authentication disabled — neither
+of which exists here.
+
+**What can be said, and it is what F1 asked:** the feature query path scales
+**4.75× from concurrency 1 to 8** and is not what stops scaling after that. It is
+not allocation-bound, not GC-bound and not CPU-bound at any level measured.
+
+### 3b.4 The control rule was wrong, and correcting it is part of the result
+
+The first version of this harness **aborted** unless the control scaled fourfold,
+on the reasoning that a generator which cannot outrun a do-nothing path is
+measuring itself. It aborted — and the reason was not a weak generator. **That
+rule conflated two different failures:** a generator too weak to load the server,
+and a server that saturates early on every path including the cheap one. It
+reported the second as the first, and would have thrown away a good measurement.
+
+The control is a *ceiling to compare against*, not a threshold to pass. Every row
+above is now printed with its share of the control at the same concurrency, and
+the rows past 80% carry a line saying that nothing about the query engine can be
+concluded from them.
+
+---
+
+## 3c. The fifth wrong harness was the measurement setup itself
+
+**Before any of §3b could be measured, the server appeared to saturate at 130
+requests per second on a path that reads nothing.** Latency stepped from 1.6 ms
+to 7.4 ms after a few hundred requests and stayed there, identically for
+anonymous and authenticated callers, with allocation unchanged and GC pause at
+zero. Two independent client processes saw it at once, so it was not the client.
+It recovered after twenty seconds idle.
+
+It was **the console logger writing to a redirected file**. The server had been
+started with its stdout piped to `trace.log` so the phase lines could be read
+back — and .NET's console logger has a bounded queue whose default behaviour when
+full is to block the producer, which is the request thread. Fast until the queue
+fills, then pinned at the drain rate, then recovering when the load stops. Every
+symptom.
+
+Started without redirection, the same path holds **1.15–1.38 ms flat across 1,500
+requests**.
+
+**This was one command away from being written up as a server defect** — "the
+server saturates at 130 rps on a no-op path" — with a plausible mechanism and a
+reproducible measurement behind it. F4 says a harness in this project has been
+wrong three times; four, with the corpus discovery; this is the fifth, and the
+first where the instrument's *output channel* was the distortion.
+
+**§2's phase numbers are not affected, and that was checked rather than
+assumed.** `Log.QueryTimings` is called after the measurement window closes, so
+blocking on the log queue lands outside it. Verified directly: 60 requests then
+700 more, and the phases got *better* (total p50 4,238 µs → 2,954 µs, lookup
+2,070 → 1,711), which is warm-up, not queue pressure. Had the queue been inside
+the window they would have quadrupled.
+
+---
+
 ## 4. What this settles and what it does not
 
 **Settled:**
@@ -191,13 +308,15 @@ runs on two days.
 
 **Not settled, and named:**
 
-- **Everything about concurrency.** §3 is void. The plateau the gate found is
-  still unexplained; what has changed is that the tool to explain it now exists
-  and only the load generator is missing.
+- **Which of three shared costs is the ceiling.** §3b establishes that the query
+  path is not it — the control saturates in the same place — but TLS, the
+  per-request authentication and the generator itself cannot be separated from
+  one machine with authentication on.
 - **ADR-007 condition 3's connection budget.** It needs the same harness under
   concurrency, so it stays open.
-- **Allocation.** No allocation figure was taken. `GC.GetTotalAllocatedBytes`
-  is process-wide and only attributable at concurrency 1, which is exactly the
-  case where allocation pressure does not show.
+- ~~**Allocation.** No allocation figure was taken.~~ **Taken in §3b**: 142–164 kB
+  per request, flat across concurrency, GC pause never above 2.5%. Process-wide
+  counters sampled either side of a run are attributable when the run is the only
+  thing happening, which is the case here.
 - **One machine, one shape of data.** `buildings` is small polygons. A layer of
   national outlines would move decode and serialise and might move the ranking.

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -797,6 +798,55 @@ internal static class AdminEndpoints
 
         health["version"] =
             typeof(AdminEndpoints).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+        // <b>The counters a load run needs to tell an allocation ceiling from a
+        // connection-pool limit.</b> Four benchmark rounds concluded that this
+        // system's cost is memory traffic and that it is invisible at
+        // concurrency 1; the §66 performance gate then failed on F1 because the
+        // feature path had never been measured, and a black-box probe could say
+        // only that throughput plateaued. Throughput alone cannot distinguish a
+        // server that is out of memory bandwidth from one that is out of
+        // connections from one sharing a host with something else. Allocation
+        // rate, GC pause share and CPU can.
+        //
+        // <b>Here rather than at /metrics, and that is the decision.</b> The
+        // experiment harness had a public /metrics; this route already exists,
+        // already resolves a principal, and already redacts everything below
+        // this line from a caller without admin:manageServer. Adding a second
+        // surface would mean a second authorization story for the same
+        // disclosure — and D-03 records over-disclosure to unauthenticated
+        // callers as open debt, so a new anonymous endpoint reporting heap size
+        // and uptime is the wrong direction.
+        //
+        // <b>Sampled either side of a run and subtracted</b>, which is why they
+        // are cumulative totals rather than rates. A rate computed here would be
+        // a rate over the server's whole life, which is not a measurement of
+        // anything a caller is doing.
+        Process self = Process.GetCurrentProcess();
+
+        health["runtime"] = new
+        {
+            allocatedBytes = GC.GetTotalAllocatedBytes(precise: false),
+            heapBytes = GC.GetTotalMemory(forceFullCollection: false),
+
+            // Not a GC "count" per se: these are cumulative collection counts by
+            // generation, so a difference over a run is how many happened during
+            // it.
+            gen0 = GC.CollectionCount(0),
+            gen1 = GC.CollectionCount(1),
+            gen2 = GC.CollectionCount(2),
+
+            // <b>The number four rounds kept coming back to.</b> One measured
+            // 80.9% of wall time in GC pause at 18% CPU: a server doing almost
+            // nothing and stopped most of the time.
+            gcPauseMilliseconds = GC.GetTotalPauseDuration().TotalMilliseconds,
+
+            cpuMilliseconds = self.TotalProcessorTime.TotalMilliseconds,
+            uptimeMilliseconds = (DateTimeOffset.UtcNow - self.StartTime.ToUniversalTime())
+                .TotalMilliseconds,
+            cores = Environment.ProcessorCount,
+            serverGc = System.Runtime.GCSettings.IsServerGC,
+        };
 
         health["platformStore"] = new
         {
