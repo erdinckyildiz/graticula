@@ -288,6 +288,103 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// One service's groups do not arrive attached to another's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test does not prove the thing it was written to prove, and
+    /// saying so is the point.</b> It was added beside a fix: the catalogue's
+    /// group query ran with no <c>where</c> clause, so resolving one service
+    /// read <em>every</em> group layer in the catalogue and discarded all but
+    /// one service's — O(all services) on the most-used path in the product,
+    /// against a stated scale target of 100 to 1,000 services. The claim written
+    /// here first was that this test pinned that. **It was checked by reverting
+    /// the filter, and the test stayed green.** Of course it did: the extra rows
+    /// were read and thrown away, so the answer was always correct and only the
+    /// work differed.
+    /// </para>
+    /// <para>
+    /// <b>What it does pin is correctness</b>, which is worth pinning: a
+    /// service carries its own groups and only its own. The query <em>shape</em>
+    /// is pinned by the signature instead — <c>GroupsAsync</c> takes the list of
+    /// services the caller found and has no "everything" case to fall back to,
+    /// so restoring the old behaviour means editing SQL to ignore its own
+    /// parameter rather than passing a null by accident.
+    /// </para>
+    /// <para>
+    /// <b>Nor could the fix be measured.</b> The D-30 instrumentation is what
+    /// found the problem — the catalogue read was 1.8 ms against 0.7 ms for the
+    /// data query beside it — but the re-measurement afterwards was worthless:
+    /// the machine had picked up other work and every phase moved by the same
+    /// factor, including ones this change cannot touch. Two things a stopwatch
+    /// could not deliver and a plan could: the query went from a sequential scan
+    /// returning every row to a filter on an indexed column returning one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_service_does_not_carry_another_services_groups()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "mine", service: "ours"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "theirs", service: "yours"), owner, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(
+            null, "ours", "Ours", null, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(
+            null, "yours", "Theirs A", null, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(
+            null, "yours", "Theirs B", null, CancellationToken.None);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService ours =
+            (await catalog.FindServiceAsync(null, "ours", CancellationToken.None))!;
+
+        string only = Assert.Single(ours.Groups).Name;
+
+        Assert.Equal("Ours", only);
+
+        // The other service keeps both of its own, so the filter is a filter and
+        // not an accident of ordering.
+        PublishedService yours =
+            (await catalog.FindServiceAsync(null, "yours", CancellationToken.None))!;
+
+        Assert.Equal(
+            ["Theirs A", "Theirs B"],
+            yours.Groups.Select(group => group.Name).OrderBy(name => name).ToArray());
+    }
+
+    /// <summary>
+    /// A lookup that finds nothing does not go back for groups.
+    /// </summary>
+    /// <remarks>
+    /// <b>A 404 used to cost two round trips.</b> The second one asked for the
+    /// group layers of a service that had just been established not to exist.
+    /// <b>This test cannot see that either</b>, for the same reason as the one
+    /// above: the answer was always null and only the work differed. It is kept
+    /// as the correctness guard it is, and the round trip is removed by
+    /// <c>GroupsAsync</c> returning early on an empty list — visible in the code
+    /// rather than in a test, and recorded here so nobody mistakes green for
+    /// proof.
+    /// </remarks>
+    [Fact]
+    public async Task A_service_that_does_not_exist_is_null_rather_than_empty()
+    {
+        _ = await ReadyAsync();
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        Assert.Null(
+            await catalog.FindServiceAsync(null, "no-such-service", CancellationToken.None));
+    }
+
+    /// <summary>
     /// A style is stored, read back byte for byte, and can be cleared.
     /// </summary>
     /// <remarks>

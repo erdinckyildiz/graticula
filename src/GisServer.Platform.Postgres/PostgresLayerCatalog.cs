@@ -178,29 +178,49 @@ public sealed class PostgresLayerCatalog
             reader.IsDBNull(24) ? null : TimeSpan.FromSeconds(reader.GetInt32(24)));
     }
 
-    /// <summary>Every group layer, by the service that holds it.</summary>
+    /// <summary>The group layers held by the services named.</summary>
     /// <remarks>
+    /// <para>
     /// <b>A second query rather than a third join.</b> Group layers and feature
     /// layers are different tables with no relationship to each other beyond
     /// their service, so joining both would multiply the rows: three layers and
     /// two groups would come back as six rows and the layers would be read
     /// twice. Two queries and a dictionary is the honest shape.
+    /// </para>
+    /// <para>
+    /// <b>Filtered by the services the caller actually found, and it was not.</b>
+    /// <c>FindServiceAsync</c> passed null, which meant no <c>where</c> clause at
+    /// all — so resolving one service for one feature request read <em>every</em>
+    /// group layer in the catalogue and threw all but one away. Correct, and
+    /// O(all services) on the most-used path in the product against a stated
+    /// scale target of 100 to 1,000 services. Found by instrumenting the query
+    /// path for D-30: the catalogue read was 1.8 ms where the data query beside
+    /// it was 0.7 ms, and this was one of the reasons.
+    /// </para>
+    /// <para>
+    /// <b>No services means no query.</b> A lookup that found nothing used to
+    /// run this anyway, so a 404 cost two round trips to establish that the
+    /// second one had nothing to say.
+    /// </para>
     /// </remarks>
     private async Task<Dictionary<Guid, List<GroupLayer>>> GroupsAsync(
-        Guid? serviceId, CancellationToken cancellationToken)
+        List<Guid> serviceIds, CancellationToken cancellationToken)
     {
-        string where = serviceId is null ? string.Empty : " where service_id = @service";
+        Dictionary<Guid, List<GroupLayer>> groups = [];
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select id, service_id, layer_index, name, parent_layer_index from group_layer"
-            + where + " order by layer_index");
-
-        if (serviceId is { } id)
+        if (serviceIds.Count == 0)
         {
-            command.Parameters.AddWithValue("service", id);
+            return groups;
         }
 
-        Dictionary<Guid, List<GroupLayer>> groups = [];
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select id, service_id, layer_index, name, parent_layer_index from group_layer "
+            + "where service_id = any(@services) order by layer_index");
+
+        // <b>An array parameter rather than a built-up IN list.</b> One
+        // statement shape whatever the count, so the plan cache is not defeated
+        // by the number of services a caller happens to be reading.
+        command.Parameters.AddWithValue("services", serviceIds);
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -240,7 +260,7 @@ public sealed class PostgresLayerCatalog
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Columns} {ServiceFrom} order by s.name, l.layer_index");
 
-        return await ReadServicesAsync(command, null, cancellationToken).ConfigureAwait(false);
+        return await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>One service by folder and name, or null.</summary>
@@ -269,13 +289,13 @@ public sealed class PostgresLayerCatalog
             "folder", (object?)folder ?? DBNull.Value);
 
         IReadOnlyList<PublishedService> services =
-            await ReadServicesAsync(command, null, cancellationToken).ConfigureAwait(false);
+            await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
 
         return services.Count == 0 ? null : services[0];
     }
 
     private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
-        NpgsqlCommand command, Guid? serviceId, CancellationToken cancellationToken)
+        NpgsqlCommand command, CancellationToken cancellationToken)
     {
         Dictionary<Guid, List<PublishedLayer>> byService = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
@@ -322,8 +342,10 @@ public sealed class PostgresLayerCatalog
             }
         }
 
+        // The services the first query actually returned, which is what the
+        // group query needs to be about.
         Dictionary<Guid, List<GroupLayer>> groups =
-            await GroupsAsync(serviceId, cancellationToken).ConfigureAwait(false);
+            await GroupsAsync(order, cancellationToken).ConfigureAwait(false);
 
         List<PublishedService> services = [];
 

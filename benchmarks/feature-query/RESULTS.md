@@ -137,6 +137,47 @@ That is its own piece of work and it is recorded as still open.
 
 ---
 
+## 3a. A follow-up, and a fix that could not be measured
+
+§2.1 sent somebody looking at the catalogue read, and the look found something:
+`FindServiceAsync` ran its group query with **no `where` clause**. Resolving one
+service read every group layer in the catalogue and discarded all but one
+service's. Correct, and O(all services) on the most-used path in the product
+against a stated scale target of 100 to 1,000 services. It now filters to the
+services the first query actually returned, and skips the query entirely when
+there are none — a lookup that finds nothing used to cost two round trips.
+
+**The fix made no measurable difference, and that is the honest report.**
+
+| | run 5 | after the fix |
+|---|---:|---:|
+| lookup, 1 feature | 1,802 µs | 1,761 µs |
+| lookup, 100 features | 1,750 µs | 1,824 µs |
+| lookup, 1,000 features | 1,920 µs | 2,116 µs |
+
+There are five group layers in this catalogue. Reading five rows instead of one
+costs nothing anybody can time, and no improvement should have been expected.
+**The evidence for the change is the query plan** — a sequential scan returning
+every row became a filter on an indexed column returning one — not a stopwatch.
+
+**Two things were learned about measuring on this machine.**
+
+The first attempt to re-measure reported everything 2× worse, *including phases
+the change cannot touch*: decode went from 558 µs to 6,743 µs. That was not the
+fix. A stray `testhost` was holding the build's DLLs, and a container stack
+belonging to another project was burning about 2.7 cores in a crash loop —
+`docker stats` showed three containers at 110%, 98% and 61%, retrying against a
+database and a message bus that had been down for three days. Host CPU was 58%.
+With that stopped it was 19%, and the numbers above are from the quiet run.
+
+The second is that **cross-run comparison on this machine is not reliable below
+about a factor of two**, even quiet. Decode at 1,000 features was 558 µs in run 5
+and 2,709 µs in the quiet re-run, with nothing between them that touches decode.
+Any future claim of a small improvement here needs an A/B in one session, not two
+runs on two days.
+
+---
+
 ## 4. What this settles and what it does not
 
 **Settled:**
