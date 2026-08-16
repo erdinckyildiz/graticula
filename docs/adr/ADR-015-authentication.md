@@ -149,6 +149,78 @@ denial-of-service tool.
 
 ---
 
+## 5a. Decision — one identity store, and why federation is not needed
+
+*Added 2026-08-16, because the owner asked whether we need separate users the way
+ArcGIS has them, and the answer turned out to be recorded nowhere.*
+
+**There is one identity store for the whole deployable, and one list of people in
+it.** No second store for administration, none for content, none per surface.
+
+This is the kind of decision §2 of `CLAUDE.md` calls informal when it goes
+unwritten, and it was: [ADR-019](ADR-019-portal-server-split.md) §3 fused Portal,
+Server and Data Store into one deployable, this ADR listed the identity *sources*,
+and [Q-93](../open-questions.md) closed federating into somebody else's Portal.
+Three decisions implied a single store and none of them said it.
+
+**The ArcGIS structure is not evidence for two stores — it is evidence against
+them.** ArcGIS Server has its own security store and its own primary site
+administrator; Portal has members and identity providers. Federation does not
+connect the two. Esri's own documentation is explicit that it *replaces* one:
+once a site is federated, the portal's security store controls all access to the
+server, and that model replaces the server's identity store **including all users
+and roles configured in Server Manager**. Afterwards even Server Manager is
+entered with a portal account. The two stores exist because two products were
+sold separately, on different licence metrics; federation is the repair for that,
+not a design anybody would choose from scratch. Building two stores here would
+oblige us to build federation to undo them, and Q-93 means we do not even have to
+speak its protocol.
+
+**The peer does not contradict this either.** Its console holds no user store at
+all: it binds to the server by base URL, reads with an administrative API key,
+and requires a forwardable operator bearer through a per-operator BFF for any
+mutation, failing closed without one. What is separated there is *surfaces* and
+*processes* — not people.
+
+**What is separated, and it is not a second list of users:** the principal kinds
+of §2 (user, service, anonymous), and the two authorization axes of
+[ADR-018](ADR-018-authorization-and-roles.md) §3 (user type × role). *Administrator
+of the server* and *author of content* are told apart by a role on one account,
+which is what Portal itself does — the split ArcGIS has between its two stores is
+not the split between those two jobs.
+
+**The one thing worth taking from the primary site administrator design is the
+failure mode it exists for.** Esri's guidance for disabling that account carries a
+warning that reads as a scar: make sure the identity store you are moving
+administration to is in working order and available, because if it becomes
+corrupted or unavailable you will not be able to sign in to the site at all — and
+once the account is disabled, changing the identity store is refused until it is
+re-enabled. So their break-glass account is the local one that *bypasses* the
+store, and the operation it guards is precisely the one that can lock everybody
+out.
+
+§5 makes local accounts first-class rather than a fallback, but the reasoning
+given there is the air-gapped site — **a deployment with no IdP, which is not the
+same as a deployment whose IdP broke.** The distinction costs nothing today and
+that is precisely why it is written down now: §9a records that no external
+identity source is built at all (D-10), so there is currently no IdP to break and
+every account is local. The lockout arrives with the first one, and it arrives by
+a plausible route — treating the IdP as *the* identity store and local accounts as
+a legacy to be tidied away. Condition 5 falls due in that change rather than
+after it, and [Q-111](../open-questions.md) holds the question until then.
+
+**Where this section's outside evidence comes from**, per
+[ADR-030](ADR-030-reading-the-reference-implementation.md) condition 1: the
+federation and primary-site-administrator behaviour is from Esri's published
+ArcGIS Enterprise administration documentation, which is the citable source
+because it is a public description of a public product's behaviour; the peer
+console's authentication model is from its **public** repository, logged in
+[reference-reading-log.md](../research/reference-reading-log.md). Neither claim
+rests on the anonymised checkout, and no part of this decision was derived from
+reading its source.
+
+---
+
 ## 6. Decision — first-start bootstrap
 
 On first start with no accounts, the server generates a **one-time setup token**,
@@ -263,6 +335,17 @@ teaches people the messages are not worth reading.
    simulated by a fresh store over the same database. Pinned by
    `SetupStoreTests.A_token_survives_a_restart_and_is_still_single_use` and
    `..._Two_concurrent_redemptions_produce_exactly_one_administrator`.
+5. **A local administrator can still sign in when the configured external
+   identity source is unreachable or misconfigured**, and it is tested by
+   breaking one rather than by reading §5.
+   **NOT YET APPLICABLE, and for the same reason as condition 2.** §9a records
+   that OIDC, SAML and SCIM are not built (D-10), so there is no external source
+   to break and no lockout to have: today every account is local. The condition
+   becomes due **in the same change that adds the first external identity
+   source**, because that is the change that creates the failure — and the order
+   matters, since the natural implementation is to treat an IdP as the identity
+   store and local accounts as legacy, which is exactly how the lockout §5a
+   describes arrives. See [Q-111](../open-questions.md).
 
 ### 9a. What is implemented, as of 2026-08-13
 

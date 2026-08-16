@@ -58,17 +58,22 @@ public static class VectorTileServerMetadataWriter
     /// </param>
     /// <param name="extent">The data's extent, or null when it is unknown.</param>
     /// <param name="maxZoom">Deepest level served.</param>
+    /// <param name="srid">
+    /// The reference <paramref name="extent"/> is expressed in — the layers' own,
+    /// not the tile grid's. The grid is always Web Mercator; the data need not be.
+    /// </param>
     /// <returns>The document.</returns>
     public static object Service(
         string serviceName,
         IReadOnlyList<string> sourceLayerNames,
         Envelope? extent,
-        int maxZoom)
+        int maxZoom,
+        int srid)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentNullException.ThrowIfNull(sourceLayerNames);
 
-        object full = ExtentOf(extent);
+        object full = ExtentOf(extent, srid);
 
         return new
         {
@@ -263,14 +268,35 @@ public static class VectorTileServerMetadataWriter
 
     /// <summary>An extent, or the whole world when the layer's is unknown.</summary>
     /// <remarks>
+    /// <para>
     /// <b>Never omitted.</b> A client with no extent either shows the whole world
     /// or refuses to add the layer, and both look like the service is broken.
     /// <c>ST_EstimatedExtent</c> returns nothing for a table that has never been
     /// analysed, which is exactly the state a freshly loaded table is in.
+    /// </para>
+    /// <para>
+    /// <b>It declares the reference the numbers are actually in, which
+    /// <c>tileInfo</c> deliberately does not have to match.</b> The tile grid is
+    /// Web Mercator by construction — z/x/y is defined on it — but the data's
+    /// extent is whatever the layer is stored in. Until 2026-08-16 this stamped
+    /// Web Mercator on both, so a layer stored in EPSG:4326 advertised
+    /// <c>{24.7, 34.9, 45.6, 42.8}</c> as metres: a box a few tens of metres off
+    /// West Africa, for data covering Turkey. A client that zooms to the declared
+    /// extent went to the Gulf of Guinea, the tiles it then requested were empty,
+    /// and the map looked broken with nothing in any log. The FeatureServer writer
+    /// had this right all along — it declares the layer's own SRID beside its
+    /// extent — which is why the same layer's <em>Map</em> worked and its
+    /// <em>Tiles</em> did not. D-49.
+    /// </para>
     /// </remarks>
-    private static object ExtentOf(Envelope? extent)
+    private static object ExtentOf(Envelope? extent, int srid)
     {
-        Envelope box = extent ?? new Envelope(-WorldExtent, -WorldExtent, WorldExtent, WorldExtent);
+        // The world, in the units the extent is declared in. A geographic fallback
+        // of ±20037508 degrees is not a wider guess, it is a nonsensical one.
+        double x = srid == 4326 ? 180 : WorldExtent;
+        double y = srid == 4326 ? 90 : WorldExtent;
+
+        Envelope box = extent ?? new Envelope(-x, -y, x, y);
 
         return new
         {
@@ -278,7 +304,13 @@ public static class VectorTileServerMetadataWriter
             ymin = box.MinY,
             xmax = box.MaxX,
             ymax = box.MaxY,
-            spatialReference = new { wkid = 102100, latestWkid = 3857 },
+
+            // 102100 is the ArcGIS well-known id for Web Mercator and clients
+            // expect that spelling rather than 3857; every other reference is
+            // itself in both fields.
+            spatialReference = srid == 3857
+                ? new { wkid = 102100, latestWkid = 3857 }
+                : new { wkid = srid, latestWkid = srid },
         };
     }
 }

@@ -234,11 +234,19 @@ internal static class VectorTileEndpoints
             extent = Widen(extent, described.Extent);
         }
 
+        // The extent is in whatever the layers are stored in, so its reference has
+        // to travel with it. Taken from the first layer, as the FeatureServer
+        // document does: a service whose layers disagree about their reference
+        // would have no single extent to report either, and nothing in the publish
+        // path produces one today.
+        int srid = service.Layers.Count > 0 ? service.Layers[0].Definition.Srid : 3857;
+
         await Results.Ok(VectorTileServerMetadataWriter.Service(
             service.Name,
             [.. service.Layers.Select(l => l.Definition.Name)],
             extent,
-            TileAddress.MaxZoom))
+            TileAddress.MaxZoom,
+            srid))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 

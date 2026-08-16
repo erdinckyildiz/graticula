@@ -25,8 +25,8 @@ namespace GisServer.Api.ArcGis.Tests;
 /// </remarks>
 public sealed class VectorTileServerMetadataWriterTests
 {
-    private static JsonElement Service(Envelope? extent = null, int maxZoom = 22) =>
-        Parse(VectorTileServerMetadataWriter.Service("roads", ["roads"], extent, maxZoom));
+    private static JsonElement Service(Envelope? extent = null, int maxZoom = 22, int srid = 3857) =>
+        Parse(VectorTileServerMetadataWriter.Service("roads", ["roads"], extent, maxZoom, srid));
 
     private static JsonElement Parse(object document) =>
         JsonDocument.Parse(JsonSerializer.Serialize(document)).RootElement;
@@ -266,6 +266,67 @@ public sealed class VectorTileServerMetadataWriterTests
     public void A_service_needs_a_name()
     {
         Assert.Throws<ArgumentException>(
-            () => VectorTileServerMetadataWriter.Service(" ", ["x"], null, 22));
+            () => VectorTileServerMetadataWriter.Service(" ", ["x"], null, 22, 3857));
+    }
+
+    // ---------- the extent's reference, which is not the grid's ----------
+
+    /// <summary>
+    /// The extent declares the layer's reference; the grid stays Web Mercator.
+    /// </summary>
+    /// <remarks>
+    /// <b>D-49.</b> Both used to be stamped Web Mercator, so a layer stored in
+    /// EPSG:4326 published a degree extent labelled as metres — for Turkey, a box a
+    /// few tens of metres off West Africa. A client zooming to it left the data
+    /// behind, requested empty tiles, and showed a blank map with nothing logged.
+    /// The two references are genuinely different things: z/x/y is defined on Web
+    /// Mercator whatever the data is stored in.
+    /// </remarks>
+    [Fact]
+    public void A_geographic_layer_declares_its_own_reference_on_the_extent()
+    {
+        JsonElement document = Service(new Envelope(24.7, 34.8, 45.5, 42.8), srid: 4326);
+
+        JsonElement extent = document.GetProperty("fullExtent");
+
+        Assert.Equal(4326, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        Assert.Equal(
+            4326, extent.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
+
+        // The grid is unaffected, and that is the point of the separation.
+        Assert.Equal(
+            102100,
+            document.GetProperty("tileInfo").GetProperty("spatialReference")
+                .GetProperty("wkid").GetInt32());
+    }
+
+    [Fact]
+    public void A_web_mercator_layer_still_declares_the_ArcGIS_spelling()
+    {
+        JsonElement extent = Service(new Envelope(-1, -1, 1, 1), srid: 3857)
+            .GetProperty("fullExtent");
+
+        // 102100 rather than 3857 in `wkid`, because that is the spelling ArcGIS
+        // clients match on.
+        Assert.Equal(102100, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        Assert.Equal(
+            3857, extent.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
+    }
+
+    /// <summary>The fallback world is in the units the extent is declared in.</summary>
+    /// <remarks>
+    /// A geographic layer with no measurable extent — a table never analysed — used
+    /// to fall back to ±20037508 <em>degrees</em>, which is not a wider guess but a
+    /// meaningless one.
+    /// </remarks>
+    [Fact]
+    public void An_unknown_geographic_extent_falls_back_to_degrees()
+    {
+        JsonElement extent = Service(null, srid: 4326).GetProperty("fullExtent");
+
+        Assert.Equal(-180, extent.GetProperty("xmin").GetDouble());
+        Assert.Equal(-90, extent.GetProperty("ymin").GetDouble());
+        Assert.Equal(180, extent.GetProperty("xmax").GetDouble());
+        Assert.Equal(90, extent.GetProperty("ymax").GetDouble());
     }
 }

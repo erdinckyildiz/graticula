@@ -203,6 +203,14 @@ internal static class AuthEndpoints
 
         if (current?.SessionId is not { } sessionId)
         {
+            // <b>The cookie is cleared on this path too, and it used to be the one
+            // path that did not.</b> Arriving here means the session behind the
+            // credential is already gone — expired, or revoked from elsewhere — and
+            // the browser is still holding a cookie for it. Returning without
+            // clearing left that stale cookie in place, so the caller most in need
+            // of being signed out was the one left carrying a credential.
+            ClearSessionCookie(context);
+
             // Not an error. Logging out when not logged in has already achieved
             // what the caller asked for, and a 400 here makes a client that
             // clears its own state first look broken.

@@ -111,8 +111,16 @@ Two rules follow, and they are conditions rather than aspirations:
 - **The request path must not read the catalogue.** A service context is
   resolved once and held; a query that consults the platform store per request
   makes the catalogue a hard dependency of serving, and the seam is then
-  decorative. (This is unimplemented today — `PostgresLayerCatalog.FindAsync`
-  runs on every query. See §7.)
+  decorative.
+
+  **This rule was not kept, and the refusal is the more interesting decision.**
+  The catalogue is read on every feature query, because a catalogue entry
+  carries the sharing scope and the started/stopped status — so holding it would
+  be caching an authorization decision, and read literally this rule asked for a
+  layer made private to stay readable. §7 records the reasoning;
+  [Q-95](../open-questions.md) records what was done about the availability cost
+  instead. The rule stands as written for everything *except* authorization,
+  which is where it turned out to be aimed.
 - **Runtime admin works without the catalogue.** ADR-017 §6's minimal surface —
   health, version, workers, certificates — is served from what the process knows
   rather than from the store.
@@ -183,6 +191,22 @@ slotting into it — and it is **Q-93**, not this ADR.
   So the seam is real for *shape* and deliberately absent for *authorization*,
   and the availability cost of that — serving stops when the store does — is
   [Q-95](../open-questions.md) rather than something quietly accepted here.
+
+  **Q-95 was answered by the owner on 2026-08-15 — serve public-only while
+  blind — and built as `CatalogFallback`.** It buys the availability back for the
+  only data where a stale grant costs nothing: while the store cannot be reached,
+  a service that was public in the last answer is served from that memory, for a
+  bounded window. It is deliberately **not** a read-through cache — while the
+  store answers, every request still reads it, so revocation stays instant — and
+  only connectivity failures fall back, because serving stale data on account of
+  a defect in our own SQL would hide the defect behind a degraded mode that looks
+  deliberate.
+
+  **§4's seam therefore exists in three grades rather than two:** real for shape
+  (cached), absent for authorization (by decision), and time-boxed for
+  availability (this). None of it makes the fused deployable as isolated as
+  Esri's split — a private layer still stops being servable when the store does —
+  and that residue is the price of §3, stated rather than closed.
 - **ADR-012 inherits a second axis.** Its state inventory must now say, for each
   piece of state, not only *node-local or shared* but *catalogue or runtime*.
 - **Q-93 opened** — federation into an existing ArcGIS Portal.
@@ -191,8 +215,28 @@ slotting into it — and it is **Q-93**, not this ADR.
 
 1. **The degraded surface is tested by stopping the datastore** (ADR-017
    condition 1, inherited). Until that test exists, §4's seam is a claim.
-2. **The request path stops reading the catalogue per request** before any
-   performance claim is made about serving. §7 records that it does today.
+   **PARTLY DISCHARGED**, and the remaining half is the half the condition asked
+   for. `CatalogFallbackTests` pins the *policy* in twelve cases — that every
+   request reads the store while it answers, that a change of sharing is seen at
+   once, that the last answer is served when the store goes quiet, that a service
+   never seen is not invented and a deleted one stays deleted, that the memory
+   expires, that a zero window serves nothing, and that a server-side error is
+   not a degraded mode. All of it runs against a fake store, which is what makes
+   the failure modes reachable at all. **Nothing yet stops a real datastore**, so
+   ADR-017 §6's minimal admin surface under an actual outage is still unproven,
+   and that is the case an operator meets at 2 AM.
+2. **A performance claim about serving includes the catalogue read**, rather than
+   being made as though §4's first rule had been kept.
+   *(Rewritten 2026-08-16, and the previous wording is worth recording.)* This
+   condition used to require that the request path **stop** reading the catalogue
+   per request. §7 then decided the read stays, because removing it would cache
+   an authorization decision — so the condition was asking for the opposite of
+   its own ADR's decision and could never be discharged. It sat in the live pile
+   anyway, which is how one unclosable condition makes the remaining work look
+   larger than it is, and it is the second time a register has been wrong in that
+   direction. What is actually owed is the honesty of the measurement: D-17's
+   fixed-overhead figures are per request *with* the catalogue read, and any
+   later figure that drops it says so.
 3. **Every subsequent ADR states which of its state is catalogue and which is
    runtime**, extending ADR-012's existing inventory requirement.
 

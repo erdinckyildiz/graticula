@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>dafa705</code> · 2026-08-16 10:11</p>
+<p class="stamp">Generated from commit <code>8e87105</code> · 2026-08-16 10:19</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">29/100</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">67 live · 4 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">43</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">open debts</div><div class="kpi-n">6 repaid · 4 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">30</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
+<div class="kpi warn"><div class="kpi-v">29/104</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">71 live · 4 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">61 answered · 5 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">35</div><div class="kpi-l">open debts</div><div class="kpi-n">9 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">9/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">977</div><div class="kpi-l">tests</div><div class="kpi-n">120 source files, 37,498 lines</div></div>
+<div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi good"><div class="kpi-v">996</div><div class="kpi-l">tests</div><div class="kpi-n">120 source files, 37,728 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">102 items</span></div><p><b>67 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>31 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">110 items</span></div><p><b>71 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>35 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -140,15 +140,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-019 · One deployable, three fused tiers</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-022 · GeometryServer ships in halves, an</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-027 · Glyphs and sprites: the tile servi</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-030 · Reading the reference implementati</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-021 · Tiles are encoded by PostGIS, and </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -186,7 +187,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
-<tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
+<tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/5</td></tr>
 <tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
 <tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">1/3</td></tr>
 <tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction →…</span><div class="muted-t">REOPENED 2026-08-14 by owner direction → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">1/5</td></tr>
@@ -201,6 +202,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">2/5</td></tr>
 <tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/5</td></tr>
 <tr><td class="id">029</td><td>Affinity routing is not the default, and A-003 stops being load-bearing</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reversal · MEDIUM for what replaces it at scale</td><td class="num">2/4</td></tr>
+<tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -212,7 +214,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card blocking"><div class="card-h"><span class="id">Q-23</span><span class="owner blocking-tag">BLOCKING</span></div><p>Can a PROJ PJ transformation object be used from more than one thread, or is it thread-affine?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-09</span><span class="owner">Council</span></div><p>Should the platform be polyglot (§80.2)?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-100</span><span class="owner">Council</span></div><p>How does findTransformations reach PROJ&#x27;s operation database?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-101</span><span class="owner">Council</span></div><p>Is the capability report a generated, versioned vocabulary, or free-form per-provider prose?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-102</span><span class="owner">Council</span></div><p>Is there a deployment-level capability manifest, distinct from the per-layer capability report?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-103</span><span class="owner">Council</span></div><p>Is bounded database admission fixed-cap by default, with adaptive admission an explicitly chosen profile rather than the default?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-105</span><span class="owner">Council</span></div><p>Is &quot;authorization composition only ever restricts&quot; stated once as an invariant, or re-derived per surface?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-11</span><span class="owner">Council</span></div><p>Where does the service catalog&#x27;s identity model come from — who mints stable IDs, and how do renames work (§37)?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-111</span><span class="owner">Council</span></div><p>Can a local administrator still sign in when the configured external identity source is unreachable or misconfigured — and should changing that source require a local credential?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-12</span><span class="owner">Council</span></div><p>How is monitoring cardinality bounded at 1,000 services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-14</span><span class="owner">Council</span></div><p>Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-15</span><span class="owner">Council</span></div><p>What does &quot;air-gapped&quot; concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry?</p></article>
@@ -289,6 +297,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-37</td><td>~~A test that had been written off as flaky twice was not measuring its own claim.~~ CLOSED 2026-08-16.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-38</td><td>~~The service lookup&#x27;s unique index disagreed with the query that needed it, in meaning as well as in form.~~ CLOSED 2026-08-16, migration 15.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-32</td><td>~~A transformation PROJ could not do accurately is reported as though it were accurate.~~ PARTLY PAID 2026-08-16 on the GeometryServer surface.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-46</td><td>A behaviour is fixed in one of the several places that carry it, and the others keep the bug.</td><td class="muted-t">Whenever a behaviour is about to be fixed, and the fix is not done until the question what else carries this?</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-45</td><td>/admin/layers does not say which service holds a layer, or at which id, so no client can build its URL without guessing.</td><td class="muted-t">Before another client is written against this listing, and before the layer list grows a link anywhere.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-44</td><td>~~The security gate&#x27;s own fix disabled the console for a day, and the console then leaked a password into a URL.~~ CLOSED 2026-08-16.</td><td class="muted-t">— closed</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class=""><td class="id">D-43</td><td>The datastore suite fails three tests on the first run after a build, and passes on every rerun.</td><td class="muted-t">Before trusting a red datastore job.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-42</td><td>~~A mandatory statement timeout was removable by an unrelated setting.~~ CLOSED 2026-08-16.</td><td class="muted-t">— closed</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-41</td><td>~~havingClause was SQL injection, anonymously reachable.~~ CLOSED 2026-08-16, the same hour it was found.</td><td class="muted-t">— closed</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class=""><td class="id">D-40</td><td>ADR-008 states a rule it also documents breaking, and the shipped code follows the break.</td><td class="muted-t">Before the first provider that is not a database is designed — GeoParquet or FlatGeobuf as serving providers (Q-52), or…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -328,7 +343,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-017</td><td>Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them</td><td><span class="pill warn">VALIDATING</span></td></tr>
 <tr><td class="id">A-016</td><td>GDAL-backed providers can be made optional, so a PostGIS-only deployment ships as one artefact</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-037</td><td>Allocation rate, not CPU, sets the tile-serving ceiling per worker</td><td><span class="pill good">VALIDATED</span></td></tr>
-<tr><td class="id">A-038</td><td>GDAL is needed for the import formats we care about at all</td><td><span class="pill good">VALIDATED</span></td></tr>
+<tr><td class="id">A-038</td><td>GDAL is needed for the import formats we care about at all</td><td><span class="pill bad">INVALIDATED</span></td></tr>
 <tr><td class="id">A-039</td><td>~~Every provider can clip server-side cheaply enough to avoid shipping whole geometries~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
 <tr><td class="id">A-040</td><td>All three engines can stream BLOBs out of a query without materialising them in our process</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-041</td><td>A bounded separate connection pool is sufficient protection against slow-client exhaustion during attachment streaming</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
@@ -368,15 +383,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">222</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:92.8%"></div></div><div class="bar-n">206</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:77.0%"></div></div><div class="bar-n">171</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:75.2%"></div></div><div class="bar-n">167</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:94.6%"></div></div><div class="bar-n">210</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:80.6%"></div></div><div class="bar-n">179</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:77.5%"></div></div><div class="bar-n">172</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:49.1%"></div></div><div class="bar-n">109</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:34.7%"></div></div><div class="bar-n">77</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:9.9%"></div></div><div class="bar-n">22</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">5</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>8e87105</code><time>2026-08-16</time><span>a nightly security scan, and a check for the debt-number collisions it took three of to notice</span></li>
 <li><code>dafa705</code><time>2026-08-16</time><span>concurrency measured, and it is not allocation â€” plus the fifth wrong harness</span></li>
 <li><code>9d7a86b</code><time>2026-08-16</time><span>two services could differ only in the case of their folder, and the lookup matched both</span></li>
 <li><code>00fdb11</code><time>2026-08-16</time><span>the catalogue&#x27;s group query stops reading every service to answer about one</span></li>
@@ -390,7 +406,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2d03d91</code><time>2026-08-15</time><span>cut, buffer, offset, simplify, relation and distance â€” the owner took the refusal away</span></li>
 <li><code>5f03948</code><time>2026-08-15</time><span>ADR-022 condition 2: partly discharged, and the marker put where the tool can see it</span></li>
 <li><code>e82489d</code><time>2026-08-15</time><span>convexHull, densify and generalize â€” computed here, not in the database</span></li>
-<li><code>c5b4864</code><time>2026-08-15</time><span>an empty folder now tells a stranger they are a stranger; and a Turkish Control Room</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

@@ -1503,6 +1503,18 @@ internal static class AdminEndpoints
             return false;
         }
 
+        // <b>These last three used to be missing, and the record's defaults are why
+        // nobody noticed.</b> Until 2026-08-16 this call stopped at `scope`;
+        // ServiceName, ParentLayerIndex and CacheSeconds all default to null on
+        // LayerPublication, so the shorter call compiled and the endpoint accepted
+        // three documented fields and discarded them. The catalogue and the SQL
+        // beneath it were correct the whole time — `ServiceName ?? Name`, parent
+        // and cache are all handled — and PostgresAdminCatalogTests proved that
+        // half. Nothing tested the mapping from the request to the record, so the
+        // owner's 2026-08-15 correction that *"a service is a combination of
+        // layers"* was unreachable through the admin API while the catalogue could
+        // do it, and `POST /admin/featureservices` was answering 201 with a note
+        // telling the operator to use a parameter that did nothing. D-47.
         publication = new LayerPublication(
             request.Name!,
             request.DataSourceId,
@@ -1513,7 +1525,10 @@ internal static class AdminEndpoints
             string.IsNullOrWhiteSpace(request.ObjectIdColumn) ? null : request.ObjectIdColumn,
             request.Srid,
             kind,
-            scope);
+            scope,
+            string.IsNullOrWhiteSpace(request.ServiceName) ? null : request.ServiceName.Trim(),
+            request.ParentLayerId,
+            request.CacheSeconds);
 
         return true;
     }
