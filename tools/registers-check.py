@@ -26,6 +26,51 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import conditions
 
 
+def duplicate_debt_ids():
+    """Debt entries that reuse a number another entry already has.
+
+    **Twice in one day, which is what makes this worth a tool.** D-29 and D-30
+    were each used for two unrelated entries, and then D-36 was -- and that one
+    was caught only because a workflow comment happened to reference the first.
+    A debt number is how one document points at another: deployment.md and a CI
+    comment both cite D-36, so a reused number silently redirects a reader to
+    the wrong entry.
+
+    Struck-through and closed rows count. A closed entry still owns its number,
+    because the references to it do not disappear when it is paid.
+    """
+    seen = {}
+    repeated = []
+
+    try:
+        text = io.open("docs/architecture-debt.md", encoding="utf-8").read()
+    except OSError as problem:
+        return ["docs/architecture-debt.md could not be read: " + str(problem)]
+
+    for line in text.splitlines():
+        match = re.match(r"^\|\s*~*\s*(D-\d+)\s*~*\s*\|\s*(.{0,70})", line)
+
+        if not match:
+            continue
+
+        number = match.group(1)
+        opening = match.group(2).strip()
+
+        if number in seen:
+            repeated.append(
+                number + " is used twice:"
+                + "\n    1. " + seen[number]
+                + "\n    2. " + opening
+                + "\n  A debt number is a cross-reference target. Give the newer entry the "
+                  "next free number; the older one keeps its own, because the documents "
+                  "citing it do not change when it is renumbered."
+            )
+        else:
+            seen[number] = opening
+
+    return repeated
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -47,6 +92,20 @@ def main() -> int:
             deferred += 1 if put_off and not done else 0
 
     live = total - discharged - deferred
+
+    problems = duplicate_debt_ids()
+
+    if problems:
+        for line in problems:
+            print(line)
+        return 1
+
+    problems = duplicate_debt_ids()
+
+    if problems:
+        for line in problems:
+            print(line)
+        return 1
 
     try:
         page = io.open("docs/status.html", encoding="utf-8").read()

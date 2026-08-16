@@ -48,22 +48,14 @@ jobs:
       - name: build
         run: dotnet build gis-server.sln -c Release --no-restore
 
-      # <b>ADR-025's ninety-day promise needs something that reports a dirty
-      # tree.</b> `dotnet list package --vulnerable` prints its findings and
-      # exits zero whatever it finds, so the exit code is derived from the
-      # output rather than trusted.
-      - name: vulnerable packages
-        run: |
-          dotnet list gis-server.sln package --vulnerable --include-transitive \
-            > vulnerable.txt 2>&1
-          cat vulnerable.txt
-          if grep -qE '^\s+>' vulnerable.txt; then
-            echo "::error::A dependency has a reported vulnerability. ADR-025 commits to fixing these within ninety days."
-            exit 1
-          fi
-
-      - name: deprecated packages
-        run: dotnet list gis-server.sln package --deprecated
+      # <b>The dependency gate lives in security.yml, not here.</b> It was in
+      # both for a day, and two copies of one gate is how they come to
+      # disagree: somebody tightens the pattern in one file and the other
+      # keeps passing. security.yml runs on push and pull_request as well as
+      # nightly, so nothing is lost by removing it from this build — and the
+      # nightly is the part that matters, because a vulnerability is
+      # disclosed on somebody else's schedule and a dependency clean at the
+      # last push is not a dependency clean today.
 
   unit:
     name: unit

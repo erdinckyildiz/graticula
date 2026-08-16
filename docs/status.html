@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>9d7a86b</code> · 2026-08-16 09:31</p>
+<p class="stamp">Generated from commit <code>dafa705</code> · 2026-08-16 10:11</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
@@ -278,7 +278,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-24</td><td>layer.ishosted and layer.sharing are columns nobody reads, and writes still reach both.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-27</td><td>Twelve of twenty-two ADRs still describe a three-database product.</td><td class="muted-t">Before anybody implements from an ADR rather than from the code</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-28</td><td>/admin/services/{name} means two different things.</td><td class="muted-t">Before a published service can be named after a system one — or sooner, since the fix is a route rename and the cost…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-39</td><td>/admin/services/{name} means two different things.</td><td class="muted-t">Before a published service can be named after a system one — or sooner, since the fix is a route rename and the cost…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>~~There is no CI, so nothing runs the checks a published promise depends on.~~ PAID 2026-08-15.</td><td class="muted-t">Before the repository is made public — the same trigger as ADR-025&#x27;s conditions, because that is when the promise starts</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-33</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-30</td><td>~~The feature query path has never been measured.~~ PARTLY PAID 2026-08-16 — benchmarks/feature-query, run 5.</td><td class="muted-t">The concurrency half is still what ADR-007 condition 3&#x27;s connection budget needs, and they still need the same harness</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -287,7 +287,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-35</td><td>Planar area was computed by a shoelace sum with no local origin, and it shipped that way for a day.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-36</td><td>~~Nothing in the repository says how to install against an empty database, and the first command fails with a raw Postgres error.~~ CLOSED 2026-08-15, partly.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-37</td><td>~~A test that had been written off as flaky twice was not measuring its own claim.~~ CLOSED 2026-08-16.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class="done"><td class="id">D-36</td><td>~~The service lookup&#x27;s unique index disagreed with the query that needed it, in meaning as well as in form.~~ CLOSED 2026-08-16, migration 15.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-38</td><td>~~The service lookup&#x27;s unique index disagreed with the query that needed it, in meaning as well as in form.~~ CLOSED 2026-08-16, migration 15.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-32</td><td>~~A transformation PROJ could not do accurately is reported as though it were accurate.~~ PARTLY PAID 2026-08-16 on the GeometryServer surface.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
@@ -377,6 +377,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>dafa705</code><time>2026-08-16</time><span>concurrency measured, and it is not allocation â€” plus the fifth wrong harness</span></li>
 <li><code>9d7a86b</code><time>2026-08-16</time><span>two services could differ only in the case of their folder, and the lookup matched both</span></li>
 <li><code>00fdb11</code><time>2026-08-16</time><span>the catalogue&#x27;s group query stops reading every service to answer about one</span></li>
 <li><code>063157b</code><time>2026-08-16</time><span>the feature query path gets a clock, and the catalogue read turns out to be most of it</span></li>
@@ -390,7 +391,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5f03948</code><time>2026-08-15</time><span>ADR-022 condition 2: partly discharged, and the marker put where the tool can see it</span></li>
 <li><code>e82489d</code><time>2026-08-15</time><span>convexHull, densify and generalize â€” computed here, not in the database</span></li>
 <li><code>c5b4864</code><time>2026-08-15</time><span>an empty folder now tells a stranger they are a stranger; and a Turkish Control Room</span></li>
-<li><code>136d06b</code><time>2026-08-15</time><span>five conditions were already met and nobody had said so</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

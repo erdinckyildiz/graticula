@@ -148,7 +148,7 @@ class Server:
         services -- today only the geometry one -- and a published feature
         service does not appear there. Checking it found nothing, so every run
         after the first tried to create what already existed and failed with 409.
-        D-28 records the same two meanings of the word "service" as a defect in
+        D-39 records the same two meanings of the word "service" as a defect in
         the admin surface.
         """
         _, body = self.call("GET", "/admin/layers")
