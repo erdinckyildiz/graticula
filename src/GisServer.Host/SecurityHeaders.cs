@@ -70,6 +70,50 @@ internal static class SecurityHeaders
         + "base-uri 'none'";
 
     /// <summary>
+    /// The policy for the console, which is the one HTML surface that is script.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-16 after <see cref="HtmlPolicy"/> silently disabled the
+    /// console for a day — D-44.</b> That policy's own comment said the pages
+    /// "contain no script at all, which is asserted by a test rather than
+    /// believed", and it was true of the three server-rendered pages it was
+    /// written for. The console is a fourth HTML surface and it is nothing but
+    /// script, so `default-src 'none'` with no `script-src` blocked its inline
+    /// block and its map SDK together. It rendered — inline styles were
+    /// permitted — and then every button did nothing, and its sign-in form fell
+    /// back to a native GET that wrote the password into the URL.
+    /// </para>
+    /// <para>
+    /// <b>Its script is a file, not an inline block, so this needs no
+    /// `'unsafe-inline'`.</b> That was the reason for splitting `console.js` out:
+    /// `script-src 'self'` is a real restriction where `'unsafe-inline'` is
+    /// close to none.
+    /// </para>
+    /// <para>
+    /// <b>The rest of the width is the map SDK, and it is a cost ADR-020 §4 did
+    /// not record.</b> Choosing Esri's CDN over a vendored library was argued on
+    /// redistribution grounds and on being the demanding real client; nobody
+    /// noted that it also puts a third-party origin into this server's security
+    /// policy. It is written out here rather than hidden behind a wildcard so
+    /// that the cost is visible to whoever revisits that decision — and so that
+    /// an air-gapped deployment (Q-15), which cannot reach the CDN at all, is
+    /// visibly a different policy and not a broken one.
+    /// </para>
+    /// </remarks>
+    private const string ConsolePolicy =
+        "default-src 'none'; "
+        + "script-src 'self' https://js.arcgis.com; "
+        + "style-src 'unsafe-inline' https://js.arcgis.com; "
+        + "img-src 'self' data: blob: https://js.arcgis.com https://tile.openstreetmap.org; "
+        + "connect-src 'self' https://js.arcgis.com https://tile.openstreetmap.org; "
+        + "font-src https://js.arcgis.com; "
+        + "worker-src blob:; "
+        + "form-action 'self'; "
+        + "frame-ancestors 'none'; "
+        + "base-uri 'none'";
+
+    /// <summary>
     /// The policy for everything else, which is a document rather than a page.
     /// </summary>
     /// <remarks>
@@ -103,7 +147,24 @@ internal static class SecurityHeaders
                 // is a credential in the URL, and same-origin still sends the
                 // full URL to ourselves — into our own access log, by a second
                 // route that the log redaction does not cover.
-                Set(headers, "Referrer-Policy", "no-referrer");
+                //
+                // <b>Except on the console, and the reason is measured rather than
+                // assumed.</b> A tile service asked for identification and got
+                // none, so it served a 256×256 PNG reading "Access blocked" in
+                // place of every tile — the same URL answers with the real tile
+                // when a Referer is present. That was tested directly: no Referer
+                // gives a 6.9 KB warning image, our origin as Referer gives a
+                // 40 KB map.
+                //
+                // `strict-origin-when-cross-origin` sends the **origin only** —
+                // no path, no query — so the credential this header exists to
+                // protect still cannot leave. What a third party learns is that
+                // this server exists, which it learns from the request anyway.
+                Set(headers, "Referrer-Policy",
+                    context.Request.Path.StartsWithSegments(
+                        "/console", StringComparison.OrdinalIgnoreCase)
+                        ? "strict-origin-when-cross-origin"
+                        : "no-referrer");
 
                 // X-Frame-Options as well as frame-ancestors, because they are
                 // not the same age and not every proxy and browser in a
@@ -113,7 +174,19 @@ internal static class SecurityHeaders
                 bool html = headers.ContentType.ToString()
                     .StartsWith("text/html", StringComparison.OrdinalIgnoreCase);
 
-                Set(headers, "Content-Security-Policy", html ? HtmlPolicy : DocumentPolicy);
+                // <b>By path, not by content type, and the console is the reason
+                // the distinction exists.</b> Three of the four HTML surfaces
+                // here genuinely carry no script and their policy should keep
+                // saying so; the fourth is an application. Deciding on content
+                // type alone is what produced one policy for four pages with
+                // different needs — and the page that needed something else broke
+                // silently, because a blocked script logs nothing the server can
+                // see.
+                bool console = context.Request.Path
+                    .StartsWithSegments("/console", StringComparison.OrdinalIgnoreCase);
+
+                Set(headers, "Content-Security-Policy",
+                    console ? ConsolePolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

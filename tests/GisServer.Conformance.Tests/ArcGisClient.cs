@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -258,6 +259,33 @@ public abstract class ArcGisClient : IDisposable
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
+    }
+
+    /// <summary>
+    /// Fetches a document as a caller with no credential, and reports what
+    /// happened instead of asserting that it worked.
+    /// </summary>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <returns>The status, and the body when there was one.</returns>
+    /// <remarks>
+    /// <b>The point of this method is the line it does not have.</b> Every other
+    /// request here calls <see cref="AuthenticateAsync"/>, so the whole suite sees
+    /// the server as an administrator — which is the one caller whose experience
+    /// proves least about a product whose promise is that an unmodified client
+    /// keeps working. This deliberately omits the header, and returns the status
+    /// rather than throwing on it, because here a refusal is the measurement.
+    /// </remarks>
+    protected async Task<(HttpStatusCode Status, string Body)> AnonymousAsync(string path)
+    {
+        string root = await RequireServerAsync();
+        string separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        Uri uri = new($"{root}{path}{separator}f=json");
+
+        using HttpRequestMessage request = new(HttpMethod.Get, uri);
+
+        using HttpResponseMessage response = await _http.SendAsync(request);
+
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
     /// <summary>Fetches a document, asserting it came back as JSON.</summary>

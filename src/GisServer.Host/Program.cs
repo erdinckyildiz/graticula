@@ -330,6 +330,15 @@ public static class Program
         // whose every call would 503, and scoped to /console so that the file
         // provider can never see anything outside its own directory —
         // condition 2, and the first code here that could suffer path traversal.
+        // <b>`.geojson` has to be mapped or the file is not served at all.</b> The
+        // static file middleware refuses an extension it has no content type for,
+        // and answers 404 — indistinguishable from a missing file, which cost a
+        // round of confusion when the console's ground layer would not load. A GIS
+        // server having no mapping for the most common interchange format on the
+        // web was worth fixing for its own sake.
+        Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider contentTypes = new();
+        contentTypes.Mappings[".geojson"] = "application/geo+json";
+
         app.UseFileServer(new FileServerOptions
         {
             FileProvider = new PhysicalFileProvider(
@@ -337,6 +346,7 @@ public static class Program
             RequestPath = "/console",
             EnableDefaultFiles = true,
             EnableDirectoryBrowsing = false,
+            StaticFileOptions = { ContentTypeProvider = contentTypes },
         });
 
         MapEndpoints(app);
@@ -798,6 +808,46 @@ public static class Program
     }
 
     /// <summary>
+    /// The qualified service path out of a directory request path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>/rest/services/hosted/parcels/FeatureServer/1</c> yields
+    /// <c>hosted/parcels</c>, and <c>/rest/services/parcels/FeatureServer</c>
+    /// yields <c>parcels</c>. Everything between the directory root and the
+    /// service type, whatever the folder depth.
+    /// </para>
+    /// <para>
+    /// <b>Read from the request rather than rebuilt from the model.</b> A layer
+    /// carries its bare service name, so composing a URL from it silently drops
+    /// the folder — which is how a link to a hosted layer pointed at a
+    /// root-folder service that does not exist. The path being answered is the
+    /// one thing guaranteed to name the service the caller actually reached.
+    /// </para>
+    /// </remarks>
+    private static string ServicePathOf(PathString path)
+    {
+        string text = path.Value ?? string.Empty;
+        const string root = "/rest/services/";
+
+        int start = text.IndexOf(root, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        start += root.Length;
+
+        int end = text.IndexOf("/FeatureServer", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0)
+        {
+            end = text.IndexOf("/VectorTileServer", start, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return end < 0 ? text[start..].Trim('/') : text[start..end].Trim('/');
+    }
+
+    /// <summary>
     /// A service's layers and groups, depth-first, with their nesting depth.
     /// </summary>
     /// <remarks>
@@ -1187,10 +1237,24 @@ public static class Program
                     $"{service.QualifiedName} (FeatureServer)",
                     document,
 
-                    // A link per layer, because the layers are what somebody
-                    // came for and a service document says little on its own.
-                    links: null,
-                    linksLabel: "Layers",
+                    // <b>View In, as an ArcGIS Server directory offers it —
+                    // added 2026-08-16.</b> The layers themselves are the tree
+                    // below; this is the thing somebody does before reading any
+                    // of it, which is look at the service on a map. Without a
+                    // layer id the viewer draws every feature layer the service
+                    // has, because "View In" on a service means the service.
+                    //
+                    // Not ArcGIS Online's viewer: that hands this URL to
+                    // arcgis.com and needs an ArcGIS account, which is the
+                    // account this product exists for people not to need.
+                    links:
+                    [
+                        ("Map", "/console/view.html"
+                            + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
+                        ("ArcGIS SDK", "/console/map.html"
+                            + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
+                    ],
+                    linksLabel: "View in",
                     tree: LayerTree(service, context.Request.Path)),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
@@ -1288,7 +1352,42 @@ public static class Program
                     // and printed a wall of JSON. Opening a form is what the
                     // link should do; running the query is what the button in it
                     // is for.
-                    [("Query", context.Request.Path + "/query")]),
+                    //
+                    // <b>And a map, added 2026-08-16.</b> An ArcGIS Server
+                    // directory offers "View In" here and it is the first thing
+                    // somebody does with a layer they did not publish: see whether
+                    // it draws, and where. The viewer was already in this
+                    // repository and nothing linked to it.
+                    //
+                    // <b>Deliberately not ArcGIS Online's map viewer</b>, which is
+                    // the other half of what Esri offers. That link hands this
+                    // service's URL to arcgis.com and needs an ArcGIS account —
+                    // the account this product exists for people not to need — and
+                    // on an internal server it tells a third party the URL exists.
+                    // <b>The service path comes from the request, not from the
+                    // model.</b> `layer.ServiceName` is the bare name, so building
+                    // the link from it dropped the folder and produced
+                    // `?service=look_EarlyAlert` for a layer that lives at
+                    // `hosted/look_EarlyAlert` — the same class of guess as D-45,
+                    // one edit later. The path being answered already carries the
+                    // qualified name exactly.
+                    //
+                    // <b>Two viewers, because they do two jobs.</b> `Map` is
+                    // OpenLayers, vendored, no third-party request — what somebody
+                    // opens to look at their data. `ArcGIS SDK` is Esri's own
+                    // client from Esri's CDN, which is ADR-020 §4's argument kept
+                    // where it belongs: a compatibility probe. Offering both makes
+                    // the two jobs visible as two jobs instead of one page trying
+                    // to be both.
+                    [
+                        ("Map", "/console/view.html"
+                            + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
+                            + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
+                        ("ArcGIS SDK", "/console/map.html"
+                            + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
+                            + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
+                        ("Query", context.Request.Path + "/query"),
+                    ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -14,9 +14,9 @@ namespace GisServer.Conformance.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Both of these are findings from the §66 security gate, 2026-08-15.</b>
-/// Attachment downloads were hardened by hand — <c>nosniff</c>, a sandboxing
-/// policy, <c>Content-Disposition: attachment</c> — because somebody thought
+/// <b>Both of these are findings from the Â§66 security gate, 2026-08-15.</b>
+/// Attachment downloads were hardened by hand â€” <c>nosniff</c>, a sandboxing
+/// policy, <c>Content-Disposition: attachment</c> â€” because somebody thought
 /// carefully about the one surface serving arbitrary user bytes. Every other
 /// response carried nothing at all. That is what protecting surfaces one at a
 /// time produces: the considered one is safe and the default is bare.
@@ -66,7 +66,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// <remarks>
     /// <b>The 404 is the interesting case.</b> It comes from routing, not from a
     /// handler, and a hardening pass that adds headers inside handlers misses
-    /// exactly the responses nobody wrote — the 404, the 405, the 500 from the
+    /// exactly the responses nobody wrote â€” the 404, the 405, the 500 from the
     /// exception middleware. Those are also the responses most likely to carry
     /// something a browser should not render.
     /// </remarks>
@@ -96,8 +96,8 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// </summary>
     /// <remarks>
     /// ArcGIS compatibility puts a token in the query string. security.md lists
-    /// where that leaks — logs, proxies, browser history, and <c>Referer</c>
-    /// headers sent to third parties — and gives four mitigations, none of which
+    /// where that leaks â€” logs, proxies, browser history, and <c>Referer</c>
+    /// headers sent to third parties â€” and gives four mitigations, none of which
     /// closes the <c>Referer</c> channel. This header does, and it is asserted
     /// separately from the others so that removing it fails for its own reason.
     /// </remarks>
@@ -117,7 +117,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// privilege the server has. The encoding is tested and correct; this is
     /// what stands between an encoding mistake and a stolen session. The pages
     /// contain no script by design, so the policy says <c>default-src 'none'</c>
-    /// rather than restricting sources — a page that later needs one has to
+    /// rather than restricting sources â€” a page that later needs one has to
     /// change the policy, which is the point.
     /// </remarks>
     [Fact]
@@ -131,11 +131,148 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
         Assert.Contains("frame-ancestors 'none'", policy, StringComparison.Ordinal);
         Assert.Contains("base-uri 'none'", policy, StringComparison.Ordinal);
 
-        // The sign-in and query pages post back here, so forms must be allowed —
+        // The sign-in and query pages post back here, so forms must be allowed â€”
         // to this origin and nowhere else.
         Assert.Contains("form-action 'self'", policy, StringComparison.Ordinal);
 
         Assert.DoesNotContain("script-src 'unsafe", policy, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The console's policy permits the console's own script.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is D-44's regression test, and the bug it guards was invisible from
+    /// the server side.</b> The console is the fourth HTML surface and the only one
+    /// that is an application. It was served the policy written for the three that
+    /// are documents â€” <c>default-src 'none'</c> with no <c>script-src</c> â€” which
+    /// blocked its script as firmly as it blocks a CDN. The page rendered, because
+    /// inline styles were allowed, and then nothing worked: every button was inert
+    /// and the sign-in form fell back to a native submit.
+    /// </para>
+    /// <para>
+    /// <b>Nothing in the server could see it.</b> A blocked script is refused by
+    /// the browser after the response was already sent, so there is no log line, no
+    /// error status and no failed request to notice. The existing header tests all
+    /// passed throughout â€” they assert the headers are present, which they were.
+    /// The gap was that no test asked whether the page still worked with them.
+    /// </para>
+    /// <para>
+    /// Asserted as a property rather than as a string: the console's script must be
+    /// permitted, and it must be permitted without <c>'unsafe-inline'</c> â€” which is
+    /// what keeps the fix from decaying into "allow everything on that path".
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_console_may_run_its_own_script()
+    {
+        using HttpResponseMessage page = await GetAsync("/console/", "text/html");
+        page.EnsureSuccessStatusCode();
+
+        string policy = Header(page, "Content-Security-Policy")!;
+        string html = await page.Content.ReadAsStringAsync();
+
+        // The page loads its behaviour from a file, so the policy can permit it by
+        // origin rather than by allowing inline script.
+        Assert.Contains("console.js", html, StringComparison.Ordinal);
+
+        int start = policy.IndexOf("script-src ", StringComparison.Ordinal);
+        Assert.True(start >= 0,
+            "The console is served a policy with no script-src, so default-src 'none' blocks "
+            + "its own script and every button is inert. This is D-44.\nPolicy: " + policy);
+
+        int end = policy.IndexOf(';', start);
+        string scriptSrc = end < 0 ? policy[start..] : policy[start..end];
+
+        Assert.Contains("'self'", scriptSrc, StringComparison.Ordinal);
+        Assert.DoesNotContain("'unsafe-inline'", scriptSrc, StringComparison.Ordinal);
+
+        // And the file itself must be reachable: a policy that permits a script
+        // the server does not serve is the same outcome by a different route.
+        using HttpResponseMessage script = await GetAsync("/console/console.js");
+        script.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// No page the console serves carries an inline script.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The invariant, after checking one page proved not to be enough.</b>
+    /// D-44's first test asserted that <c>/console/</c> loads its behaviour from a
+    /// file. It does — and one edit later the viewer at <c>/console/map.html</c>
+    /// was still inline, so the same policy blocked the same way and the page
+    /// rendered a header with nothing under it. A test that names one page
+    /// protects one page.
+    /// </para>
+    /// <para>
+    /// The policy is deliberately without <c>'unsafe-inline'</c>, which is what
+    /// makes <c>script-src 'self'</c> worth anything — so "no inline script" is a
+    /// property of every document served under that policy, and it is cheaper to
+    /// assert than to remember.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("/console/")]
+    [InlineData("/console/map.html")]
+    public async Task No_console_page_carries_an_inline_script(string path)
+    {
+        using HttpResponseMessage page = await GetAsync(path, "text/html");
+        page.EnsureSuccessStatusCode();
+
+        string html = await page.Content.ReadAsStringAsync();
+
+        // Opening tags with no src=. Comments are stripped first, because this
+        // project's pages explain themselves and several of those explanations
+        // mention a script tag.
+        string withoutComments = System.Text.RegularExpressions.Regex.Replace(
+            html, "<!--.*?-->", string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        System.Text.RegularExpressions.MatchCollection inline =
+            System.Text.RegularExpressions.Regex.Matches(
+                withoutComments, "<script(?![^>]*\\bsrc\\s*=)[^>]*>");
+
+        Assert.True(
+            inline.Count == 0,
+            $"""
+             {path} carries {inline.Count} inline <script> block(s), and the console's
+             Content-Security-Policy has no 'unsafe-inline' — so the browser refuses them and
+             the page renders with nothing working. Move the code to a file beside the page.
+             D-44.
+             """);
+
+        Assert.Contains("<script", withoutComments, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The sign-in form cannot put a credential in a URL, even with no script.
+    /// </summary>
+    /// <remarks>
+    /// <b>The second half of D-44, and the worse half.</b> With its script blocked
+    /// the form submitted natively, as a GET, carrying <c>name="username"</c> and
+    /// <c>name="password"</c> â€” so the password landed in the address bar, the
+    /// browser history and any proxy log on the way. A console whose buttons do
+    /// nothing is broken; one that leaks a credential while looking broken is
+    /// worse. Neither input carries a name now, so a native submit has nothing to
+    /// serialise, and the form posts, so it could not be a query string anyway.
+    /// </remarks>
+    [Fact]
+    public async Task The_sign_in_form_cannot_leak_a_credential_without_script()
+    {
+        using HttpResponseMessage page = await GetAsync("/console/", "text/html");
+        string html = await page.Content.ReadAsStringAsync();
+
+        int form = html.IndexOf("id=\"signinForm\"", StringComparison.Ordinal);
+        Assert.True(form >= 0, "The console has no sign-in form.");
+
+        int close = html.IndexOf("</form>", form, StringComparison.Ordinal);
+        string markup = html[form..close];
+
+        Assert.Contains("method=\"post\"", html[..(form + 40)], StringComparison.Ordinal);
+        Assert.DoesNotContain("name=\"username\"", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("name=\"password\"", markup, StringComparison.Ordinal);
     }
 
     // ---------- the inventory ----------
@@ -144,7 +281,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// An anonymous caller learns whether the server is alive and nothing else.
     /// </summary>
     /// <remarks>
-    /// <b>The endpoint has to stay anonymous</b> — sessions live in the platform
+    /// <b>The endpoint has to stay anonymous</b> â€” sessions live in the platform
     /// store, so during the outage it exists for, nobody can authenticate
     /// (D-18). That is exactly why what it says matters.
     /// </remarks>
@@ -202,8 +339,8 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// <remarks>
     /// <b>This is the finding stated as a property.</b> A stranger sees some
     /// number of services in the catalogue; nothing they can reach may imply
-    /// there are more. The two numbers are not comparable directly — services
-    /// are not layers — so this asserts the weaker and sufficient thing: no
+    /// there are more. The two numbers are not comparable directly â€” services
+    /// are not layers â€” so this asserts the weaker and sufficient thing: no
     /// count reaches them at all.
     /// </remarks>
     [Fact]

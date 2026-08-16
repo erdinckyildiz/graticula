@@ -260,6 +260,123 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
                 .ToArray());
     }
 
+    /// <summary>
+    /// Every layer the catalogue lists is addressable through the services
+    /// directory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-45's regression test, and the invariant is between two documents
+    /// rather than inside one.</b> <c>/admin/layers</c> names the layers; the
+    /// services directory says where they live. Nothing checked that the two
+    /// agree, and they did not need to for a single-layer service — where the
+    /// service is named after its only layer, guessing
+    /// <c>/rest/services/{folder}/{layer}/FeatureServer/0</c> happens to be right.
+    /// </para>
+    /// <para>
+    /// It is wrong for every member of a multi-layer service, and the console had
+    /// been guessing it for all of them. The failure was invisible because the
+    /// server's answer is its deliberate *"no layer is visible to you"* 404 —
+    /// which is correct for a service that does not exist, and reads to an
+    /// administrator as a permission problem.
+    /// </para>
+    /// <para>
+    /// So the assertion is the property a client needs: for each layer in the
+    /// catalogue there is exactly one FeatureServer entry in the directory that
+    /// holds a layer of that name, and fetching it at that id returns that layer.
+    /// A stopped layer is skipped — it is deliberately absent from the directory.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Every_catalogued_layer_is_findable_in_the_services_directory()
+    {
+        JsonElement layers = (await GetJsonAsync("/admin/layers")).GetProperty("layers");
+
+        // Build name -> (service, id) from the directory, the way a client must.
+        Dictionary<string, (string Service, int Id)> placed = new(StringComparer.Ordinal);
+
+        foreach (string folder in new[] { "hosted", string.Empty })
+        {
+            JsonElement directory = await GetJsonAsync($"/rest/services/{folder}");
+
+            if (!directory.TryGetProperty("services", out JsonElement services))
+            {
+                continue;
+            }
+
+            foreach (JsonElement service in services.EnumerateArray())
+            {
+                if (!string.Equals(service.GetProperty("type").GetString(), "FeatureServer",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string name = service.GetProperty("name").GetString()!;
+                JsonElement document = await GetJsonAsync($"/rest/services/{name}/FeatureServer");
+
+                if (!document.TryGetProperty("layers", out JsonElement held))
+                {
+                    continue;
+                }
+
+                foreach (JsonElement layer in held.EnumerateArray())
+                {
+                    if (string.Equals(layer.GetProperty("type").GetString(), "Group Layer",
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    placed[layer.GetProperty("name").GetString()!] =
+                        (name, layer.GetProperty("id").GetInt32());
+                }
+            }
+        }
+
+        List<string> missing = [];
+
+        foreach (JsonElement layer in layers.EnumerateArray())
+        {
+            if (!string.Equals(layer.GetProperty("status").GetString(), "started",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string name = layer.GetProperty("name").GetString()!;
+
+            if (!placed.TryGetValue(name, out (string Service, int Id) place))
+            {
+                missing.Add($"{name}: in the catalogue, absent from the directory");
+                continue;
+            }
+
+            JsonElement document =
+                await GetJsonAsync($"/rest/services/{place.Service}/FeatureServer/{place.Id}");
+
+            string served = document.GetProperty("name").GetString()!;
+
+            if (!string.Equals(served, name, StringComparison.Ordinal))
+            {
+                missing.Add($"{name}: {place.Service}/FeatureServer/{place.Id} serves '{served}'");
+            }
+        }
+
+        Assert.True(
+            missing.Count == 0,
+            $"""
+             A layer the catalogue lists cannot be found where the directory says:
+
+                 {string.Join("\n    ", missing)}
+
+             Any client — this project's console included — has to turn a layer name into a
+             URL. /admin/layers does not carry the service or the layer id, so that mapping
+             comes from the directory, and these two documents disagreeing means no client
+             can address the layer at all. D-45.
+             """);
+    }
+
     // ---------- group layers ----------
 
     /// <summary>

@@ -402,7 +402,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         [
             "where", "objectIds", "geometry", "geometryType", "inSR", "defaultSR", "spatialRel",
             "distance", "units", "relationParam", "outFields", "returnGeometry",
-            "maxAllowableOffset", "geometryPrecision", "outSR", "havingClause", "orderByFields",
+            // havingClause is deliberately absent — D-41 refused the parameter, so
+            // the page no longer offers a field for it.
+            "maxAllowableOffset", "geometryPrecision", "outSR", "orderByFields",
             "groupByFieldsForStatistics", "outStatistics", "returnZ", "returnM", "gdbVersion",
             "historicMoment", "returnDistinctValues", "resultOffset", "resultRecordCount",
             "returnExtentOnly", "returnCountOnly", "returnIdsOnly", "sqlFormat", "f",

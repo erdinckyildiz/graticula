@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gis-server — layer</title>
+
+<!--
+  The layer viewer, on OpenLayers.
+
+  <b>Owner decision, 2026-08-16, asked for twice.</b> ADR-020 §4 chose Esri's Maps
+  SDK from Esri's CDN, and its argument was real: the most demanding Esri client
+  pointed at our own service is the closest available test of ArcGIS compatibility.
+  That argument is about *testing*, and it kept being used to justify the thing an
+  operator looks at every day.
+
+  OpenLayers is BSD-2-Clause, so it is vendored here — 858 KB, committed, pinned to
+  10.3.1. Nothing reaches a CDN at runtime, which means: the console's
+  Content-Security-Policy needs no third-party origin, an air-gapped deployment
+  (Q-15) works, and no third party learns that this server exists. GeoServer ships
+  an OpenLayers preview for the same reasons.
+
+  <b>It reads our FeatureServer directly.</b> OpenLayers has an `EsriJSON` format,
+  so no server change was needed — `f=geojson` is accepted and ignored by this
+  server, and it did not have to stop being.
+
+  The Esri SDK page survives at map.html as what it always argued for: a
+  compatibility probe. Both are offered from the services directory, so the two
+  jobs are visible as two jobs.
+-->
+
+<link rel="stylesheet" href="ol.css">
+<script src="ol.js"></script>
+
+<style>
+  :root {
+    --paper: #f5f8f6; --surface: #fff; --ink: #0f1e1b; --muted: #576a66;
+    --faint: #7d8f8b; --rule: #d7e0dc; --accent: #0b6157; --water: #dce7ec;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  header { padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--rule);
+           color: var(--ink); }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  header h1 a { color: var(--accent); text-decoration: none; font-weight: 400; font-size: 13px; }
+  #facts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 5px;
+           font-size: 12.5px; color: var(--muted); }
+  #facts code { font-family: var(--mono); font-size: 11.5px; }
+  #facts b { color: var(--ink); }
+  button { font: inherit; font-size: 12px; padding: 3px 9px; cursor: pointer;
+           border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
+           color: var(--ink); }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #picker { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+  #picker:empty { display: none; }
+  #grounds { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 7px;
+             font-size: 12px; color: var(--faint); }
+  #grounds:empty { display: none; }
+  #grounds > span:first-child { text-transform: uppercase; letter-spacing: .04em;
+                               font-weight: 600; }
+  #map { width: 100%; height: 100%; background: #bfd6e2; }
+
+  /*
+    Both of these are positioned explicitly, and that is a fix rather than a
+    preference. Overriding OpenLayers' scale line with a background but no
+    `position` left it as a full-width white band across the middle of the map —
+    which is what it looked like: a mysterious white line. A control has to be
+    told where it lives.
+  */
+  .ol-scale-line { position: absolute; left: 10px; bottom: 10px; width: auto;
+                   background: rgba(255,255,255,.82); padding: 2px 4px; border-radius: 3px; }
+  .ol-scale-line-inner { color: var(--ink); border-color: var(--muted); font-size: 11px;
+                         margin: 0; }
+  .ol-mouse-position { position: absolute; top: auto; bottom: 10px; right: 10px;
+                       background: rgba(255,255,255,.82); padding: 2px 7px; border-radius: 3px;
+                       font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  #note { position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 86px;
+          background: var(--surface); border: 1px solid var(--rule);
+          border-left: 3px solid #a63a2b; border-radius: 3px; padding: 11px 15px;
+          max-width: 560px; font-size: 13.5px; display: none;
+          box-shadow: 0 10px 28px -14px rgba(0,0,0,.4); }
+  #note.on { display: block; }
+  #note b { display: block; margin-bottom: 3px; }
+  #attrs { position: absolute; z-index: 40; right: 12px; top: 96px; width: 300px;
+           max-height: 60%; overflow: auto; background: var(--surface);
+           border: 1px solid var(--rule); border-radius: 3px; font-size: 12.5px;
+           display: none; box-shadow: 0 10px 28px -18px rgba(0,0,0,.4); }
+  #attrs.on { display: block; }
+  #attrs table { border-collapse: collapse; width: 100%; }
+  #attrs th, #attrs td { text-align: left; padding: 5px 10px; border-top: 1px solid var(--rule);
+                         vertical-align: top; }
+  #attrs th { color: var(--faint); font-weight: 600; white-space: nowrap; }
+  #attrs td { font-family: var(--mono); font-size: 11.5px; word-break: break-word; }
+  #attrs tr:first-child th, #attrs tr:first-child td { border-top: 0; }
+  .ol-attribution { font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <header>
+    <h1><span id="title">layer</span> <a id="directory" href="/rest/services">services directory</a></h1>
+    <div id="facts"></div>
+    <div id="picker"></div>
+    <!--
+      The grounds this server can draw under the data — its own tile services.
+      This was a `?ground=` query parameter, which is the same as not existing:
+      the answer to "can we use OpenStreetMap data" is *import it and serve your
+      own tiles*, and it has to be visible for that to be an answer.
+    -->
+    <div id="grounds"></div>
+  </header>
+  <div id="map"></div>
+</div>
+<div id="note"></div>
+<div id="attrs"></div>
+
+<script src="view.js" defer></script>
+</body>
+</html>

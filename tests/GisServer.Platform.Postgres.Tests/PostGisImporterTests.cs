@@ -66,6 +66,38 @@ public sealed class PostGisImporterTests : PostgresFixture
         return (T)(await command.ExecuteScalarAsync())!;
     }
 
+    // ---------- the one-schema rule ----------
+
+    [Theory]
+    [InlineData("public")]
+    [InlineData("cadastre")]
+    [InlineData("Hosted")]
+    [InlineData("hosted_staging")]
+    public async Task A_table_outside_the_one_hosted_schema_is_not_ours_to_drop(string schema)
+    {
+        // <b>The guard the whole data model leans on.</b>
+        // [data-model.md](../../docs/data-model.md) §2 records the owner's rule of
+        // 2026-08-16: the application uses exactly one schema in the datastore.
+        // That rule is what makes this refusal a guarantee rather than a heuristic
+        // — with one schema the question "is this table ours?" is a string
+        // comparison, and with two it becomes a lookup that can be stale or race
+        // an unpublish. An unpublish that deletes a customer's table is the worst
+        // failure available here.
+        //
+        // `Hosted` is in the list on purpose: the comparison is ordinal, so a
+        // capitalised variant is somebody else's schema and must be refused. The
+        // folder name is matched case-insensitively (migration 15) and the schema
+        // name is not, and those two rules living side by side is exactly the kind
+        // of thing that gets "tidied" into agreement one day.
+        InvalidOperationException refused =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new PostGisImporter(DataSource)
+                    .DropAsync(schema, "anything", CancellationToken.None));
+
+        Assert.Contains("Refusing to drop", refused.Message, StringComparison.Ordinal);
+        Assert.Contains(PostGisImporter.HostedSchema, refused.Message, StringComparison.Ordinal);
+    }
+
     // ---------- the happy path ----------
 
     [Fact]

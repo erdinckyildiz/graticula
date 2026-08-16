@@ -18,699 +18,522 @@
   redistribution — the browser fetches it and nothing proprietary ships inside
   this product — and it is the real client rather than a light one, which makes
   it the closest test of whether the server is genuinely ArcGIS-compatible.
+
+  REBUILT 2026-08-16, and the reason was not taste. ADR-020 §5b: three sections
+  against an admin API with twenty routes. What the API already returned and this
+  console discarded: the whole of /admin/health beyond one word, /admin/services,
+  /admin/routes and its ungoverned count (ADR-018 condition 5), the capability
+  probe's list of publishable tables, and every per-layer operation except
+  start/stop and sharing. None of this needed a new endpoint.
+
+  Three layout decisions, each with a reason, because ADR-020 §5 asks screens to
+  earn their place:
+
+  · Tabs, not a left rail. Three surfaces do not need a rail, and the width goes
+    to the tables instead of to navigation that never changes.
+  · The daily surface is Services, and it opens first. Creating a layer is a
+    thing you do occasionally, so it is a button and a drawer rather than the
+    first thing under the header — which is what it used to be.
+  · Per-layer operations live in one drawer beside the row they act on, because
+    cache lifetime, refresh, style and delete are all answers to "what about this
+    layer" and putting each in its own column would make a table nobody can read.
 -->
 
-<link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
-<script src="https://js.arcgis.com/4.29/"></script>
+<!--
+  The map SDK is NOT loaded here, and that is the second half of D-44's lesson.
+
+  It used to be a blocking <script src> in the head. A blocking third-party
+  script means the console's own code does not run until that request resolves —
+  so a blocked CDN, an offline machine or an air-gapped deployment (Q-15) took the
+  whole console down rather than just the map. It is fetched on demand in
+  console.js the first time somebody asks to see something drawn, and if it never
+  arrives the map says so and everything else still works.
+-->
 
 <style>
+  /*
+    The palette is unchanged and deliberately so. Muted greens against warm
+    paper, one accent, and three status colours that differ in hue *and*
+    lightness so a status is never carried by colour alone.
+  */
   :root {
-    --paper: #f5f8f6; --surface: #fff; --surface-2: #eff4f1;
-    --ink: #0f1e1b; --muted: #576a66; --rule: #d7e0dc;
-    --accent: #0b6157; --ok: #2f7a55; --stop: #92620d; --alert: #a63a2b;
+    --paper: #f5f8f6; --surface: #fff; --surface-2: #eff4f1; --surface-3: #e6ede9;
+    --ink: #0f1e1b; --muted: #576a66; --faint: #7d8f8b; --rule: #d7e0dc;
+    --accent: #0b6157; --accent-soft: #e2efeb;
+    --ok: #2f7a55; --stop: #92620d; --alert: #a63a2b;
     --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--ink);
-         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-           padding: 14px 22px; border-bottom: 1px solid var(--rule); background: var(--surface); }
-  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  header .who { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: auto; }
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 22px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .09em;
-       color: var(--muted); font-weight: 600; margin: 26px 0 10px; }
-  h2:first-child { margin-top: 0; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
+  a { color: var(--accent); }
 
-  .panel { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); overflow: hidden; }
+  /* ---------------------------------------------------------------- chrome */
+
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+           padding: 0 22px; height: 52px; background: var(--surface);
+           border-bottom: 1px solid var(--rule); }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .dot.bad { background: var(--alert); }
+  .dot.unknown { background: var(--faint); }
+  #healthLine { font-size: 13px; color: var(--muted); }
+  header .right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  #who { font-size: 13px; color: var(--muted); }
+  #who b { color: var(--ink); font-weight: 600; }
+
+  nav { display: flex; align-items: flex-end; gap: 2px; padding: 0 22px;
+        background: var(--surface); border-bottom: 1px solid var(--rule); }
+  nav button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+               font: inherit; font-size: 13.5px; color: var(--muted); cursor: pointer;
+               padding: 11px 13px 9px; border-radius: 0; }
+  nav button:hover { color: var(--ink); }
+  nav button[aria-current="page"] { color: var(--ink); font-weight: 600;
+                                    border-bottom-color: var(--accent); }
+  nav .right { margin-left: auto; padding: 8px 0; }
+  nav .count { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 5px; }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 20px 22px 60px; }
+  .view { display: none; }
+  .view.on { display: block; }
+
+  /* ------------------------------------------------------------- structure */
+
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.01em; }
+  .lede { margin: 0 0 14px; font-size: 13px; color: var(--muted); max-width: 68ch; }
+  .panel { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
+           overflow: hidden; }
   .panel.pad { padding: 16px 18px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items: start; }
-  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
-  .two h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-  .hint { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); max-width: 46ch; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  .row label, form > label { display: flex; flex-direction: column; gap: 3px;
-       font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  form > label { margin-bottom: 12px; }
-  .row input, .row select, form > label input { font: inherit; padding: 5px 7px;
-       border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); color: var(--ink); }
-  table.fields { margin-bottom: 8px; }
-  table.fields th { padding: 6px 8px; }
-  table.fields td { padding: 4px 8px; }
-  table.fields input, table.fields select { font: inherit; font-size: 13px; padding: 3px 5px;
-       border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); color: var(--ink); }
-  button.ghost { background: transparent; border: 1px dashed var(--rule); color: var(--muted); }
-  .pill.p-hosted { background: #e2efeb; color: #0f6d5f; }
-  .pill.p-registered { background: var(--surface-2); color: var(--muted); }
-  #newResult:not(:empty) { margin-top: 16px; padding: 11px 13px; border-radius: 3px;
-       font-size: 13px; background: var(--surface-2); border: 1px solid var(--rule); }
+  .panel + .panel, .panel + h2 { margin-top: 18px; }
+  h2 + .panel { margin-top: 0; }
+  .cols { display: grid; gap: 18px; }
+  .cols.two { grid-template-columns: 1fr 1fr; align-items: start; }
+  @media (max-width: 940px) { .cols.two { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+
+  /* ---------------------------------------------------------------- tables */
+
   table { border-collapse: collapse; width: 100%; font-size: 14px; }
-  th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em;
-       text-transform: uppercase; color: var(--muted); font-weight: 400;
-       padding: 10px 13px; background: var(--surface-2); border-bottom: 1px solid var(--rule); }
+  /*
+    Labels are in the text face, not mono. Mono is for values a person may need
+    to copy or compare character by character — a table name, an id, an SRID —
+    and using it for headings too was the one thing a slop scan found here that
+    was actually a shortcut rather than a false positive.
+  */
+  th { text-align: left; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+       color: var(--faint); font-weight: 600; padding: 9px 13px;
+       background: var(--surface-2); border-bottom: 1px solid var(--rule); white-space: nowrap; }
   td { padding: 9px 13px; border-top: 1px solid var(--rule); vertical-align: middle; }
-  tr:first-child td { border-top: 0; }
-  .sub { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
-            margin-right: 7px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.25); }
+  tbody tr:first-child td { border-top: 0; }
+  tbody tr.pick { cursor: pointer; }
+  tbody tr.pick:hover { background: var(--surface-2); }
+  tbody tr.sel { background: var(--accent-soft); }
+  tbody tr.sel td { border-top-color: #cfe1db; }
+  td.num { text-align: right; font-family: var(--mono); font-size: 13px; }
+  .empty { padding: 26px 18px; color: var(--muted); font-size: 13.5px; }
+  td.acts { white-space: nowrap; }
+  td.acts button { margin-left: 4px; }
+  td.acts button:first-of-type { margin-left: 0; }
 
-  .pill { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
-          letter-spacing: .05em; padding: 3px 7px; border-radius: 2px;
-          border: 1px solid; display: inline-block; white-space: nowrap; }
-  .p-started { color: var(--ok); border-color: var(--ok); }
-  .p-stopped { color: var(--stop); border-color: var(--stop); }
-  .p-public { color: var(--accent); border-color: var(--accent); }
-  .p-organization, .p-private { color: var(--muted); border-color: var(--rule); }
+  .toolbar { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+  .toolbar input[type=search] { flex: 0 1 340px; }
+  th button.sort { appearance: none; background: none; border: 0; padding: 0; margin: 0;
+                   font: inherit; color: inherit; letter-spacing: inherit;
+                   text-transform: inherit; cursor: pointer; }
+  th button.sort:hover { color: var(--ink); }
+  th[aria-sort="ascending"] button.sort::after { content: " \2191"; }
+  th[aria-sort="descending"] button.sort::after { content: " \2193"; }
+  th[aria-sort]:not([aria-sort="none"]) button.sort { color: var(--ink); }
+  .val { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .name { font-weight: 600; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+            margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0,0,0,.3); }
 
-  button, select { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 3px;
-                   border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
-                   cursor: pointer; }
+  /* ----------------------------------------------------------------- pills */
+
+  .pill { font-size: 11.5px; letter-spacing: .02em; padding: 2px 7px; border-radius: 2px;
+          border: 1px solid; display: inline-block; white-space: nowrap; font-weight: 600; }
+  .p-started { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
+  .p-stopped { color: var(--stop); border-color: #ddc79a; background: #fbf4e6; }
+  .p-public { color: var(--accent); border-color: #a8ccc4; background: var(--accent-soft); }
+  .p-organization { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
+  .p-private { color: var(--faint); border-color: var(--rule); background: var(--surface); }
+  .p-hosted { color: #0f6d5f; border-color: #a8ccc4; background: var(--accent-soft); }
+  .p-registered { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
+  .p-usable { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
+  .p-degraded, .p-unusable { color: var(--alert); border-color: #dcb1a9; background: #fbefec; }
+
+  /* --------------------------------------------------------------- controls */
+
+  button, select, input, textarea { font: inherit; }
+  button { font-size: 13px; padding: 5px 11px; border-radius: 3px;
+           border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+           cursor: pointer; }
   button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  input { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 3px;
-          border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.on, button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.on:hover, button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+  button.ghost { background: transparent; border-style: dashed; color: var(--muted); }
+  button.danger:hover:not(:disabled) { border-color: var(--alert); color: var(--alert); }
+  button.tiny { font-size: 12px; padding: 3px 8px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  #mapPanel { display: none; margin-bottom: 8px; }
+  select, input[type=text], input[type=password], input[type=number], input[type=file], textarea {
+    padding: 5px 8px; border: 1px solid var(--rule); border-radius: 3px;
+    background: var(--surface); color: var(--ink); font-size: 13.5px; }
+  textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.45; width: 100%; }
+  label.field { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px;
+                letter-spacing: .03em; text-transform: uppercase; color: var(--faint);
+                font-weight: 600; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .hint { font-size: 12.5px; color: var(--muted); max-width: 56ch; margin: 0 0 12px; }
+  .hint:last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
+         padding: 1px 4px; border-radius: 2px; }
+
+  /* ------------------------------------------------------------------- map */
+
+  #mapPanel { display: none; margin-bottom: 18px; }
   #mapPanel.on { display: block; }
-  #view { height: 480px; }
-  #legend { padding: 9px 13px; border-top: 1px solid var(--rule); font-size: 13px;
-            display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  #view { height: 420px; }
+  #legend { padding: 8px 13px; border-top: 1px solid var(--rule); font-size: 13px;
+            display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--muted); }
+  #view:empty::after { content: "The map library has not loaded."; display: block;
+                       padding: 30px 13px; color: var(--muted); font-size: 13.5px; }
+  #basemapBar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+                padding: 8px 13px; border-top: 1px solid var(--rule);
+                background: var(--surface-2); font-size: 13px; }
+  #basemapBar .lbl { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
+                     color: var(--faint); font-weight: 600; }
+  #basemapBar input { flex: 1 1 300px; font-size: 12.5px; font-family: var(--mono); }
+  #basemapBar .val { flex: 0 1 auto; }
+
+  /* ----------------------------------------------------------------- drawer */
+
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 94vw;
+            background: var(--surface); border-left: 1px solid var(--rule); z-index: 1500;
+            transform: translateX(100%); transition: transform .16s ease-out;
+            display: flex; flex-direction: column;
+            box-shadow: -18px 0 40px -28px rgba(0,0,0,.45); }
+  #drawer.on { transform: none; }
+  #drawer header { height: auto; padding: 14px 18px; align-items: flex-start; gap: 10px; }
+  #drawer header h2 { font-size: 15px; }
+  #drawerBody { overflow-y: auto; padding: 16px 18px 40px; flex: 1; }
+  .group { border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 16px; }
+  .group:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+              color: var(--faint); font-weight: 600; }
+  dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0;
+             font-size: 13px; }
+  dl.facts dt { color: var(--muted); }
+  dl.facts dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+
+  /* -------------------------------------------------------------- metrics */
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .metric { padding: 13px 16px; border-left: 1px solid var(--rule); }
+  .metric:first-child { border-left: 0; }
+  .metric dt { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
+               color: var(--faint); font-weight: 600; }
+  .metric dd { margin: 3px 0 0; font-family: var(--mono); font-size: 19px; letter-spacing: -.02em; }
+  .metric dd small { font-family: var(--sans); font-size: 12px; color: var(--muted);
+                     letter-spacing: 0; margin-left: 3px; }
+  @media (max-width: 700px) { .metric { border-left: 0; border-top: 1px solid var(--rule); }
+                              .metric:first-child { border-top: 0; } }
+
+  /* ---------------------------------------------------------------- toast */
 
   #toast { position: fixed; right: 20px; bottom: 20px; max-width: 480px; z-index: 2000;
            background: var(--surface); border: 1px solid var(--rule); border-left-width: 3px;
-           border-radius: 3px; padding: 12px 15px; font-size: 13.5px; display: none;
-           box-shadow: 0 10px 28px -14px rgba(0,0,0,.5); }
+           border-radius: 3px; padding: 11px 14px; font-size: 13.5px; display: none;
+           box-shadow: 0 12px 30px -16px rgba(0,0,0,.5); }
   #toast.on { display: block; }
   #toast.bad { border-left-color: var(--alert); }
   #toast.good { border-left-color: var(--ok); }
 
-  #signin { max-width: 380px; margin: 90px auto; }
+  /* --------------------------------------------------------------- sign in */
+
+  #signin { max-width: 360px; margin: 88px auto; }
   #signin .panel { padding: 22px; }
   #signin label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
   #signin input, #signin button { width: 100%; }
   #signin button { margin-top: 18px; }
-  .hint { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+  .bad-inline { margin: 12px 0 0; padding: 9px 11px; font-size: 13px;
+                color: var(--alert); background: #fbefec; border: 1px solid #dcb1a9;
+                border-radius: 3px; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>gis-server</h1>
-  <span class="sub" id="health">checking…</span>
-  <span class="who" id="who"></span>
-  <button id="signout" style="display:none">Sign out</button>
+  <span class="dot unknown" id="healthDot"></span>
+  <span id="healthLine">checking…</span>
+  <span class="right">
+    <span id="who"></span>
+    <button id="signout" style="display:none">Sign out</button>
+  </span>
 </header>
 
+<nav id="tabs" style="display:none">
+  <button data-tab="services" aria-current="page">Services<span class="count" id="cServices"></span></button>
+  <button data-tab="sources">Data sources<span class="count" id="cSources"></span></button>
+  <button data-tab="operations">Operations</button>
+  <button data-tab="anonymous">Anonymous view</button>
+  <span class="right"><button class="primary" id="newLayer">New layer</button></span>
+</nav>
+
 <div id="signin" class="wrap">
-  <div class="panel">
-    <b>Sign in</b>
-    <label for="u">Name</label><input id="u" autocomplete="username">
-    <label for="p">Password</label><input id="p" type="password" autocomplete="current-password">
-    <button class="primary" id="go">Sign in</button>
-    <p class="hint">Everything below is the admin API. Nothing here can do anything
-      <code>curl</code> could not.</p>
-  </div>
+  <!--
+    A real form, and the reason is a bug this had: it used to be a panel with a
+    button and a click handler, so typing a password and pressing Enter did
+    nothing at all — no submit, no request, no message. "Nothing happens" is the
+    worst failure a sign-in can have, because it gives the person no way to tell
+    a wrong password from a broken page.
+
+    And the refusal is shown here rather than only in the corner toast. A toast
+    is right for something that happened to a layer while you were looking
+    elsewhere; it is wrong for the field you are typing into.
+  -->
+  <!--
+    method="post" and no name= on either input, and both are load-bearing.
+
+    With the script blocked or broken, a form still submits natively. This one
+    used to do that as a GET with name="username" and name="password", so the
+    credentials went into the address bar, the browser's history and every proxy
+    log on the way — which is exactly what happened on 2026-08-16 (D-44) and is a
+    far worse failure than the button not working. Without name attributes there
+    is nothing to serialise, and method="post" means a fallback could not put it
+    in a URL even if there were.
+  -->
+  <form class="panel" id="signinForm" method="post" action="">
+    <h2>Sign in</h2>
+    <label for="u">Name</label>
+    <input type="text" id="u" autocomplete="username" autofocus>
+    <label for="p">Password</label>
+    <input id="p" type="password" autocomplete="current-password">
+    <button class="primary" id="go" type="submit">Sign in</button>
+    <noscript><p class="bad-inline">This console is JavaScript. Your browser is not
+      running it, so signing in here cannot work — check whether an extension is
+      blocking scripts on this page.</p></noscript>
+    <p class="bad-inline" id="signinError" hidden></p>
+    <p class="hint" style="margin-top:14px">Everything here is the admin API. Nothing this
+      console does is anything <code>curl</code> could not — ADR-020 §2.</p>
+  </form>
 </div>
 
 <main class="wrap" id="app" style="display:none">
-  <div class="panel" id="mapPanel">
-    <div id="view"></div>
-    <div id="legend"></div>
-  </div>
 
-  <h2>New hosted layer</h2>
-  <div class="panel pad">
-    <!--
-      Two ways to make a hosted feature class, side by side, because they are
-      the same act with different starting material. Hosted means the datastore
-      holds it — not that a file produced it.
-    -->
-    <div class="two">
-      <form id="designForm" autocomplete="off">
-        <h3>Design a schema</h3>
-        <p class="hint">For data you are going to collect. Creates an empty
-          feature class you fill through the feature service.</p>
-
-        <div class="row">
-          <label>Name<input id="dName" placeholder="inspections" required></label>
-          <label>Geometry
-            <select id="dGeom">
-              <option>Point</option><option>MultiPoint</option>
-              <option>LineString</option><option>MultiLineString</option>
-              <option selected>Polygon</option><option>MultiPolygon</option>
-            </select>
-          </label>
-          <label>Sharing
-            <select id="dShare">
-              <option value="private" selected>private</option>
-              <option value="organization">organization</option>
-              <option value="public">public</option>
-            </select>
-          </label>
-        </div>
-
-        <table class="fields">
-          <thead><tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr></thead>
-          <tbody id="dFields"></tbody>
-        </table>
-        <button type="button" id="dAdd" class="ghost">Add field</button>
-
-        <p class="hint">
-          <code>objectid</code> and <code>geom</code> are created for you.
-          Stored in Web Mercator so the layer can serve tiles.
-        </p>
-
-        <button class="primary" type="submit">Create empty layer</button>
-      </form>
-
-      <form id="importForm" autocomplete="off">
-        <h3>Import a file</h3>
-        <p class="hint">For data you already have. Reads the schema from the
-          file and fills the feature class from it.</p>
-
-        <div class="row">
-          <label>Name<input id="iName" placeholder="parks" required></label>
-          <label>Sharing
-            <select id="iShare">
-              <option value="private" selected>private</option>
-              <option value="organization">organization</option>
-              <option value="public">public</option>
-            </select>
-          </label>
-        </div>
-
-        <label>GeoJSON<input id="iFile" type="file" accept=".json,.geojson,application/geo+json" required></label>
-
-        <p class="hint">
-          GeoJSON only. A shapefile is a ZIP and this server does not open
-          archives — see Q-98. Coordinates must be WGS 84 longitude, latitude;
-          they are reprojected to Web Mercator once on the way in.
-        </p>
-
-        <button class="primary" type="submit">Import and publish</button>
-      </form>
+  <!-- ------------------------------------------------------------ services -->
+  <section class="view on" id="view-services">
+    <div class="panel" id="mapPanel">
+      <div id="view"></div>
+      <div id="legend"></div>
+      <!--
+        No basemap ships. The console used to hardcode OpenStreetMap's public
+        tiles; their usage policy does not permit being an application's basemap
+        and on 2026-08-16 they returned 403 for every tile. Naming your own tile
+        server is a preference of whoever is reading, so it is kept in the browser
+        and not in the platform store — this adds no server capability, which is
+        what keeps ADR-020 §2 intact.
+      -->
+      <div id="basemapBar">
+        <span class="lbl">Basemap</span>
+        <span class="val" id="basemapState"></span>
+        <input type="text" id="basemapInput" spellcheck="false"
+          placeholder="https://tiles.example.org/{level}/{col}/{row}.png">
+        <button class="tiny" id="basemapSet">Use</button>
+        <button class="tiny ghost" id="basemapClear">None</button>
+      </div>
     </div>
-    <div id="newResult"></div>
-  </div>
 
-  <h2>Services</h2>
-  <div class="panel">
-    <table>
-      <thead><tr>
-        <th></th><th>Name</th><th>Where</th><th>Source</th><th>Status</th><th>Sharing</th><th></th>
-      </tr></thead>
-      <tbody id="layers"></tbody>
-    </table>
-  </div>
+    <h2>Feature and tile services</h2>
+    <p class="lede">Every published layer. <b>Map</b> draws one; select a row for its source,
+      cache lifetime, style and the operations that act on it.</p>
+    <div class="toolbar">
+      <input type="search" id="layerFilter" placeholder="Filter by name, table, source or owner"
+        autocomplete="off" spellcheck="false">
+      <span class="val" id="layerCount"></span>
+    </div>
+    <div class="panel">
+      <table>
+        <!--
+          Sortable headers are buttons inside th, not click handlers on th, so the
+          keyboard reaches them and a screen reader is told what they do. aria-sort
+          on the th is what says which one is active.
+        -->
+        <thead id="layerHead"><tr>
+          <th style="width:1%"></th>
+          <th data-sort="name" aria-sort="ascending"><button class="sort" data-sort="name">Layer</button></th>
+          <th data-sort="where" aria-sort="none"><button class="sort" data-sort="where">Where</button></th>
+          <th data-sort="status" aria-sort="none"><button class="sort" data-sort="status">Status</button></th>
+          <th data-sort="sharing" aria-sort="none"><button class="sort" data-sort="sharing">Sharing</button></th>
+          <th data-sort="table" aria-sort="none"><button class="sort" data-sort="table">Source table</button></th>
+          <th data-sort="owner" aria-sort="none"><button class="sort" data-sort="owner">Owner</button></th>
+        </tr></thead>
+        <tbody id="layers"></tbody>
+      </table>
+    </div>
 
-  <h2>Data sources</h2>
-  <div class="panel">
-    <table>
-      <thead><tr><th>Name</th><th>Kind</th><th>Layers</th></tr></thead>
-      <tbody id="sources"></tbody>
-    </table>
-  </div>
+    <h2>System services</h2>
+    <p class="lede">Services with no layer behind them. They carry their own sharing scope
+      because a service nobody can reach is not governed by the layers it does not have —
+      ADR-018 §3b-i.</p>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Service</th><th>Kind</th><th>Folder</th><th>Sharing</th><th></th></tr></thead>
+        <tbody id="systemServices"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- sources -->
+  <section class="view" id="view-sources">
+    <h2>Data sources</h2>
+    <p class="lede">Where layers read from. Probe one to see whether the credential still
+      works and what it can publish — the answer is read from the database now, not
+      remembered from when it was registered.</p>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Name</th><th>Kind</th><th class="num">Layers</th><th>Id</th><th></th></tr></thead>
+        <tbody id="sources"></tbody>
+      </table>
+    </div>
+    <div id="probe"></div>
+
+    <h2>Register a source</h2>
+    <p class="lede">A PostGIS connection string. Test it first: the test connects and reports
+      what it found without storing anything.</p>
+    <!-- A form, so Enter tests the connection instead of doing nothing. -->
+    <form class="panel pad" id="sourceForm">
+      <div class="row">
+        <label class="field" style="flex:1 1 180px">Name<input type="text" id="sName" placeholder="cadastre"></label>
+        <label class="field" style="flex:3 1 340px">Connection string
+          <input type="text" id="sConn" placeholder="Host=…;Database=…;Username=…;Password=…"></label>
+      </div>
+      <div class="row" style="margin-bottom:0">
+        <button id="sTest" type="submit">Test connection</button>
+        <button class="primary" id="sAdd" type="button">Register</button>
+      </div>
+      <div id="sResult" style="margin-top:14px"></div>
+    </form>
+  </section>
+
+  <!-- ---------------------------------------------------------- operations -->
+  <section class="view" id="view-operations">
+    <div class="toolbar">
+      <button id="opsRefresh">Read again</button>
+      <span class="val" id="opsWhen"></span>
+    </div>
+
+    <h2>Platform store</h2>
+    <!--
+      This paragraph said "if this is unreachable the server refuses queries rather
+      than serving a stale catalogue" until 2026-08-16, and that stopped being true
+      when Q-95 was answered and CatalogFallback was built. Operator-facing text
+      about a failure mode is worth more than most documentation and goes stale the
+      same way.
+    -->
+    <p class="lede">The store holding the catalogue, and the first thing to read when nothing
+      works. While it is unreachable the server keeps serving layers that were shared
+      <code>public</code> in its last answer, for a bounded window, and refuses everything else —
+      so a store outage looks like every private layer disappearing at once, not like the server
+      being down.</p>
+    <div class="panel"><dl class="metrics" id="storeMetrics"></dl></div>
+
+    <h2>Runtime</h2>
+    <p class="lede">This process, now. GC pause as a share of wall-clock is the number the
+      performance gate found decisive — it stays invisible at concurrency 1 and it is what
+      sets the ceiling.</p>
+    <div class="panel"><dl class="metrics" id="runtimeMetrics"></dl></div>
+
+    <h2>Caches</h2>
+    <p class="lede">Tiles held on disk, and table shapes remembered from the data source.
+      Sharing and started/stopped are deliberately never cached.</p>
+    <div class="panel"><dl class="metrics" id="cacheMetrics"></dl></div>
+    <p class="hint" id="cacheNotes" style="margin-top:10px"></p>
+
+    <h2>Route governance</h2>
+    <p class="lede">Every route this server answers, and what decides who may reach it.
+      <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
+      this is where that claim is checked rather than asserted.</p>
+    <div class="panel"><dl class="metrics" id="routeMetrics"></dl></div>
+    <div class="panel" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Route</th><th>Methods</th><th>Governed by</th></tr></thead>
+        <tbody id="routes"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------ anonymous view -->
+  <!--
+    Why this screen exists, and it is not a security dashboard.
+
+    The product's promise is that an unmodified ArcGIS client keeps working
+    (Q-07, Q-17). The question an administrator asks on the first day is
+    therefore not "is my catalogue correct" but "will the client see it" — and
+    nothing in this console could answer that, because every request the console
+    makes carries the administrator's own token. So the console was the one
+    viewer guaranteed to see more than any real caller.
+
+    It also closes a specific trap. ADR-018's refusal is deliberately identical
+    for a layer that is absent and one that is present and not shared, which is
+    correct — the alternative leaks the catalogue to anyone who can count 404s —
+    but it means an administrator reading a 404 cannot tell the two apart. D-45
+    is that mistake, made by me, against my own server.
+  -->
+  <section class="view" id="view-anonymous">
+    <h2>Anonymous view</h2>
+    <p class="lede">What a caller with no credential actually sees, by asking. Every request in
+      this table leaves the <code>Authorization</code> header off; the layer-to-service mapping is
+      resolved <em>with</em> your session, because you cannot ask what a stranger sees at a URL you
+      were unable to find.</p>
+    <div class="toolbar">
+      <button id="anonRun">Run the probe</button>
+      <span class="val">Three requests per layer: the service document, the layer document, and a
+        count query.</span>
+    </div>
+    <div id="anonSummary"></div>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Layer</th><th>Shared</th>
+          <th class="num" title="/rest/services/{service}/FeatureServer?f=json">Service</th>
+          <th class="num" title="/rest/services/{service}/FeatureServer/{id}?f=json">Layer</th>
+          <th class="num" title="…/query?where=1=1&amp;returnCountOnly=true">Count</th>
+          <th>Reality against intent</th>
+        </tr></thead>
+        <tbody id="anonRows">
+          <tr><td colspan="6" class="empty">Not run yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede"><b>404 does not mean missing.</b> It is the same answer for a layer that does not
+      exist and one that exists and is not shared with you, and that is deliberate. So the column to
+      read is the last one, which compares what answered against what the catalogue says you
+      intended. Two disagreements are marked: something shared <code>private</code> or
+      <code>organization</code> that answered anyway, and something shared <code>public</code> that
+      did not.</p>
+  </section>
 </main>
+
+<!-- ------------------------------------------------------------------ drawer -->
+<aside id="drawer" aria-hidden="true">
+  <header>
+    <div style="min-width:0">
+      <h2 id="drawerTitle">—</h2>
+      <div class="val" id="drawerSub"></div>
+    </div>
+    <button class="tiny" id="drawerClose" style="margin-left:auto" aria-label="Close">Close</button>
+  </header>
+  <div id="drawerBody"></div>
+</aside>
 
 <div id="toast"></div>
 
-<script>
-const $ = id => document.getElementById(id);
-let token = sessionStorage.getItem("gis-token") || null;
-
-// One colour per shown layer, so the legend means something.
-const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
-const shown = new Map();     // layer name -> { colour, layer }
-let esri = null;             // the SDK modules, loaded once
-let view = null;
-
-function toast(message, ok = false) {
-  const t = $("toast");
-  t.textContent = message;
-  t.className = "on " + (ok ? "good" : "bad");
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => (t.className = ""), 7000);
-}
-
-async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (token) headers.Authorization = "Bearer " + token;
-
-  const response = await fetch(path, { ...options, headers });
-  const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { /* not json */ }
-
-  if (!response.ok) {
-    // The server's own message. Every refusal in this product is written to say
-    // what to do about it, and replacing that with "request failed" throws away
-    // the only useful part.
-    throw new Error((body && body.error && body.error.message) || `${response.status} ${path}`);
-  }
-  return body;
-}
-
-/**
- * Loads the SDK once and teaches it to authenticate.
- *
- * The map's requests go straight from the browser to /rest/services/… and would
- * otherwise carry no credential — so a private or organization layer would 404
- * for the map while the console can see it perfectly. ADR-015 §4's answer to
- * this in the ArcGIS world is a `token=` query parameter, which we deliberately
- * do not implement because a credential in a URL leaks into every proxy log.
- *
- * An interceptor puts it in the Authorization header instead, which is the form
- * ADR-015 §4 says clients should prefer. That it works with the real SDK is the
- * argument for not rushing `token=`.
- */
-function loadEsri() {
-  if (esri) return Promise.resolve(esri);
-
-  return new Promise((resolve, reject) => {
-    require([
-      "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
-      "esri/layers/VectorTileLayer",
-      "esri/layers/WebTileLayer", "esri/Basemap", "esri/config",
-    ], (Map, MapView, FeatureLayer, VectorTileLayer, WebTileLayer, Basemap, config) => {
-      config.request.interceptors.push({
-        urls: location.origin,
-        before: params => {
-          params.requestOptions.headers = {
-            ...(params.requestOptions.headers || {}),
-            Authorization: "Bearer " + token,
-          };
-        },
-      });
-
-      esri = { Map, MapView, FeatureLayer, VectorTileLayer, WebTileLayer, Basemap };
-      resolve(esri);
-    }, reject);
-  });
-}
-
-async function ensureMap() {
-  const { Map, MapView, WebTileLayer, Basemap } = await loadEsri();
-  if (view) return view;
-
-  // OpenStreetMap rather than an Esri basemap: Esri's need an API key tied to
-  // an ArcGIS account, which is exactly what the people this product is for do
-  // not have.
-  const basemap = new Basemap({
-    baseLayers: [new WebTileLayer({
-      urlTemplate: "https://tile.openstreetmap.org/{level}/{col}/{row}.png",
-      copyright: "© OpenStreetMap contributors",
-    })],
-  });
-
-  view = new MapView({
-    container: "view",
-    map: new Map({ basemap }),
-    center: [0, 20],
-    zoom: 2,
-  });
-
-  return view;
-}
-
-function symbolFor(geometryType, colour) {
-  if (geometryType === "esriGeometryPolygon") {
-    return { type: "simple-fill", color: colour + "55",
-             outline: { color: colour, width: 1.6 } };
-  }
-  if (geometryType === "esriGeometryPolyline") {
-    return { type: "simple-line", color: colour, width: 2.4 };
-  }
-  return { type: "simple-marker", size: 9, color: colour,
-           outline: { color: "#fff", width: 1.2 } };
-}
-
-function drawLegend() {
-  $("legend").innerHTML = shown.size === 0
-    ? '<span class="sub">Nothing shown. Use Show next to a service.</span>'
-    : [...shown.entries()].map(([name, s]) =>
-        `<span><i class="swatch" style="background:${s.colour}"></i>${name}</span>`).join("");
-}
-
-// Tiles, through Esri's own VectorTileLayer rather than anything of ours.
-//
-// This is the only check that A-057 actually names: that the ST_AsMVT output
-// is acceptable to a real client. Rendering a tile ourselves proved the
-// geometry is right, which is a different and smaller claim — our decoder and
-// our encoder could agree about a mistake, and a client that refuses the
-// service is a service nobody can use no matter how correct the bytes are.
-async function showTiles(name) {
-  const { VectorTileLayer } = await loadEsri();
-  const mapView = await ensureMap();
-
-  const layer = new VectorTileLayer({
-    url: `${serviceRoot(layerNamed(name))}/VectorTileServer`,
-    title: `${name} (tiles)`,
-  });
-
-  mapView.map.add(layer);
-  shown.set(tileKey(name), { colour: TILE_COLOUR, layer, tiles: true });
-  drawLegend();
-  $("mapPanel").classList.add("on");
-
-  try {
-    await layer.when();
-    if (layer.fullExtent) await mapView.goTo(layer.fullExtent.expand(1.2));
-  } catch (e) {
-    hide(tileKey(name));
-    toast(`${name} tiles: ${e.message || e}`);
-  }
-}
-
-const tileKey = name => `${name} · tiles`;
-const TILE_COLOUR = "#8fb8cc";
-
-// Hosted services live under /rest/services/hosted and registered ones do
-// not. The server redirects the wrong path, so building the wrong URL still
-// works — but it costs a round trip on every request, and a console that
-// relies on a compatibility redirect is a console teaching the wrong shape.
-function serviceRoot(layer) {
-  const folder = layer.hosted ? "hosted/" : "";
-  return `${location.origin}/rest/services/${folder}${encodeURIComponent(layer.name)}`;
-}
-
-async function show(name, geometryType) {
-  const { FeatureLayer } = await loadEsri();
-  const mapView = await ensureMap();
-
-  const colour = PALETTE[shown.size % PALETTE.length];
-
-  const layer = new FeatureLayer({
-    url: `${serviceRoot(layerNamed(name))}/FeatureServer/0`,
-    title: name,
-    outFields: ["*"],
-    renderer: { type: "simple", symbol: symbolFor(geometryType, colour) },
-    popupTemplate: { title: name, content: "{*}" },
-  });
-
-  mapView.map.add(layer);
-  shown.set(name, { colour, layer });
-  drawLegend();
-  $("mapPanel").classList.add("on");
-
-  try {
-    await layer.when();
-
-    // Zoom to the layer just shown. fullExtent comes from the layer document,
-    // which this server fills from PostGIS statistics — so it may be absent,
-    // and an absent extent is said out loud rather than left as a map that
-    // quietly did not move.
-    if (layer.fullExtent) {
-      await mapView.goTo(layer.fullExtent.expand(1.4));
-    } else {
-      toast(`${name} is shown, but its extent is unknown so the map did not move. `
-        + "Run ANALYZE on the source table and reload.");
-    }
-  } catch (e) {
-    // The SDK reports a refused request here, and the server's message is the
-    // useful part — a stopped service, a layer not shared, a parameter refused.
-    hide(name);
-    toast(`${name}: ${e.message || e}`);
-  }
-}
-
-function hide(name) {
-  const entry = shown.get(name);
-  if (!entry) return;
-  if (view) view.map.remove(entry.layer);
-  shown.delete(name);
-  drawLegend();
-  if (shown.size === 0) $("mapPanel").classList.remove("on");
-}
-
-// ---------------------------------------------------------------- new layer
-
-const FIELD_TYPES =
-  ["Text", "Integer", "BigInteger", "SmallInteger", "Double", "Single", "Boolean", "Date", "Guid"];
-
-function addFieldRow(name = "", type = "Text") {
-  const row = document.createElement("tr");
-  row.innerHTML =
-    `<td><input class="fName" value="${name}" placeholder="inspector"></td>
-     <td><select class="fType">${FIELD_TYPES.map(t =>
-       `<option${t === type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
-     <td style="text-align:center"><input class="fReq" type="checkbox"></td>
-     <td><button type="button" class="ghost fDel">Remove</button></td>`;
-  row.querySelector(".fDel").onclick = () => row.remove();
-  $("dFields").append(row);
-}
-
-// Reports what the server said rather than "done". The import response carries
-// the row count, the inferred field types and the reprojection note — all of
-// which are things somebody uploading a file wants to check before trusting it.
-function reportNew(created) {
-  const fields = (created.fields || [])
-    .map(f => `${f.name} <span class="sub">${f.type}</span>`).join(", ");
-
-  $("newResult").innerHTML =
-    `<b>${created.name}</b> created — ${created.rows} row${created.rows === 1 ? "" : "s"},
-     table <code>${created.table}</code>.<br>
-     ${fields ? `Fields: ${fields}.<br>` : ""}
-     ${created.storedIn && created.storedIn.sourceSR !== created.storedIn.storedSR
-        ? `<span class="sub">${created.storedIn.note}</span><br>` : ""}
-     <a href="${created.services.feature}?f=json" target="_blank">feature service</a> ·
-     <a href="${created.services.tiles}?f=json" target="_blank">tile service</a>`;
-}
-
-async function createDesigned(event) {
-  event.preventDefault();
-
-  const fields = [...document.querySelectorAll("#dFields tr")].map(row => ({
-    name: row.querySelector(".fName").value.trim(),
-    type: row.querySelector(".fType").value,
-    nullable: !row.querySelector(".fReq").checked,
-  })).filter(f => f.name);
-
-  try {
-    reportNew(await api("/admin/hosted/define", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: $("dName").value.trim(),
-        geometryType: $("dGeom").value,
-        sharing: $("dShare").value,
-        fields,
-      }),
-    }));
-
-    $("dName").value = "";
-    $("dFields").innerHTML = "";
-    addFieldRow();
-    await loadLayers();
-  } catch (e) {
-    // The server's message is the useful part — a name in use, a reserved
-    // field, a type it does not know.
-    $("newResult").textContent = e.message || String(e);
-  }
-}
-
-async function createImported(event) {
-  event.preventDefault();
-
-  const file = $("iFile").files[0];
-  if (!file) return;
-
-  const body = new FormData();
-  body.append("name", $("iName").value.trim());
-  body.append("sharing", $("iShare").value);
-  body.append("file", file);
-
-  // No Content-Type header: the browser sets it with the multipart boundary,
-  // and setting it by hand produces a body the server cannot parse.
-  try {
-    reportNew(await api("/admin/hosted/import", { method: "POST", body }));
-    $("iName").value = "";
-    $("iFile").value = "";
-    await loadLayers();
-  } catch (e) {
-    $("newResult").textContent = e.message || String(e);
-  }
-}
-
-async function refreshHealth() {
-  try {
-    const h = await api("/admin/health");
-    $("health").textContent = h.status === "ok"
-      ? "platform store reachable"
-      : "DEGRADED — platform store unreachable";
-  } catch { $("health").textContent = "unreachable"; }
-}
-
-async function whoami() {
-  const me = await api("/rest/whoami");
-  $("who").textContent = me.authenticated
-    ? `${me.name} · ${me.roles.join(", ") || "no roles"} · ${me.userType}`
-    : "anonymous";
-  return me;
-}
-
-const pill = value => `<span class="pill p-${value}">${value}</span>`;
-
-// The last listing, so serviceRoot can tell hosted from registered without a
-// second request. Refreshed by every loadLayers, which runs after any change.
-let known = [];
-const layerNamed = name => known.find(l => l.name === name) || { name, hosted: false };
-
-async function loadLayers() {
-  const { layers } = await api("/admin/layers");
-  known = layers;
-
-  $("layers").innerHTML = layers.map(l => {
-    const isShown = shown.has(l.name);
-    const tilesShown = shown.has(tileKey(l.name));
-    const stopped = l.status === "stopped";
-    const swatch = isShown
-      ? `<i class="swatch" style="background:${shown.get(l.name).colour}"></i>` : "";
-
-    return `<tr>
-      <td>
-        <button data-show="${l.name}" class="${isShown ? "on" : ""}"
-          ${stopped ? "disabled title='A stopped service answers 503, so there is nothing to draw.'" : ""}>
-          ${isShown ? "Hide" : "Show"}
-        </button>
-        ${l.hosted ? `<button data-tiles="${l.name}" class="${tilesShown ? "on" : ""}"
-          ${stopped ? "disabled" : ""}
-          title="Draw this as vector tiles, through Esri's VectorTileLayer.">
-          ${tilesShown ? "Hide tiles" : "Tiles"}
-        </button>` : `<button disabled
-          title="Tiles come only from hosted data — data this server owns as system of record (Q-67). This layer is registered, so it has a FeatureServer and no VectorTileServer.">
-          no tiles
-        </button>`}
-      </td>
-      <td><b class="${isShown ? "zoom" : ""}" data-zoom="${isShown ? l.name : ""}"
-             style="${isShown ? "cursor:pointer" : ""}"
-             title="${isShown ? "Zoom to this layer" : ""}">${swatch}${l.name}</b></td>
-      <td>${pill(l.hosted ? "hosted" : "registered")}</td>
-      <td class="sub">${l.dataSource} · ${l.table}${l.arcGisServable ? "" : " · no object id"}</td>
-      <td>${pill(l.status)}</td>
-      <td>${pill(l.sharing)}</td>
-      <td style="text-align:right; white-space:nowrap">
-        <button data-toggle="${l.name}" data-to="${stopped ? "start" : "stop"}">
-          ${stopped ? "Start" : "Stop"}
-        </button>
-        <select data-share="${l.name}">
-          ${["private", "organization", "public"].map(s =>
-            `<option value="${s}"${s === l.sharing ? " selected" : ""}>${s}</option>`).join("")}
-        </select>
-      </td>
-    </tr>`;
-  }).join("");
-}
-
-async function loadSources() {
-  const { dataSources } = await api("/admin/datasources");
-  $("sources").innerHTML = dataSources.map(d =>
-    `<tr><td><b>${d.name}</b></td><td class="sub">${d.kind}</td>
-     <td class="sub">${d.layerCount}</td></tr>`).join("");
-}
-
-document.addEventListener("click", async event => {
-  const tilesName = event.target.dataset?.tiles;
-  if (tilesName) {
-    if (shown.has(tileKey(tilesName))) hide(tileKey(tilesName));
-    else await showTiles(tilesName);
-    await loadLayers();
-    return;
-  }
-
-  // Clicking a shown layer's name re-frames the map on it, which is what you
-  // want once several are up.
-  const zoomName = event.target.dataset?.zoom;
-  if (zoomName && shown.has(zoomName) && view) {
-    const { layer } = shown.get(zoomName);
-    if (layer.fullExtent) { await view.goTo(layer.fullExtent.expand(1.4)); }
-    else { toast(`${zoomName} has no known extent.`); }
-    return;
-  }
-
-  const showName = event.target.dataset?.show;
-  if (showName) {
-    if (shown.has(showName)) { hide(showName); await loadLayers(); return; }
-    event.target.disabled = true;
-    try {
-      // The geometry type comes from the layer document, which is what the SDK
-      // will read anyway — asking first only chooses the symbol.
-      const doc = await api(
-        `${serviceRoot(layerNamed(showName)).replace(location.origin, "")}/FeatureServer/0?f=json`);
-      await show(showName, doc.geometryType);
-    } catch (e) { toast(e.message); }
-    await loadLayers();
-    return;
-  }
-
-  const toggle = event.target.dataset?.toggle;
-  if (toggle) {
-    event.target.disabled = true;
-    try {
-      const r = await api(`/admin/layers/${encodeURIComponent(toggle)}/${event.target.dataset.to}`,
-        { method: "POST" });
-      if (r.to === "stopped") hide(toggle);
-      toast(`${toggle}: ${r.from} → ${r.to}. ${r.note}`, true);
-    } catch (e) { toast(e.message); }
-    await loadLayers();
-  }
-});
-
-document.addEventListener("change", async event => {
-  const share = event.target.dataset?.share;
-  if (!share) return;
-  try {
-    const r = await api(`/admin/layers/${encodeURIComponent(share)}/sharing`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sharing: event.target.value }),
-    });
-    toast(`${share}: shared ${r.from} → ${r.to}`, true);
-  } catch (e) { toast(e.message); }
-  await loadLayers();
-});
-
-$("go").addEventListener("click", async () => {
-  try {
-    const r = await api("/rest/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: $("u").value, password: $("p").value }),
-    });
-    token = r.token;
-    sessionStorage.setItem("gis-token", token);
-    await start();
-  } catch (e) { toast(e.message); }
-});
-
-$("signout").addEventListener("click", async () => {
-  try { await api("/rest/auth/logout", { method: "POST" }); } catch { /* already gone */ }
-  token = null;
-  sessionStorage.removeItem("gis-token");
-  location.reload();
-});
-
-async function start() {
-  const me = await whoami();
-  if (!me.authenticated) { $("signin").style.display = ""; $("app").style.display = "none"; return; }
-
-  $("signin").style.display = "none";
-  $("app").style.display = "";
-  $("signout").style.display = "";
-  drawLegend();
-
-  $("designForm").addEventListener("submit", createDesigned);
-  $("importForm").addEventListener("submit", createImported);
-  $("dAdd").addEventListener("click", () => addFieldRow());
-
-  // One row to start with, so the form does not look like it takes no fields.
-  addFieldRow();
-
-  await Promise.all([refreshHealth(), loadLayers(), loadSources()]);
-}
-
-start().catch(e => toast(e.message));
-</script>
+<script src="ground.js" defer></script>
+<script src="console.js" defer></script>
 </body>
 </html>
+

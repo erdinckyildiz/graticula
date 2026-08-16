@@ -9,18 +9,25 @@
   The ArcGIS Maps SDK for JavaScript, pointed at this server.
 
   Loaded from Esri's CDN, which is not redistribution: the browser fetches it,
-  and nothing proprietary is shipped inside this product. That distinction is
-  why this page can exist while ADR-020 §4 still keeps esri-leaflet — which is
-  Apache-2.0 — in the console itself.
+  and nothing proprietary is shipped inside this product.
 
-  Its value is that it is the real thing. esri-leaflet is a lightweight client
-  that asks for very little; the Maps SDK is what ArcGIS Pro and every Esri web
-  app are built on, and it asks for everything. Pointing it here is the closest
-  test available of whether this server is genuinely ArcGIS-compatible rather
-  than compatible with the subset we happened to implement.
+  Its value is that it is the real thing. A lightweight client asks for very
+  little; the Maps SDK is what ArcGIS Pro and every Esri web app are built on,
+  and it asks for everything. Pointing it here is the closest test available of
+  whether this server is genuinely ArcGIS-compatible rather than compatible with
+  the subset we happened to implement.
 
-  The basemap is OpenStreetMap rather than an Esri basemap, so no API key and no
-  Esri account is needed to look at your own data.
+  Two things this comment used to say and no longer should. It claimed the
+  console uses esri-leaflet — ADR-020 §4 was amended on 2026-08-14 and the
+  console uses this same SDK. And it claimed an OpenStreetMap basemap: §4a
+  removed that on 2026-08-16, because their usage policy does not permit being an
+  application's basemap and every tile came back 403. There is no basemap unless
+  one is configured, and the console's map panel is where that happens.
+
+  The behaviour is in map.js, not inline here. The console's policy is
+  `script-src 'self' https://js.arcgis.com` with no `'unsafe-inline'`, so an
+  inline block on this page is blocked — which is what happened for one edit
+  after D-44 was closed, and it renders as a page with a header and nothing else.
 -->
 
 <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
@@ -34,6 +41,20 @@
   header p { margin: 2px 0 0; font-size: 12.5px; color: #576a66; }
   header code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   #view { width: 100%; height: 100%; }
+  #facts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 6px;
+           font-size: 12.5px; color: #576a66; }
+  #facts:empty { display: none; }
+  #facts code { font-size: 11.5px; }
+  #facts button { font: inherit; font-size: 12px; padding: 2px 9px; cursor: pointer;
+                  border: 1px solid #0b6157; border-radius: 3px; background: #0b6157;
+                  color: #fff; }
+  #picker { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  #picker:empty { display: none; }
+  #picker button { font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer;
+                   border: 1px solid #d7e0dc; border-radius: 3px; background: #fff;
+                   color: #0f1e1b; }
+  #picker button:hover { border-color: #0b6157; color: #0b6157; }
+  #picker button.on { background: #0b6157; border-color: #0b6157; color: #fff; }
   #note {
     position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 74px;
     background: #fff; border: 1px solid #d7e0dc; border-left: 3px solid #a63a2b;
@@ -48,64 +69,24 @@
 <div id="frame">
   <header>
     <h1>gis-server — read by the ArcGIS Maps SDK for JavaScript</h1>
-    <p>Layer <code id="which"></code>. Basemap is OpenStreetMap, so no Esri account is involved.</p>
+    <p>Layer <code id="which"></code>. <span id="ground"></span></p>
+    <!--
+      What is drawn and where, with a way back to it.
+
+      A handful of small polygons at country zoom is sub-pixel, so "nothing is
+      visible" and "nothing is there" look identical — the same confusion that
+      removing the basemap caused, one level down. Saying the count and the extent
+      answers it without anybody having to guess, and Frame puts the view back on
+      the data after panning away.
+    -->
+    <div id="facts"></div>
+    <div id="picker"></div>
   </header>
   <div id="view"></div>
 </div>
 <div id="note"></div>
 
-<script>
-  // ?layer=name to look at a different one.
-  const layerName = new URLSearchParams(location.search).get("layer") || "landmarks";
-  const url = `${location.origin}/rest/services/${encodeURIComponent(layerName)}/FeatureServer/0`;
-  document.getElementById("which").textContent = layerName;
-
-  const note = document.getElementById("note");
-  function problem(title, detail) {
-    note.innerHTML = `<b>${title}</b>${detail}`;
-    note.className = "on";
-  }
-
-  require([
-    "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
-    "esri/layers/WebTileLayer", "esri/Basemap",
-  ], (Map, MapView, FeatureLayer, WebTileLayer, Basemap) => {
-
-    // OpenStreetMap rather than an Esri basemap. Esri's require an API key tied
-    // to an ArcGIS account, which is precisely what the people this product is
-    // for do not have.
-    const basemap = new Basemap({
-      baseLayers: [new WebTileLayer({
-        urlTemplate: "https://tile.openstreetmap.org/{level}/{col}/{row}.png",
-        copyright: "© OpenStreetMap contributors",
-      })],
-    });
-
-    const features = new FeatureLayer({
-      url,
-      outFields: ["*"],
-      popupTemplate: { title: "{name}", content: "{*}" },
-    });
-
-    const view = new MapView({
-      container: "view",
-      map: new Map({ basemap, layers: [features] }),
-      center: [28.98, 41.015],
-      zoom: 12,
-    });
-
-    // The SDK reports a failed layer load as a rejected promise rather than an
-    // exception, and the message is the only place the actual cause appears —
-    // usually an untrusted certificate, or a query parameter this server refused
-    // with a reason worth reading.
-    features.when(
-      () => view.goTo(features.fullExtent ? features.fullExtent.expand(1.4) : view.extent),
-      error => problem(
-        "The SDK could not load the layer.",
-        `${error.message || error}<br><br>If this mentions a network or certificate problem, open ` +
-        `<a href="/healthz/live" target="_blank">/healthz/live</a>, accept the warning and reload. ` +
-        `Otherwise it is a parameter this server refused — the message says which.`));
-  });
-</script>
+<script src="ground.js" defer></script>
+<script src="map.js" defer></script>
 </body>
 </html>
