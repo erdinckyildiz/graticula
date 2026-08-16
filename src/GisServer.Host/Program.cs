@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Api.ArcGis;
 using GisServer.Features;
+using System.Diagnostics;
+using GisServer.Diagnostics;
 using GisServer.Geometries;
 using GisServer.Platform.Catalog;
 using GisServer.Platform.Admin;
@@ -1794,6 +1796,9 @@ public static class Program
             AuthEndpoints.MinimumPasswordLength);
     }
 
+    private static long Microseconds(long ticks) =>
+        ticks * 1_000_000 / Stopwatch.Frequency;
+
     private static async Task QueryAsync(
         HttpContext context,
         string serviceName,
@@ -1804,6 +1809,16 @@ public static class Program
         ILoggerFactory loggerFactory,
         CancellationToken cancellation)
     {
+        // <b>D-30: the clock starts before the catalogue read, not after.</b>
+        // The first version began timing just before the body and reported a
+        // 1-row query as 17 ms with 5 ms accounted for. The missing twelve were
+        // everything this handler does first — which is exactly the part a
+        // measurement is supposed to expose rather than leave as a remainder.
+        ILogger queryLog = loggerFactory.CreateLogger("query");
+
+        bool tracing = queryLog.IsEnabled(LogLevel.Debug);
+        long handlerStarted = tracing ? Stopwatch.GetTimestamp() : 0;
+
         // <b>Through ServiceLookup like everything else.</b> This endpoint used
         // to resolve the layer itself, and that is exactly how it became the one
         // path where the hosted/registered URL split was not enforced — metadata
@@ -1815,6 +1830,14 @@ public static class Program
         PublishedLayer? layer = await ServiceLookup
             .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);
+
+        // <b>The catalogue read is its own number, because it is its own round
+        // trip.</b> Lumped into "setup" it looked like parsing overhead; it is
+        // a second query to Postgres on every request, deliberately (D-17 —
+        // it carries the sharing scope and the started/stopped status, and
+        // those are not safe to remember). On a one-row query it is most of the
+        // request, which is a fact worth being able to state.
+        long lookedUp = tracing ? Stopwatch.GetTimestamp() : 0;
 
         if (layer is null)
         {
@@ -1900,8 +1923,6 @@ public static class Program
         // Parameters accepted and ignored are logged rather than left invisible.
         // Each is a claim that ignoring it cannot lose data, and a claim nobody
         // can see is one nobody checks.
-        ILogger queryLog = loggerFactory.CreateLogger("query");
-
         foreach (string ignored in context.Request.Query.Keys)
         {
             if (FeatureServerQueryParameters.IsIgnored(ignored, out string why))
@@ -1937,6 +1958,14 @@ public static class Program
 
         context.Response.ContentType = "application/json; charset=utf-8";
 
+        // <b>D-30. Nothing is timed unless the logger that would read it is
+        // on</b> — no trace object, no timestamps, and no branch inside the row
+        // loop that does any work. That is the only way an instrument earns the
+        // right to stay in a hot path. See QueryTrace.
+        using QueryTrace.Scope trace = tracing ? QueryTrace.Begin() : default;
+
+        long bodyStarted = tracing ? Stopwatch.GetTimestamp() : 0;
+
         // Written straight to the response body. Nothing is buffered, because
         // A-037 measured allocation as the binding constraint and a serialised
         // copy of a 50,000-feature result is exactly the kind of peak it warns
@@ -1947,6 +1976,39 @@ public static class Program
         {
             await writer.WriteAsync(json, source, query!, layer.GeometryType, cancellation)
                 .ConfigureAwait(false);
+
+            if (tracing && trace.Trace is { } recorded)
+            {
+                long finished = Stopwatch.GetTimestamp();
+
+                long total = Microseconds(finished - handlerStarted);
+                long lookup = Microseconds(lookedUp - handlerStarted);
+                long prepare = Microseconds(bodyStarted - lookedUp);
+                long body = Microseconds(finished - bodyStarted);
+
+                // <b>Serialise is a remainder, and it is labelled as one.</b>
+                // JSON writing and the flush to the socket are interleaved with
+                // the row loop, so timing them directly would mean a stopwatch
+                // pair per feature — which at a thousand features is the
+                // instrument outweighing the thing. Subtracting what is measured
+                // from the body is honest as long as nobody reads it as pure
+                // encoding, hence the wording of the message.
+                long serialise = Math.Max(
+                    0, body - recorded.SqlMicroseconds - recorded.DecodeMicroseconds);
+
+                Log.QueryTimings(
+                    queryLog,
+                    layer.Definition.Name,
+                    total,
+                    lookup,
+                    prepare,
+                    recorded.SqlMicroseconds,
+                    recorded.DecodeMicroseconds,
+                    serialise,
+                    recorded.Rows,
+                    recorded.Vertices,
+                    json.BytesCommitted + json.BytesPending);
+            }
         }
         catch (Exception e) when (json.BytesCommitted > 0 || json.BytesPending > 0)
         {

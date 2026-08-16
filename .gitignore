@@ -20,6 +20,10 @@ __pycache__/
 # raw artefacts are not
 benchmarks/**/results/raw/
 benchmarks/**/*.log
+
+# The server's stdout when it is run with query tracing on
+# (benchmarks/feature-query reads its own numbers back out of this).
+trace.log
 experiments/**/data/
 *.pprof
 *.heapsnapshot

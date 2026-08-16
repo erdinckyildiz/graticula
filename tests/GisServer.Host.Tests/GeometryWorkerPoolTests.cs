@@ -304,6 +304,23 @@ public sealed class GeometryWorkerPoolTests
         Assert.Contains("was stopped", result.Message!, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The pool serves the next caller after one of its workers was killed.
+    /// </summary>
+    /// <remarks>
+    /// <b>A whole second, and the reason is that one deadline governs two
+    /// requests here.</b> The test needs the first request killed and the second
+    /// to succeed, and the pool applies the same deadline to both — so a bound
+    /// tight enough to make the comb fail quickly is also the bound the trivial
+    /// two-square intersection has to beat. At 150 ms it lost, intermittently
+    /// and only when the whole solution was running: eight test assemblies, a
+    /// PostGIS container and a server, all on one machine. **Found by a failure
+    /// that passed in isolation and twice more when its own assembly ran
+    /// alone**, which is the signature of contention rather than of a defect.
+    /// A second still kills the comb — the smallest adversarial input that
+    /// matters was measured at seventeen seconds — and gives the recovery
+    /// request two hundred times its warm cost.
+    /// </remarks>
     [Fact]
     public async Task The_pool_still_works_after_a_worker_has_been_killed()
     {
@@ -313,7 +330,7 @@ public sealed class GeometryWorkerPoolTests
         RequireWorker();
 
         await using GeometryWorkerPool pool = Pool(
-            deadline: TimeSpan.FromMilliseconds(150),
+            deadline: TimeSpan.FromSeconds(1),
             maximumCandidatePairs: long.MaxValue);
 
         EngineResult killed = await pool.ComputeAsync(

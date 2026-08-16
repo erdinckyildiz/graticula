@@ -123,6 +123,37 @@ internal static partial class Log
                 + "'administrator' from principal where name = 'YOUR-ACCOUNT';")]
     public static partial void NoAdministrator(ILogger logger);
 
+    /// <summary>Where one feature query spent its time.</summary>
+    /// <remarks>
+    /// <b>D-30. Debug, and the level is the switch.</b> Nothing is timed unless
+    /// this logger is enabled for Debug — the caller asks first and skips
+    /// the whole mechanism otherwise — so leaving it in production costs a
+    /// level check per query. Turn it on with
+    /// <c>Logging:LogLevel:query = Debug</c> and every query answers with its
+    /// own decomposition instead of a number nobody can explain.
+    /// </remarks>
+    [LoggerMessage(
+        EventId = 1014,
+        Level = LogLevel.Debug,
+        Message = "query {Layer}: {TotalUs}us total = {LookupUs} lookup + {PrepareUs} prepare "
+                + "+ {SqlUs} driver + {DecodeUs} decode + {SerialiseUs} serialise, {Rows} rows, "
+                + "{Vertices} vertices, {Bytes} bytes out. Lookup is the per-request catalogue "
+                + "read, which is a second round trip to Postgres (D-17); prepare is "
+                + "authorization, the described shape and parameter parsing; serialise is the "
+                + "remainder of the body \u2014 JSON writing and the flush to the socket.")]
+    public static partial void QueryTimings(
+        ILogger logger,
+        string layer,
+        long totalUs,
+        long lookupUs,
+        long prepareUs,
+        long sqlUs,
+        long decodeUs,
+        long serialiseUs,
+        long rows,
+        long vertices,
+        long bytes);
+
     [LoggerMessage(
         EventId = 1013,
         Level = LogLevel.Debug,

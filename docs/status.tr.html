@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Faz 1 — Uygulama</div>
 <h1>Control Room</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0a66121</code> · 2026-08-16 00:00</p>
+<p class="stamp">Şu commit’ten üretildi: <code>9105c19</code> · 2026-08-16 00:10</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADR</div><div class="kpi-n">hiçbiri koşulsuz kabul edilmedi</div></div>
 <div class="kpi warn"><div class="kpi-v">29/100</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">67 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">43</div><div class="kpi-l">açık soru</div><div class="kpi-n">56 yanıtlandı · 5 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">açık borç</div><div class="kpi-n">5 ödendi · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">açık borç</div><div class="kpi-n">5 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">9/70</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">971</div><div class="kpi-l">test</div><div class="kpi-n">119 kaynak dosya, 37,025 satır</div></div>
+<div class="kpi good"><div class="kpi-v">971</div><div class="kpi-l">test</div><div class="kpi-n">120 kaynak dosya, 37,332 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -281,7 +281,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-28</td><td>/admin/services/{name} means two different things.</td><td class="muted-t">Before a published service can be named after a system one — or sooner, since the fix is a route rename and the cost…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-29</td><td>~~There is no CI, so nothing runs the checks a published promise depends on.~~ PAID 2026-08-15.</td><td class="muted-t">Before the repository is made public — the same trigger as ADR-025&#x27;s conditions, because that is when the promise starts</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-33</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-30</td><td>The feature query path has never been measured.</td><td class="muted-t">Before any capacity or performance claim about serving, and before ADR-007 condition 3&#x27;s connection budget can be…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-30</td><td>~~The feature query path has never been measured.~~ PARTLY PAID 2026-08-16 — benchmarks/feature-query, run 5.</td><td class="muted-t">The concurrency half is still what ADR-007 condition 3&#x27;s connection budget needs, and they still need the same harness</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-34</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-35</td><td>Planar area was computed by a shoelace sum with no local origin, and it shipped that way for a day.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -376,6 +376,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>9105c19</code><time>2026-08-16</time><span>a transformation that crossed a datum now says so, and a flaky test was not flaky</span></li>
 <li><code>0a66121</code><time>2026-08-16</time><span>the other two shoelaces</span></li>
 <li><code>2728739</code><time>2026-08-15</time><span>deployment.md gets the install sequence it never had</span></li>
 <li><code>53ec1e9</code><time>2026-08-15</time><span>CI runs the conformance suite too, against a server it builds from nothing</span></li>
@@ -389,7 +390,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>cc45917</code><time>2026-08-15</time><span>two ADRs were REOPENED by triggers v1 had already removed</span></li>
 <li><code>6814e77</code><time>2026-08-15</time><span>the condition count was wrong, and the rule had two implementations</span></li>
 <li><code>e913f52</code><time>2026-08-15</time><span>Â§66 performance gate: FAIL, and nothing repaired</span></li>
-<li><code>accf478</code><time>2026-08-15</time><span>tile ETag, the multi-node deployment note, and a test that was fighting itself</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

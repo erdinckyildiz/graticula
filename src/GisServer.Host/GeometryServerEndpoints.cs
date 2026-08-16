@@ -188,7 +188,7 @@ internal static class GeometryServerEndpoints
         geometry.MapMethods("/labelPoints", GetOrPost, LabelPoints);
 
         // <b>In process, on flat arrays.</b> The geometry arrives in the request,
-        // so there is nothing to push down to \u2014 sending it to the datastore
+        // so there is nothing to push down to — sending it to the datastore
         // would create the round trip that four benchmark rounds identified as
         // this system's ceiling, to avoid writing a monotone chain. See
         // GeometryOperations.

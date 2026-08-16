@@ -187,7 +187,7 @@ public static class GeoCoordinateString
 
         // <b>The angular notations keep their separators whatever was asked.</b>
         // Running "39 56 0.24N" together gives "39560.2400N", which nothing can
-        // read back \u2014 the parts are variable width, so no rule recovers
+        // read back — the parts are variable width, so no rule recovers
         // them. Honouring the flag there would mean emitting a string this
         // server's own reader rejects. The flag is for the grid notations, where
         // the packed form is standard and fixed width.

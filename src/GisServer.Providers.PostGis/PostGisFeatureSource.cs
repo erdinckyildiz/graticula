@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using GisServer.Catalog;
 using GisServer.Features;
+using System.Diagnostics;
+using GisServer.Diagnostics;
 using GisServer.Geometries;
 using Npgsql;
 using NpgsqlTypes;
@@ -77,12 +79,40 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // SequentialAccess: read each column once, in order, without buffering
         // the whole row. Geometry is the last column and the large one, so this
         // is the difference between holding one row and holding one geometry.
+        // <b>D-30's instrumentation, and it costs a null check when it is
+        // off.</b> No stopwatch is started and no timestamp is read unless a
+        // trace is running — see QueryTrace, and the four wrong harnesses
+        // that made "the measurement must not change the thing" a rule here.
+        QueryTrace? trace = QueryTrace.Current;
+
+        long mark = trace is null ? 0 : Stopwatch.GetTimestamp();
+
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(System.Data.CommandBehavior.SequentialAccess, cancellationToken)
             .ConfigureAwait(false);
 
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        trace?.AddSql(Stopwatch.GetTimestamp() - mark);
+
+        while (true)
         {
+            if (trace is not null)
+            {
+                mark = Stopwatch.GetTimestamp();
+            }
+
+            bool more = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+            if (trace is not null)
+            {
+                trace.AddSql(Stopwatch.GetTimestamp() - mark);
+                mark = Stopwatch.GetTimestamp();
+            }
+
+            if (!more)
+            {
+                break;
+            }
+
             // Checked here rather than left to the driver. Rows already in the
             // receive buffer complete synchronously, so ReadAsync never reaches
             // an await and never observes the token — a client that disconnects
@@ -126,6 +156,16 @@ public sealed class PostGisFeatureSource : IFeatureSource
                 byte[] wkb = (byte[])reader.GetValue(geometryOrdinal);
                 geometry = WkbReader.Read(wkb);
             }
+
+            // <b>Everything since the row arrived is decode.</b> IsDBNull and
+            // GetValue on a sequential reader complete synchronously once the
+            // row is in the buffer, so this measures column materialisation and
+            // WkbReader rather than any further wait. Vertices, not features:
+            // a hundred parcels and a hundred national outlines are the same
+            // row count and three orders of magnitude apart in work.
+            trace?.AddDecode(
+                Stopwatch.GetTimestamp() - mark,
+                geometry is null ? 0 : GeometryMeasures.CoordinateCount(geometry));
 
             yield return new Feature(id, geometry, schema, values);
         }

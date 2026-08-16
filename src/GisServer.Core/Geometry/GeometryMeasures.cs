@@ -47,6 +47,47 @@ public static class GeometryMeasures
         };
     }
 
+    /// <summary>Coordinates in a geometry, holes and parts included.</summary>
+    /// <param name="geometry">The geometry.</param>
+    /// <returns>How many coordinate pairs it holds.</returns>
+    /// <remarks>
+    /// <b>The unit the work scales with, which feature count is not.</b> A
+    /// hundred parcels and a hundred national outlines are the same row count
+    /// and three orders of magnitude apart in decoding, serialising and
+    /// transmitting — so a measurement in features cannot tell a cheap
+    /// result from an expensive one, and D-30's whole difficulty was numbers
+    /// that could not say why.
+    /// </remarks>
+    public static long CoordinateCount(Geometry geometry)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+
+        return geometry switch
+        {
+            Point => 1,
+            LineString line => line.Coordinates.Count,
+            Polygon polygon =>
+                polygon.Shell.Coordinates.Count
+                + SumOfLong(polygon.Holes, hole => hole.Coordinates.Count),
+            MultiPolygon multi => SumOfLong(multi.Parts, CoordinateCount),
+            MultiLineString lines => SumOfLong(lines.Parts, CoordinateCount),
+            MultiPoint points => points.Parts.Count,
+            _ => 0,
+        };
+    }
+
+    private static long SumOfLong<T>(IReadOnlyList<T> items, Func<T, long> measure)
+    {
+        long total = 0;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            total += measure(items[i]);
+        }
+
+        return total;
+    }
+
     /// <summary>
     /// Planar length: a polygon's perimeter, a line's length, zero for a point.
     /// </summary>
