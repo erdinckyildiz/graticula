@@ -76,11 +76,40 @@ public sealed class FeatureServerQueryParametersTests
     public void A_parameter_that_changes_the_answer_is_refused_rather_than_ignored(string parameter)
     {
         // <b>What is left, and each is absent for a reason that is not
-        // effort.</b> outStatistics, returnIdsOnly, objectIds and havingClause
-        // were all on this list until 2026-08-15 and are now implemented; these
-        // four need something the product does not have — a time-aware layer, a
-        // tsvector index, a version tree.
+        // effort.</b> outStatistics, returnIdsOnly and objectIds were all on this
+        // list until 2026-08-15 and are now implemented; these four need something
+        // the product does not have — a time-aware layer, a tsvector index, a
+        // version tree. **havingClause was also called implemented and was not:**
+        // it was accepted and appended to the SQL statement unparsed, so it is
+        // refused again as of 2026-08-16 (D-41) and returns when it is parsed
+        // (Q-109). Its refusal is asserted separately below, because the message
+        // has to explain the absence rather than name a missing feature.
         Assert.Contains(parameter, Refuse((parameter, "anything")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_having_clause_is_refused_whatever_it_contains()
+    {
+        // <b>D-41's regression test at the boundary.</b> The clause reached
+        // `PostGisFeatureSource` and was appended to the statement with no parsing
+        // at all, on a surface a public layer exposes anonymously. The payload
+        // below is the harmless shape of the problem: an aggregate predicate
+        // followed by a subquery, which no grammar in this server would accept and
+        // which the old path would have run.
+        string error = Refuse(
+            ("outStatistics", """[{"statisticType":"count","onStatisticField":"objectid","outStatisticFieldName":"n"}]"""),
+            ("havingClause", "count(objectid) > 0 and (select count(*) from pg_authid) > 0"));
+
+        Assert.Contains("havingClause", error, StringComparison.Ordinal);
+        Assert.Contains("has not parsed", error, StringComparison.Ordinal);
+
+        // And refused on its own too, without outStatistics — the old code path
+        // reported the missing outStatistics first, which would have let the clause
+        // through the moment a caller supplied one.
+        Assert.Contains(
+            "havingClause",
+            Refuse(("havingClause", "count(objectid) > 0")),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -462,7 +491,7 @@ public sealed class FeatureServerQueryParametersTests
         // The two lists are the whole policy, and a name in both would make the
         // behaviour depend on evaluation order rather than on a decision.
         foreach (string refused in (string[])
-            ["outStatistics", "orderByFields", "returnIdsOnly", "objectIds", "having",
+            ["outStatistics", "orderByFields", "returnIdsOnly", "objectIds", "havingClause",
              "returnDistinctValues", "returnExtentOnly", "time", "distance", "relationParam",
              "groupByFieldsForStatistics"])
         {

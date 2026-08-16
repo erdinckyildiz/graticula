@@ -64,7 +64,14 @@ public sealed class FeatureQuery
     /// <param name="distinct">Whether to collapse duplicate attribute rows.</param>
     /// <param name="statistics">Aggregates to compute instead of returning features.</param>
     /// <param name="groupBy">Fields to group those aggregates by.</param>
-    /// <param name="having">A filter over the aggregates, in SQL.</param>
+    /// <param name="having">
+    /// <b>Removed 2026-08-16. The parameter is kept only to fail loudly.</b> It
+    /// used to carry ArcGIS's <c>havingClause</c> as SQL text, and
+    /// <c>PostGisFeatureSource</c> appended it to the statement unparsed — an
+    /// injection reachable by any caller who could reach a public layer's query.
+    /// Passing anything but null now throws. See D-41 and ADR-008 §4a-ii; the
+    /// capability returns when the clause is parsed, the way <c>where</c> is.
+    /// </param>
     /// <param name="precision">Decimal places for output coordinates, or null for all.</param>
     /// <param name="maxAllowableOffset">Generalisation tolerance, or null for none.</param>
     /// <param name="outSrid">Reproject output geometry to this, or null to leave it.</param>
@@ -103,17 +110,24 @@ public sealed class FeatureQuery
         Distinct = distinct;
         Statistics = statistics is null ? Array.Empty<StatisticRequest>() : [.. statistics];
         GroupBy = groupBy is null ? Array.Empty<string>() : [.. groupBy];
-        Having = having;
         Precision = precision;
         MaxAllowableOffset = maxAllowableOffset;
         OutSrid = outSrid;
         Where = where;
 
-        if (Having is not null && Statistics.Count == 0)
+        // <b>Refusing here as well as at the HTTP boundary is deliberate.</b> The
+        // boundary check is what a caller sees; this one is what stops the next
+        // internal caller from reopening the hole by constructing the query
+        // directly. The parameter survives rather than being deleted so that any
+        // code still passing a clause fails at the throw instead of compiling
+        // against a different overload and silently dropping it.
+        if (having is not null)
         {
             throw new ArgumentException(
-                "A having clause filters aggregates, and this query computes none. Accepting it "
-                + "would mean silently ignoring a filter the caller believes is applied.",
+                "A having clause cannot be carried as SQL text. It was, until 2026-08-16, and "
+                + "PostGisFeatureSource appended it to the statement unparsed — so any caller who "
+                + "could query a public layer could write SQL. The clause returns when it is "
+                + "parsed into bound parameters the way 'where' already is (D-41).",
                 nameof(having));
         }
 
@@ -176,9 +190,6 @@ public sealed class FeatureQuery
 
     /// <summary>Fields to group the aggregates by.</summary>
     public IReadOnlyList<string> GroupBy { get; }
-
-    /// <summary>A filter over the aggregates, or null.</summary>
-    public string? Having { get; }
 
     /// <summary>Decimal places for output coordinates, or null for full precision.</summary>
     public int? Precision { get; }

@@ -642,11 +642,17 @@ public sealed class PostGisFeatureSource : IFeatureSource
     /// function name.
     /// </para>
     /// <para>
-    /// <b>The having clause is the exception, and it is passed through.</b>
-    /// ArcGIS defines it as SQL over aggregate functions — <c>COUNT(id) &gt; 5</c>
-    /// — which cannot be expressed as anything but text. It is subject to the
-    /// same treatment as <c>where</c>, which this server also passes through, so
-    /// it is no wider a door; it is the same door.
+    /// <b>There was an exception, it was wrong, and it is gone — 2026-08-16.</b>
+    /// The having clause used to be appended here unparsed, justified in this
+    /// comment by the claim that it got *"the same treatment as <c>where</c>,
+    /// which this server also passes through"*. **That claim was false.**
+    /// <c>where</c> is not passed through: <see cref="WhereClause"/> parses it and
+    /// re-emits our own SQL with every literal bound, which ADR-008 §4a states in
+    /// as many words — *"nothing the caller wrote reaches SQL as text"*. So the
+    /// two were never the same door; one was a parser and the other was a hole,
+    /// and the sentence asserting they were equal is what kept anybody from
+    /// looking. `havingClause` is now refused at the HTTP boundary and
+    /// <see cref="FeatureQuery"/> throws if one is constructed anyway. D-41.
     /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StatisticsAsync(
@@ -677,11 +683,6 @@ public sealed class PostGisFeatureSource : IFeatureSource
         {
             sql.Append(" group by ")
                .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Having))
-        {
-            sql.Append(" having ").Append(query.Having);
         }
 
         if (query.GroupBy.Count > 0)

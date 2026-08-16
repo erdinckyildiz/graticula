@@ -1045,11 +1045,24 @@ internal static class FeatureServerQueryParameters
 
         string raw = First(parameters, "outStatistics");
         string groups = First(parameters, "groupByFieldsForStatistics");
-        having = First(parameters, "havingClause");
+        // <b>Refused rather than parsed, 2026-08-16 — D-41.</b> This used to take
+        // the caller's text and PostGisFeatureSource appended it to the statement
+        // unparsed, so `havingClause` was SQL injection on any layer shared to
+        // public. Refusing is the same move §4a of ADR-008 records for `where`
+        // before the parser existed: a refusal is a capability nobody has, and a
+        // pass-through is a capability everybody has, including whoever did not
+        // pay for it. The parser is Q-109.
+        having = null;
 
-        if (having.Length == 0)
+        if (First(parameters, "havingClause").Length > 0)
         {
-            having = null;
+            error =
+                "'havingClause' is not supported. It is SQL over aggregates, and this server "
+                + "will not accept SQL it has not parsed — every predicate it runs is rebuilt "
+                + "from a checked expression with bound literals. Filter the returned "
+                + "statistics client-side, or use 'where' to narrow the rows before they are "
+                + "aggregated.";
+            return false;
         }
 
         HashSet<string> known = new(allFields.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
@@ -1068,11 +1081,11 @@ internal static class FeatureServerQueryParameters
 
         if (raw.Length == 0)
         {
-            if (groupBy.Count > 0 || having is not null)
+            if (groupBy.Count > 0)
             {
                 error =
-                    "'groupByFieldsForStatistics' and 'havingClause' only mean something with "
-                    + "'outStatistics'. Without it there is nothing to group or to filter.";
+                    "'groupByFieldsForStatistics' only means something with 'outStatistics'. "
+                    + "Without it there is nothing to group.";
                 return false;
             }
 

@@ -485,7 +485,14 @@ public static class FeatureServerMetadataWriter
                 supportsDistinct = true,
                 supportsReturningQueryExtent = true,
                 supportsQueryWithDistance = true,
-                supportsHavingClause = true,
+                // <b>False since 2026-08-16, and it was true for the wrong
+                // reason.</b> The clause was accepted and appended to the SQL
+                // statement unparsed, so this flag advertised an injection as a
+                // feature. It goes back to true when the clause is parsed the way
+                // `where` is — D-41, Q-109 — and not before, because a client that
+                // reads this flag and sends a clause deserves an answer rather
+                // than a 400.
+                supportsHavingClause = false,
                 supportsReturningGeometryCentroid = false,
 
                 // No arithmetic or function calls in the where grammar, which is

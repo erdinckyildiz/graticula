@@ -69,7 +69,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     }
 
     /// <summary>
-    /// One pool, with a statement timeout the registration cannot opt out of.
+    /// The connection string with a statement timeout the registration cannot
+    /// accidentally opt out of.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -91,20 +92,40 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// none. It is written here rather than left at the driver default so that
     /// the guess is visible and has a place to be corrected.
     /// </para>
+    /// <para>
+    /// <b>Corrected 2026-08-16 (D-42). The test used to be "is <c>Options</c>
+    /// empty", and that made a mandatory control removable by an unrelated
+    /// setting.</b> Deferring to an operator who set <c>statement_timeout</c>
+    /// themselves is right — they may know something about this database that we do
+    /// not. Deferring because they set <c>application_name</c> is not: the timeout
+    /// then silently never applies, and ADR-007 §4.8 requires it because without
+    /// one a single expensive query holds a pooled connection until the client
+    /// gives up, and enough of them exhaust the pool for every other layer sharing
+    /// that data source.
+    /// </para>
+    /// <para>
+    /// So the question is whether <em>this</em> option is set, not whether any
+    /// option is. Extracted from <c>BuildPool</c> to be testable without a
+    /// database: the old form could only be checked by reading it, which is how it
+    /// stayed wrong.
+    /// </para>
     /// </remarks>
-    private static NpgsqlDataSource BuildPool(string connectionString)
+    internal static string WithStatementTimeout(string connectionString)
     {
         NpgsqlConnectionStringBuilder builder = new(connectionString);
+        string options = builder.Options ?? string.Empty;
 
-        // Never override an operator who has already set it: they may know
-        // something about this database that we do not.
-        if (string.IsNullOrEmpty(builder.Options))
+        if (!options.Contains("statement_timeout", StringComparison.OrdinalIgnoreCase))
         {
-            builder.Options = $"-c statement_timeout={StatementTimeout.TotalMilliseconds:F0}";
+            string ours = $"-c statement_timeout={StatementTimeout.TotalMilliseconds:F0}";
+            builder.Options = options.Length == 0 ? ours : options + " " + ours;
         }
 
-        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+        return builder.ConnectionString;
     }
+
+    private static NpgsqlDataSource BuildPool(string connectionString) =>
+        new NpgsqlDataSourceBuilder(WithStatementTimeout(connectionString)).Build();
 
     /// <summary>A writer for one layer, over the same shared pool.</summary>
     /// <param name="layer">The layer.</param>

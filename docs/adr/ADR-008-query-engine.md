@@ -332,9 +332,10 @@ embedded OLAP engine.
   EPSG:4326 is latitude-first — a well-known footgun, and a direct concern for
   [geometry-crs-policy.md](../geometry-crs-policy.md).
 - A CI entry running against the **real engine**, not a mock. Testcontainers
-  covers MySQL and MariaDB;
-  [research/honua-capability-matrix.md](../research/honua-capability-matrix.md)
-  §5 found that route while looking for something else.
+  covers MySQL and MariaDB, and a peer runs the same packages for MsSql, Oracle,
+  MySQL, PostgreSQL and Redis
+  ([reference-reading-log.md](../research/reference-reading-log.md)), so the
+  route is in use rather than merely available.
 - If writable (Q-82): a transaction model, a concurrency model and a definition
   of a conflict, all under A-027.
 
@@ -420,6 +421,92 @@ Recursive descent over comparisons, `LIKE`, `IN`, `BETWEEN`, `IS NULL`,
 **What is still not in the grammar, and would be safe to add:** arithmetic and
 scalar functions. Both are shapes rather than holes. They are absent because
 nobody has asked, and adding either is a deliberate act with its own tests.
+
+### 4a-i. §4.1 and §4a do not agree, and §4a is the one that shipped — 2026-08-16
+
+**§4.1 defines the model by an exclusion: "It must contain no SQL concepts. The
+moment it does, it stops being able to target GeoParquet, FlatGeobuf, or anything
+that is not a database."** §4a then says the AST exists and describes what it
+emits: parameterised SQL text that is ours rather than the caller's. Both
+sentences are in this ADR, and they cannot both be describing the same artefact.
+
+What the code has is the §4a version. `FeatureQuery` carries the whole model §4.1
+lists — spatial predicate, bbox, CRS, field selection, sort, pagination,
+aggregation, precision, output SRID — with one member out of family:
+
+```csharp
+public ParsedWhere? Where { get; }          // FeatureQuery
+public readonly record struct ParsedWhere(string Sql, IReadOnlyList<object?> Parameters);
+```
+
+So the attribute filter enters the domain model already compiled. **This was not
+drift and nothing was violated behind anybody's back** — §4a is a deliberate,
+argued decision from 2026-08-15, taken because a FeatureServer whose `where`
+refuses every real value is unusable, and because refusing to parse was only
+correct while the AST did not exist. The defect is that §4a did not come back and
+reconcile itself with §4.1, so the ADR now states a rule it also documents
+breaking, and the cost §4.1 predicted went unrecorded.
+
+**Recording it, and not repairing it.** §82 asks what concrete problem a new
+abstraction solves. A separate expression tree between `WhereClause` and the
+provider would solve exactly one: handing a `FeatureQuery` to something that is
+not a database. v1 is PostGIS only ([v1-scope.md](../v1-scope.md)), so that
+problem does not exist yet, and building the seam now would be an abstraction
+whose only consumer is hypothetical.
+
+What is true instead, stated plainly so nobody has to rediscover it:
+
+- **`ParsedWhere` is the single permitted SQL-shaped member of the query model.**
+  Not a precedent. A second one is a change to this ADR, and
+  `Tier1ProjectFileTests`' sibling in `GisServer.Architecture.Tests` fails the
+  build if one appears.
+- **No non-database provider can consume a `FeatureQuery` as it stands.** That is
+  §4.1's predicted cost, arriving as predicted. Q-52's GeoParquet and FlatGeobuf
+  and Q-81's DuckDB all sit on the far side of it.
+- **§4.1's rule stays as written** rather than being softened to match the code,
+  because it is the rule that makes the cost visible. A rule edited to fit what
+  was built stops being able to tell anybody anything.
+
+Recorded as [D-40](../architecture-debt.md). The debt is the disagreement, not
+the missing abstraction.
+
+### 4a-ii. The second SQL-shaped member was an injection — 2026-08-16
+
+Writing §4a-i turned up a member the ADR had never mentioned. `FeatureQuery` also
+carried `Having`, a plain `string?`, documented in its own parameter list as *"a
+filter over the aggregates, in SQL"* — and `PostGisFeatureSource.StatisticsAsync`
+appended it to the statement unchanged:
+
+```csharp
+if (!string.IsNullOrWhiteSpace(query.Having))
+    sql.Append(" having ").Append(query.Having);
+```
+
+The value came from ArcGIS's `havingClause` parameter, checked only for
+emptiness. `/query` is governed by service sharing, so on a layer shared to public
+the caller is anonymous. **This was SQL injection, and §4.1's rule is exactly what
+would have caught it** — a raw SQL string in the query model, which the rule
+forbids for a reason that turned out to be the smaller of two.
+
+**The comment above it is the finding.** It said the clause got *"the same
+treatment as `where`, which this server also passes through, so it is no wider a
+door; it is the same door."* §4a of this ADR says the opposite in as many words:
+*"Nothing the caller wrote reaches SQL as text… The emitted string is ours."* Two
+sections of one ADR, and a comment asserting they were equivalent. The §66
+security gate had tested the where-clause parser the day before and it held; the
+parameter beside it was never tested, because the comment had already answered the
+question.
+
+Closed the day it was found — [D-41](../architecture-debt.md). The clause is
+refused, `supportsHavingClause` is `false`, `FeatureQuery` throws on one,
+`SqlStaysOutOfTheQueryModelTests` fails the build if any query-model member
+carries SQL again, and the parsed version is [Q-109](../open-questions.md).
+
+**What this says about §4.1 is worth more than the fix.** The rule was written for
+portability — targeting GeoParquet and FlatGeobuf — and its portability cost has
+still not been paid by anybody. Its *security* value was immediate and nobody had
+noticed it was there. A rule justified on one ground and load-bearing on another
+is a rule to keep as written even when its stated reason looks distant.
 
 ### 4b. Everything else the query operation documents
 
@@ -555,6 +642,11 @@ identity), ADR-011 (long queries become jobs), tile pipeline, feature services
 - A provider appears that cannot express the capability model.
 - Streaming benchmarks fail on any dialect at target scale.
 - Editing enters scope, which would reopen this ADR substantially.
+- **The first provider that is not a database enters scope** — GeoParquet or
+  FlatGeobuf as a serving provider (Q-52), or DuckDB as the file-query engine
+  (Q-81). That is the moment §4a-i's recorded cost becomes a blocker rather than a
+  note, because `FeatureQuery.Where` arrives as SQL and such a provider cannot
+  read it. Reopen before the provider is designed, not after.
 
 ## 12. Dissent
 

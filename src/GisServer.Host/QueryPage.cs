@@ -549,7 +549,12 @@ internal static class QueryPage
 
         Text(body, "Output Spatial Reference:", "outSR", q["outSR"], string.Empty, 20);
 
-        Text(body, "Having Clause:", "havingClause", q["havingClause"], "COUNT(objectid) > 5", 80);
+        // <b>No Having Clause box, since 2026-08-16.</b> ArcGIS's own page offers
+        // one and ours did too, with `COUNT(objectid) > 5` as the placeholder — a
+        // field whose contents went into the SQL statement unparsed (D-41). The
+        // parameter is now refused, and a box that always answers 400 is worse
+        // than no box: it reads as a capability and behaves as a bug report. It
+        // comes back with the parser, Q-109.
 
         Text(body, "Order By Fields:", "orderByFields", q["orderByFields"],
             "field ASC, field DESC", 80);

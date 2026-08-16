@@ -110,10 +110,19 @@ public sealed class FeatureServerMetadataWriterTests
 
         foreach (string claim in (string[])
             ["supportsPagination", "supportsOrderBy", "supportsStatistics", "supportsDistinct",
-             "supportsReturningQueryExtent", "supportsQueryWithDistance", "supportsHavingClause"])
+             "supportsReturningQueryExtent", "supportsQueryWithDistance"])
         {
             Assert.True(advanced.GetProperty(claim).GetBoolean(), claim);
         }
+
+        // <b>supportsHavingClause moved from the true list to here on 2026-08-16,
+        // and the move is the test.</b> The flag was true while `havingClause` was
+        // appended to the SQL statement unparsed, so the document advertised an
+        // injection as a capability (D-41). Asserting `false` rather than deleting
+        // the claim is deliberate: a client reads this to decide whether to send
+        // one, and a silently absent flag is not an answer. It goes back to true
+        // when the clause is parsed — Q-109.
+        Assert.False(advanced.GetProperty("supportsHavingClause").GetBoolean());
 
         // The older flat spelling, kept because some clients still read it.
         foreach (string claim in (string[])
