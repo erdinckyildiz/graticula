@@ -78,6 +78,10 @@ public sealed class FeatureQuery
     /// <param name="where">
     /// An attribute predicate, already parsed and parameterised. Null for none.
     /// </param>
+    /// <param name="filterSrid">
+    /// The reference the filter geometry is in, or null when it is already the
+    /// layer's. See <see cref="FilterSrid"/>.
+    /// </param>
     public FeatureQuery(
         int limit,
         Envelope? boundingBox = null,
@@ -94,7 +98,8 @@ public sealed class FeatureQuery
         int? precision = null,
         double? maxAllowableOffset = null,
         int? outSrid = null,
-        ParsedWhere? where = null)
+        ParsedWhere? where = null,
+        int? filterSrid = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumLimit);
@@ -114,6 +119,7 @@ public sealed class FeatureQuery
         MaxAllowableOffset = maxAllowableOffset;
         OutSrid = outSrid;
         Where = where;
+        FilterSrid = filterSrid;
 
         // <b>Refusing here as well as at the HTTP boundary is deliberate.</b> The
         // boundary check is what a caller sees; this one is what stops the next
@@ -199,6 +205,36 @@ public sealed class FeatureQuery
 
     /// <summary>Reproject output geometry into this reference, or null.</summary>
     public int? OutSrid { get; }
+
+    /// <summary>
+    /// The reference <see cref="BoundingBox"/> and <see cref="Spatial"/> are
+    /// expressed in, or null when they are already in the layer's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One reference for both, because a request carries one <c>inSR</c>.</b>
+    /// The HTTP boundary sets at most one of the two filters from the same
+    /// parameter, so giving each its own reference would be two places to disagree
+    /// about a single fact.
+    /// </para>
+    /// <para>
+    /// <b>This replaces a refusal, and the refusal was not wrong for the reason it
+    /// gave.</b> Until 2026-08-16 an <c>inSR</c> that differed from the layer was
+    /// answered with 400, on the stated grounds that comparing two references
+    /// silently yields zero features — which is true, and is the defect behind
+    /// Q-96. But refusing means an ArcGIS client whose view is Web Mercator cannot
+    /// draw a layer stored in EPSG:4326 at all, and it is not free to reproject the
+    /// table it was pointed at: a registered layer belongs to somebody else. The
+    /// silent-empty failure is avoided by transforming the filter, not by declining
+    /// the request. Output reprojection was already supported, so this is the
+    /// symmetric half.
+    /// </para>
+    /// <para>
+    /// A reference is not a SQL concept, so this stays inside ADR-008 §4.1's rule —
+    /// unlike <see cref="Where"/>, which is the one exception (§4a-i).
+    /// </para>
+    /// </remarks>
+    public int? FilterSrid { get; }
 
     /// <summary>
     /// An attribute predicate, parsed and parameterised, or null for none.

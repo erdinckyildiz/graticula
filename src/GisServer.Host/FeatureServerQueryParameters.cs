@@ -171,7 +171,9 @@ internal static class FeatureServerQueryParameters
         if (!TryUnknown(parameters, out error)) { return Fail(out error, error); }
         if (!TryLimit(parameters, out int limit, out error)) { return Fail(out error, error); }
         if (!TryOffset(parameters, out int offset, out error)) { return Fail(out error, error); }
-        if (!TrySpatial(parameters, layerSrid, out SpatialFilter? spatial, out Envelope? box, out error))
+        if (!TrySpatial(
+                parameters, layerSrid, out SpatialFilter? spatial, out Envelope? box,
+                out int? filterSrid, out error))
         {
             return Fail(out error, error);
         }
@@ -255,7 +257,8 @@ internal static class FeatureServerQueryParameters
             precision,
             tolerance,
             outSrid,
-            where);
+            where,
+            filterSrid);
 
         return true;
     }
@@ -520,6 +523,10 @@ internal static class FeatureServerQueryParameters
     /// <param name="layerSrid">The layer's reference, which the filter must be in.</param>
     /// <param name="spatial">A rich filter, when the request needs one.</param>
     /// <param name="boundingBox">The fast path, when an envelope-intersects will do.</param>
+    /// <param name="filterSrid">
+    /// The reference the filter is in when it differs from the layer's, so the
+    /// provider can transform it; null when they are the same.
+    /// </param>
     /// <param name="error">Why it was refused.</param>
     /// <remarks>
     /// <para>
@@ -544,10 +551,12 @@ internal static class FeatureServerQueryParameters
         int layerSrid,
         out SpatialFilter? spatial,
         out Envelope? boundingBox,
+        out int? filterSrid,
         out string? error)
     {
         spatial = null;
         boundingBox = null;
+        filterSrid = null;
         error = null;
 
         string raw = First(parameters, "geometry");
@@ -559,15 +568,20 @@ internal static class FeatureServerQueryParameters
 
         inSrid ??= Wkid(First(parameters, "defaultSR"));
 
-        if (inSrid is { } given && !SameSpatialReference(given, layerSrid))
-        {
-            error =
-                $"'inSR' asks for {given} and this layer is {layerSrid}. The filter geometry is "
-                + "compared against stored geometry, and comparing two references without "
-                + "transforming one produces no error and no features — so it is refused. Send "
-                + "the filter in the layer's own reference.";
-            return false;
-        }
+        // <b>A differing inSR is accepted and transformed, and until 2026-08-16 it
+        // was refused.</b> The refusal's reasoning was sound and its conclusion was
+        // not: comparing two references silently yields zero features (Q-96), so
+        // something must transform — but declining the request makes the caller do
+        // it, and the caller is often an ArcGIS client that cannot. An ArcGIS JS
+        // MapView in Web Mercator sends inSR=102100 on every query it issues; a
+        // layer stored in EPSG:4326 therefore answered 400 to every such client,
+        // whoever wrote it. Registered data makes that unanswerable rather than
+        // merely awkward: the table belongs to somebody else and reprojecting it is
+        // not ours to require. So the filter is carried with its own reference and
+        // ST_Transform brings it to the layer's in the database (ADR-022 §4).
+        filterSrid = inSrid is { } given && !SameSpatialReference(given, layerSrid)
+            ? given
+            : null;
 
         if (raw.Length == 0)
         {
@@ -621,8 +635,12 @@ internal static class FeatureServerQueryParameters
             && (kind.Length == 0
                 || kind.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase));
 
-        if (plainEnvelope && TryParseEnvelope(raw, layerSrid, out boundingBox))
+        if (plainEnvelope
+            && TryParseEnvelope(raw, layerSrid, out boundingBox, out int? declaredSrid))
         {
+            // The geometry's own reference wins; inSR is the fallback for geometry
+            // that does not declare one.
+            filterSrid = declaredSrid ?? filterSrid;
             return true;
         }
 
@@ -660,7 +678,7 @@ internal static class FeatureServerQueryParameters
                 && (kind.Length == 0
                     || kind.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase)))
             {
-                if (!TryParseEnvelope(raw, layerSrid, out Envelope? box) || box is null)
+                if (!TryParseEnvelope(raw, layerSrid, out Envelope? box, out _) || box is null)
                 {
                     error = "The envelope must be four numbers: xmin,ymin,xmax,ymax.";
                     return false;
@@ -1352,9 +1370,11 @@ internal static class FeatureServerQueryParameters
     /// is what the ArcGIS SDKs send. Supporting one is a compatibility surface
     /// that works for half of them.
     /// </remarks>
-    private static bool TryParseEnvelope(string value, int layerSrid, out Envelope? envelope)
+    private static bool TryParseEnvelope(
+        string value, int layerSrid, out Envelope? envelope, out int? declaredSrid)
     {
         envelope = null;
+        declaredSrid = null;
         string text = value.Trim();
 
         if (text.StartsWith('{'))
@@ -1372,16 +1392,23 @@ internal static class FeatureServerQueryParameters
                     return false;
                 }
 
-                // The SDK puts the spatial reference inside the geometry rather
-                // than in inSR. Ignoring it would accept a box stated in one
-                // system and filter with it in another, which returns the wrong
-                // features rather than none.
+                // <b>The SDK puts the spatial reference inside the geometry rather
+                // than only in inSR, and this is the hot path for it.</b> An
+                // ArcGIS JS FeatureLayer drawing itself sends exactly this: an
+                // envelope carrying `spatialReference: {wkid: 102100}`, with
+                // `inSR` beside it. Refusing it — which this did until 2026-08-16
+                // — meant no ArcGIS JS map in Web Mercator could draw a layer
+                // stored in EPSG:4326, whoever wrote the client.
+                //
+                // It is reported rather than rejected, and the geometry's own
+                // reference wins over `inSR` when both are present, which is the
+                // ArcGIS rule: inSR exists for geometry that does not say.
                 if (root.TryGetProperty("spatialReference", out System.Text.Json.JsonElement reference)
                     && reference.TryGetProperty("wkid", out System.Text.Json.JsonElement wkid)
                     && wkid.TryGetInt32(out int declared)
                     && !SameSpatialReference(declared, layerSrid))
                 {
-                    return false;
+                    declaredSrid = declared;
                 }
 
                 envelope = new Envelope(

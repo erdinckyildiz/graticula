@@ -279,13 +279,33 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void An_envelope_stated_in_another_spatial_reference_is_refused()
+    public void An_envelope_carrying_its_own_reference_is_transformed_not_refused()
     {
-        // The SDK puts the spatial reference inside the geometry rather than in
-        // inSR. Ignoring it accepts a box stated in one system and filters with
-        // it in another, which returns the wrong features rather than none.
-        Refuse(("geometry", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4,"
+        // <b>This is the request an ArcGIS JS FeatureLayer actually makes.</b> The
+        // SDK puts the reference inside the geometry, so refusing it — which this
+        // did until 2026-08-16 — meant no ArcGIS JS map in Web Mercator could draw
+        // a layer stored in anything else, whoever wrote the client. Ignoring it
+        // would be worse than either: a box stated in one system and compared in
+        // another returns the wrong features rather than none.
+        FeatureQuery query = Parse(("geometry", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4,"
             + "\"spatialReference\":{\"wkid\":4326}}"));
+
+        Assert.Equal(4326, query.FilterSrid);
+        Assert.NotNull(query.BoundingBox);
+    }
+
+    [Fact]
+    public void The_geometrys_own_reference_wins_over_inSR()
+    {
+        // ArcGIS's rule: inSR exists for geometry that does not declare a
+        // reference. When both are present and disagree, the geometry is the one
+        // carrying the coordinates.
+        Assert.Equal(
+            4326,
+            Parse(
+                ("geometry", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4,"
+                    + "\"spatialReference\":{\"wkid\":4326}}"),
+                ("inSR", "102100")).FilterSrid);
     }
 
     [Fact]
@@ -307,18 +327,30 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void An_inSR_that_would_need_reprojection_is_still_refused()
+    public void An_inSR_that_needs_reprojection_is_carried_for_the_database_to_apply()
     {
-        // <b>The asymmetry is deliberate.</b> Output reprojection is a transform
-        // the database applies to the answer; input reprojection would mean
-        // comparing a filter in one reference against data in another, and when
-        // that is skipped there is no error — the boxes simply never meet and
-        // the answer is zero features. That is the defect that made every 4326
-        // tile silently empty.
-        Assert.Contains(
-            "no error and no features",
-            Refuse(("geometry", "0,0,1,1"), ("inSR", "4326")),
-            StringComparison.Ordinal);
+        // <b>Refused until 2026-08-16, and the reasoning behind the refusal was
+        // right while the conclusion was wrong.</b> Comparing a filter in one
+        // reference against data in another yields zero features and no error —
+        // the defect that made every 4326 tile silently empty. So something must
+        // transform. Declining the request makes the caller do it, and the caller
+        // is usually an ArcGIS client that cannot: its view is Web Mercator and
+        // the layer may be registered data belonging to somebody else, which we
+        // are not entitled to reproject. The filter now carries its reference and
+        // ST_Transform brings it to the layer's, symmetric with outSR.
+        Assert.Equal(4326, Parse(("geometry", "0,0,1,1"), ("inSR", "4326")).FilterSrid);
+    }
+
+    [Fact]
+    public void An_inSR_that_matches_the_layer_carries_nothing()
+    {
+        // Same shape as outSR: transforming into the reference the filter is
+        // already in is a function call per query answering nothing.
+        Assert.Null(
+            Parse(
+                ("geometry", "0,0,1,1"),
+                ("inSR", Srid.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                .FilterSrid);
     }
 
     [Fact]

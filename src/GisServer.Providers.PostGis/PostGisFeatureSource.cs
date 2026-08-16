@@ -271,6 +271,28 @@ public sealed class PostGisFeatureSource : IFeatureSource
         return expression;
     }
 
+    /// <summary>The reference the caller's filter geometry is in.</summary>
+    private int FilterSrid(FeatureQuery query) => query.FilterSrid ?? _layer.Srid;
+
+    /// <summary>An SRID as a SQL literal — an int, so it cannot be anything else.</summary>
+    private static string Literal(int srid) => srid.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Wraps a filter geometry expression in a transform when the caller's
+    /// reference differs from the layer's, and leaves it untouched when it does not.
+    /// </summary>
+    /// <remarks>
+    /// <b>Untouched is the common case and worth keeping exactly as it was.</b>
+    /// Wrapping every filter in <c>st_transform</c> unconditionally would put a
+    /// projection call in the hot path of every bounding-box query to answer a
+    /// question most of them are not asking, and PostGIS's planner does not always
+    /// fold it away.
+    /// </remarks>
+    private string ToLayerReference(string expression, FeatureQuery query) =>
+        FilterSrid(query) == _layer.Srid
+            ? expression
+            : $"st_transform({expression}, {Literal(_layer.Srid)})";
+
     /// <summary>Every filter this query carries, joined with <c>and</c>.</summary>
     private void AppendWhere(StringBuilder sql, FeatureQuery query)
     {
@@ -281,14 +303,21 @@ public sealed class PostGisFeatureSource : IFeatureSource
             // && is the index-backed bounding-box overlap operator. This is the
             // pushdown: the index answers it, and rows that fail never leave the
             // database.
+            //
+            // <b>The envelope is built in the caller's reference and transformed
+            // into the layer's, never the other way round.</b> Transforming the
+            // column would be correct and would discard the spatial index on every
+            // row, which turns a bounding-box query into a full scan — the one
+            // shape of this that must not be written.
             clauses.Add(
-                $"{LayerDefinition.Quote(_layer.GeometryColumn)} && st_makeenvelope("
-                + $"@minx, @miny, @maxx, @maxy, {_layer.Srid.ToString(CultureInfo.InvariantCulture)})");
+                $"{LayerDefinition.Quote(_layer.GeometryColumn)} && {ToLayerReference(
+                    $"st_makeenvelope(@minx, @miny, @maxx, @maxy, {Literal(FilterSrid(query))})",
+                    query)}");
         }
 
         if (query.Spatial is { } spatial)
         {
-            clauses.Add(SpatialClause(spatial));
+            clauses.Add(SpatialClause(spatial, query));
         }
 
         if (query.ObjectIds.Count > 0)
@@ -334,7 +363,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
     /// unusable.
     /// </para>
     /// </remarks>
-    private string SpatialClause(SpatialFilter spatial)
+    private string SpatialClause(SpatialFilter spatial, FeatureQuery query)
     {
         string column = LayerDefinition.Quote(_layer.GeometryColumn);
 
@@ -344,8 +373,11 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // The && operator does not check, which is the dangerous part — the
         // index-only relations answered happily while every real predicate
         // errored, so a partial implementation looked like a working one.
-        string filter =
-            $"st_setsrid(st_geomfromwkb(@filter), {_layer.Srid.ToString(CultureInfo.InvariantCulture)})";
+        //
+        // The reference stamped on is the caller's, and ToLayerReference brings it
+        // the rest of the way when the two differ.
+        string filter = ToLayerReference(
+            $"st_setsrid(st_geomfromwkb(@filter), {Literal(FilterSrid(query))})", query);
 
         if (spatial.Distance > 0)
         {
