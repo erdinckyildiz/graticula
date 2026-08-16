@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(15);
+    public static SchemaVersion ComponentSchemaVersion => new(16);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -50,6 +50,7 @@ public static class PlatformMigrations
         TileLifetimeV13,
         ServiceStyleV14,
         FolderCaseV15,
+        ServiceCapabilitiesV16,
     ]);
 
     /// <summary>
@@ -1097,4 +1098,75 @@ public static class PlatformMigrations
         """,
 
         "drop index service_name_in_folder");
+
+    /// <summary>
+    /// A service's configured capability ceiling, and a timeout it may lower.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every column is nullable, and null is the whole compatibility
+    /// story.</b> Null means *unset* — the service offers whatever its data
+    /// supports and its caller's privileges allow, which is exactly what every
+    /// service did before this migration existed. So this is additive in the
+    /// strongest sense: no row changes, no default changes behaviour, and a
+    /// reader that does not know about these columns produces the same documents
+    /// it produced yesterday. ADR-031 condition 4 asks for that to be proven
+    /// rather than asserted, and it is provable precisely because null is the
+    /// default.
+    /// </para>
+    /// <para>
+    /// <b>Two nullable booleans rather than a set of face names.</b> A
+    /// <c>text[]</c> of faces reads well and cannot be constrained without a
+    /// trigger; two columns can be checked, and there are two faces because
+    /// v1-scope says there are two. A third face becomes a third column and a
+    /// migration, which is the right cost for adding a protocol.
+    /// </para>
+    /// <para>
+    /// <b>The ceiling is a set and is constrained to known names.</b> An
+    /// unrecognised capability in this column would be silently dropped by the
+    /// intersection — the failure mode where a service looks configured and is
+    /// not — so the constraint refuses it at write time instead. The names are
+    /// ArcGIS's, because that is the vocabulary the document speaks; mapping them
+    /// to our privileges happens in one place in the host.
+    /// </para>
+    /// <para>
+    /// <b>The timeout is milliseconds and has a floor.</b> ADR-007 §4.8 makes a
+    /// per-connection <c>statement_timeout</c> mandatory and D-42 is the record of
+    /// that control being removable by accident, in the permissive direction. A
+    /// service may ask for less time than its source allows; the check stops a
+    /// zero, which PostgreSQL reads as *no limit* and which would therefore turn
+    /// this knob into the hole D-42 closed.
+    /// </para>
+    /// </remarks>
+    private static Migration ServiceCapabilitiesV16 => Migration.Expand(
+        new SchemaVersion(16),
+        "A service carries a capability ceiling and a statement timeout it may lower (ADR-031).",
+
+        """
+        alter table service
+          add column serves_features      boolean,
+          add column serves_tiles         boolean,
+          add column capability_ceiling    text[],
+          add column statement_timeout_ms  integer
+        """,
+
+        """
+        alter table service
+          add constraint service_capability_ceiling_known check (
+            capability_ceiling is null
+            or capability_ceiling <@ array['Query','Create','Update','Delete','Extract']::text[]
+          )
+        """,
+
+        // Positive and bounded. The upper bound is a day: a statement a service
+        // permits to run longer than that is not a query anybody is waiting for,
+        // and the number exists so a typo of an extra zero is refused rather than
+        // stored.
+        """
+        alter table service
+          add constraint service_statement_timeout_positive check (
+            statement_timeout_ms is null
+            or (statement_timeout_ms > 0 and statement_timeout_ms <= 86400000)
+          )
+        """);
 }

@@ -1197,6 +1197,16 @@ public static class Program
             return;
         }
 
+        // The feature face, if configured off, answers as absent — ADR-031
+        // condition 2. Asserted here as well as in ServiceLookup.LayerAsync,
+        // because a service document is reachable without resolving a layer and a
+        // document listing layers nobody may then read is worse than no document.
+        if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
+        {
+            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
+            return;
+        }
+
         // <b>Every layer's extent, which means every layer's shape query.</b>
         // ServiceContexts caches those for thirty seconds, so a three-layer
         // service costs three cached reads rather than three round trips — but
@@ -1733,23 +1743,45 @@ public static class Program
     /// and offers one edit button. Claiming Update because two layers of three
     /// support it puts that button in front of a refusal.
     /// </remarks>
+    /// <summary>
+    /// What this caller may do in this service — the intersection of three things.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-031, and the shape is the decision.</b> Effective capability is what
+    /// the data supports, intersected with what the service is configured to offer,
+    /// intersected with what the caller's privileges allow. The first two lines
+    /// below are the data; <c>PrivilegedCapabilities</c> is the caller;
+    /// <c>Limits.Restrict</c> is the configuration, and it can only remove. There is
+    /// no branch here that adds a capability, which is what stops a configured
+    /// service from handing out what a role does not carry.
+    /// </remarks>
     private static string CapabilitiesFor(HttpContext context, PublishedService service)
     {
         if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.IsArcGisServable))
         {
-            return "Query";
+            return Join(service.Limits.Restrict(["Query"]));
         }
 
-        return CapabilitiesFor(context, service.Layers[0]);
+        return CapabilitiesFor(context, service.Layers[0], service.Limits);
     }
 
-    private static string CapabilitiesFor(HttpContext context, PublishedLayer layer)
+    private static string CapabilitiesFor(HttpContext context, PublishedLayer layer) =>
+        CapabilitiesFor(context, layer, ServiceCapabilityLimits.Unset);
+
+    private static string CapabilitiesFor(
+        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits)
     {
         if (!layer.Definition.IsArcGisServable)
         {
-            return "Query";
+            return Join(limits.Restrict(["Query"]));
         }
 
+        return Join(limits.Restrict(PrivilegedCapabilities(context)));
+    }
+
+    /// <summary>What the caller's privileges alone would allow.</summary>
+    private static List<string> PrivilegedCapabilities(HttpContext context)
+    {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         List<string> capabilities = ["Query"];
@@ -1765,8 +1797,21 @@ public static class Program
             capabilities.Add("Delete");
         }
 
-        return string.Join(",", capabilities);
+        return capabilities;
     }
+
+    /// <summary>
+    /// The capability string, and an empty set is spelled as the empty string.
+    /// </summary>
+    /// <remarks>
+    /// <b>A service configured to offer nothing says so.</b> ADR-031 §2a keeps
+    /// <c>Query</c> revocable on purpose — a service that is running and refusing is
+    /// a state distinct from stopped — so this has to be able to produce an empty
+    /// value rather than quietly falling back to <c>Query</c>, which would make the
+    /// setting look applied while doing nothing.
+    /// </remarks>
+    private static string Join(IReadOnlyList<string> capabilities) =>
+        string.Join(",", capabilities);
 
     /// <summary>How long a first-start setup token lasts.</summary>
     /// <remarks>

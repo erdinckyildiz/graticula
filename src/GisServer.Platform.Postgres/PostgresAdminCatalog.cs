@@ -467,6 +467,68 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// <inheritdoc/>
     /// <remarks>
     /// <para>
+    /// <b>Addressed by name and folder, matched case-insensitively</b>, the way
+    /// every other service lookup in this catalogue is since migration 15 — a
+    /// setter that matched case-sensitively would fail to find the service the read
+    /// path finds.
+    /// </para>
+    /// <para>
+    /// <b>All four columns are written, nulls included.</b> ADR-031 makes null mean
+    /// *unset*; a partial write would leave a service configured in a way its
+    /// operator did not ask for and cannot see from the screen they used.
+    /// </para>
+    /// <para>
+    /// <b>The database checks the values as well.</b> Migration 16 constrains the
+    /// ceiling to known names and the timeout to a positive bound, and
+    /// <see cref="ServiceCapabilityLimits"/> refuses both in the domain. Two checks
+    /// for one rule is deliberate here: the constraint is what stops a value that
+    /// arrived by any other route — a migration, a script, a future endpoint — from
+    /// becoming a service that looks configured and is not.
+    /// </para>
+    /// </remarks>
+    public async Task<bool> SetServiceCapabilitiesAsync(
+        string name,
+        string? folder,
+        ServiceCapabilityLimits limits,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        const string Sql = """
+            update service
+               set serves_features     = @features,
+                   serves_tiles        = @tiles,
+                   capability_ceiling  = @ceiling::text[],
+                   statement_timeout_ms = @timeout,
+                   updated_at          = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("features", (object?)limits.ServesFeatures ?? DBNull.Value);
+        command.Parameters.AddWithValue("tiles", (object?)limits.ServesTiles ?? DBNull.Value);
+
+        command.Parameters.Add(new NpgsqlParameter("ceiling", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = limits.Ceiling is null ? DBNull.Value : new List<string>(limits.Ceiling).ToArray(),
+        });
+
+        command.Parameters.AddWithValue(
+            "timeout",
+            limits.StatementTimeout is { } span
+                ? (object)(int)span.TotalMilliseconds
+                : DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
     /// <b>Writes the service's scope, not the layer's, and that was a shipped
     /// defect until 2026-08-15.</b> This statement said
     /// <c>update layer set sharing</c>, and <c>layer.sharing</c> is read by

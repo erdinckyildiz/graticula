@@ -63,6 +63,11 @@ public sealed class PublishedService
     /// a document an author reads again and normalising it would return
     /// something they did not write.
     /// </param>
+    /// <param name="limits">
+    /// What this service has been configured to offer, or null for nothing
+    /// configured — which is the same as <see cref="ServiceCapabilityLimits.Unset"/>
+    /// and is how every service behaved before ADR-031.
+    /// </param>
     public PublishedService(
         Guid id,
         string name,
@@ -74,7 +79,8 @@ public sealed class PublishedService
         ServiceStatus status,
         IEnumerable<PublishedLayer> layers,
         IEnumerable<GroupLayer>? groups = null,
-        string? style = null)
+        string? style = null,
+        ServiceCapabilityLimits? limits = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -91,10 +97,21 @@ public sealed class PublishedService
         Style = style;
         Layers = [.. layers.OrderBy(l => l.LayerIndex)];
         Groups = [.. (groups ?? []).OrderBy(g => g.Index)];
+        Limits = limits ?? ServiceCapabilityLimits.Unset;
     }
 
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
+
+    /// <summary>
+    /// What this service is configured to offer — a ceiling, never a grant.
+    /// </summary>
+    /// <remarks>
+    /// Never null: an unconfigured service carries
+    /// <see cref="ServiceCapabilityLimits.Unset"/>, so no caller has to decide what
+    /// absent means. ADR-031.
+    /// </remarks>
+    public ServiceCapabilityLimits Limits { get; }
 
     /// <summary>
     /// The stored style, or null when this service still uses the generated one.

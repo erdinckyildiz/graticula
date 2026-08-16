@@ -38,7 +38,12 @@ public sealed class PostgresLayerCatalog
         l.parent_layer_index, l.cache_seconds,
 
         -- The stored style, or null for the generated one (ADR-028).
-        s.style
+        s.style,
+
+        -- The configured capability ceiling (ADR-031). All four are null on a
+        -- service nobody has configured, which is every service that existed
+        -- before migration 16 — so reading them changes no document.
+        s.serves_features, s.serves_tiles, s.capability_ceiling, s.statement_timeout_ms
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -306,7 +311,8 @@ public sealed class PostgresLayerCatalog
     {
         Dictionary<Guid, List<PublishedLayer>> byService = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
-            Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style)> heads = [];
+            Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
+            ServiceCapabilityLimits Limits)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -337,7 +343,8 @@ public sealed class PostgresLayerCatalog
                         reader.IsDBNull(13) ? null : reader.GetGuid(13),
                         ParseSharing(reader.GetString(14)),
                         ParseStatus(reader.GetString(15)),
-                        reader.IsDBNull(25) ? null : reader.GetString(25));
+                        reader.IsDBNull(25) ? null : reader.GetString(25),
+                        ReadLimits(reader));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -364,10 +371,37 @@ public sealed class PostgresLayerCatalog
                 id, head.Name, head.Folder, head.Kind, head.Description,
                 head.Owner, head.Sharing, head.Status, byService[id],
                 groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : [],
-                head.Style));
+                head.Style,
+                head.Limits));
         }
 
         return services;
+    }
+
+    /// <summary>Reads a service's configured capability ceiling (ADR-031).</summary>
+    /// <remarks>
+    /// <b>All four columns null is the ordinary case and must stay cheap.</b> Every
+    /// service that existed before migration 16 reads this way, and
+    /// <see cref="ServiceCapabilityLimits.Unset"/> is a singleton, so the common path
+    /// allocates nothing.
+    /// </remarks>
+    private static ServiceCapabilityLimits ReadLimits(NpgsqlDataReader reader)
+    {
+        bool? features = reader.IsDBNull(26) ? null : reader.GetBoolean(26);
+        bool? tiles = reader.IsDBNull(27) ? null : reader.GetBoolean(27);
+        string[]? ceiling = reader.IsDBNull(28) ? null : reader.GetFieldValue<string[]>(28);
+        int? timeout = reader.IsDBNull(29) ? null : reader.GetInt32(29);
+
+        if (features is null && tiles is null && ceiling is null && timeout is null)
+        {
+            return ServiceCapabilityLimits.Unset;
+        }
+
+        return new ServiceCapabilityLimits(
+            features,
+            tiles,
+            ceiling,
+            timeout is { } ms ? TimeSpan.FromMilliseconds(ms) : null);
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

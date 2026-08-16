@@ -285,6 +285,26 @@ public interface IAdminCatalog
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Stores what a service is configured to offer — a ceiling, never a grant.
+    /// </summary>
+    /// <remarks>
+    /// <b>Writes all four fields, including the nulls.</b> ADR-031 makes null mean
+    /// *unset*, so a partial write would leave a service in a state the caller did
+    /// not ask for and could not see: an operator clearing the ceiling expects the
+    /// column cleared, not left as it was. The whole set is replaced.
+    /// </remarks>
+    /// <param name="name">The service name within its folder.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="limits">The configuration to store.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a service was found and written.</returns>
+    Task<bool> SetServiceCapabilitiesAsync(
+        string name,
+        string? folder,
+        ServiceCapabilityLimits limits,
+        CancellationToken cancellationToken);
+
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
     /// <param name="layerName">A layer in the service.</param>
     /// <param name="sharing">The new scope.</param>

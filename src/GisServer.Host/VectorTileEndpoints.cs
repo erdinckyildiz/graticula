@@ -105,6 +105,19 @@ internal static class VectorTileEndpoints
             return null;
         }
 
+        // <b>A face turned off answers exactly as an absent one does</b> — ADR-031
+        // condition 2. `ServiceLookup` has already produced the not-found response
+        // for a service nobody may see, and this reuses it rather than writing a
+        // recognisable "tiles are disabled here": a distinguishable refusal would
+        // let a caller enumerate which services exist by reading which ones say no
+        // differently, and ADR-018 makes absent and forbidden identical for the same
+        // reason.
+        if (!service.Limits.AllowsTiles(dataSupportsIt: true))
+        {
+            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
+            return null;
+        }
+
         if (service.Layers.Count == 0)
         {
             await Results.Json(

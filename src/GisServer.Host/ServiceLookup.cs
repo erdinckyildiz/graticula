@@ -166,6 +166,18 @@ internal static class ServiceLookup
             return null;
         }
 
+        // <b>The feature face, if it has been turned off, answers as absent</b> —
+        // ADR-031 condition 2, and the same refusal ADR-018 gives for a service
+        // nobody may see. The gate is here rather than in `ServiceAsync` because
+        // the tile path resolves through that method too: gating there would turn
+        // off both faces at once and make the tiles-only configuration
+        // unreachable, which is the configuration this feature was asked for.
+        if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
+        {
+            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
+            return null;
+        }
+
         if (service.Layer(layerId) is not { } layer)
         {
             // <b>A group layer exists at this index and has no features.</b>

@@ -64,6 +64,27 @@ internal sealed record ServiceRequest(
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
 
+/// <summary>
+/// What a service is configured to offer. Null means unset, everywhere.
+/// </summary>
+/// <param name="Folder">Its folder, or null for the root.</param>
+/// <param name="ServesFeatures">Whether the feature face is offered, or null for unset.</param>
+/// <param name="ServesTiles">Whether the tile face is offered, or null for unset.</param>
+/// <param name="Capabilities">
+/// The ceiling, or null for unset. An **empty array is not null**: it means this
+/// service offers nothing, which ADR-031 §2a keeps as a legitimate state distinct
+/// from stopped.
+/// </param>
+/// <param name="StatementTimeoutMilliseconds">
+/// A timeout this service asks for, or null for the source's own. May only lower.
+/// </param>
+internal sealed record ServiceCapabilitiesRequest(
+    string? Folder,
+    bool? ServesFeatures,
+    bool? ServesTiles,
+    IReadOnlyList<string>? Capabilities,
+    int? StatementTimeoutMilliseconds);
+
 /// <summary>How long a layer's tiles stay fresh.</summary>
 /// <param name="Seconds">
 /// Seconds, or null to fall back to the server default. <b>Zero is not
@@ -123,6 +144,7 @@ internal static class AdminEndpoints
         // and was therefore governed by nothing.
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+        app.MapPut("/admin/services/{name}/capabilities", SetServiceCapabilitiesAsync);
 
         // Group layers. Owner request 2026-08-15: "enable group layers also."
         app.MapGet("/admin/routes", ListRoutesAsync);
@@ -720,6 +742,106 @@ internal static class AdminEndpoints
 
         await Results.Json(new { name, sharing = PostgresSharing(scope) })
             .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stores what a service offers — a ceiling, never a grant (ADR-031).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The privilege is <c>admin:manageServer</c>, not a sharing one.</b>
+    /// Narrowing what a service does is server administration; it cannot widen who
+    /// may read — that is sharing, and ADR-031 §2b keeps the two apart so there are
+    /// not two controls over one fact.
+    /// </para>
+    /// <para>
+    /// <b>The refusals are the domain's own words.</b> An unknown capability name
+    /// and a non-positive timeout are both refused by
+    /// <see cref="ServiceCapabilityLimits"/>, which explains why — an unrecognised
+    /// name would be dropped by the intersection, and a zero timeout is how
+    /// PostgreSQL spells *no limit*. Catching its exception and returning its
+    /// message keeps one explanation rather than a second one written here that can
+    /// drift from it.
+    /// </para>
+    /// </remarks>
+    private static async Task SetServiceCapabilitiesAsync(
+        HttpContext context,
+        string name,
+        ServiceCapabilitiesRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        ServiceCapabilityLimits limits;
+
+        try
+        {
+            limits = new ServiceCapabilityLimits(
+                request.ServesFeatures,
+                request.ServesTiles,
+                request.Capabilities,
+                request.StatementTimeoutMilliseconds is { } ms
+                    ? TimeSpan.FromMilliseconds(ms)
+                    : null);
+        }
+        catch (Exception e) when (e is ArgumentException or ArgumentOutOfRangeException)
+        {
+            await Refuse(context, 400, e.Message).ConfigureAwait(false);
+            return;
+        }
+
+        string? folder = string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim();
+
+        if (!await catalog
+            .SetServiceCapabilitiesAsync(name, folder, limits, cancellation)
+            .ConfigureAwait(false))
+        {
+            await AuditAsync(
+                context, audit, "service.capabilities", name,
+                Detail(new { folder }), succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(context, 404,
+                $"No service '{name}'" + (folder is null ? " at the root." : $" in folder '{folder}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.capabilities", name,
+            Detail(new
+            {
+                folder,
+                servesFeatures = limits.ServesFeatures,
+                servesTiles = limits.ServesTiles,
+                capabilities = limits.Ceiling,
+                statementTimeoutMs = limits.StatementTimeout?.TotalMilliseconds,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            folder,
+            servesFeatures = limits.ServesFeatures,
+            servesTiles = limits.ServesTiles,
+            capabilities = limits.Ceiling,
+            statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
+
+            // <b>Said back, because a ceiling is easy to misread as a grant.</b> An
+            // operator who ticks Update on a service whose readers lack the
+            // privilege will see no change in behaviour, and this is where that is
+            // explained rather than in a document they are not reading.
+            note = limits.IsUnset
+                ? "Nothing is configured, so this service offers whatever its data supports and "
+                  + "its callers' privileges allow."
+                : "These are limits, not grants: a caller still needs the privilege. What is "
+                  + "served is the intersection of the data, this configuration, and the caller.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
