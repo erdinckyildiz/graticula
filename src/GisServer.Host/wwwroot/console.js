@@ -267,7 +267,12 @@ async function buildMap() {
   // being in the wrong place and having no data look identical.
   // VectorTileLayer passed as well, so an imported ground can replace the vendored
   // world here exactly as it does in the viewer — one rule, ground.js decides.
-  const ground = url ? [] : groundLayers({ GeoJSONLayer, VectorTileLayer });
+  // WebTileLayer passed, so ground.js can draw OpenStreetMap here exactly as the
+  // viewer does. Without it this page fell through to the vendored Natural Earth
+  // files and the owner asked a fourth time why they were still showing.
+  const ground = url
+    ? []
+    : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
 
   const map = new Map(url
     ? {
@@ -362,9 +367,25 @@ async function resetBasemap() {
   drawBasemapControl();
 }
 
+/**
+ * Says which ground is actually drawn, rather than which setting is empty.
+ *
+ * <b>It used to read "none — layers draw on a plain ground" while OpenStreetMap or
+ * Natural Earth was on screen.</b> That is the same fault as the viewer's state
+ * line naming Natural Earth while OSM tiles were drawn: a status line that reports
+ * a *setting* instead of the *outcome* is worth less than no status line, because
+ * it is read as the outcome. So it names what ground.js decided.
+ */
 function drawBasemapControl() {
   const url = basemapUrl();
-  $("basemapState").textContent = url ? url : "none — layers draw on a plain ground";
+  const imported = chosenGroundTiles();
+
+  $("basemapState").textContent = url
+    ? url
+    : imported.length
+      ? `${imported.join(", ")} — imported tiles as the ground`
+      : "OpenStreetMap — the default ground; name your own tiles to replace it";
+
   $("basemapInput").value = url;
 }
 

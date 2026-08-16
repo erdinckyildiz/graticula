@@ -341,8 +341,22 @@ const BASEMAP_KEY = "gis-basemap";
   below is how a deployment points somewhere it is entitled to. Attribution is
   displayed, which the licence does require.
 */
-const OSM_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+// Defined in ground.js, which this page loads first for that one line. Keeping a
+// second copy here is what let the console and this viewer disagree about the
+// ground while each looked correct on its own — D-46 again.
+//
+// <b>No fallback string, deliberately.</b> A default here would be the second copy
+// back again, serving a case that cannot happen while view.html loads ground.js
+// before this file — and if that ever stops being true, a wrong ground drawn
+// silently is worse than a named failure.
+const OSM_TILES = window.OSM_TILES;
 const NO_BASEMAP = "none";
+
+if (!OSM_TILES) {
+  problem("ground.js did not load",
+    " — the map has no ground to draw. This page loads it before view.js for the "
+    + "one constant that decides which tiles are the ground.");
+}
 
 function basemapTemplate() {
   const fromQuery = QUERY.get("basemap");

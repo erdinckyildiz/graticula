@@ -20,6 +20,30 @@
 /** The ocean. Everything else is drawn on top of it. */
 const GROUND_WATER = "#dce7ec";
 
+/**
+ * OpenStreetMap's rendered tiles — the ground, by owner decision.
+ *
+ * <b>This constant lives here because it living somewhere else was the bug.</b>
+ * The owner asked four times why Natural Earth was still showing, and the answer
+ * each time was that the rule had been written into one page. The last of those
+ * moved the *vendored* decision here and left OSM defined inside `view.js`, so the
+ * OpenLayers viewer drew OSM and the two Esri-based pages drew Natural Earth —
+ * which is the same mistake with a smaller radius, and it still reads to whoever
+ * is looking as *"it is still showing"*. ADR-020 §4c is the decision; this line is
+ * the only place it is spelled.
+ *
+ * Each page builds its own layer from it, because one uses OpenLayers and two use
+ * the ArcGIS SDK. The decision is shared; the construction cannot be.
+ *
+ * A deployment serving real traffic should point at its own tiles rather than
+ * openstreetmap.org's — that is [Q-110](../../../docs/open-questions.md) and the
+ * basemap box exists for it.
+ */
+const OSM_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+/** What OSM requires be shown wherever those tiles are drawn. */
+const OSM_CREDIT = "© OpenStreetMap contributors";
+
 /** Where the chosen imported grounds are remembered. Shared with the OpenLayers viewer. */
 const GROUND_TILES_KEY = "gis-ground-tiles";
 
@@ -55,7 +79,7 @@ function chosenGroundTiles() {
  *   be able to use an imported ground.
  * @returns {object[]} Layers to add beneath the data.
  */
-function groundLayers({ GeoJSONLayer, VectorTileLayer }) {
+function groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer }) {
   const chosen = chosenGroundTiles();
 
   if (chosen.length && VectorTileLayer) {
@@ -64,6 +88,22 @@ function groundLayers({ GeoJSONLayer, VectorTileLayer }) {
       title: service,
       opacity: 0.9,
     }));
+  }
+
+  // <b>OSM before the vendored files, which is the whole point of this change.</b>
+  // Natural Earth answers *where in the world is this* and nothing else: no roads,
+  // no places, no district boundaries. The owner asked for OpenStreetMap and said
+  // it plainly — no picker, no choice to make. So the rendered tiles come first
+  // wherever they can be reached, and the vendored world is what is left when they
+  // cannot: an air-gapped deployment (Q-15), or a caller with no route out.
+  if (WebTileLayer) {
+    return [new WebTileLayer({
+      // The SDK's template spelling, not OSM's own — the same tiles either way.
+      urlTemplate: OSM_TILES
+        .replace("{z}", "{level}").replace("{x}", "{col}").replace("{y}", "{row}"),
+      copyright: OSM_CREDIT,
+      title: "OpenStreetMap",
+    })];
   }
 
   const at = name => `${location.origin}/console/${name}`;

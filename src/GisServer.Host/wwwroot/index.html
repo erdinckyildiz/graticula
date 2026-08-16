@@ -330,12 +330,20 @@
       <div id="view"></div>
       <div id="legend"></div>
       <!--
-        No basemap ships. The console used to hardcode OpenStreetMap's public
-        tiles; their usage policy does not permit being an application's basemap
-        and on 2026-08-16 they returned 403 for every tile. Naming your own tile
-        server is a preference of whoever is reading, so it is kept in the browser
-        and not in the platform store — this adds no server capability, which is
-        what keeps ADR-020 §2 intact.
+        <b>This comment used to say OpenStreetMap "returned 403 for every tile",
+        and that was our own fault, measured the same day.</b> The same URL returns
+        a 6.9 KB "access blocked" image with no Referer and a real tile with one —
+        our `Referrer-Policy: no-referrer` was stripping it. Fixed per path. The
+        conclusion drawn from that 403, that OSM could not be the ground, was
+        therefore wrong, and the owner's decision is that OSM *is* the ground
+        (ADR-020 §4c). It is drawn by default now; ground.js holds that decision.
+
+        Their Tile Usage Policy still says those servers are not for an
+        application's default basemap, which is why this box exists: naming your
+        own tile server is the deployment's answer (Q-110). It is a preference of
+        whoever is reading, so it stays in the browser rather than the platform
+        store — this adds no server capability, which is what keeps ADR-020 §2
+        intact.
       -->
       <div id="basemapBar">
         <span class="lbl">Basemap</span>

@@ -93,7 +93,9 @@
       })
       : null;
 
-    const ground = template ? [] : groundLayers({ GeoJSONLayer, VectorTileLayer });
+    const ground = template
+      ? []
+      : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
 
     document.getElementById("ground").textContent = template
       ? "Basemap: " + template

@@ -117,6 +117,13 @@
 <div id="note"></div>
 <div id="attrs"></div>
 
+<!--
+  ground.js for one constant: which tiles are the ground. It builds ArcGIS layers,
+  which this page does not use, but the *decision* is shared and the construction
+  is not — that split is the fix for four rounds of "Natural Earth is still
+  showing". Loaded before view.js so the constant exists when it reads it.
+-->
+<script src="ground.js" defer></script>
 <script src="view.js" defer></script>
 </body>
 </html>
