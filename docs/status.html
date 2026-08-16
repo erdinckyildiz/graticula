@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>9105c19</code> · 2026-08-16 00:10</p>
+<p class="stamp">Generated from commit <code>00fdb11</code> · 2026-08-16 09:21</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
 <div class="kpi warn"><div class="kpi-v">29/100</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">67 live · 4 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">43</div><div class="kpi-l">open questions</div><div class="kpi-n">56 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">open debts</div><div class="kpi-n">5 repaid · 4 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">open debts</div><div class="kpi-n">6 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">9/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">971</div><div class="kpi-l">tests</div><div class="kpi-n">120 source files, 37,332 lines</div></div>
+<div class="kpi good"><div class="kpi-v">977</div><div class="kpi-l">tests</div><div class="kpi-n">120 source files, 37,448 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -287,6 +287,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-35</td><td>Planar area was computed by a shoelace sum with no local origin, and it shipped that way for a day.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-36</td><td>~~Nothing in the repository says how to install against an empty database, and the first command fails with a raw Postgres error.~~ CLOSED 2026-08-15, partly.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-37</td><td>~~A test that had been written off as flaky twice was not measuring its own claim.~~ CLOSED 2026-08-16.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-36</td><td>~~The service lookup&#x27;s unique index disagreed with the query that needed it, in meaning as well as in form.~~ CLOSED 2026-08-16, migration 15.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-32</td><td>~~A transformation PROJ could not do accurately is reported as though it were accurate.~~ PARTLY PAID 2026-08-16 on the GeometryServer surface.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
@@ -367,7 +368,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">222</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:90.1%"></div></div><div class="bar-n">200</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:92.8%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:77.0%"></div></div><div class="bar-n">171</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:75.2%"></div></div><div class="bar-n">167</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:49.1%"></div></div><div class="bar-n">109</div></div>
@@ -376,6 +377,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">3</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>00fdb11</code><time>2026-08-16</time><span>the catalogue&#x27;s group query stops reading every service to answer about one</span></li>
+<li><code>063157b</code><time>2026-08-16</time><span>the feature query path gets a clock, and the catalogue read turns out to be most of it</span></li>
 <li><code>9105c19</code><time>2026-08-16</time><span>a transformation that crossed a datum now says so, and a flaky test was not flaky</span></li>
 <li><code>0a66121</code><time>2026-08-16</time><span>the other two shoelaces</span></li>
 <li><code>2728739</code><time>2026-08-15</time><span>deployment.md gets the install sequence it never had</span></li>
@@ -388,8 +391,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>c5b4864</code><time>2026-08-15</time><span>an empty folder now tells a stranger they are a stranger; and a Turkish Control Room</span></li>
 <li><code>136d06b</code><time>2026-08-15</time><span>five conditions were already met and nobody had said so</span></li>
 <li><code>cc45917</code><time>2026-08-15</time><span>two ADRs were REOPENED by triggers v1 had already removed</span></li>
-<li><code>6814e77</code><time>2026-08-15</time><span>the condition count was wrong, and the rule had two implementations</span></li>
-<li><code>e913f52</code><time>2026-08-15</time><span>Â§66 performance gate: FAIL, and nothing repaired</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

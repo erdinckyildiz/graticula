@@ -280,8 +280,15 @@ public sealed class PostgresLayerCatalog
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Columns} {ServiceFrom} "
-            + "where lower(s.name) = lower(@name) "
-            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
+            // <b>Written to match the index, expression for expression.</b>
+            // Migration 15's unique index is on
+            // (coalesce(lower(folder), ''), lower(name)); a predicate that says
+            // the same thing in different words cannot use it, and this one used
+            // to — the folder half was coalesce-then-lower against an index that
+            // was lower-then-coalesce, so the whole index was unusable and the
+            // lookup scanned every service on every request.
+            + "where coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
+            + "  and lower(s.name) = lower(@name) "
             + "order by l.layer_index");
 
         command.Parameters.AddWithValue("name", name);

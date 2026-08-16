@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(14);
+    public static SchemaVersion ComponentSchemaVersion => new(15);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -49,6 +49,7 @@ public static class PlatformMigrations
         GroupLayersV12,
         TileLifetimeV13,
         ServiceStyleV14,
+        FolderCaseV15,
     ]);
 
     /// <summary>
@@ -1010,4 +1011,90 @@ public static class PlatformMigrations
         alter table service add constraint service_style_is_bounded
           check (style is null or length(style) <= 1048576)
         """);
+
+    /// <summary>
+    /// The service name index becomes case-insensitive on the folder too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The index and the lookup disagreed, and the lookup is the one callers
+    /// experience.</b> Migration 11 created
+    /// <c>unique (coalesce(folder, ''), lower(name))</c> — case-insensitive on
+    /// the name and case-<em>sensitive</em> on the folder. Every read asks
+    /// <c>coalesce(lower(folder), '') = coalesce(lower(@folder), '')</c>, which
+    /// is case-insensitive on both. So the constraint permitted
+    /// <c>Hosted/parcels</c> and <c>hosted/parcels</c> as two services, and the
+    /// lookup then matched both and returned whichever row came first.
+    /// </para>
+    /// <para>
+    /// <b>That is a correctness defect and not only a tidiness one.</b> The two
+    /// services can carry different sharing scopes, so the same URL could
+    /// resolve to the public one or the private one depending on row order —
+    /// which means an anonymous caller sees it or gets a 404 for reasons nobody
+    /// can predict or explain. Folders are taken from the administrator's
+    /// request rather than generated, so creating the pair needs no trick.
+    /// Reproduced against a real Postgres before this was written: both inserts
+    /// succeeded and the lookup matched two rows.
+    /// </para>
+    /// <para>
+    /// <b>The lookup wins the disagreement, deliberately.</b> An ArcGIS REST
+    /// address is matched case-insensitively in practice, and the server already
+    /// behaves that way at every URL; it is the constraint underneath that was
+    /// the odd one out. Making the index agree with the behaviour is the smaller
+    /// change and it is the one that removes the ambiguity rather than moving
+    /// it.
+    /// </para>
+    /// <para>
+    /// <b>Expand, and it refuses rather than half-applies.</b> Building the new
+    /// unique index fails outright if a deployment already holds a colliding
+    /// pair — which is the correct outcome: two services that were legal
+    /// yesterday and ambiguous today need an administrator to say which one
+    /// survives, and a migration must not choose. The check before it exists to
+    /// make that failure say so in words rather than as a duplicate-key error on
+    /// an index name nobody recognises.
+    /// </para>
+    /// <para>
+    /// <b>The old index is dropped in the same step, and that is expand rather
+    /// than contract</b> because nothing reads an index by name: a reader
+    /// running the previous build issues the same SQL and the planner picks
+    /// whatever exists. Keeping both would leave the case-sensitive uniqueness
+    /// in force, which is the thing being removed.
+    /// </para>
+    /// </remarks>
+    private static Migration FolderCaseV15 => Migration.Expand(
+        new SchemaVersion(15),
+        "Folder names are matched case-insensitively, as every read already assumed.",
+
+        // Named, so the failure explains itself. Without this the migration
+        // fails on create-index with "could not create unique index ...
+        // Key (coalesce(folder, ''), lower(name))=(...) is duplicated", which
+        // says nothing about what an administrator should do next.
+        """
+        do $$
+        declare
+            clash text;
+        begin
+            select string_agg(distinct coalesce(folder, '') || '/' || name, ', ')
+              into clash
+            from service
+            group by coalesce(lower(folder), ''), lower(name)
+            having count(*) > 1;
+
+            if clash is not null then
+                raise exception
+                    'Two or more services differ only in the case of their folder or name: %. '
+                    'Until now the catalogue permitted that and every lookup matched both, '
+                    'returning whichever row came first. Rename or remove one of each pair, '
+                    'then run this migration again. It cannot choose for you: the pair may '
+                    'carry different sharing scopes.', clash;
+            end if;
+        end $$
+        """,
+
+        """
+        create unique index service_name_in_folder_ci
+          on service (coalesce(lower(folder), ''), lower(name))
+        """,
+
+        "drop index service_name_in_folder");
 }
