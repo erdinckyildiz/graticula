@@ -228,6 +228,18 @@ const basemapUrl = () => localStorage.getItem(BASEMAP_KEY) || "";
 let viewReady = null;
 
 async function ensureMap() {
+  // <b>Before the view is built, not after — and getting this backwards cost a
+  // silent hang.</b> `#view` lives inside `#mapPanel`, which is `display: none`
+  // until it is shown, and both callers used to reveal the panel *after* asking
+  // for the view. That was survivable while nothing waited on the view; once
+  // `view.when()` was awaited, the first click built a MapView in a hidden,
+  // zero-sized container and the promise never settled. Memoising it then made it
+  // permanent: every later click joined the same pending promise, so the button
+  // did nothing at all, with no error and nothing in any log. Reported by the
+  // owner as *"I press it and nothing happens"*, which is the second time this
+  // console has failed that way.
+  $("mapPanel").classList.add("on");
+
   if (viewReady) return viewReady;
 
   viewReady = buildMap();
@@ -294,7 +306,22 @@ async function buildMap() {
   // The line the failure was about. Everything a caller does with the view —
   // goTo, add, hitTest — needs it initialised, so it is waited for here once
   // rather than remembered as a rule each caller has to follow.
-  await view.when();
+  //
+  // <b>And it is raced against a clock, because a hang is not a rejection.</b>
+  // A view that never becomes ready leaves this awaiting forever: no error, no
+  // status, nothing logged, and a button that does nothing — which is the exact
+  // failure this console has now produced twice for two different reasons. A
+  // timeout cannot fix whatever is wrong, but it turns silence into a sentence,
+  // and a sentence is what makes the next one diagnosable.
+  await Promise.race([
+    view.when(),
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error(
+        "The map did not become ready within 15 seconds. The view is built inside "
+        + "the map panel, so this is usually the panel being hidden or having no "
+        + "height, or WebGL being unavailable in this browser.")),
+      15000)),
+  ]);
 
   return view;
 }
@@ -1494,7 +1521,26 @@ async function createImported(event) {
 
 // -------------------------------------------------------------------- actions
 
+/**
+ * Every click, and no branch of it may fail in silence.
+ *
+ * <b>The wrapper is the point.</b> This handler is `async`, so a rejection inside
+ * any branch becomes an unhandled promise rejection: the browser logs it to a
+ * console nobody has open and the page does nothing at all. Some branches had
+ * their own `try`; the tiles branch did not, which is how a hanging map read as a
+ * dead button. Guarding the whole handler rather than that one branch is
+ * deliberate — D-46 is the register entry for fixing the instance and leaving the
+ * class, and a new branch added later inherits this instead of remembering it.
+ */
 document.addEventListener("click", async event => {
+  try {
+    await handleClick(event);
+  } catch (e) {
+    toast(e.message || String(e));
+  }
+});
+
+async function handleClick(event) {
   const t = event.target;
   const d = t.dataset || {};
 
@@ -1691,7 +1737,7 @@ document.addEventListener("click", async event => {
       pill("unusable")}<span style="font-size:13.5px">${h(e.message)}</span></div>`; }
     t.disabled = false;
   }
-});
+}
 
 document.addEventListener("change", async event => {
   const d = event.target.dataset || {};
