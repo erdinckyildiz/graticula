@@ -14,10 +14,12 @@
 [Q-17](../open-questions.md) committed us to full ArcGIS FeatureServer
 compatibility including edits. That commitment carries a data model, not just a
 protocol, and Q-58 recorded the gap: attachments, relationships, domains,
-subtypes and editor tracking. The
-[Honua capability matrix](../research/honua-capability-matrix.md) §2 confirms
-attachments and related records ship at their **Community** tier, so these are
-table stakes for FeatureServer compatibility rather than refinements.
+subtypes and editor tracking. A peer ships attachments and related
+records at its free tier ([reference-reading-log.md](../research/reference-reading-log.md)),
+so these are table stakes for FeatureServer compatibility rather than
+refinements — and the corroboration is not what carries it: an ArcGIS client
+calls `queryRelatedRecords` and the attachment endpoints without asking whether
+the server implements them.
 
 This ADR decides the first three: **feature identity, relationships,
 attachments.** Domains, subtypes and editor tracking stay in Q-58 and are not

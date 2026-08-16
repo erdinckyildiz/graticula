@@ -6,8 +6,10 @@
 > product could go; none of it is v1. The engine-versus-face framing is what
 > made the cut legible, so the document stays.
 
-**Written 2026-08-13**, after the owner put full protocol parity with Honua in
-scope ([capability matrix](research/honua-capability-matrix.md)).
+**Written 2026-08-13**, after the owner put full protocol parity with a peer
+implementation in scope (Q-78; the protocol list is reproduced in that answer,
+and the reading it came from is logged in
+[reference-reading-log.md](research/reference-reading-log.md)).
 
 The purpose of this document is to stop counting protocols. **A protocol count
 is a marketing number. The engine count is the engineering number**, and the two

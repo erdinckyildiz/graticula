@@ -43,10 +43,12 @@ Stability has not been demonstrated. It has not been investigated. The
 conditional has been sitting unresolved, and an unresolved conditional defaults
 to the more complicated branch purely because that branch was written first.
 
-**And the closest peer runs without it.** Honua Server was checked against its
-live repository on 2026-08-15
-([honua-server.md](../research/honua-server.md) §2b): one process, **stateless
-instances**, catalogue in PostGIS, shared cache and jobs in Redis, scale by
+**And the closest peer runs without it.** Checked against its live repository on
+2026-08-15 and **re-verified 2026-08-16 against the implementation rather than a
+summary of it** ([reference-reading-log.md](../research/reference-reading-log.md)):
+one process, **stateless instances**, catalogue in PostGIS, shared cache and jobs
+in Redis — Redis 7.4 in their default compose, declared there as the durable
+control plane and required by the server through a connection string — scale by
 adding containers behind a load balancer. They reach the same scale with no
 affinity, no context budget, and nothing to validate.
 
@@ -129,9 +131,8 @@ not interact with anything.
 
 ## 3. Counterarguments to the preferred option
 
-**The strongest one: this trades away the differentiator.** §5 of
-[honua-server.md](../research/honua-server.md) lists *"the runtime that holds
-1,000 services on one machine"* as one of four candidate answers to Q-49 — what
+**The strongest one: this trades away the differentiator.** *"The runtime that
+holds 1,000 services on one machine"* was one of four candidate answers to Q-49 — what
 this product does that others cannot. Affinity routing plus a weighted context
 budget is precisely the mechanism that would make that claim true and hard to
 copy. Choosing plain balancing makes us architecturally similar to a competitor

@@ -30,7 +30,13 @@ judgement is recorded rather than implied. Of §81's sixteen:
   owes no market case. **This silently removed the validation path for A-003 and
   five other assumptions** — see *carried*.
 - **Carried into Phase 1, and they are debts rather than completions:** the §66
-  review gates (0 of 9 run); the contradiction sweep — **round 2 run
+  review gates — **not none, and not all: some have run and some are still
+  waiting, and several of those that ran reported failures that are only partly
+  repaired.** Which is which is maintained in one place, the §66 table in
+  [architecture-completeness.md](docs/architecture-completeness.md), and is read
+  there rather than restated here. This sentence used to carry the tally itself
+  and was wrong for a day, which is how it came to say where the tally lives
+  instead; the contradiction sweep — **round 2 run
   2026-08-15** ([contradiction-sweep-2.md](docs/reviews/contradiction-sweep-2.md)),
   from the other direction: each decision against the code that now exists.
   Twelve findings, four of them new, and it stays open because it did not cover
@@ -38,12 +44,15 @@ judgement is recorded rather than implied. Of §81's sixteen:
   [architecture-assessment.md](docs/architecture-assessment.md), **repaired
   2026-08-15** — not by rewriting it, which would have erased the record of what
   was believed before anything was built, but by a header that says section by
-  section which parts are still true and what superseded the rest; the ADR conditions — **counted 2026-08-15 by
-  [tools/conditions.py](tools/conditions.py) rather than estimated: there are
-  69, not "roughly twenty-five", and 15 are discharged, not none**. Both halves
-  of the old sentence were guesses, and a number nobody can reproduce is a
-  number nobody maintains — the count moves as ADRs are written, and it is
-  re-run rather than remembered; **A-003**, the load-bearing assumption under
+  section which parts are still true and what superseded the rest; the ADR conditions — **counted by
+  [tools/conditions.py](tools/conditions.py) rather than estimated.** The old
+  sentence guessed at both halves, said "roughly twenty-five" with none met, and
+  was wrong by more than double with several already met. A number nobody can
+  reproduce is a number nobody maintains, and the count moves every time an ADR
+  is written, so **the figure is not written here at all** — run the tool, or read
+  [the status page](docs/status.html), which CI checks against the registers on
+  every push. `tools/registers-check.py` now fails the build if a count reappears
+  in this file, because it did, and it was stale within a day; **A-003**, the load-bearing assumption under
   ADR-007, which now has no validation route; and every finding in
   [independent review 3](docs/reviews/independent-review-3-synthesis.md) not
   removed by the v1 cut.
@@ -115,10 +124,26 @@ Governed by [build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md). Summary:
 
 ## 5. Clean room
 
-Existing products are studied for **publicly documented behaviour and
-architectural reasoning only** (§5). Do not reproduce proprietary source,
-undocumented internals, or proprietary algorithms. Any compatibility adapter
+**Do not reproduce** proprietary source, undocumented internals, protected
+implementation details, or proprietary algorithms (§5). Any compatibility adapter
 stays outside the core domain (§51).
+
+The line is *reproduce*, and that is the line §5 draws. Until 2026-08-16 this
+section also said existing products are studied "for publicly documented
+behaviour and architectural reasoning only" — a restriction on **reading** that
+§5 does not impose and that this repository was not applying consistently
+anyway, since the conformance scripts and CI workflows it recommended reading are
+themselves code. [ADR-030](docs/adr/ADR-030-reading-the-reference-implementation.md)
+removes that tightening for the anonymised reference checkout under
+`REFERENCES/`, by owner decision, and attaches three conditions: derivations are
+disclosed in the text that carries them, reads are logged in
+[reference-reading-log.md](docs/research/reference-reading-log.md), and a public
+specification — not the reference — is the citation for anything a public
+specification defines. The reference's own product name and `LICENSE` file are
+scrubbed; neither may be cited as evidence.
+
+Reading is not adopting. **Tier 3 is unchanged** (§4): a finished GIS server is
+still never embedded, forked or vendored.
 
 ## 6. Anti-overengineering
 

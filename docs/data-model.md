@@ -114,6 +114,41 @@ capability nobody had asked for. This is the same reasoning that cut the
 platform stores from four engines to two (Q-51), applied a second time to our
 own work.
 
+### One schema in the datastore, and it is not a knob
+
+**Owner statement, 2026-08-16.** Hosted data lives in `hosted`, and *"in the
+datastore there will be no other schema used by the application"*. `hosted` is
+not one schema among several that the server might choose between; it is the only
+one it ever writes to. No schema per organisation, per service, per tenant or per
+import.
+
+This was already how the code behaved and it was written down nowhere, which is
+why it is recorded here rather than left as an implementation detail:
+`PostGisImporter.HostedSchema` is a `const`, not configuration, and hosted
+attachment tables land in the same schema as the layer they belong to.
+
+**What the rule buys is the safety of one comparison.** `PostGisImporter.DropAsync`
+refuses to drop any table outside `hosted`:
+
+> *"only tables in the `hosted` schema were created by this server, and a table we
+> did not create is somebody else's data."*
+
+That refusal is a complete guarantee only because the set of schemas the
+application owns has exactly one member. With two or more, *is this table ours?*
+stops being a string comparison and becomes a lookup against a list — and a
+lookup can be stale, incomplete, or race an unpublish. An unpublish that deletes
+a customer's table is the worst failure in the whole data model, and this is the
+cheapest possible defence against it.
+
+**Consequences to hold to.** A future request for schema-per-tenant isolation is a
+change to this rule and needs an ADR, not a configuration setting. Anything that
+looks like a second application schema — a staging area for imports, a quarantine
+for failed loads, a versioning shadow — must live as tables inside `hosted` or
+outside the datastore entirely. And note what the rule does *not* cover:
+attachments for a **registered** layer are created in the customer's own schema,
+because they belong beside their layer. That is a different decision with a
+different justification (§4c), and it is not an exception to this one.
+
 ## 3. Hosted and registered — the operational difference
 
 This is the distinction that matters, and it is not about capability. It is

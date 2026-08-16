@@ -105,8 +105,17 @@ geocoding.**
 
 Import narrows to what a PostGIS-backed product needs on day one. **File
 Geodatabase stays in scope for migration** — it is the format an Esri estate's
-data arrives in, and A-038 established there is no managed .NET reader, so GDAL
-stays in the job worker.
+data arrives in, ~~and A-038 established there is no managed .NET reader, so GDAL
+stays in the job worker.~~
+
+**Amended 2026-08-16.** The conclusion stands and its stated reason does not:
+[A-038](architecture-assumptions.md) is `INVALIDATED` — a managed .NET File
+Geodatabase reader demonstrably can exist, because a peer has one and declares no
+GDAL dependency anywhere in its solution. So GDAL stays in the job worker **by
+decision rather than by necessity**: writing our own reader is possible and is not
+v1 work ([Q-108](open-questions.md)). The practical position is unchanged; what
+changed is that it is now a cost trade with a recorded recommendation instead of a
+constraint nobody could question.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Status:** COMPLETE — findings raised, dispositions proposed, not yet all actioned
 **Required by:** §6 (Agent 12), §85
-**Target:** [architecture-assessment.md](architecture-assessment.md) and the nine
+**Target:** [architecture-assessment.md](../architecture-assessment.md) and the nine
 decided ADRs, as of 2026-08-12
 **Reviewer stance:** §6 — *"Do not optimize this agent for agreement. Optimize it
 for finding flaws."*
@@ -329,7 +329,7 @@ constrains what a context is allowed to depend on.
 **Severity: medium.**
 
 The datastore is "the system of record for hosted layers… large, authoritative,
-must be backed up" ([data-model.md](data-model.md) §1).
+must be backed up" ([data-model.md](../data-model.md) §1).
 
 **By whom, with what, and restored consistently with what?**
 

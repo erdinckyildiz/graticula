@@ -318,8 +318,9 @@ way:
 - **The single-binary story was restored for both candidates** by the rule that
   the serving container ships no GDAL (Q-28). That neutralised C7, which was
   Go's strongest advantage.
-- **A direct peer built this exact workload in .NET** with 4,608 commits behind
-  it ([research/honua-server.md](../research/honua-server.md) §3). Not a
+- **A direct peer built this exact workload in .NET** — 4,928 commits and 36 MB
+  of source as counted on 2026-08-16, up from 4,608 when this was written
+  ([reference-reading-log.md](../research/reference-reading-log.md)). Not a
   benchmark, and explicitly not treated as one — but real evidence that the
   runtime is adequate for the profile.
 

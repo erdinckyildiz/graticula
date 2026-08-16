@@ -99,7 +99,7 @@ it should be documented rather than discovered.
 
 **Strengthened 2026-08-12** from a placement decision to an artefact rule, after
 observing the same rule stated more cleanly elsewhere
-([research/honua-server.md](../research/honua-server.md) §2b):
+([reference-reading-log.md](../research/reference-reading-log.md)):
 
 > **The serving container ships no GDAL.** It exists only in the job worker
 > image.

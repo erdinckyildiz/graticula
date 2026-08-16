@@ -4,7 +4,16 @@
 **Answers:** Q-49, insofar as it can be answered from desk research
 **Required by:** fresh-challenger review G1, which found the assessment justifies
 the *category* of GIS server and never justifies *this product*
-**Clean room:** published documentation only (§5).
+**Clean room:** published documentation only (§5) — **superseded for the peer
+comparison on 2026-08-16.** [ADR-030](adr/ADR-030-reading-the-reference-implementation.md)
+opened the reference implementation to reading, and
+[peer-capability-comparison.md](research/peer-capability-comparison.md) is the
+result: three axes, four real gaps on our side, four positions on ours. **Two of
+its findings change arguments made below** — their ArcGIS write path and their
+service imports are paid tiers, which verifies §3.2's assumption rather than
+leaving it asserted; and their server renders no HTML at all, so the browsable
+services directory an ArcGIS administrator opens first is ours alone. Neither is
+folded into the sections below yet.
 
 ---
 

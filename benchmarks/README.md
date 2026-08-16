@@ -24,5 +24,5 @@ Planned:
 | `geometry-hotpath/` | Cost of library overhead and FFI on tile-path primitives | ADR-003, A-004 |
 | `worker-model/` | Memory, cold start and interference across runtime models | ADR-007 |
 | `duckdb-compute-layer/` | Is an in-process compute engine worth it, and does reading PostGIS through DuckDB cost too much? | ADR-008, Q-19 |
-| `connection-budget/` | Does the budget hold at 1,000 services on each of the three providers, and what do shrink-to-zero pools cost in cold latency? | ADR-007 §4.8, Q-04 |
+| `connection-budget/` | Does the budget hold at 1,000 services on each of the three providers, and what do shrink-to-zero pools cost in cold latency? **Plus Q-103, which needs the same run:** where does a fixed admission cap have to sit to keep the queue off the client, and does an adaptive controller beat a fixed cap on the same load? [feature-query](feature-query/RESULTS.md) §3b already has the curve — peak at concurrency 8, then falling throughput with linearly growing latency — but §3b.3 could not separate the database from TLS, per-request authentication and the generator, and **this run is not evidence about admission until it can**. That separation is the first requirement on it, not a caveat to add afterwards | ADR-007 §4.8, Q-04, Q-103 |
 | `rendering/` | Rasterisation backend throughput | ADR-004 |
