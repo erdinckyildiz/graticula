@@ -1137,6 +1137,11 @@ async function showService(qualified) {
 
   $("serviceLayerPanel").hidden = false;
 
+  // <b>The service's own settings, on the service.</b> Rendered before the layer list, because they
+  // are what this page is now for: the list below says what is inside, and these say what the
+  // container offers. Same `.setting` rows and `h4` groups as everywhere else.
+  drawServiceSettings(name, folder);
+
   try {
     const doc = await api(
       `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer?f=json`);
@@ -1167,6 +1172,112 @@ async function showService(qualified) {
     $("serviceLayers").innerHTML =
       `<tr><td colspan="6" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
   }
+}
+
+/**
+ * A feature service's settings, on the service's own page.
+ *
+ * <b>This is D-61's repair.</b> The pages themselves are unchanged — they are the same markup that
+ * was on each layer — and what changed is that there is now **one** of them per service instead of
+ * one per layer, addressed by the service the endpoint was always addressing.
+ *
+ * <b>Nothing about the API moved.</b> `GET`/`PUT /admin/services/{name}/capabilities` was already
+ * service-scoped; the layer pages were resolving a layer to its service in order to call it, which
+ * is the clearest possible sign of where they belonged.
+ */
+function drawServiceSettings(name, folder) {
+  const box = $("serviceEdit");
+  if (!box) return;
+
+  const mine = servicePagesOf(surfaceOfPath());
+
+  if (mine.length === 0) {
+    box.hidden = true;
+    return;
+  }
+
+  const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN : mine[0];
+
+  $("serviceNav").innerHTML = mine.map(p =>
+    `<a href="#" data-service-page="${p}"${p === page ? ' aria-current="page"' : ""}>${
+      p[0].toUpperCase() + p.slice(1)}</a>`).join("");
+
+  $("servicePagesBody").innerHTML = serviceSettingsMarkup()
+    + `<div class="row" style="margin-top:22px">
+         <button class="primary" data-service-save="${h(name)}"
+           data-folder="${h(folder || "")}">Save</button>
+       </div>`;
+
+  for (const section of document.querySelectorAll("#servicePagesBody .page")) {
+    section.classList.toggle("on", section.id === `page-${page}`);
+  }
+
+  box.hidden = false;
+  section("capabilities", () => loadServiceCapabilities(name, folder));
+}
+
+/** Which of a service's pages is open. Held here because it is a screen state, not an address. */
+let SERVICE_PAGE_OPEN = null;
+
+/**
+ * The markup for a service's settings pages.
+ *
+ * <b>A constant rather than a function of the service</b>, because none of it depends on which
+ * service is open — the values are filled by `loadServiceCapabilities` after the panel is drawn,
+ * which is the same order the layer editor's pages use and the reason a control here never shows a
+ * figure it did not read.
+ */
+/**
+ * The markup for a service's settings pages.
+ *
+ * <b>Written out rather than lifted.</b> The first attempt moved the layer editor's page markup here
+ * as a string constant, and its template expressions came through as literal text on screen — a
+ * fragment of a template literal is not a string. Rewriting the two pages is also the honest move:
+ * their wording was a layer's (*"faces this layer offers"*) and this is a service.
+ */
+const OPERATIONS = ["Query", "Create", "Update", "Delete", "Extract"];
+
+function serviceSettingsMarkup() {
+  return `
+    <section class="page" id="page-capabilities">
+      <h4>Faces this service offers</h4>
+      <div class="grid2">
+        <label><input type="checkbox" id="capFeatures"> Feature access</label>
+        <label><input type="checkbox" id="capTiles"> Vector tiles <span class="val">hosted only</span></label>
+      </div>
+
+      <h4>Operations allowed</h4>
+      <div class="grid2" id="ops">
+        ${OPERATIONS.map(o =>
+          `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
+      </div>
+      <p class="hint">A tick is a ceiling, not a grant: what a caller may do is this narrowed by
+        their privileges and by what the data supports — ADR-031. Unticking is the only direction
+        that has an effect.</p>
+      <p class="hint"><b>One setting per service.</b> Every layer this service holds offers what is
+        ticked here; there is no per-layer version of this, and the console used to imply there
+        was — D-61.</p>
+    </section>
+
+    <section class="page" id="page-limits">
+      <h4>Response</h4>
+      <div class="setting"><span class="q">The most rows one response may carry:</span>
+        <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
+      <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
+        <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
+      <div class="setting"><span class="q">The most one response body may reach:</span>
+        <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
+
+      <h4>Request</h4>
+      <div class="setting"><span class="q">The most one request body may carry:</span>
+        <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
+      <div class="setting"><span class="q">The most edits one call may apply:</span>
+        <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
+      <div class="setting"><span class="q">The longest one statement may run:</span>
+        <input type="number" id="capTimeout" min="1" placeholder="default"><span class="u">ms</span></div>
+      <p class="hint">Empty means the server's own value. These are the service's, so they bound
+        every layer inside it.</p>
+    </section>`;
 }
 
 /**
@@ -1843,10 +1954,13 @@ function closeDrawer() {
  * decisions with different consequences, and a screen that mixes them invites the wrong one.
  */
 const LAYER_PAGES = {
-  // The server's business: what the service will spend, and where it answers.
+  // <b>Capabilities and Limits are not here, and that is the correction.</b> Owner 2026-08-17: *"bir
+  // serviste n tane katman olabilir. ama bu her katmanın kendi ayarı olacağı anlamına gelmez. her
+  // servisin kendi ayarları olur… bu tamamen saçmalık."* They are right, the storage always agreed
+  // with them — `capability_ceiling`, `max_record_count` and the rest are columns on `service` — and
+  // the screens did not: three layers of one service each had a Capabilities page reading and writing
+  // the same row. See D-61, and `SERVICE_PAGES` below for where they went.
   general: "server",
-  capabilities: "server",
-  limits: "server",
   endpoints: "server",
 
   // The publisher's: who sees it, how it looks, and how stale a tile may be (A-028 — the
@@ -1856,6 +1970,27 @@ const LAYER_PAGES = {
 };
 
 const EDIT_PAGES = Object.keys(LAYER_PAGES);
+
+/**
+ * A service's own settings pages, and which surface each belongs to.
+ *
+ * <b>One settings object per service, which is what the reference does and what the schema always
+ * said.</b> The owner pointed at ArcGIS Server Manager: a service has *General, Parameters,
+ * Capabilities, Pooling, Processes, Caching, Item Description* — all on the service, once, however
+ * many layers are inside it. Ours were on each layer, so a service with four layers looked like four
+ * configurations of one thing.
+ *
+ * <b>The surface split is the same rule as a layer's</b> (ADR-034 §5c): what the service *will
+ * spend* is the server's business and *who may read it* is the publisher's.
+ */
+const SERVICE_PAGES = {
+  capabilities: "server",
+  limits: "server",
+};
+
+/** The service pages this surface owns. */
+const servicePagesOf = surface =>
+  Object.keys(SERVICE_PAGES).filter(page => SERVICE_PAGES[page] === surface);
 
 /** The pages this surface owns, in the order they are listed above. */
 const pagesOf = surface => EDIT_PAGES.filter(page => LAYER_PAGES[page] === surface);
@@ -2002,46 +2137,6 @@ function showLayer(name, page, pending = null) {
       </dl>
     </section>
 
-    <section class="page" id="page-capabilities">
-      <h4>Faces this layer offers</h4>
-      <div class="grid2">
-        <label><input type="checkbox" id="capFeatures"> Feature access</label>
-        <label class="${l.hosted ? "" : "off"}">
-          <input type="checkbox" id="capTiles" ${l.hosted ? "" : "disabled"}> Vector tiles${
-            l.hosted ? "" : " — hosted data only"}</label>
-      </div>
-
-      <h4>Operations allowed</h4>
-      <div class="grid2" id="ops">
-        ${["Query", "Create", "Update", "Delete", "Extract"].map(o =>
-          `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
-      </div>
-      <p class="hint" style="margin-top:12px">A tick is a ceiling, not a grant: what a
-        caller may do is this narrowed by their privileges and by what the data supports —
-        ADR-031. Unticking is the only direction that has an effect.</p>
-    </section>
-
-    <section class="page" id="page-limits">
-      <h4>Response</h4>
-      <div class="setting"><span class="q">The most rows one response may carry:</span>
-        <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
-      <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
-        <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
-      <div class="setting"><span class="q">The most one response body may reach:</span>
-        <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
-
-      <h4>Request</h4>
-      <div class="setting"><span class="q">The most one request body may carry:</span>
-        <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
-      <div class="setting"><span class="q">The most edits one call may apply:</span>
-        <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
-      <div class="setting"><span class="q">The longest one statement may run:</span>
-        <input type="number" id="capTimeout" min="1" placeholder="default"><span class="u">ms</span></div>
-      <p class="hint" style="margin-top:12px">Empty means the server's own figure applies.
-        A row ceiling is reported to the client the way the protocol already reports one,
-        through <code>exceededTransferLimit</code>, so a truncated answer is never silent.</p>
-    </section>
-
     <section class="page" id="page-caching">
       <h4>Tile cache</h4>
       ${l.hosted ? `
@@ -2076,12 +2171,6 @@ function showLayer(name, page, pending = null) {
         Save — ADR-031 §2b. They take effect at once and are never cached, because an
         operator revoking access has to be able to trust that it happened.</p>
 
-      // <b>Unpublishing stays with the publisher; forgetting the remembered shape does not.</b>
-      // They were one Maintenance block, and splitting the editor by surface separated what they
-      // are: deleting a layer is a decision about content — it purges tiles and forgets a shape,
-      // and the person who published it is the person who unpublishes it. Forgetting the remembered
-      // table shape (D-17) is a cache the *server* keeps; it moved to General in Server, which is
-      // where the other operational buttons are.
       <h4>Unpublish</h4>
       <div class="row">
         <button class="danger" data-delete="${h(name)}">Delete layer</button>
@@ -2122,7 +2211,6 @@ function showLayer(name, page, pending = null) {
   } else {
     const ttl = $("ttl");
     if (ttl && l.cacheSeconds != null) ttl.value = l.cacheSeconds;
-    section("service settings", () => loadServiceCapabilities(name));
   }
 
   for (const row of document.querySelectorAll("tr.sel")) row.classList.remove("sel");
@@ -2201,11 +2289,14 @@ function showEditPage(page) {
  * figure it did not read is a control that lies the moment somebody changes it in
  * another window.
  */
-async function loadServiceCapabilities(name) {
-  const place = placeOf(name);
-  if (!place) return;
+async function loadServiceCapabilities(name, folderGiven) {
+  // <b>It takes a service now, and used to take a layer.</b> The old signature resolved a layer to
+  // its service in order to call a service-scoped endpoint, which is exactly the confusion D-61 is
+  // about. `folderGiven` is undefined only on the legacy path, which no longer has a caller.
+  const service = name;
+  const folder = folderGiven ?? null;
 
-  const { folder, bare: service } = place;
+  if (!service) return;
   const c = await api(`/admin/services/${encodeURIComponent(service)}/capabilities`
     + `?folder=${encodeURIComponent(folder || "")}`) || {};
 
@@ -2229,14 +2320,22 @@ async function loadServiceCapabilities(name) {
   set("capTimeout", c.statementTimeoutMs);
 }
 
-/** Saves every settings page at once, which is what one Save means. */
-async function saveEditing() {
-  if (!editing) return;
+/**
+ * Saves a service's capabilities and limits, which is what one Save means here.
+ *
+ * <b>One service, one settings object.</b> Owner 2026-08-17, with ArcGIS Server Manager beside it:
+ * *"bir service te n tane katman olabilir. ama servis ayarları tek."*
+ */
+async function saveServiceSettings(service, folder) {
+  // <b>Named after what it saves, which it was not.</b> It was `saveEditing`, hung off the layer
+  // editor's Save button, and it wrote the *service's* capabilities and limits using the layer's page
+  // to find them — so pressing Save on a layer whose boxes had never been filled wrote an empty
+  // ceiling onto its service, which is how `look_EarlyAlert` came to answer 500 (D-61).
+  //
+  // <b>Now it takes the service it saves.</b> One argument instead of a lookup, and no caller can
+  // reach it from a layer.
+  if (!service) return;
 
-  const place = placeOf(editing.name);
-  if (!place) { toast(`${editing.name} is not in any listing this console can read.`); return; }
-
-  const { folder, bare: service } = place;
   const num = id => {
     const raw = ($(id)?.value ?? "").trim();
     return raw === "" ? null : Number(raw);
@@ -2266,10 +2365,6 @@ async function saveEditing() {
       statementTimeoutMilliseconds: num("capTimeout"),
     }),
   });
-
-  // Saved is saved: the stash exists to survive leaving the page, not the write.
-  unsaved.delete(editing.name);
-  markUnsaved(false);
 
   toast(saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved`, true);
 }
@@ -3066,7 +3161,12 @@ async function handleClick(event) {
 
   if (t.id === "editSave") {
     t.disabled = true;
-    await section("settings", saveEditing);
+    // <b>The layer editor's Save has nothing left to save, and that is the point.</b> Capabilities
+    // and limits belong to the service and are saved there; a layer's cache TTL and its style have
+    // their own buttons, and its sharing applies when chosen. Kept as a no-op with a sentence rather
+    // than removed, because a reader who remembers pressing Save here should be told where it went.
+    toast("A layer's own settings apply as you set them. What a service offers — its capabilities "
+      + "and its limits — is one setting per service, on the service's page.", true);
     t.disabled = false;
     return;
   }
@@ -3282,6 +3382,26 @@ async function handleClick(event) {
   if (t.id === "issuedDone") {
     $("issued").close();
     await section("members", loadMembers, "members");
+    return;
+  }
+
+  // A service's settings page: a screen state, so it is not an address — the service already is one.
+  if (d.serviceSave) {
+    t.disabled = true;
+    try {
+      await saveServiceSettings(d.serviceSave, d.folder || null);
+    } catch (e) { toast(e.message); }
+    t.disabled = false;
+    return;
+  }
+
+  if (t.dataset?.servicePage) {
+    event.preventDefault();
+    SERVICE_PAGE_OPEN = t.dataset.servicePage;
+    const { folder, name } = splitService(
+      ($("serviceCrumb").querySelector("b")?.textContent || "").trim());
+    drawServiceSettings(name || ($("serviceCrumb").querySelector("b")?.textContent || "").trim(),
+      folder);
     return;
   }
 

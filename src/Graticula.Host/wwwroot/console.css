@@ -1074,7 +1074,22 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
   <b>Two pages, one rule.</b> A service with no layers has a settings page too, and giving it its
   own padding is how two screens that should look identical start not to.
 */
-#editPages, #servicePages { padding: var(--gap-5); min-width: 0; }
+#editPages, #servicePages, #servicePagesBody { padding: var(--gap-5); min-width: 0; }
+
+/*
+  <b>A service's settings wear the layer editor's frame.</b> D-61 moved them here; giving them their
+  own grid and nav styling would be D-46 again in the same file, so `#serviceEdit` is `#edit` and
+  `#serviceNav` is `#editNav` by selector rather than by copy.
+*/
+#serviceEdit { display: grid; grid-template-columns: 196px minmax(0, 1fr); align-items: stretch;
+               overflow: hidden; }
+#serviceNav { border-right: 1px solid var(--rule); background: var(--surface-2);
+              padding: var(--gap-2) 0; }
+#serviceNav a { display: block; padding: 9px var(--gap-4); border-left: 3px solid transparent;
+                color: var(--ink); font-size: var(--t-body); }
+#serviceNav a:hover { background: var(--surface-3); text-decoration: none; }
+#serviceNav a[aria-current] { background: var(--surface); border-left-color: var(--accent);
+                              font-weight: 500; }
 
 /*
   <b>One column, because a settings page is a column.</b> The layer editor's pages are not bounded —

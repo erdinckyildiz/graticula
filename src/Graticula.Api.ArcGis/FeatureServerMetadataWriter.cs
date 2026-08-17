@@ -336,7 +336,23 @@ public static class FeatureServerMetadataWriter
         int? maxRecordCount = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
-        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
+        // <b>An empty capabilities string is a real state, and refusing it was a 500 on a public
+        // document.</b> Found 2026-08-17: `hosted/look_EarlyAlert` carried `capability_ceiling = {}`
+        // — an explicit ceiling of *no operations* — so `Restrict` returned nothing, `Join` produced
+        // `""`, and this guard threw. The service document answered **500** to an anonymous client,
+        // and sixteen conformance tests with it.
+        //
+        // <b>The guard was asking the wrong question.</b> Null or whitespace is not one condition
+        // here: null is a caller that forgot to pass anything, and empty is a service configured to
+        // offer nothing. ArcGIS expresses the second as `"capabilities": ""`, which is a document a
+        // client can read and act on. So null still throws — that is a programming error — and empty
+        // renders.
+        //
+        // <b>It is this month's recurring class again</b>, from the other end: the write path
+        // accepted a state the read path could not represent. D-57 was a setter writing a column
+        // nothing read; this is a setter writing a value nothing could render. The lesson each time
+        // is that the two paths have to agree about what the set of values *is*.
+        ArgumentNullException.ThrowIfNull(capabilities);
 
         // A service with no layers is a real state — it has been created and not
         // filled yet — and it still has to answer with a valid document.
@@ -457,7 +473,9 @@ public static class FeatureServerMetadataWriter
     /// </remarks>
     public static object GroupLayerDocument(ServiceGroup group, string capabilities)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
+        // Empty is a service that offers nothing — see Service() for why that renders
+        // rather than throwing.
+        ArgumentNullException.ThrowIfNull(capabilities);
 
         return new
         {
@@ -535,7 +553,9 @@ public static class FeatureServerMetadataWriter
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
-        ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
+        // Empty is a service that offers nothing — see Service() for why that renders
+        // rather than throwing.
+        ArgumentNullException.ThrowIfNull(capabilities);
 
         return new
         {
