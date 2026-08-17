@@ -50,6 +50,22 @@ public static class FeatureServerMetadataWriter
     /// respects this never triggers our own clamp.</remarks>
     public const int MaxRecordCount = FeatureQuery.MaximumLimit;
 
+    /// <summary>
+    /// The figure to advertise, once a service's own ceiling is taken into account.
+    /// </summary>
+    /// <remarks>
+    /// <b>Reporting the server's figure while enforcing a lower one is a lie a client
+    /// acts on.</b> ADR-031 lets a service cap its rows; until 2026-08-17 both
+    /// documents here reported the server constant regardless, so a service capped at
+    /// 20,000 advertised 50,000 — and a client that trusts <c>maxRecordCount</c> to
+    /// size its paging, as the SDK does, would page against a number that does not
+    /// exist. The ceiling only narrows, so the smaller of the two is the truth.
+    /// </remarks>
+    /// <param name="ceiling">The service's ceiling, or null when it has none.</param>
+    /// <returns>What the documents should say.</returns>
+    public static int AdvertisedMaxRecordCount(int? ceiling) =>
+        ceiling is { } c && c < MaxRecordCount ? c : MaxRecordCount;
+
     /// <summary>The <c>/rest/info</c> document.</summary>
     /// <param name="tokenServicesUrl">Where a client obtains a token.</param>
     /// <returns>An object ready for JSON serialisation.</returns>
@@ -187,6 +203,10 @@ public static class FeatureServerMetadataWriter
     /// the tree is carried by <c>parentLayerId</c> and <c>subLayerIds</c> rather
     /// than by nesting the JSON.
     /// </param>
+    /// <param name="maxRecordCount">
+    /// This service's own row ceiling, or null when it has none. The smaller of it
+    /// and the server's is advertised, because that is the one a client will meet.
+    /// </param>
     /// <remarks>
     /// <para>
     /// <b>A service is a container of layers</b> — owner correction 2026-08-15.
@@ -205,7 +225,8 @@ public static class FeatureServerMetadataWriter
         IReadOnlyList<ServiceLayer> layers,
         string capabilities,
         string? description = null,
-        IReadOnlyList<ServiceGroup>? groups = null)
+        IReadOnlyList<ServiceGroup>? groups = null,
+        int? maxRecordCount = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentException.ThrowIfNullOrWhiteSpace(capabilities);
@@ -222,7 +243,7 @@ public static class FeatureServerMetadataWriter
             hasVersionedData = false,
             supportsDisconnectedEditing = false,
             hasStaticData = true,
-            maxRecordCount = MaxRecordCount,
+            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
             supportedQueryFormats = "JSON",
 
             // <b>Computed per caller, and saying so accurately is the point.</b>
@@ -392,13 +413,18 @@ public static class FeatureServerMetadataWriter
     /// reach it. Zero for a single-layer service, which was every service until
     /// 2026-08-15.
     /// </param>
+    /// <param name="maxRecordCount">
+    /// This service's own row ceiling, or null when it has none. The smaller of it
+    /// and the server's is advertised, because that is the one a client will meet.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
         LayerDescription description,
         string capabilities,
         IEnumerable<object>? relationships = null,
-        int layerId = 0)
+        int layerId = 0,
+        int? maxRecordCount = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -425,7 +451,7 @@ public static class FeatureServerMetadataWriter
             extent = ExtentOrNull(description.Extent, layer.Srid),
 
             capabilities,
-            maxRecordCount = MaxRecordCount,
+            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
             supportedQueryFormats = "JSON",
             // Hosted layers only: ADR-013 §4c's registered cases are designed
             // and not built, and declaring a capability on a layer that refuses

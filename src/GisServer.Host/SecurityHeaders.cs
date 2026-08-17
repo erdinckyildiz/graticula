@@ -91,6 +91,18 @@ internal static class SecurityHeaders
     /// close to none.
     /// </para>
     /// <para>
+    /// <b><c>style-src 'self'</c> was added 2026-08-17, and its absence was the
+    /// same fault a second time.</b> The console's stylesheet moved out of the
+    /// page into <c>console.css</c> so that two surfaces could not drift apart,
+    /// and this policy permitted inline style but no stylesheet file — so the
+    /// console served every rule and the browser applied none of them. Unstyled,
+    /// it still rendered: `.view { display: none }` never arrived, so all five
+    /// screens stacked into one page. Blocked resources are invisible from the
+    /// server, which is what makes this class of fault cost a day each time.
+    /// <c>'unsafe-inline'</c> stays because the page still carries a handful of
+    /// inline <c>style</c> attributes.
+    /// </para>
+    /// <para>
     /// <b>The rest of the width is the map SDK, and it is a cost ADR-020 §4 did
     /// not record.</b> Choosing Esri's CDN over a vendored library was argued on
     /// redistribution grounds and on being the demanding real client; nobody
@@ -104,7 +116,7 @@ internal static class SecurityHeaders
     private const string ConsolePolicy =
         "default-src 'none'; "
         + "script-src 'self' https://js.arcgis.com; "
-        + "style-src 'unsafe-inline' https://js.arcgis.com; "
+        + "style-src 'self' 'unsafe-inline' https://js.arcgis.com; "
         + "img-src 'self' data: blob: https://js.arcgis.com https://tile.openstreetmap.org; "
         + "connect-src 'self' https://js.arcgis.com https://tile.openstreetmap.org; "
         + "font-src https://js.arcgis.com; "

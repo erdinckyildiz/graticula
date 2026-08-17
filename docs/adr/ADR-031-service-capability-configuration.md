@@ -102,6 +102,32 @@ and refusing*, and an operator diagnosing an incident needs to tell those apart.
   standing question in front of the person who can answer it.
 - **The console gains the screen the owner asked for**, and only after the API exists.
 
+### 3a. Corrections, 2026-08-17
+
+Two things this decision implied and the first implementation did not do. Both were
+found by using the screen rather than by reading the code, which is the pattern worth
+noting more than either fault.
+
+**A ceiling has to be readable, not only writable.** The API shipped with
+`PUT /admin/services/{name}/capabilities` and no `GET`. So the console — the screen this
+ADR exists to enable — drew every control from nothing, asked for the current
+configuration, received `405`, and reported the refusal in a corner while showing an
+operator six empty boxes above a ceiling that was actually in force. **Unticking a box
+you were never shown is how a limit gets cleared by accident.** `GET` now returns the
+same document the `PUT` accepts, plus `configured`, so a caller can tell *nothing is
+set* from *everything happens to be at the default* — those diverge the moment the
+server's own defaults move.
+
+**A ceiling the client is not told about is a ceiling the client walks into.** The
+FeatureServer documents reported the server's `maxRecordCount` — 50,000 — regardless of
+the service's own row ceiling, while the query path enforced the lower figure. A service
+capped at 20,000 therefore advertised 50,000, and an SDK client that sizes its paging
+from that number (which is what the number is for) pages against a limit that does not
+exist. Both documents now advertise the smaller of the two, measured: with a ceiling of
+20,000 the layer and service documents say 20,000, and an unconfigured service beside it
+still says 50,000. §2's *never grants* has a companion — **never over-declares** — and
+ADR-008 §2's never-degrade-silently is the same rule from the other end.
+
 ## 4. Conditions
 
 1. **The intersection is tested for the direction that matters** — that a configured
@@ -117,6 +143,22 @@ and refusing*, and an operator diagnosing an incident needs to tell those apart.
 4. **The default is proven to be a no-op** on an existing catalogue: a service with no
    configured set must produce the byte-identical document it produced before this
    change. Asserted against the conformance suite rather than argued.
+   *(Discharged 2026-08-17 — the whole conformance suite, 178 tests, passes against an
+   instance whose catalogue holds both configured and unconfigured services, and a
+   layer with no configuration still advertises the server's own 50,000.)*
+5. **Whatever is configured is readable through the same API that writes it, and the
+   read is tested field for field** — because a partial read is worse than none: the
+   fields it omits come back unset, the screen shows them blank, and the next Save
+   clears a limit nobody was shown.
+   *(Discharged 2026-08-17 — `GET …/capabilities` added, with a round-trip test over all
+   nine fields, an unset-versus-absent test, and a folder-and-case test in
+   `PostgresAdminCatalogTests`.)*
+6. **What is advertised matches what is enforced.** A row ceiling appears in both
+   FeatureServer documents, so no client can be told a page size the server will not
+   honour.
+   *(Discharged 2026-08-17 — `AdvertisedMaxRecordCount` takes the smaller of the two and
+   is exercised from both call sites; measured against a live service at 20,000 and an
+   unconfigured one at 50,000.)*
 
 ## 5. Assumptions
 

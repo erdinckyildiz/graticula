@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">gis-server · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>3afb640</code> · 2026-08-17 00:36</p>
+<p class="stamp">Generated from commit <code>af2c559</code> · 2026-08-17 10:00</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi warn"><div class="kpi-v">31</div><div class="kpi-l">ADRs</div><div class="kpi-n">none accepted unconditionally</div></div>
-<div class="kpi warn"><div class="kpi-v">29/108</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">75 live · 4 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">open questions</div><div class="kpi-n">61 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">38</div><div class="kpi-l">open debts</div><div class="kpi-n">11 repaid · 4 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">32/110</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">74 live · 4 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">61 answered · 5 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">40</div><div class="kpi-l">open debts</div><div class="kpi-n">11 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1003</div><div class="kpi-l">tests</div><div class="kpi-n">120 source files, 37,966 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1037</div><div class="kpi-l">tests</div><div class="kpi-n">122 source files, 39,258 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">117 items</span></div><p><b>75 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>38 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">118 items</span></div><p><b>74 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -138,7 +138,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-031 · A service&#x27;s capabilities are confi</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
@@ -149,6 +148,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-027 · Glyphs and sprites: the tile servi</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-030 · Reading the reference implementati</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-031 · A service&#x27;s capabilities are confi</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -204,7 +204,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/5</td></tr>
 <tr><td class="id">029</td><td>Affinity routing is not the default, and A-003 stops being load-bearing</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reversal · MEDIUM for what replaces it at scale</td><td class="num">2/4</td></tr>
 <tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
-<tr><td class="id">031</td><td>A service&#x27;s capabilities are configured, and configuration only ever restricts</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
+<tr><td class="id">031</td><td>A service&#x27;s capabilities are configured, and configuration only ever restricts</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -223,6 +223,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-105</span><span class="owner">Council</span></div><p>Is &quot;authorization composition only ever restricts&quot; stated once as an invariant, or re-derived per surface?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-11</span><span class="owner">Council</span></div><p>Where does the service catalog&#x27;s identity model come from — who mints stable IDs, and how do renames work (§37)?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-111</span><span class="owner">Council</span></div><p>Can a local administrator still sign in when the configured external identity source is unreachable or misconfigured — and should changing that source require a local credential?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-112</span><span class="owner">Council</span></div><p>Do we add groups, and if so with ArcGIS&#x27;s update semantics?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-113</span><span class="owner">Council</span></div><p>Answered and built 2026-08-17: yes, in bytes, reported as exceededTransferLimit.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-12</span><span class="owner">Council</span></div><p>How is monitoring cardinality bounded at 1,000 services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-14</span><span class="owner">Council</span></div><p>Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-15</span><span class="owner">Council</span></div><p>What does &quot;air-gapped&quot; concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry?</p></article>
@@ -301,6 +303,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-32</td><td>~~A transformation PROJ could not do accurately is reported as though it were accurate.~~ PARTLY PAID 2026-08-16 on the GeometryServer surface.</td><td class="muted-t">Before anybody publishes cadastral or survey data in a national grid and reads a tile as authoritative</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class="done"><td class="id">D-47</td><td>~~The publish endpoint accepted three documented fields and discarded them, so multi-layer services were unreachable through the admin API.~~ CLOSED 2026-08-16.</td><td class="muted-t">— closed</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-48</td><td>A service and a group layer can be created through the admin API and cannot be removed, and unpublishing a layer leaves its service behind.</td><td class="muted-t">Before the console&#x27;s create surface is used on a real deployment.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-53</td><td>The importer accepts invalid geometry, and nothing on the publish path checks.</td><td class="muted-t">Before the publish surface is used on data nobody inspected, which is the case it was built for.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-52</td><td>The startup compatibility check says &quot;compatible&quot; to a build that cannot read the store, and then the server does not start.</td><td class="muted-t">Before a deployment upgrades a binary without migrating, which is the ordinary order of operations for anyone who does…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-51</td><td>A session exists in two forms and the console can only clear one, so a failed sign-out looks like a dead button.</td><td class="muted-t">Whenever a client holds a copy of session state.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-49</td><td>~~A hosted layer&#x27;s VectorTileServer declares Web Mercator on an extent that is in degrees.~~ CLOSED 2026-08-16.</td><td class="muted-t">Before any client is told to trust a tile service&#x27;s fullExtent.</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-50</td><td>The capability probe cannot inform the one publish field the operator must decide.</td><td class="muted-t">When the console&#x27;s publish form is used against a table nobody present designed.</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -390,29 +394,29 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">222</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:94.6%"></div></div><div class="bar-n">210</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:95.9%"></div></div><div class="bar-n">213</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:81.5%"></div></div><div class="bar-n">181</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:78.4%"></div></div><div class="bar-n">174</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.5%"></div></div><div class="bar-n">112</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:34.7%"></div></div><div class="bar-n">77</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:80.2%"></div></div><div class="bar-n">178</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">118</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:44.1%"></div></div><div class="bar-n">98</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:9.9%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">5</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>af2c559</code><time>2026-08-17</time><span>the layer editor, restructured from the owner&#x27;s reference instead of from taste</span></li>
+<li><code>b044810</code><time>2026-08-17</time><span>the server&#x27;s own address answered an empty 404</span></li>
+<li><code>7aaeae1</code><time>2026-08-17</time><span>the other five ceilings, because &quot;later&quot; was the polite form of leaving it half-done</span></li>
+<li><code>7e3ab5d</code><time>2026-08-17</time><span>a response body has a ceiling now, in bytes, and it speaks the protocol&#x27;s own word for it</span></li>
+<li><code>79e81fd</code><time>2026-08-17</time><span>the ArcGIS group semantics, confirmed â€” and the separation worth carrying without the split that causes its worst bug</span></li>
+<li><code>2e18791</code><time>2026-08-17</time><span>the screen ADR-031 was asked for exists at /operate/services/{name}/settings, and it agrees where it counts</span></li>
+<li><code>ab12f79</code><time>2026-08-17</time><span>both layers print the same route, and the document that would have corrected it lists every layer twice</span></li>
+<li><code>a5c8f24</code><time>2026-08-17</time><span>the nine endpoints their console lists all 404, and one of the publications does not exist at all</span></li>
+<li><code>199a768</code><time>2026-08-17</time><span>their server publishing our data refused one layer, and it was right</span></li>
+<li><code>f5e9d1c</code><time>2026-08-17</time><span>the admin key was never issued, and their capability manifest answers Q-102 more precisely than we asked it</span></li>
+<li><code>2f1f37b</code><time>2026-08-17</time><span>their console pointed at our server: nine contracts, and one of them is Q-102 asked by a real client</span></li>
+<li><code>e5a6ef7</code><time>2026-08-17</time><span>a service&#x27;s capabilities are configurable now, and the configuration can only narrow</span></li>
+<li><code>974fdac</code><time>2026-08-17</time><span>a service&#x27;s capabilities become a setting, and the setting may only restrict</span></li>
 <li><code>3afb640</code><time>2026-08-17</time><span>one resource, many publications â€” the model behind their publishing screen, and where it touches Q-67</span></li>
-<li><code>0632883</code><time>2026-08-17</time><span>Studio answers for itself, and it agrees with the position we took for our own reasons</span></li>
-<li><code>2de9709</code><time>2026-08-17</time><span>their authenticated surfaces, seen â€” and the one screen that is ahead of what we built the same week</span></li>
-<li><code>593a559</code><time>2026-08-16</time><span>the read that was made in order to run the thing, logged before the result exists</span></li>
-<li><code>6cb1482</code><time>2026-08-16</time><span>the console comparison, redone after the three cheap gaps were closed and two of their surfaces were actually seen</span></li>
-<li><code>e2458a0</code><time>2026-08-16</time><span>declaring the extent&#x27;s real reference was honest and non-conformant, so it is projected instead</span></li>
-<li><code>df1e6ab</code><time>2026-08-16</time><span>a filter in another reference is transformed now, because refusing it broke every ArcGIS client rather than only ours</span></li>
-<li><code>c8d33e6</code><time>2026-08-16</time><span>the ground rule was moved into one file and OSM was left outside it</span></li>
-<li><code>fb67cc4</code><time>2026-08-16</time><span>the fix for the map&#x27;s race made the button do nothing at all</span></li>
-<li><code>fcfd655</code><time>2026-08-16</time><span>three documented fields were accepted and thrown away, because their defaults let the short call compile</span></li>
-<li><code>55796c0</code><time>2026-08-16</time><span>the console ran no script for a day, and the map was three and a half million metres from its data</span></li>
-<li><code>a719458</code><time>2026-08-16</time><span>reading the reference is opened by decision, and the citations that leaned on it are rewritten to stand without it</span></li>
-<li><code>2be7e90</code><time>2026-08-16</time><span>the havingClause was the caller&#x27;s SQL, and the comment above it said otherwise</span></li>
-<li><code>8e87105</code><time>2026-08-16</time><span>a nightly security scan, and a check for the debt-number collisions it took three of to notice</span></li>
 </ol></section>
 <footer><p>gis-server · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

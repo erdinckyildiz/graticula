@@ -305,6 +305,33 @@ public interface IAdminCatalog
         ServiceCapabilityLimits limits,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reads back what a service is configured to offer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-17, because the write had no read and the console was
+    /// pretending otherwise.</b> Every settings control was drawn from nothing and
+    /// then explained itself in prose; the one thing an operator needs to know before
+    /// changing a ceiling is what the ceiling is now. There was no route that could
+    /// say, so the console asked <c>GET …/capabilities</c>, got <c>405</c>, and
+    /// reported it in a corner.
+    /// </para>
+    /// <para>
+    /// Null is returned for a service that does not exist, which is different from a
+    /// service with nothing configured — that one answers with every field unset, and
+    /// the distinction is what lets the caller tell "not found" from "no ceiling".
+    /// </para>
+    /// </remarks>
+    /// <param name="name">The service name within its folder.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What is stored, or null when there is no such service.</returns>
+    Task<ServiceCapabilityLimits?> FindServiceCapabilitiesAsync(
+        string name,
+        string? folder,
+        CancellationToken cancellationToken);
+
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
     /// <param name="layerName">A layer in the service.</param>
     /// <param name="sharing">The new scope.</param>

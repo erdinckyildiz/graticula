@@ -1261,8 +1261,16 @@ public static class Program
                 g.Index, g.Name, g.ParentIndex, service.ChildrenOf(g.Index))),
         ];
 
+        // <b>The service's own row ceiling, advertised rather than only enforced.</b>
+        // ADR-031: what is served is the intersection, and a document that reports the
+        // server's figure while the query path applies a lower one sends every paging
+        // client to a page size that does not exist.
         object document = FeatureServerMetadataWriter.Service(
-            layers, CapabilitiesFor(context, service), service.Description, groups);
+            layers,
+            CapabilitiesFor(context, service),
+            service.Description,
+            groups,
+            service.Limits.Cost.MaximumRecordCount);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -1371,7 +1379,8 @@ public static class Program
             CapabilitiesFor(context, layer),
             await RelationshipsForAsync(layer, relationships, catalog, cancellation)
                 .ConfigureAwait(false),
-            layer.LayerIndex);
+            layer.LayerIndex,
+            layer.Cost.MaximumRecordCount);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

@@ -247,6 +247,97 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// Every file a console page asks for is permitted by the policy it is sent with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-44 a fourth time, and the third dimension of the same mistake.</b> The
+    /// console's stylesheet moved out of the page into <c>console.css</c> on
+    /// 2026-08-17, and <c>style-src</c> permitted <c>'unsafe-inline'</c> and a CDN but
+    /// not <c>'self'</c> — so the server sent every rule and the browser applied none.
+    /// The page was not blank: unstyled, <c>.view { display: none }</c> never arrived
+    /// and all five screens stacked into one document, which reads as a layout bug
+    /// rather than as a refused request.
+    /// </para>
+    /// <para>
+    /// The two existing tests could not catch it. One asks whether the policy permits
+    /// <c>script-src 'self'</c>; the other whether any page carries inline script.
+    /// Both name the resource kind they were written for, and the fault moves to
+    /// whichever kind nobody named. So this one enumerates instead: whatever a console
+    /// page references, the directive governing it must permit this origin, and the
+    /// file must actually be served. It needs no editing when the next kind of
+    /// subresource is added — which is the property the other two lack.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("/console/")]
+    [InlineData("/console/map.html")]
+    [InlineData("/console/view.html")]
+    public async Task Every_file_a_console_page_asks_for_is_permitted(string path)
+    {
+        using HttpResponseMessage page = await GetAsync(path, "text/html");
+        page.EnsureSuccessStatusCode();
+
+        string policy = Header(page, "Content-Security-Policy")!;
+        string html = System.Text.RegularExpressions.Regex.Replace(
+            await page.Content.ReadAsStringAsync(), "<!--.*?-->", string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        // (attribute carrying the URL, the directive that governs it).
+        (string Pattern, string Directive)[] kinds =
+        [
+            ("<script[^>]*\\bsrc\\s*=\\s*[\"']([^\"']+)", "script-src"),
+            ("<link[^>]*\\bstylesheet[^>]*\\bhref\\s*=\\s*[\"']([^\"']+)", "style-src"),
+            ("<link[^>]*\\bhref\\s*=\\s*[\"']([^\"']+)[\"'][^>]*\\bstylesheet", "style-src"),
+        ];
+
+        int checked_ = 0;
+
+        foreach ((string pattern, string directive) in kinds)
+        {
+            foreach (System.Text.RegularExpressions.Match match in
+                System.Text.RegularExpressions.Regex.Matches(html, pattern))
+            {
+                string reference = match.Groups[1].Value;
+
+                // Only what this server serves. A CDN is named in the policy on
+                // purpose and is checked by reading the policy, not by fetching it.
+                if (reference.Contains("//", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                checked_++;
+
+                int start = policy.IndexOf(directive + " ", StringComparison.Ordinal);
+                Assert.True(start >= 0,
+                    $"{path} asks for {reference}, and its policy has no {directive} — so "
+                    + $"default-src 'none' refuses it and the browser says nothing the server "
+                    + $"can see. D-44.\nPolicy: {policy}");
+
+                int end = policy.IndexOf(';', start);
+                string clause = end < 0 ? policy[start..] : policy[start..end];
+
+                Assert.True(clause.Contains("'self'", StringComparison.Ordinal),
+                    $"{path} asks for {reference}, which is this origin, but {directive} does "
+                    + $"not permit 'self'. The file is served and then ignored.\n{clause}");
+
+                string absolute = reference.StartsWith('/')
+                    ? reference
+                    : path[..(path.LastIndexOf('/') + 1)] + reference;
+
+                using HttpResponseMessage file = await GetAsync(absolute);
+                Assert.True(file.IsSuccessStatusCode,
+                    $"{path} asks for {absolute} and the server answers "
+                    + $"{(int)file.StatusCode}. A permitted file that is not served is the "
+                    + $"same outcome by a different route.");
+            }
+        }
+
+        Assert.True(checked_ > 0, $"{path} references no local file, so this proved nothing.");
+    }
+
+    /// <summary>
     /// The sign-in form cannot put a credential in a URL, even with no script.
     /// </summary>
     /// <remarks>

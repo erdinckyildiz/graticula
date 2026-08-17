@@ -154,6 +154,12 @@ internal static class AdminEndpoints
         // and was therefore governed by nothing.
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+        // <b>GET as well as PUT, and its absence was a shipped fault.</b> A screen
+        // for narrowing what a service offers has to show what it offers now, and
+        // there was no route that could say — so the console asked, got 405, and drew
+        // its controls from nothing. ADR-031 condition 3 asks that configuration be
+        // readable through the same API that writes it.
+        app.MapGet("/admin/services/{name}/capabilities", GetServiceCapabilitiesAsync);
         app.MapPut("/admin/services/{name}/capabilities", SetServiceCapabilitiesAsync);
 
         // Group layers. Owner request 2026-08-15: "enable group layers also."
@@ -862,6 +868,66 @@ internal static class AdminEndpoints
                   + "its callers' privileges allow."
                 : "These are limits, not grants: a caller still needs the privilege. What is "
                   + "served is the intersection of the data, this configuration, and the caller.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Says what a service is configured to offer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Same shape as the write, deliberately.</b> The console reads this into the
+    /// same controls it later PUTs back, so a difference between the two documents
+    /// would show up as a field that silently resets. The one difference is
+    /// <c>configured</c>: a caller cannot otherwise distinguish "nothing set" from
+    /// "everything set to the default", and those mean different things the next time
+    /// the server's own defaults change.
+    /// </para>
+    /// <para>
+    /// <b>Read, not audited.</b> The write is in the audit log because it changes what
+    /// the server does; reading a ceiling changes nothing, and an audit trail that
+    /// records every screen opening is one nobody reads.
+    /// </para>
+    /// </remarks>
+    private static async Task GetServiceCapabilitiesAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        ServiceCapabilityLimits? limits = await catalog
+            .FindServiceCapabilitiesAsync(name, at, cancellation).ConfigureAwait(false);
+
+        if (limits is null)
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name,
+            folder = at,
+            configured = !limits.IsUnset,
+            servesFeatures = limits.ServesFeatures,
+            servesTiles = limits.ServesTiles,
+            capabilities = limits.Ceiling,
+            statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
+            maxRecordCount = limits.Cost.MaximumRecordCount,
+            defaultRecordCount = limits.Cost.DefaultRecordCount,
+            maxResponseBytes = limits.Cost.MaximumResponseBytes,
+            maxRequestBytes = limits.Cost.MaximumRequestBytes,
+            maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

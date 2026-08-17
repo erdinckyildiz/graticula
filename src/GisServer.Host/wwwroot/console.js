@@ -25,7 +25,7 @@ let esri = null;             // the SDK modules, loaded once
 let view = null;
 
 let known = [];              // last /admin/layers listing
-let selected = null;         // layer name whose drawer is open
+let selected = null;         // the row the table marks: the layer last opened
 const layerNamed = name => known.find(l => l.name === name) || { name, hosted: false };
 
 // ------------------------------------------------------------------ plumbing
@@ -89,16 +89,69 @@ function metric(label, value, note) {
     note ? `<dd class="val" style="font-size:12px;margin-top:2px">${h(note)}</dd>` : ""}</div>`;
 }
 
-// ----------------------------------------------------------------------- tabs
+// --------------------------------------------------------------------- routes
 
-function openTab(name) {
-  for (const button of document.querySelectorAll("nav button[data-tab]")) {
-    if (button.dataset.tab === name) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
+/**
+ * One page, and the hash is the route.
+ *
+ * <b>Back and forward have to work</b>, which they did not when the layer editor
+ * was a slide-over: the browser had no record that anything had opened, so Back
+ * left the console entirely. Every navigable place is now an address —
+ * `#/services`, `#/layer/tr_ilce/limits` — reached by an ordinary link, which
+ * means the browser's own buttons, middle-click and copy-paste all work without
+ * this file implementing any of them.
+ *
+ * <b>The hash rather than a path</b>, and that is a constraint rather than a
+ * preference: this console is static files, so `/console/layer/tr_ilce` is a
+ * route no server here answers and a refresh would 404. A pushState URL that
+ * breaks on reload trades a working address for a prettier one.
+ */
+const TABS = ["services", "sources", "operations", "anonymous"];
+
+function route() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean)
+    .map(decodeURIComponent);
+
+  if (parts[0] === "layer" && parts[1]) {
+    showLayer(parts[1], EDIT_PAGES.includes(parts[2]) ? parts[2] : EDIT_PAGES[0]);
+    return;
+  }
+  openTab(TABS.includes(parts[0]) ? parts[0] : "services");
+}
+
+window.addEventListener("hashchange", route);
+
+/**
+ * Goes where the map is, if we are not already there.
+ *
+ * <b>Drawing something you cannot see is the same as a button doing nothing.</b>
+ * The map belongs to the Services surface, so Show and Tiles pressed from a layer's
+ * own page used to add a layer to a map on another screen and leave the operator
+ * looking at an unchanged page. Asking to see something is a good enough reason to
+ * be taken to it.
+ */
+function toMap() {
+  if (location.hash.startsWith("#/layer/")) location.hash = "#/services";
+}
+
+/** Shows one view, and says in the tab strip which surface it belongs to. */
+function showView(id, tab) {
+  for (const link of document.querySelectorAll("#tabs a[data-tab]")) {
+    if (link.dataset.tab === tab) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
   }
   for (const view of document.querySelectorAll(".view")) {
-    view.classList.toggle("on", view.id === "view-" + name);
+    view.classList.toggle("on", view.id === id);
   }
+}
+
+function openTab(name) {
+  // The editing session ends with the page it was on. Leaving it open would let a
+  // background refresh redraw a screen nobody is looking at.
+  editing = null;
+
+  showView("view-" + name, name);
+
   // Re-read on entry, because an operations screen showing numbers from when the
   // page was opened is worse than one that says how old they are.
   if (name === "operations") section("operations", loadOperations);
@@ -657,8 +710,37 @@ async function loadLayers() {
   $("cServices").textContent = layers.length;
   drawLayers();
 
-  if (selected && !layers.some(l => l.name === selected)) closeDrawer();
-  else if (selected) openLayer(selected);
+  if (!editing) return;
+
+  // The layer being edited stopped existing — deleted here, or by somebody else.
+  // Sitting on a page for it would offer to save settings onto nothing.
+  if (!layers.some(l => l.name === editing.name)) {
+    selected = null;
+    editing = null;
+    location.hash = "#/services";
+    return;
+  }
+  redrawLayerPage();
+}
+
+/**
+ * Redraws the open editor after the listing moved, keeping what has been typed.
+ *
+ * <b>A refresh must not eat an unsaved figure.</b> Start, Stop, Map and Tiles all
+ * re-read `/admin/layers`, and the editor's General page shows the state they
+ * change — so it has to be redrawn. Redrawing it from the server alone would
+ * silently discard a limit half-entered on another page, which is the same class
+ * of quiet loss as a control that displays a value it never read.
+ */
+function redrawLayerPage() {
+  const pending = new Map();
+  for (const el of document.querySelectorAll("#editPages input, #editPages select, #editPages textarea")) {
+    if (el.id) pending.set(el.id, el.type === "checkbox" ? el.checked : el.value);
+  }
+
+  const { name, page } = editing;
+  editing = null;                // so showLayer rebuilds rather than flipping pages
+  showLayer(name, page, pending);
 }
 
 function drawLayers() {
@@ -727,22 +809,21 @@ async function loadSystemServices() {
 
 // --------------------------------------------------------------------- drawer
 
+/**
+ * Closes the drawer, which now holds one thing: Create.
+ *
+ * <b>It used to hold the layer editor too</b>, and that was the owner's
+ * correction on 2026-08-16 — settings pages inside a slide-over inside a console
+ * is nested twice over. Creating is a short form you fill and dismiss, so it
+ * stays here; editing a service is a place you navigate to, so it left.
+ */
 function closeDrawer() {
-  selected = null;
-  editing = null;
-
-  // The Save bar belongs to an editing session, so it goes with it. Leaving it
-  // visible over the New-layer drawer would offer to save something that is not
-  // open.
-  $("editBar").style.display = "none";
-
   $("drawer").classList.remove("on");
   $("drawer").setAttribute("aria-hidden", "true");
-  for (const row of document.querySelectorAll("tr.sel")) row.classList.remove("sel");
 }
 
 /**
- * The layer editor: a left column of short settings pages, one Save.
+ * The layer editor: its own page, a left column of short settings pages, one Save.
  *
  * <b>The structure is taken from ArcGIS Server Manager, on the owner's reference,
  * and not from taste.</b> Three visual concepts were built and thrown away first;
@@ -767,163 +848,199 @@ function closeDrawer() {
  * Their pages do not map one-to-one onto ours and are not forced to: we have no
  * instance pool, so *Pooling* becomes *Limits*, which is where ADR-031's ceilings
  * and Q-113's live.
+ *
+ * The page names are also the route: each is an address under
+ * `#/layer/<name>/<page>`, so the left column is six ordinary links.
  */
 const EDIT_PAGES = ["general", "capabilities", "limits", "caching", "sharing", "endpoints"];
 
-/** What the editor holds while it is open. Saved as a whole, or cancelled. */
+/** Which layer's page is open, and which of its settings pages. */
 let editing = null;
 
-function openLayer(name) {
+/**
+ * Opens a layer's settings page — or flips between its pages if it is already open.
+ *
+ * <b>Flipping rather than rebuilding is why this is one function and not two.</b>
+ * All six pages are in the document at once, so moving between them is a class on a
+ * section. Rebuilding on every click of the left column would re-read the server and
+ * throw away a figure typed on the page you just left, which is a worse fault than
+ * the one it would be fixing.
+ *
+ * `pending` carries the values a background refresh must not lose — redrawLayerPage
+ * has the reason.
+ */
+function showLayer(name, page, pending = null) {
+  if (editing && editing.name === name && $("view-layer").classList.contains("on")) {
+    editing.page = page;
+    showEditPage(page);
+    return;
+  }
+
   const l = layerNamed(name);
   selected = name;
-  editing = { name, dirty: false };
+  editing = { name, page };
 
   const stopped = l.status === "stopped";
   const isShown = shown.has(name);
   const tilesShown = shown.has(tileKey(name));
 
-  $("drawerTitle").textContent = name;
-  $("drawerSub").textContent = `${l.hosted ? "hosted" : "registered"} · ${l.dataSource || ""}`;
+  // The breadcrumb is a link, not a label: it is also how you get back, and their
+  // reference reads the same way — Site (root) › folder › service.
+  $("editCrumb").innerHTML = `<a href="#/services">Services</a> › ${
+    h(l.hosted ? "hosted" : "registered")} › <b>${h(name)}</b>`;
 
-  $("drawerBody").innerHTML = `
-    <div id="edit">
-      <nav id="editNav">
-        ${EDIT_PAGES.map((p, i) =>
-          `<button data-page="${p}"${i === 0 ? ' aria-current="page"' : ""}>${
-            p[0].toUpperCase() + p.slice(1)}</button>`).join("")}
-      </nav>
+  $("editNav").innerHTML = EDIT_PAGES.map(p =>
+    `<a href="#/layer/${encodeURIComponent(name)}/${p}">${
+      p[0].toUpperCase() + p.slice(1)}</a>`).join("");
 
-      <div id="editPages">
-        <section class="page on" id="page-general">
-          <h4>State</h4>
-          <div class="row" style="margin-bottom:12px">
-            <button data-show="${h(name)}" class="${isShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
-              ${isShown ? "Hide on map" : "Show on map"}</button>
-            ${l.hosted
-              ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
-                   ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
-              : ""}
-            <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}">
-              ${stopped ? "Start" : "Stop"}</button>
-          </div>
-
-          <h4>Contents</h4>
-          <div id="contents" class="val">reading the layer document…</div>
-
-          <h4>Identity</h4>
-          <dl class="facts">
-            <dt>Source table</dt><dd>${h(l.table)}</dd>
-            <dt>Data source</dt><dd>${h(l.dataSource || "")}</dd>
-            <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
-            <dt>Layer id</dt><dd>${h(l.id || "—")}</dd>
-          </dl>
-        </section>
-
-        <section class="page" id="page-capabilities">
-          <h4>Select and configure capabilities</h4>
-          <div class="grid2">
-            <label><input type="checkbox" id="capFeatures"> Feature access</label>
-            <label class="${l.hosted ? "" : "off"}">
-              <input type="checkbox" id="capTiles" ${l.hosted ? "" : "disabled"}> Vector tiles</label>
-          </div>
-
-          <h4>Operations allowed</h4>
-          <div class="grid2" id="ops">
-            ${["Query", "Create", "Update", "Delete", "Extract"].map(o =>
-              `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
-          </div>
-
-          <h4>URLs</h4>
-          <dl class="facts" id="endpointsShort"><dt>—</dt><dd>resolving…</dd></dl>
-        </section>
-
-        <section class="page" id="page-limits">
-          <h4>Specify response limits</h4>
-          <div class="setting"><span class="q">The most rows one response may carry:</span>
-            <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
-          <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
-            <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
-          <div class="setting"><span class="q">The most one response body may reach:</span>
-            <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
-
-          <h4>Specify request limits</h4>
-          <div class="setting"><span class="q">The most one request body may carry:</span>
-            <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
-          <div class="setting"><span class="q">The most edits one call may apply:</span>
-            <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
-          <div class="setting"><span class="q">The longest one statement may run:</span>
-            <input type="number" id="capTimeout" min="1" placeholder="source default"><span class="u">ms</span></div>
-        </section>
-
-        <section class="page" id="page-caching">
-          <h4>Tile cache</h4>
-          ${l.hosted ? `
-          <div class="setting"><span class="q">How long a tile stays fresh:</span>
-            <input type="number" id="ttl" min="0" step="1" placeholder="server default"><span class="u">seconds</span></div>
-          <div class="row" style="margin-top:8px">
-            <button data-cache="${h(name)}">Set</button>
-            <button data-cache="${h(name)}" data-clear="1" class="ghost">Use default</button>
-          </div>`
-          : `<p class="hint">Tiles come only from hosted data, so this layer has no tile cache.</p>`}
-
-          <h4>Style</h4>
-          <div class="row">
-            <button data-style="${h(name)}">Fetch current</button>
-            <button data-style-del="${h(name)}" class="ghost">Back to generated</button>
-            <button class="primary" data-style-put="${h(name)}">Store</button>
-          </div>
-          <textarea id="styleDoc" rows="7" spellcheck="false"
-            placeholder="A MapLibre style document. Fetch first."></textarea>
-        </section>
-
-        <section class="page" id="page-sharing">
-          <h4>Who may read it</h4>
-          <div class="row">
-            <select data-share="${h(name)}">
-              ${SCOPES.map(v =>
-                `<option value="${v}"${v === l.sharing ? " selected" : ""}>${v}</option>`).join("")}
-            </select>
-          </div>
-
-          <h4>Maintenance</h4>
-          <div class="row">
-            <button data-refresh="${h(name)}">Forget remembered shape</button>
-            <button class="danger" data-delete="${h(name)}">Delete layer</button>
-          </div>
-        </section>
-
-        <section class="page" id="page-endpoints">
-          <h4>Addresses</h4>
-          <dl class="facts" id="endpoints"><dt>—</dt><dd>resolving…</dd></dl>
-        </section>
+  $("editPages").innerHTML = `
+    <section class="page" id="page-general">
+      <h4>State</h4>
+      <div class="row">
+        ${pill(l.status)}${pill(l.sharing)}${pill(l.hosted ? "hosted" : "registered")}
+        <span style="flex:1"></span>
+        <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}">
+          ${stopped ? "Start" : "Stop"}</button>
+        <button data-show="${h(name)}" class="${isShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
+          ${isShown ? "Hide on map" : "Show on map"}</button>
+        ${l.hosted
+          ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
+               ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
+          : ""}
       </div>
-    </div>`;
 
-  const ttl = $("ttl");
-  if (ttl && l.cacheSeconds != null) ttl.value = l.cacheSeconds;
+      <h4>Contents</h4>
+      <div id="contents" class="val">reading the layer document…</div>
 
-  $("editBar").style.display = "flex";
-  $("editCrumb").textContent = `Editing: ${l.hosted ? "hosted" : "registered"} › ${name}`;
+      <h4>Identity</h4>
+      <dl class="facts">
+        <dt>Source table</dt><dd>${h(l.table)}</dd>
+        <dt>Data source</dt><dd>${h(l.dataSource || "")}</dd>
+        <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
+        <dt>Layer id</dt><dd>${h(l.id || "—")}</dd>
+      </dl>
+    </section>
 
+    <section class="page" id="page-capabilities">
+      <h4>Faces this layer offers</h4>
+      <div class="grid2">
+        <label><input type="checkbox" id="capFeatures"> Feature access</label>
+        <label class="${l.hosted ? "" : "off"}">
+          <input type="checkbox" id="capTiles" ${l.hosted ? "" : "disabled"}> Vector tiles${
+            l.hosted ? "" : " — hosted data only"}</label>
+      </div>
+
+      <h4>Operations allowed</h4>
+      <div class="grid2" id="ops">
+        ${["Query", "Create", "Update", "Delete", "Extract"].map(o =>
+          `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
+      </div>
+      <p class="hint" style="margin-top:12px">A tick is a ceiling, not a grant: what a
+        caller may do is this narrowed by their privileges and by what the data supports —
+        ADR-031. Unticking is the only direction that has an effect.</p>
+    </section>
+
+    <section class="page" id="page-limits">
+      <h4>Response</h4>
+      <div class="setting"><span class="q">The most rows one response may carry:</span>
+        <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
+      <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
+        <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
+      <div class="setting"><span class="q">The most one response body may reach:</span>
+        <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
+
+      <h4>Request</h4>
+      <div class="setting"><span class="q">The most one request body may carry:</span>
+        <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
+      <div class="setting"><span class="q">The most edits one call may apply:</span>
+        <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
+      <div class="setting"><span class="q">The longest one statement may run:</span>
+        <input type="number" id="capTimeout" min="1" placeholder="source default"><span class="u">ms</span></div>
+      <p class="hint" style="margin-top:12px">Empty means the server's own figure applies.
+        A row ceiling is reported to the client the way the protocol already reports one,
+        through <code>exceededTransferLimit</code>, so a truncated answer is never silent.</p>
+    </section>
+
+    <section class="page" id="page-caching">
+      <h4>Tile cache</h4>
+      ${l.hosted ? `
+      <div class="setting"><span class="q">How long a tile stays fresh:</span>
+        <input type="number" id="ttl" min="0" step="1" placeholder="server default"><span class="u">seconds</span></div>
+      <div class="row" style="margin-top:10px">
+        <button data-cache="${h(name)}">Set</button>
+        <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
+      </div>`
+      : `<p class="hint">Tiles come only from hosted data, so this layer has no tile cache.</p>`}
+
+      <h4>Style</h4>
+      <div class="row">
+        <button data-style="${h(name)}">Fetch current</button>
+        <button data-style-del="${h(name)}" class="ghost">Back to generated</button>
+        <button class="primary" data-style-put="${h(name)}">Store</button>
+      </div>
+      <textarea id="styleDoc" rows="8" spellcheck="false"
+        placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored."></textarea>
+    </section>
+
+    <section class="page" id="page-sharing">
+      <h4>Who may read it</h4>
+      <div class="row">
+        <select data-share="${h(name)}">
+          ${SCOPES.map(v =>
+            `<option value="${v}"${v === l.sharing ? " selected" : ""}>${v}</option>`).join("")}
+        </select>
+        <span class="val">applied when chosen, not on Save</span>
+      </div>
+      <p class="hint">Sharing and started/stopped are deliberately outside the settings
+        Save — ADR-031 §2b. They take effect at once and are never cached, because an
+        operator revoking access has to be able to trust that it happened.</p>
+
+      <h4>Maintenance</h4>
+      <div class="row">
+        <button data-refresh="${h(name)}">Forget remembered shape</button>
+        <button class="danger" data-delete="${h(name)}">Delete layer</button>
+      </div>
+    </section>
+
+    <section class="page" id="page-endpoints">
+      <h4>Addresses</h4>
+      <dl class="facts" id="endpoints"><dt>—</dt><dd>resolving…</dd></dl>
+    </section>`;
+
+  showEditPage(page);
   describeContents(name, l);
-  section("service settings", () => loadServiceCapabilities(name));
+
+  if (pending) {
+    // Put back what was on screen before the refresh, and do not re-read: the
+    // server's answer would overwrite exactly the edits this exists to keep.
+    for (const [id, value] of pending) {
+      const el = $(id);
+      if (!el) continue;
+      if (el.type === "checkbox") el.checked = value;
+      else el.value = value;
+    }
+  } else {
+    const ttl = $("ttl");
+    if (ttl && l.cacheSeconds != null) ttl.value = l.cacheSeconds;
+    section("service settings", () => loadServiceCapabilities(name));
+  }
 
   for (const row of document.querySelectorAll("tr.sel")) row.classList.remove("sel");
   const row = document.querySelector(`tr[data-pick="${CSS.escape(name)}"]`);
   if (row) row.classList.add("sel");
 
-  $("drawer").classList.add("on");
-  $("drawer").setAttribute("aria-hidden", "false");
+  showView("view-layer", "services");
+  window.scrollTo(0, 0);
 }
 
-/** Shows one settings page. */
-function openEditPage(page) {
-  for (const b of document.querySelectorAll("#editNav button")) {
-    if (b.dataset.page === page) b.setAttribute("aria-current", "page");
-    else b.removeAttribute("aria-current");
+/** Shows one settings page, and marks it in the left column. */
+function showEditPage(page) {
+  for (const link of document.querySelectorAll("#editNav a")) {
+    if (link.getAttribute("href").endsWith(`/${page}`)) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
   }
 
-  for (const s of document.querySelectorAll(".page")) {
+  for (const s of document.querySelectorAll("#editPages .page")) {
     s.classList.toggle("on", s.id === `page-${page}`);
   }
 }
@@ -1003,11 +1120,10 @@ async function saveEditing() {
   });
 
   toast(saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved`, true);
-  editing.dirty = false;
 }
 
 /**
- * Fills the drawer's Contents group from the layer's own service document.
+ * Fills the Contents group from the layer's own service document.
  *
  * <b>Not a new admin capability</b> — ADR-020 §2. This is the same document the
  * map already fetches to choose a symbol, and the same one any ArcGIS client
@@ -1015,7 +1131,7 @@ async function saveEditing() {
  * fields, its geometry, its extent — had no answer anywhere in the UI, and it is
  * the first thing anybody asks about a layer they did not publish themselves.
  *
- * Loaded after the drawer paints rather than before, so opening a layer is never
+ * Loaded after the page paints rather than before, so opening a layer is never
  * held up by a request; and a refusal is shown in place rather than as a toast,
  * because a stopped service refusing this is expected and not an error.
  */
@@ -1024,11 +1140,11 @@ async function describeContents(name, layer) {
   if (!box) return;
 
   const place = (await resolvePlaces()).get(name);
-  if (selected === name) fillEndpoints(name, layer, place);
+  if (editing?.name === name) fillEndpoints(name, layer, place);
 
   try {
     const doc = await api(`${(await layerUrl(name)).replace(location.origin, "")}?f=json`);
-    if (selected !== name) return;   // the reader moved on while this was in flight
+    if (editing?.name !== name) return;   // the reader moved on while this was in flight
 
     const fields = (doc.fields || []);
     const geometry = (doc.geometryType || "").replace("esriGeometry", "") || "none";
@@ -1049,13 +1165,13 @@ async function describeContents(name, layer) {
            <span style="color:var(--faint);font-weight:400">${
              h((f.type || "").replace("esriFieldType", ""))}</span></span>`).join("")}</div>` : ""}`;
   } catch (e) {
-    if (selected !== name) return;
+    if (editing?.name !== name) return;
     box.innerHTML = `<span style="color:var(--stop)">${h(e.message || String(e))}</span>`;
   }
 }
 
 /**
- * The drawer's endpoint links, once the layer's real address is known.
+ * The layer's endpoint links, once its real address is known.
  *
  * <b>Tiles are per service, not per layer, and saying so matters.</b> A member of
  * a multi-layer service shares one VectorTileServer with its siblings, so the tile
@@ -1210,7 +1326,6 @@ const FIELD_TYPES =
   ["Text", "Integer", "BigInteger", "SmallInteger", "Double", "Single", "Boolean", "Date", "Guid"];
 
 function openNewLayer() {
-  selected = null;
   // Retitled 2026-08-16: it held only hosted layers, and now it also publishes a
   // table this server does not hold and creates services and groups. A heading
   // that names one of four things is worse than a general one.
@@ -1735,11 +1850,11 @@ async function handleClick(event) {
   const t = event.target;
   const d = t.dataset || {};
 
-  if (t.closest("nav") && d.tab) { openTab(d.tab); return; }
+  // Navigation is links now — the tab strip, the editor's left column, the
+  // breadcrumb and Cancel — so it needs no branch here. The browser follows the
+  // href, the hash changes, and route() paints. That is also what makes Back work.
   if (t.id === "newLayer") { openNewLayer(); return; }
   if (t.id === "drawerClose") { closeDrawer(); return; }
-  if (t.dataset.page) { openEditPage(t.dataset.page); return; }
-  if (t.id === "editCancel") { closeDrawer(); return; }
 
   if (t.id === "editSave") {
     t.disabled = true;
@@ -1794,12 +1909,17 @@ async function handleClick(event) {
   }
 
   const pick = t.closest("tr[data-pick]");
-  if (pick && !d.show && !d.tiles) { openLayer(pick.dataset.pick); return; }
+  if (pick && !d.show && !d.tiles) {
+    location.hash = `#/layer/${encodeURIComponent(pick.dataset.pick)}`;
+    return;
+  }
 
   if (d.tiles) {
-    if (shown.has(tileKey(d.tiles))) hide(tileKey(d.tiles));
-    else await showTiles(d.tiles);
+    const drawn = !shown.has(tileKey(d.tiles));
+    if (drawn) await showTiles(d.tiles);
+    else hide(tileKey(d.tiles));
     await loadLayers();
+    if (drawn) toMap();
     return;
   }
 
@@ -1812,6 +1932,9 @@ async function handleClick(event) {
       const doc = await api(
         `${serviceRoot(layerNamed(d.show)).replace(location.origin, "")}/FeatureServer/0?f=json`);
       await show(d.show, doc.geometryType);
+      await loadLayers();
+      toMap();
+      return;
     } catch (e) { toast(e.message); }
     await loadLayers();
     return;
@@ -1861,7 +1984,9 @@ async function handleClick(event) {
     try {
       await api(`/admin/layers/${encodeURIComponent(d.delete)}`, { method: "DELETE" });
       hide(d.delete);
-      closeDrawer();
+      selected = null;
+      editing = null;                    // there is no longer a layer to have open
+      location.hash = "#/services";
       toast(`${d.delete} deleted.`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();
@@ -1978,8 +2103,10 @@ document.addEventListener("input", event => {
 
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
-    // Escape clears a filter before it closes the drawer, because the filter is
-    // the thing you are most likely to be holding when you press it.
+    // Escape clears a filter before it closes the Create drawer, because the filter
+    // is the thing you are most likely to be holding when you press it. It does not
+    // leave the layer's page: Escape dismisses something floating, and a page you
+    // navigated to is left with Back or Cancel.
     if (document.activeElement && document.activeElement.id === "layerFilter"
         && $("layerFilter").value !== "") {
       $("layerFilter").value = "";
@@ -2099,6 +2226,12 @@ async function start() {
     section("system services", loadSystemServices, "systemServices"),
     section("data sources", loadSources, "sources"),
   ]);
+
+  // <b>The address is read after the listing, not before.</b> A link straight to
+  // #/layer/tr_ilce/limits has to open that layer's page on load — that is what
+  // makes it an address rather than a bookmark that lands somewhere else — and the
+  // page cannot say whether the layer is hosted until the catalogue is in hand.
+  route();
 }
 
 // ------------------------------------------------------- the anonymous view

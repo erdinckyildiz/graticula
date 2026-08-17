@@ -1,0 +1,272 @@
+/*
+  The console's stylesheet, extracted from index.html 2026-08-17 when the layer
+  editor became its own page. Two pages sharing one <style> block by copy is two
+  palettes that drift; a file cannot drift from itself.
+*/
+/*
+    The palette is unchanged and deliberately so. Muted greens against warm
+    paper, one accent, and three status colours that differ in hue *and*
+    lightness so a status is never carried by colour alone.
+  */
+  :root {
+    --paper: #f5f8f6; --surface: #fff; --surface-2: #eff4f1; --surface-3: #e6ede9;
+    --ink: #0f1e1b; --muted: #576a66; --faint: #7d8f8b; --rule: #d7e0dc;
+    --accent: #0b6157; --accent-soft: #e2efeb;
+    --ok: #2f7a55; --stop: #92620d; --alert: #a63a2b;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  /* One accent, and the form controls use it too rather than the browser's blue. */
+  :root { accent-color: var(--accent); }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
+  a { color: var(--accent); }
+
+  /* ---------------------------------------------------------------- chrome */
+
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+           padding: 0 22px; height: 52px; background: var(--surface);
+           border-bottom: 1px solid var(--rule); }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .dot.bad { background: var(--alert); }
+  .dot.unknown { background: var(--faint); }
+  #healthLine { font-size: 13px; color: var(--muted); }
+  header .right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  #who { font-size: 13px; color: var(--muted); }
+  #who b { color: var(--ink); font-weight: 600; }
+
+  /*
+    Addressed as #tabs, not as `nav`. The layer editor's left column is a <nav> too,
+    and while these rules were unscoped it inherited a horizontal flex row with a
+    bottom border — six settings links laid out sideways across the foot of their own
+    column. An element selector for one instance of an element is a rule waiting for
+    the second instance.
+  */
+  #tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 22px;
+          background: var(--surface); border-bottom: 1px solid var(--rule); }
+  /* The tabs are anchors: each surface has an address, so Back works. */
+  #tabs a[data-tab] { display: block; text-decoration: none; border-bottom: 2px solid transparent;
+                      font-size: 13.5px; color: var(--muted); padding: 11px 13px 9px; }
+  #tabs a[data-tab]:hover { color: var(--ink); }
+  #tabs a[data-tab][aria-current="page"] { color: var(--ink); font-weight: 600;
+                                           border-bottom-color: var(--accent); }
+  #tabs .right { margin-left: auto; padding: 8px 0; }
+  #tabs .count { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 5px; }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 20px 22px 60px; }
+  .view { display: none; }
+  .view.on { display: block; }
+
+  /* ------------------------------------------------------------- structure */
+
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.01em; }
+  .lede { margin: 0 0 14px; font-size: 13px; color: var(--muted); max-width: 68ch; }
+  .panel { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
+           overflow: hidden; }
+  .panel.pad { padding: 16px 18px; }
+  .panel + .panel, .panel + h2 { margin-top: 18px; }
+  h2 + .panel { margin-top: 0; }
+  .cols { display: grid; gap: 18px; }
+  .cols.two { grid-template-columns: 1fr 1fr; align-items: start; }
+  @media (max-width: 940px) { .cols.two { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+
+  /* ---------------------------------------------------------------- tables */
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  /*
+    Labels are in the text face, not mono. Mono is for values a person may need
+    to copy or compare character by character — a table name, an id, an SRID —
+    and using it for headings too was the one thing a slop scan found here that
+    was actually a shortcut rather than a false positive.
+  */
+  th { text-align: left; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+       color: var(--faint); font-weight: 600; padding: 9px 13px;
+       background: var(--surface-2); border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  td { padding: 9px 13px; border-top: 1px solid var(--rule); vertical-align: middle; }
+  tbody tr:first-child td { border-top: 0; }
+  tbody tr.pick { cursor: pointer; }
+  tbody tr.pick:hover { background: var(--surface-2); }
+  tbody tr.sel { background: var(--accent-soft); }
+  tbody tr.sel td { border-top-color: #cfe1db; }
+  td.num { text-align: right; font-family: var(--mono); font-size: 13px; }
+  .empty { padding: 26px 18px; color: var(--muted); font-size: 13.5px; }
+  td.acts { white-space: nowrap; }
+  td.acts button { margin-left: 4px; }
+  td.acts button:first-of-type { margin-left: 0; }
+
+  .toolbar { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+  .toolbar input[type=search] { flex: 0 1 340px; }
+  th button.sort { appearance: none; background: none; border: 0; padding: 0; margin: 0;
+                   font: inherit; color: inherit; letter-spacing: inherit;
+                   text-transform: inherit; cursor: pointer; }
+  th button.sort:hover { color: var(--ink); }
+  th[aria-sort="ascending"] button.sort::after { content: " \2191"; }
+  th[aria-sort="descending"] button.sort::after { content: " \2193"; }
+  th[aria-sort]:not([aria-sort="none"]) button.sort { color: var(--ink); }
+  .val { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .name { font-weight: 600; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+            margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0,0,0,.3); }
+
+  /* ----------------------------------------------------------------- pills */
+
+  .pill { font-size: 11.5px; letter-spacing: .02em; padding: 2px 7px; border-radius: 2px;
+          border: 1px solid; display: inline-block; white-space: nowrap; font-weight: 600; }
+  .p-started { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
+  .p-stopped { color: var(--stop); border-color: #ddc79a; background: #fbf4e6; }
+  .p-public { color: var(--accent); border-color: #a8ccc4; background: var(--accent-soft); }
+  .p-organization { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
+  .p-private { color: var(--faint); border-color: var(--rule); background: var(--surface); }
+  .p-hosted { color: #0f6d5f; border-color: #a8ccc4; background: var(--accent-soft); }
+  .p-registered { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
+  .p-usable { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
+  .p-degraded, .p-unusable { color: var(--alert); border-color: #dcb1a9; background: #fbefec; }
+
+  /* --------------------------------------------------------------- controls */
+
+  button, select, input, textarea { font: inherit; }
+  button { font-size: 13px; padding: 5px 11px; border-radius: 3px;
+           border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+           cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.on, button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.on:hover, button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+  button.ghost { background: transparent; border-style: dashed; color: var(--muted); }
+  button.danger:hover:not(:disabled) { border-color: var(--alert); color: var(--alert); }
+  button.tiny { font-size: 12px; padding: 3px 8px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  select, input[type=text], input[type=password], input[type=number], input[type=file], textarea {
+    padding: 5px 8px; border: 1px solid var(--rule); border-radius: 3px;
+    background: var(--surface); color: var(--ink); font-size: 13.5px; }
+  textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.45; width: 100%; }
+  label.field { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px;
+                letter-spacing: .03em; text-transform: uppercase; color: var(--faint);
+                font-weight: 600; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .hint { font-size: 12.5px; color: var(--muted); max-width: 56ch; margin: 0 0 12px; }
+  .hint:last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
+         padding: 1px 4px; border-radius: 2px; }
+
+  /* ------------------------------------------------------------------- map */
+
+  #mapPanel { display: none; margin-bottom: 18px; }
+  #mapPanel.on { display: block; }
+  #view { height: 420px; }
+  #legend { padding: 8px 13px; border-top: 1px solid var(--rule); font-size: 13px;
+            display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--muted); }
+  #view:empty::after { content: "The map library has not loaded."; display: block;
+                       padding: 30px 13px; color: var(--muted); font-size: 13.5px; }
+  #basemapBar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+                padding: 8px 13px; border-top: 1px solid var(--rule);
+                background: var(--surface-2); font-size: 13px; }
+  #basemapBar .lbl { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
+                     color: var(--faint); font-weight: 600; }
+  #basemapBar input { flex: 1 1 300px; font-size: 12.5px; font-family: var(--mono); }
+  #basemapBar .val { flex: 0 1 auto; }
+
+  /* ----------------------------------------------------------------- drawer */
+
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 620px; max-width: 96vw;
+            background: var(--surface); border-left: 1px solid var(--rule); z-index: 1500;
+            transform: translateX(100%); transition: transform .16s ease-out;
+            display: flex; flex-direction: column;
+            box-shadow: -18px 0 40px -28px rgba(0,0,0,.45); }
+  #drawer.on { transform: none; }
+  #drawer header { height: auto; padding: 14px 18px; align-items: flex-start; gap: 10px; }
+  #drawer header h2 { font-size: 15px; }
+  #drawerBody { overflow-y: auto; padding: 0; flex: 1; }
+
+  .group { border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 16px; }
+  .group:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+  .group h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+              color: var(--faint); font-weight: 600; }
+  dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0;
+             font-size: 13px; }
+  dl.facts dt { color: var(--muted); }
+  dl.facts dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+
+  /* -------------------------------------------------------------- metrics */
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .metric { padding: 13px 16px; border-left: 1px solid var(--rule); }
+  .metric:first-child { border-left: 0; }
+  .metric dt { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
+               color: var(--faint); font-weight: 600; }
+  .metric dd { margin: 3px 0 0; font-family: var(--mono); font-size: 19px; letter-spacing: -.02em; }
+  .metric dd small { font-family: var(--sans); font-size: 12px; color: var(--muted);
+                     letter-spacing: 0; margin-left: 3px; }
+  @media (max-width: 700px) { .metric { border-left: 0; border-top: 1px solid var(--rule); }
+                              .metric:first-child { border-top: 0; } }
+
+  /* ---------------------------------------------------------------- toast */
+
+  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 480px; z-index: 2000;
+           background: var(--surface); border: 1px solid var(--rule); border-left-width: 3px;
+           border-radius: 3px; padding: 11px 14px; font-size: 13.5px; display: none;
+           box-shadow: 0 12px 30px -16px rgba(0,0,0,.5); }
+  #toast.on { display: block; }
+  #toast.bad { border-left-color: var(--alert); }
+  #toast.good { border-left-color: var(--ok); }
+
+  /* --------------------------------------------------------------- sign in */
+
+  #signin { max-width: 360px; margin: 88px auto; }
+  #signin .panel { padding: 22px; }
+  #signin label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  #signin input, #signin button { width: 100%; }
+  #signin button { margin-top: 18px; }
+  .bad-inline { margin: 12px 0 0; padding: 9px 11px; font-size: 13px;
+                color: var(--alert); background: #fbefec; border: 1px solid #dcb1a9;
+                border-radius: 3px; }
+
+/* ------------------------------------------------- the layer editor, as a view */
+/*
+  Full content width with its own left column, after ArcGIS Server Manager. It is a
+  view rather than a drawer because the owner's reading was right: a settings page
+  inside a slide-over inside a console is nested twice and reads as clutter.
+*/
+#editHead { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; min-height: 30px; }
+#editHead .crumbs { font-size: 13.5px; color: var(--muted); min-width: 0; }
+#editHead .crumbs a { color: var(--accent); text-decoration: none; }
+#editHead .crumbs a:hover { text-decoration: underline; }
+#editHead .crumbs b { color: var(--ink); font-weight: 600; }
+#editHead .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+#editCancel { font-size: 13px; color: var(--muted); text-decoration: none; }
+#editCancel:hover { color: var(--ink); text-decoration: underline; }
+
+/*
+  A floor under the frame, so moving between a long page and a short one does not
+  resize the panel and shift the left column out from under the pointer.
+*/
+#edit { display: grid; grid-template-columns: 190px 1fr; align-items: stretch;
+        min-height: 420px; }
+#editNav { border-right: 1px solid var(--rule); background: var(--surface-2); padding: 10px 0; }
+#editNav a { display: block; text-decoration: none; color: var(--ink); font-size: 13.5px;
+             padding: 8px 16px; border-left: 3px solid transparent; }
+#editNav a:hover { background: var(--surface-3); }
+#editNav a[aria-current] { background: var(--accent); color: #fff; font-weight: 500; }
+#editPages { padding: 18px 22px 28px; min-width: 0; }
+
+/* One page shows at a time; all six are in the document, so moving is a class. */
+.page { display: none; }
+.page.on { display: block; }
+.page h4 { margin: 0 0 12px; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
+           color: var(--faint); font-weight: 600; padding-bottom: 8px;
+           border-bottom: 1px solid var(--rule); }
+.page h4 + h4, .page > * + h4 { margin-top: 26px; }
+
+/* Capabilities: names in two columns and nothing else. */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; max-width: 560px; }
+.grid2 label { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
+.grid2 label.off { color: var(--faint); }
+
+/* A number reads as a sentence, with the unit outside the box. */
+.setting { display: flex; align-items: center; gap: 12px; padding: 6px 0; max-width: 620px; }
+.setting .q { flex: 1; font-size: 14px; }
+.setting input { width: 110px; text-align: right; font-family: var(--mono); font-size: 13px; }
+.setting .u { width: 66px; color: var(--muted); font-size: 13px; }

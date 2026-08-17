@@ -544,6 +544,64 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>The same nine columns the setter writes, read the same way.</b> A read that
+    /// selected a subset would produce a screen that saves fields it never showed,
+    /// which is how a ceiling gets cleared by somebody who never saw it.
+    /// </remarks>
+    public async Task<ServiceCapabilityLimits?> FindServiceCapabilitiesAsync(
+        string name,
+        string? folder,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Sql = """
+            select serves_features,
+                   serves_tiles,
+                   capability_ceiling,
+                   statement_timeout_ms,
+                   max_record_count,
+                   default_record_count,
+                   max_response_bytes,
+                   max_request_bytes,
+                   max_edits_per_transaction
+              from service
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+             limit 1
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        await using NpgsqlDataReader reader = await command
+            .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        bool? features = reader.IsDBNull(0) ? null : reader.GetBoolean(0);
+        bool? tiles = reader.IsDBNull(1) ? null : reader.GetBoolean(1);
+        IReadOnlyList<string>? ceiling = reader.IsDBNull(2)
+            ? null
+            : reader.GetFieldValue<string[]>(2);
+        TimeSpan? timeout = reader.IsDBNull(3)
+            ? null
+            : TimeSpan.FromMilliseconds(reader.GetInt32(3));
+
+        int? Number(int ordinal) => reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+        long? Bytes(int ordinal) => reader.IsDBNull(ordinal) ? null : reader.GetInt64(ordinal);
+
+        return new ServiceCapabilityLimits(features, tiles, ceiling, timeout)
+            .With(new ServiceCostCeilings(
+                Number(4), Number(5), Bytes(6), Bytes(7), Number(8)));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <para>
     /// <b>Writes the service's scope, not the layer's, and that was a shipped
     /// defect until 2026-08-15.</b> This statement said

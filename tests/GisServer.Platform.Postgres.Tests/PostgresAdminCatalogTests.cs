@@ -472,4 +472,127 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Null(await admin.FindServiceForStyleAsync("nosuch", CancellationToken.None));
         Assert.False(await admin.SetStyleAsync("nosuch", "{}", CancellationToken.None));
     }
+
+    /// <summary>
+    /// What was written is what is read back, field for field.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>There was no read at all until 2026-08-17, and that is the defect this
+    /// covers.</b> The write shipped with a screen that drew every control from
+    /// nothing and explained in prose that it could not show the current value — so
+    /// an operator narrowing a ceiling could not see the ceiling. The console asked
+    /// for it, got <c>405</c>, and reported the refusal in a corner.
+    /// </para>
+    /// <para>
+    /// Asserted field by field rather than by comparing objects, because the fault
+    /// this guards against is a read that selects eight of nine columns: the ninth
+    /// then comes back unset, the screen shows it blank, and saving clears a limit
+    /// nobody was shown.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Configured_capabilities_survive_the_round_trip()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "capped", service: "capped"), owner, CancellationToken.None);
+
+        ServiceCapabilityLimits written = new ServiceCapabilityLimits(
+            servesFeatures: true,
+            servesTiles: false,
+            ceiling: ["Query", "Extract"],
+            statementTimeout: TimeSpan.FromMilliseconds(7000))
+            .With(new ServiceCostCeilings(20_000, 500, 33_554_432, 1_048_576, 250));
+
+        Assert.True(await admin.SetServiceCapabilitiesAsync(
+            "capped", null, written, CancellationToken.None));
+
+        ServiceCapabilityLimits? read = await admin
+            .FindServiceCapabilitiesAsync("capped", null, CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.True(read!.ServesFeatures);
+        Assert.False(read.ServesTiles);
+        Assert.Equal(["Query", "Extract"], read.Ceiling);
+        Assert.Equal(TimeSpan.FromMilliseconds(7000), read.StatementTimeout);
+        Assert.Equal(20_000, read.Cost.MaximumRecordCount);
+        Assert.Equal(500, read.Cost.DefaultRecordCount);
+        Assert.Equal(33_554_432, read.Cost.MaximumResponseBytes);
+        Assert.Equal(1_048_576, read.Cost.MaximumRequestBytes);
+        Assert.Equal(250, read.Cost.MaximumEditsPerTransaction);
+    }
+
+    /// <summary>
+    /// A service with nothing configured reads back unset, and one that is absent
+    /// reads back null.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two different answers, and a caller acts differently on each.</b> Unset
+    /// means *this service constrains nothing*, which is a valid configuration to
+    /// display; null means *there is no such service*, which is a 404. Collapsing
+    /// them would make a typo in a service name look like a service with no limits.
+    /// </remarks>
+    [Fact]
+    public async Task Unconfigured_reads_back_unset_and_absent_reads_back_null()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "bare", service: "bare"), owner, CancellationToken.None);
+
+        ServiceCapabilityLimits? bare = await admin
+            .FindServiceCapabilitiesAsync("bare", null, CancellationToken.None);
+
+        Assert.NotNull(bare);
+        Assert.True(bare!.IsUnset);
+
+        Assert.Null(await admin.FindServiceCapabilitiesAsync("nosuch", null, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The read matches its service the way every other lookup does: by folder, and
+    /// without regard to case.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two services may differ only by folder</b>, and one of them may differ
+    /// from the request only in case — which is the fault migration 15 was written
+    /// for. A read that matched case-sensitively would answer 404 for a service the
+    /// write path finds, so the screen would refuse to open a service it can save.
+    /// </remarks>
+    [Fact]
+    public async Task The_read_finds_the_service_by_folder_and_ignores_case()
+    {
+        (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
+
+        // Created rather than published into: LayerPublication has no folder, so a
+        // service in one is made directly. Both exist, and they differ only by folder.
+        await admin.CreateServiceAsync(
+            "same", "shared", null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.CreateServiceAsync(
+            "same", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.SetServiceCapabilitiesAsync(
+            "same",
+            "shared",
+            new ServiceCapabilityLimits(null, null, null, null)
+                .With(new ServiceCostCeilings(9_000, null, null, null, null)),
+            CancellationToken.None);
+
+        ServiceCapabilityLimits? read = await admin
+            .FindServiceCapabilitiesAsync("SAME", "SHARED", CancellationToken.None);
+
+        Assert.NotNull(read);
+        Assert.Equal(9_000, read!.Cost.MaximumRecordCount);
+
+        // And the root is a different place, not a synonym for any folder: the
+        // service of the same name there was never configured.
+        ServiceCapabilityLimits? root = await admin
+            .FindServiceCapabilitiesAsync("same", null, CancellationToken.None);
+
+        Assert.NotNull(root);
+        Assert.True(root!.IsUnset);
+    }
 }

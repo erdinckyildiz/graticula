@@ -216,7 +216,7 @@ discarded.
 | Surface | Screen | Answers | Endpoint |
 |---|---|---|---|
 | **Services** | Layer list | What exists, where it lives, is it running, who can see it, what table is under it, who owns it | `GET /admin/layers` |
-| | Layer drawer | All of the above per layer, plus every operation that acts on it | below |
+| | Layer settings page | All of the above per layer, plus every operation that acts on it. A drawer until 2026-08-17, then its own page at `#/layer/<name>/<page>` — §5i | below |
 | | · show / tiles | Does it draw, and does a real Esri client accept our tiles | the service itself |
 | | · start / stop | Take it out of rotation without deleting it | `POST /admin/layers/{n}/start`, `/stop` |
 | | · sharing | Who may read it | `PUT /admin/layers/{n}/sharing` |
@@ -545,6 +545,63 @@ API ([D-48](../architecture-debt.md)), and unpublishing a layer leaves the servi
 it created behind. The copy does not offer a delete it cannot perform, which is
 §2's rule about the console adding no capability the API lacks, applied to an
 absence rather than a feature.
+
+### 5i. The layer's settings became a page, 2026-08-17
+
+**The owner's correction, in their words:** *"ayrı bir sayfa yapalım. gerçekten şık
+değil. iç içe ve karışık"* — make it a separate page, it is not elegant, it is nested
+and confused — and then *"single page olsun. ileri geri yapalım"*: one page, with back
+and forward.
+
+What was wrong was the structure and not the styling. Per-service settings had grown
+from three controls to six pages' worth — faces, feature capabilities, six cost
+ceilings, cache lifetime, style, sharing, endpoints — and all of it was going into a
+620-pixel slide-over that overlaid the table it was about. A settings screen inside a
+drawer inside a console is nested twice. Three visual concepts were built before this
+and all three were rejected; what they got wrong was the same thing each time, which is
+why the fourth attempt took its structure from the owner's own reference — ArcGIS Server
+Manager — rather than from taste:
+
+- a left column of short settings pages instead of one long scroll,
+- a breadcrumb naming what is being edited, so it is clear what Save will change,
+- one Save and one Cancel for the session rather than a button beside every control,
+- capabilities as names in a grid, with no prose between them,
+- numbers written as sentences with the unit outside the box.
+
+Their pages are not copied onto ours: we have no instance pool, so *Pooling* becomes
+*Limits*, which is where ADR-031's ceilings live. The drawer keeps exactly one job,
+**Create** — a short form you fill and dismiss belongs over the page; a service's
+settings are a place you go.
+
+**The hash is the route, and that is a constraint rather than a preference.** Back and
+forward have to work, which they could not when the editor was a slide-over: the browser
+had no record that anything had opened, so Back left the console. Every surface is now an
+address — `#/services`, `#/layer/tr_ilce/limits` — reached by an ordinary link, so the
+browser's own buttons, middle-click and copy-link cost this console no code. A pushState
+path was rejected because the console is static files: `/console/layer/tr_ilce` is a
+route nothing here answers, and an address that 404s on refresh is not an address.
+Verified by driving it — services → limits → caching → Back → Back → Forward lands on
+`#/layer/tr_ilce/limits` with that page shown and its left column marked.
+
+Two behaviours exist because of what the drawer used to hide:
+
+- **A refresh does not eat an unsaved figure.** Start, Stop, Map and Tiles all re-read
+  `/admin/layers` and the General page shows the state they change, so it is redrawn —
+  carrying whatever is typed on the other pages across the redraw. Moving between pages
+  does not re-read at all: all six are in the document and the move is a class.
+- **Asking to draw something takes you to where it draws.** The map belongs to the
+  Services surface, so Show and Tiles pressed from a layer's own page used to add a layer
+  to a map on another screen and leave the operator looking at an unchanged one — which
+  is indistinguishable from a dead button, and this console has spent three rounds on
+  that class of fault ([D-46](../architecture-debt.md)).
+
+**Extracting the stylesheet is what broke it, and the way it broke is the lesson.** The
+page's `<style>` block moved into `console.css` so the two surfaces could not drift, and
+the console's Content-Security-Policy permitted inline style but not a stylesheet file.
+Every rule was served and none applied. It did not look like a refused request: without
+`.view { display: none }` all five screens stacked into one document, which reads as a
+layout bug. D-46 instance (7), and the fix is a test that enumerates whatever a console
+page references rather than naming the kinds somebody thought of.
 
 ## 6. Consequences
 
