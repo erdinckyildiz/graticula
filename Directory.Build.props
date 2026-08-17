@@ -28,6 +28,11 @@
 
   <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
     <IsPackable>false</IsPackable>
+
+    <!-- The run settings apply without anybody remembering a flag. `dotnet test graticula.sln` is
+         the command a person types before committing, so it is the command that has to be
+         trustworthy — see graticula.runsettings for what it prevents and why CI never needed it. -->
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)graticula.runsettings</RunSettingsFilePath>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- CA1707 forbids underscores in member names. Underscored test names are
          the convention because they are read as sentences in failure output.

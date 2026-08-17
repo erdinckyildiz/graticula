@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  How the test suites are allowed to run at once.
+
+  <b>One test host at a time, because two of the eight suites share a database in two different
+  ways.</b> `Graticula.Platform.Postgres.Tests` migrates and queries PostgreSQL directly;
+  `Graticula.Conformance.Tests` drives a **running server** that holds its own connection pool
+  against the same database. Run in parallel, individual Postgres tests time out at exactly 30
+  seconds and are reported as failures — measured 2026-08-17:
+  `Filtering_in_the_database_is_what_makes_a_bbox_query_possible_at_all` and
+  `Ring_winding_matches_PostGIS` failed at 30 s in a solution-wide run and **both passed in 1
+  second** run alone.
+
+  <b>CI was never affected, and that is the part worth knowing.</b> `.github/workflows/ci.yml`
+  invokes one `dotnet test` per project, for a different reason it states itself — three suites
+  FAIL rather than skip without their subject, so a wildcard would make a permanently red build.
+  So the flake lived only in the local `dotnet test graticula.sln`, which is the command a person
+  runs before committing. **That is the worse place for it**, not the better one: a local run that
+  goes red at random teaches its reader to run it again, and a second run is indistinguishable
+  from a fix. This session read *2 failed* twice and reasoned past it both times, once without
+  even recording which tests they were.
+
+  <b>Why this rather than a longer timeout.</b> Raising the fixture's command timeout would make
+  the symptom rarer without removing the contention — the tests would still be waiting on a
+  database somebody else is loading, and the number would have to grow again the next time a suite
+  is added. Serialising costs wall-clock, which is a price paid in seconds by a machine rather
+  than in trust by a person.
+
+  <b>Why not give the conformance suite its own database.</b> That is the better fix and it is not
+  in this repository's gift: which store a running server points at is a deployment choice made by
+  whoever starts it, and `GRATICULA_TEST_URL` names a server rather than a database. Recorded on
+  D-60 as the standing option for whoever sets up a CI job that needs both at once.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <!--
+      One at a time. The suites still run in the order VSTest chooses; what this removes is two
+      test hosts being alive together, which is the only thing the contention needed.
+    -->
+    <MaxCpuCount>1</MaxCpuCount>
+  </RunConfiguration>
+</RunSettings>
