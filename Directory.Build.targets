@@ -17,7 +17,7 @@
           Condition="'$(CopyOverlayWorker)' == 'true'">
     <ItemGroup>
       <OverlayWorkerFiles
-        Include="$(MSBuildThisFileDirectory)src\GisServer.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
     </ItemGroup>
 
     <Copy SourceFiles="@(OverlayWorkerFiles)"

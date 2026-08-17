@@ -1,4 +1,4 @@
-namespace GisServer.Testing;
+namespace Graticula.Testing;
 
 /// <summary>
 /// How the oracle suites find real geometry to compare against PostGIS.

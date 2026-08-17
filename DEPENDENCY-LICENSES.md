@@ -113,7 +113,7 @@ bundled components frequently differ from the parent project.
 
 | Component | Role | Tier | Licence (claimed) | Status | Obligation notes |
 |---|---|---|---|---|---|
-| **Npgsql** | PostgreSQL driver | 2 | PostgreSQL Licence (BSD-style) | `UNVERIFIED` | **Actually referenced today**, by `GisServer.Platform.Postgres` and `GisServer.Providers.PostGis` only; an architecture test fails the build if it reaches Tier 1. Permissive and unproblematic under Apache-2.0 outbound. |
+| **Npgsql** | PostgreSQL driver | 2 | PostgreSQL Licence (BSD-style) | `UNVERIFIED` | **Actually referenced today**, by `Graticula.Platform.Postgres` and `Graticula.Providers.PostGis` only; an architecture test fails the build if it reaches Tier 1. Permissive and unproblematic under Apache-2.0 outbound. |
 | **Konscious.Security.Cryptography.Argon2** | Password hashing (ADR-015 §5) | 2 | MIT | `UNVERIFIED` | **Actually referenced today**, behind `IPasswordHasher`. Managed, no native payload. **The row that deserves scrutiny disproportionate to its size**: it is a small community package holding the single most security-critical primitive in the server, and .NET ships no Argon2id of its own. The port exists so replacing it — libsodium via NSec, or a future BCL implementation — touches one file. |
 | PostgreSQL | Baseline database | external | PostgreSQL Licence | `UNVERIFIED` | Separate process; not linked. |
 | PostGIS | Spatial extension | external | GPL-2.0-or-later | `UNVERIFIED` | Separate process; not linked. Distribution posture differs from linking. |
@@ -129,7 +129,7 @@ bundled components frequently differ from the parent project.
 | PROJ | Coordinate transformation | 2 | MIT-style | `UNVERIFIED` | Grid data files carry **separate** licences and must be checked individually. |
 | GDAL | Raster and vector I/O | 2 | MIT-style (core) | `UNVERIFIED` | **Drivers vary.** Individual drivers and their upstream libraries carry their own licences, some copyleft, some patent-encumbered. A GDAL build is not one licence — it is a bill of materials. |
 | JTS | Geometry (JVM) | 2 | EPL/EDL dual | `UNVERIFIED` | Only if ADR-001 selects the JVM. |
-| NetTopologySuite | Geometry (.NET) | 2 | BSD-3-Clause | `UNVERIFIED` | **Actually referenced since 2026-08-15**, by `GisServer.Overlay.Worker` and by nothing else. Not merely a tier boundary: the worker is a separate *process*, so the library never loads in the server (Q-97, [ADR-022](docs/adr/ADR-022-geometry-server.md) §9). BSD-3-Clause is permissive and unproblematic under Apache-2.0 outbound; the row stays `UNVERIFIED` because nobody has read the shipped nuspec, and D-06's trigger is the first binary that bundles it. |
+| NetTopologySuite | Geometry (.NET) | 2 | BSD-3-Clause | `UNVERIFIED` | **Actually referenced since 2026-08-15**, by `Graticula.Overlay.Worker` and by nothing else. Not merely a tier boundary: the worker is a separate *process*, so the library never loads in the server (Q-97, [ADR-022](docs/adr/ADR-022-geometry-server.md) §9). BSD-3-Clause is permissive and unproblematic under Apache-2.0 outbound; the row stays `UNVERIFIED` because nobody has read the shipped nuspec, and D-06's trigger is the first binary that bundles it. |
 | `geo` / `geo-types` | Geometry (Rust) | 2 | MIT/Apache-2.0 | `UNVERIFIED` | Only if ADR-001 selects Rust. |
 | Skia | Rasterisation | 2 | BSD-3-Clause | `UNVERIFIED` | Large native build; distribution size and toolchain cost matter as much as licence. |
 | Cairo | Rasterisation | 2 | LGPL-2.1 / MPL dual | `UNVERIFIED` | |

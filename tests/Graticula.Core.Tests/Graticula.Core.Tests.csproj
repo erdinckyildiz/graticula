@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    The shapefile corpus, written by pyshp and by PostGIS rather than by the
+    reader under test. Copied beside the test assembly because the tests read
+    real files: a parser verified only against files it generated itself proves
+    that it agrees with itself.
+  -->
+  <ItemGroup>
+    <Content Include="corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -458,7 +458,7 @@ What is true instead, stated plainly so nobody has to rediscover it:
 
 - **`ParsedWhere` is the single permitted SQL-shaped member of the query model.**
   Not a precedent. A second one is a change to this ADR, and
-  `Tier1ProjectFileTests`' sibling in `GisServer.Architecture.Tests` fails the
+  `Tier1ProjectFileTests`' sibling in `Graticula.Architecture.Tests` fails the
   build if one appears.
 - **No non-database provider can consume a `FeatureQuery` as it stands.** That is
   §4.1's predicted cost, arriving as predicted. Q-52's GeoParquet and FlatGeobuf

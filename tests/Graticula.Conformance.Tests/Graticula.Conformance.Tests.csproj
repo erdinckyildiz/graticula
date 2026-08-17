@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Conformance.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <!-- No project reference, deliberately. This suite is a client: it may only
+       use what a client can see, which is HTTP and JSON. Referencing our own
+       types would let a test assert against a constant that the server also
+       reads, and the two would agree while both being wrong. -->
+
+</Project>

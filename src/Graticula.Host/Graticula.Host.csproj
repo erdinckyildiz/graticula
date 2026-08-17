@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The composition root. This is the only project allowed to know about all the
+    others, which is what keeps the tier boundaries meaningful everywhere else.
+
+    Not Tier 1 in the build-vs-adopt sense: it wires things together and owns no
+    domain logic. Anything here that starts making decisions belongs in Core or
+    in an ADR first.
+  -->
+
+  <PropertyGroup>
+    <CopyOverlayWorker>true</CopyOverlayWorker>
+    <RootNamespace>Graticula.Host</RootNamespace>
+    <AssemblyName>Graticula.Host</AssemblyName>
+    <UserSecretsId>gis-server-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
+    <ProjectReference Include="..\Graticula.Platform.Postgres\Graticula.Platform.Postgres.csproj" />
+    <ProjectReference Include="..\Graticula.Security.Argon2\Graticula.Security.Argon2.csproj" />
+    <ProjectReference Include="..\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />
+  </ItemGroup>
+
+  <!--
+    The overlay worker is a sibling executable, not a library, and the host
+    looks for it in an `overlay` directory beside itself at run time
+    (OverlayWorkerPool). ReferenceOutputAssembly=false so the host BUILDS it
+    without linking against it — which is the whole point: NetTopologySuite must
+    not load in this process (Q-97, ADR-022 §9).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Overlay.Worker\Graticula.Overlay.Worker.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <!-- The host's decision logic is internal because nothing outside the
+         process composes it. Testing it through the public surface would mean
+         starting a server to ask what status a dropped table maps to. -->
+    <InternalsVisibleTo Include="Graticula.Host.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The console (ADR-020). The web SDK already includes wwwroot as Content;
+         this only makes it land beside the assembly, because the file provider
+         is rooted at AppContext.BaseDirectory rather than the content root. -->
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <!--
+      The glyph ranges are data the server serves, not code it compiles. Copied
+      rather than embedded so an operator can see what shipped, and so that
+      adding a font stack is dropping a directory in rather than a rebuild.
+      Q-15: nothing is fetched at runtime, so they have to be in the image.
+    -->
+    <Content Include="glyphs\**\*.pbf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

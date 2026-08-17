@@ -116,7 +116,7 @@ dotnet test --filter "Category!=Integration"
 Integration tests need a PostgreSQL and are excluded by default:
 
 ```bash
-export GISSERVER_TEST_PG="Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis"
+export GRATICULA_TEST_PG="Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis"
 dotnet test --filter "Category=Integration"
 ```
 
@@ -130,14 +130,14 @@ each shape it checks. It also fails rather than skips, and each failure names th
 variable it wanted, so a first run reads as a checklist:
 
 ```bash
-export GISSERVER_TEST_URL="https://127.0.0.1:8443"
-export GISSERVER_TEST_USER="root"
-export GISSERVER_TEST_PASSWORD="…"
-export GISSERVER_TEST_QUERYABLE="buildings"                     # a feature service
-export GISSERVER_TEST_MULTILAYER="hosted/EarlyAlert_Reports_HD" # more than one layer
-export GISSERVER_TEST_GROUPED="hosted/EarlyAlert"               # contains a group layer
-export GISSERVER_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTileServer
-export GISSERVER_TEST_EDITABLE="editable"                       # layer 0 accepts edits
+export GRATICULA_TEST_URL="https://127.0.0.1:8443"
+export GRATICULA_TEST_USER="root"
+export GRATICULA_TEST_PASSWORD="…"
+export GRATICULA_TEST_QUERYABLE="buildings"                     # a feature service
+export GRATICULA_TEST_MULTILAYER="hosted/EarlyAlert_Reports_HD" # more than one layer
+export GRATICULA_TEST_GROUPED="hosted/EarlyAlert"               # contains a group layer
+export GRATICULA_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTileServer
+export GRATICULA_TEST_EDITABLE="editable"                       # layer 0 accepts edits
 ```
 
 The fixtures cannot be discovered from the catalogue: a published layer may
@@ -148,10 +148,10 @@ per service would pass every suite that looked for "a service".
 
 | | |
 |---|---|
-| `src/GisServer.Core` | **Tier 1.** Geometry model and domain. No package references, enforced |
-| `src/GisServer.Platform` | **Tier 1.** Platform store schema, migrations, the version handshake |
-| `src/GisServer.Platform.Postgres` | **Tier 2 adapter.** Where Npgsql is allowed to be |
-| `tests/GisServer.Architecture.Tests` | Fails the build if a library reaches Tier 1 |
+| `src/Graticula.Core` | **Tier 1.** Geometry model and domain. No package references, enforced |
+| `src/Graticula.Platform` | **Tier 1.** Platform store schema, migrations, the version handshake |
+| `src/Graticula.Platform.Postgres` | **Tier 2 adapter.** Where Npgsql is allowed to be |
+| `tests/Graticula.Architecture.Tests` | Fails the build if a library reaches Tier 1 |
 | `benchmarks/` | **Disposable.** Never promoted; see below |
 | `docs/` | ADRs, registers, reviews |
 

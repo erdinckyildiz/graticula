@@ -216,9 +216,10 @@ def the_former_product_name():
 
     · A sentence that says the name is former -- the words *working title*, *renamed*,
       *was called*, *formerly*, *until 2026-08-17* near the mention.
-    · Identifiers. `GisServer.Host`, `gis-server.sln` and the `gisserver` schema are
-      code and deployment names, and ADR-032 5 keeps them out of this on purpose: the
-      first is a separate mechanical commit and the second is not renamed at all.
+    · Identifiers. The `gisserver` schema, and container paths that predate the rename,
+      deployment names rather than the product's, and ADR-032 5 keeps the schema out of
+      this on purpose: renaming it would mean a data migration for nothing an operator
+      can see.
     · This file, and the ADR that decided the rename.
 
     So the pattern is the hyphenated product name in prose, and the escape is to say

@@ -41,12 +41,12 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: restore
-        run: dotnet restore gis-server.sln
+        run: dotnet restore graticula.sln
 
       # TreatWarningsAsErrors and EnforceCodeStyleInBuild are already on in
       # Directory.Build.props, so this is the style gate as well as the build.
       - name: build
-        run: dotnet build gis-server.sln -c Release --no-restore
+        run: dotnet build graticula.sln -c Release --no-restore
 
       # <b>The dependency gate lives in security.yml, not here.</b> It was in
       # both for a day, and two copies of one gate is how they come to
@@ -70,26 +70,26 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: build
-        run: dotnet build gis-server.sln -c Release
+        run: dotnet build graticula.sln -c Release
 
       # The five suites that need nothing outside the process. Listed one per
       # line rather than run as a solution-wide `dotnet test`, because the other
       # three FAIL without their subject and a wildcard would turn that
       # deliberate design into a permanently red build.
       - name: architecture
-        run: dotnet test tests/GisServer.Architecture.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Architecture.Tests -c Release --no-build
 
       - name: core
-        run: dotnet test tests/GisServer.Core.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Core.Tests -c Release --no-build
 
       - name: arcgis api
-        run: dotnet test tests/GisServer.Api.ArcGis.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Api.ArcGis.Tests -c Release --no-build
 
       - name: platform
-        run: dotnet test tests/GisServer.Platform.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Platform.Tests -c Release --no-build
 
       - name: argon2
-        run: dotnet test tests/GisServer.Security.Argon2.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build
 
   datastore:
     name: datastore
@@ -116,7 +116,7 @@ jobs:
           --health-retries 20
 
     env:
-      GISSERVER_TEST_PG: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis"
+      GRATICULA_TEST_PG: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis"
 
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +126,7 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: build
-        run: dotnet build gis-server.sln -c Release
+        run: dotnet build graticula.sln -c Release
 
       # <b>Two suites discover a geometry table and compare against PostGIS on
       # whatever they find.</b> A developer machine has real data; CI has none,
@@ -141,13 +141,13 @@ jobs:
       # PostgresFixture creates a private schema per test class and migrates it
       # itself, so nothing has to bootstrap the platform store here.
       - name: platform store and providers
-        run: dotnet test tests/GisServer.Platform.Postgres.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Platform.Postgres.Tests -c Release --no-build
 
       # Host.Tests needs the overlay worker, which the host build copies into an
       # 'overlay' directory beside itself. If that copy step ever breaks, these
       # fail with a message saying exactly that rather than with 503s.
       - name: host and geometry worker
-        run: dotnet test tests/GisServer.Host.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Host.Tests -c Release --no-build
 
   conformance:
     name: conformance
@@ -170,9 +170,9 @@ jobs:
           --health-retries 20
 
     env:
-      GISSERVER_TEST_URL: "https://127.0.0.1:8443"
-      GISSERVER_TEST_USER: "ci"
-      GISSERVER_TEST_PASSWORD: "conformance-run-password"
+      GRATICULA_TEST_URL: "https://127.0.0.1:8443"
+      GRATICULA_TEST_USER: "ci"
+      GRATICULA_TEST_PASSWORD: "conformance-run-password"
 
     steps:
       - uses: actions/checkout@v4
@@ -186,7 +186,7 @@ jobs:
           python-version: "3.12"
 
       - name: build
-        run: dotnet build gis-server.sln -c Release
+        run: dotnet build graticula.sln -c Release
 
       # <b>The schema, then the migration, then the server.</b> Migrating is an
       # explicit operation on purpose (ADR-016 §4b: refuse rather than migrate),
@@ -204,7 +204,7 @@ jobs:
           Graticula__PlatformStore: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver"
           Graticula__SecretKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         run: |
-          src/GisServer.Host/bin/Release/net9.0/GisServer.Host migrate --apply
+          src/Graticula.Host/bin/Release/net9.0/Graticula.Host migrate --apply
 
       # <b>The server runs from its build output, not from `dotnet run`.</b> The
       # overlay worker is copied into an 'overlay' directory beside the host by
@@ -221,7 +221,7 @@ jobs:
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
           Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
           Graticula__Port=8443 \
-            nohup src/GisServer.Host/bin/Release/net9.0/GisServer.Host \
+            nohup src/Graticula.Host/bin/Release/net9.0/Graticula.Host \
               > server.log 2>&1 &
           echo "started, waiting for the setup token"
 
@@ -246,15 +246,15 @@ jobs:
       - name: seed the fixtures
         run: |
           python tools/seed-conformance.py \
-            --url "$GISSERVER_TEST_URL" \
-            --name "$GISSERVER_TEST_USER" \
-            --password "$GISSERVER_TEST_PASSWORD" \
+            --url "$GRATICULA_TEST_URL" \
+            --name "$GRATICULA_TEST_USER" \
+            --password "$GRATICULA_TEST_PASSWORD" \
             --setup-token "$SETUP_TOKEN" \
             --prefix ci \
             --github-env "$GITHUB_ENV"
 
       - name: conformance
-        run: dotnet test tests/GisServer.Conformance.Tests -c Release --no-build
+        run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
 
       # <b>The server's own log, whatever happened.</b> A conformance failure is
       # usually a 500 with a stack trace on the other side of the wire, and

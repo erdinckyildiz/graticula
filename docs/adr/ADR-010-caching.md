@@ -489,7 +489,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §4 | Uniform authorization checked before lookup | **built** |
 | §5.1 | Purge on unpublish and on refresh | **built** |
 | §6b | Cache state readable | **built**, `/admin/health` and per layer |
-| §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/GisServer.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
+| §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/Graticula.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
 | §3 | L2 distributed | **not built, and never mandatory** |
 | §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
 | §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful |

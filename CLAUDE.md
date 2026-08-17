@@ -3,9 +3,12 @@
 Named **Graticula** by owner decision 2026-08-17 —
 [ADR-032](docs/adr/ADR-032-the-product-is-named-graticula.md). A *graticule* is the net
 of meridians and parallels on a map, and `Graticula` is the Medieval Latin word English
-borrowed it from. It replaces the working title `gis-server`, which survives only where
-a document is recording its own history — and in identifiers and the default schema
-name, deliberately, for the reasons ADR-032 §5 gives.
+borrowed it from. It replaces the working title `gis-server`, which survives in exactly
+two places: where a document is recording its own history, and where the name is data
+rather than an identifier — the `GisServer:*` configuration keys, still read so that no
+existing deployment has to be reconfigured to start, and the default schema `gisserver`,
+which is a deployment's choice and not the product's identity. Both are ADR-032 §5.
+Namespaces, assemblies, projects and the solution were renamed with the product.
 
 This repository designs a next-generation enterprise GIS application server from
 first principles. The governing specification is

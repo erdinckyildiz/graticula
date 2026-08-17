@@ -54,7 +54,7 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: restore
-        run: dotnet restore gis-server.sln
+        run: dotnet restore graticula.sln
 
       # <b>The exit code is derived from the output, not trusted.</b>
       # `dotnet list package --vulnerable` prints its findings and exits zero
@@ -62,7 +62,7 @@ jobs:
       # green on the day it mattered.
       - name: vulnerable packages
         run: |
-          dotnet list gis-server.sln package --vulnerable --include-transitive \
+          dotnet list graticula.sln package --vulnerable --include-transitive \
             > vulnerable.txt 2>&1
           cat vulnerable.txt
           if grep -qE '^\s+>' vulnerable.txt; then
@@ -74,7 +74,7 @@ jobs:
       # else's timetable, and failing the nightly on it would train everybody to
       # ignore the nightly.
       - name: deprecated packages
-        run: dotnet list gis-server.sln package --deprecated
+        run: dotnet list graticula.sln package --deprecated
 
       # <b>DEPENDENCY-LICENSES.md is a promise too.</b> Apache-2.0 outbound
       # disqualifies GPL and AGPL, and a transitive dependency can introduce one
@@ -82,7 +82,7 @@ jobs:
       # register can be checked against reality rather than against memory.
       - name: what is actually referenced
         run: |
-          dotnet list gis-server.sln package --include-transitive \
+          dotnet list graticula.sln package --include-transitive \
             > packages.txt 2>&1
           echo "### Resolved packages" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -114,7 +114,7 @@ jobs:
       # before in other projects — a scan of a build that did not enforce the
       # repository's own rules is a scan of something else.
       - name: build
-        run: dotnet build gis-server.sln -c Release
+        run: dotnet build graticula.sln -c Release
 
       - uses: github/codeql-action/analyze@v3
         with:

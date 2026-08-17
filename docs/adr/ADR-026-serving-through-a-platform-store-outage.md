@@ -171,7 +171,7 @@ reached at all.**
   answer is *I cannot serve you* — 57P01, 57P02, 57P03, 53300. Everything else
   is a bug and propagates.
 - **The memory expires after fifteen minutes**, configurable as
-  `GisServer:CatalogFallbackMinutes`, **and zero disables degraded serving
+  `Graticula:CatalogFallbackMinutes`, **and zero disables degraded serving
   entirely** for a deployment that would rather stop.
 - **Every blind response carries `X-Catalog-Age`**, in seconds, so this state is
   visible on tiles and query results and not only on the two documents with room

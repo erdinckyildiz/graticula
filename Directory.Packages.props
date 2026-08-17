@@ -18,7 +18,7 @@
 
   <ItemGroup Label="Geometry — Tier 2, and in a separate process">
     <!-- NetTopologySuite: BSD-3-Clause, compatible with our Apache-2.0
-         outbound. Referenced by GisServer.Overlay.Worker and by nothing else,
+         outbound. Referenced by Graticula.Overlay.Worker and by nothing else,
          which is not tidiness: benchmarks/geometry-overlay measured a
          6,408-vertex adversarial input costing 153 seconds and 16.7 GB, and
          OverlayNG cannot be interrupted. Keeping the library out of the server
@@ -28,7 +28,7 @@
 
   <ItemGroup Label="Data access — Tier 2, adapters only">
     <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0
-         outbound. Referenced only by GisServer.Platform.Postgres; the
+         outbound. Referenced only by Graticula.Platform.Postgres; the
          architecture test fails the build if it reaches Tier 1.
          D-06's trigger is the first binary that BUNDLES a driver, not the first
          reference, so it is not yet due — but the row in DEPENDENCY-LICENSES.md

@@ -155,14 +155,27 @@ the same fact.
 
 1. **Layer 3 lands as one commit that changes no behaviour**, proven by the full suite
    passing before and after with no test edited except for renamed identifiers.
+   *(Discharged 2026-08-17 — eight projects and eight test projects moved, 637
+   identifiers rewritten across 235 files, the solution renamed, and the whole suite
+   green on the renamed tree. The only test bodies edited were the three that name
+   identifiers as strings: the tier-boundary project paths, the query model's namespace,
+   and the solution file the repository root is found by.)*
 2. **The `GisServer:*` fallback is tested**, both that it still works and that using it
    says so — an undocumented compatibility path is one nobody knows to stop relying on.
+   *(Discharged 2026-08-17 — five tests in `HostSettingsTests`, and measured live: a
+   server started entirely on `GisServer__*` serves the console and logs
+   `Configured under the former product name: GisServer:PlatformStore,
+   GisServer:SecretKey, GisServer:RequireHttps, GisServer:Port`.)*
 3. **The names are actually registered.** An availability table in an ADR is a
    measurement with a shelf life of days; until the domain, the organisation and the
    package names are held, this decision is reversible by a stranger. Owner action.
 4. **No document keeps `gis-server` as live text.** Checked by
    [tools/registers-check.py](../../tools/registers-check.py) rather than by memory,
    the way the banned-tally check already works.
+   *(Discharged 2026-08-17 — the check is `the_former_product_name`, it found thirty
+   occurrences on its first run, and history is allowed by naming it as history. Two of
+   its own rules came from its own false positives: `arcgis-server` is not this product,
+   and an excuse may fall across a line break.)*
 
 ## 8. Assumptions
 

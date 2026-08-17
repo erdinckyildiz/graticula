@@ -421,7 +421,7 @@ the gap by an order of magnitude and leave one.
 | **Heap ceiling** — 1 GB via `DOTNET_GCHeapHardLimit` | The worker throws `OutOfMemoryException` instead of asking the OS for more | **Yes**, for memory |
 
 **The isolation is the decision, not an implementation detail.**
-NetTopologySuite is referenced by `GisServer.Overlay.Worker` and by nothing
+NetTopologySuite is referenced by `Graticula.Overlay.Worker` and by nothing
 else — the host never loads it, so an overlay cannot allocate a byte in the
 server's heap. That is what makes "kill it" available at all: OverlayNG offers
 no cooperative cancellation, `Thread.Abort` does not exist on .NET Core, and the

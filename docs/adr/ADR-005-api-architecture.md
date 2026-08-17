@@ -145,7 +145,7 @@ true.
 ### 3.3c. ArcGIS geometry mapping, and where `Polyline` lives
 
 `Polyline` is a **wire-format type, not a domain type.** The domain speaks OGC
-Simple Features (`GisServer.Geometry.GeometryKind` records why); ArcGIS shapes
+Simple Features (`Graticula.Geometry.GeometryKind` records why); ArcGIS shapes
 exist only in this adapter.
 
 | ArcGIS | Domain | Notes |

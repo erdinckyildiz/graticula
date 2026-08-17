@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Platform.Postgres.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Platform.Postgres\Graticula.Platform.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <!-- One copy of the oracle-corpus query, compiled into both suites that use it.
+         Two verbatim copies is what D-46 is about, and one of them was fixed first. -->
+    <Compile Include="..\shared\GeometryCorpus.cs" Link="GeometryCorpus.cs" />
+  </ItemGroup>
+</Project>

@@ -197,7 +197,7 @@ def codepoints():
 
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        ROOT, "src", "GisServer.Host", "glyphs")
+        ROOT, "src", "Graticula.Host", "glyphs")
 
     source = sys.argv[2] if len(sys.argv) > 2 else FONT
 

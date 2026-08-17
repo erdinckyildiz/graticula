@@ -78,8 +78,8 @@ Name yours whatever you like — the connection string is the only place it appe
 **4. Migrate, explicitly.**
 
 ```
-GisServer.Host migrate            # prints the plan and changes nothing
-GisServer.Host migrate --apply    # applies it
+Graticula.Host migrate            # prints the plan and changes nothing
+Graticula.Host migrate --apply    # applies it
 ```
 
 **The server does not migrate on startup and will refuse to serve against a

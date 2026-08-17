@@ -11,14 +11,14 @@ WORKDIR /src
 
 # Manifests first, so a source change does not re-download the world. There is
 # no lock file to copy: central package management lives in Directory.Packages.
-COPY Directory.Build.props Directory.Packages.props gis-server.sln ./
+COPY Directory.Build.props Directory.Packages.props graticula.sln ./
 COPY src/ src/
 COPY tests/ tests/
 
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
 # benefit.
-RUN dotnet publish src/GisServer.Host/GisServer.Host.csproj \
+RUN dotnet publish src/Graticula.Host/Graticula.Host.csproj \
       --configuration Release \
       --output /app \
       /p:UseAppHost=false
@@ -38,16 +38,16 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl  && rm
 # for us would mean the serving certificate (ADR-016 §3).
 RUN groupadd --gid 64198 gisserver \
  && useradd --uid 64198 --gid 64198 --no-create-home --shell /usr/sbin/nologin gisserver \
- && mkdir -p /var/lib/gis-server \
- && chown 64198:64198 /var/lib/gis-server
+ && mkdir -p /var/lib/graticula \
+ && chown 64198:64198 /var/lib/graticula
 
 WORKDIR /app
 COPY --from=build /app ./
 
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
-VOLUME ["/var/lib/gis-server"]
-ENV Graticula__StatePath=/var/lib/gis-server \
+VOLUME ["/var/lib/graticula"]
+ENV Graticula__StatePath=/var/lib/graticula \
     Graticula__Listen=0.0.0.0 \
     DOTNET_gcServer=1
 
@@ -57,4 +57,4 @@ USER 64198:64198
 # No automatic migration. ADR-016 §4b: an old image started by accident must not
 # silently rewrite a newer schema, so the entrypoint serves and the operator runs
 # `migrate --apply` deliberately.
-ENTRYPOINT ["dotnet", "GisServer.Host.dll"]
+ENTRYPOINT ["dotnet", "Graticula.Host.dll"]

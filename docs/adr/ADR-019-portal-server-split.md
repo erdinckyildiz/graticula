@@ -15,8 +15,8 @@ Three products, not two:
 
 | Tier | Holds | Our nearest thing |
 |---|---|---|
-| **Portal for ArcGIS** | Items, users, groups, roles, user types, sharing. The catalogue and the identity system | `GisServer.Platform` — the platform store, identity, and now ADR-018's sharing model |
-| **ArcGIS Server** | Services, workers, pools, compute. Its own admin API and, unfederated, its own token auth | `GisServer.Host`, the providers, ADR-007's runtime |
+| **Portal for ArcGIS** | Items, users, groups, roles, user types, sharing. The catalogue and the identity system | `Graticula.Platform` — the platform store, identity, and now ADR-018's sharing model |
+| **ArcGIS Server** | Services, workers, pools, compute. Its own admin API and, unfederated, its own token auth | `Graticula.Host`, the providers, ADR-007's runtime |
 | **ArcGIS Data Store** | Managed storage backing the *hosting server*'s hosted layers | Our datastore, made **mandatory** by Q-69 and Q-70 |
 
 **Federation** is the join: a Server site is federated with a Portal, which then

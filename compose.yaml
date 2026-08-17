@@ -4,7 +4,7 @@
 # server against one PostGIS, which is CLAUDE.md §6's baseline target and
 # ADR-019's fused-tier decision made concrete.
 
-name: gis-server
+name: graticula
 
 services:
   datastore:
@@ -63,7 +63,7 @@ services:
       # configuration. Without this volume the server generates a new identity
       # on every replacement and every client that trusted the old one fails at
       # the same moment.
-      - server-state:/var/lib/gis-server
+      - server-state:/var/lib/graticula
     healthcheck:
       # Liveness, which by design does not consult the database — a probe that
       # did would tell the orchestrator to kill this container during a

@@ -110,7 +110,7 @@ is not prevented, and the mitigation is a convention, not a type.
 name on these pages is user input, and the reader holds every privilege the
 server has. The defence is a single encoding helper and the discipline that
 nothing is written without it, plus the tests in
-`tests/GisServer.Host.Tests/RestDirectoryTests.cs`. Discipline plus tests is
+`tests/Graticula.Host.Tests/RestDirectoryTests.cs`. Discipline plus tests is
 weaker than a type that cannot be rendered unescaped. Recorded as condition 3.
 
 ## 4. Evidence

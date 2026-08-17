@@ -558,7 +558,7 @@ def tests():
                     count += inline if inline else 1
 
         if count:
-            out.append((project.replace("GisServer.", "").replace(".Tests", ""), count))
+            out.append((project.replace("Graticula.", "").replace(".Tests", ""), count))
 
     return sorted(out, key=lambda p: -p[1])
 

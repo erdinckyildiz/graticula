@@ -2,7 +2,7 @@
 
 Run:  pip install pyshp && python tools/make-shapefile-corpus.py
 
-Writes into tests/GisServer.Core.Tests/corpus/shapefile. The files are checked
+Writes into tests/Graticula.Core.Tests/corpus/shapefile. The files are checked
 in, so this only needs running when a case is added or the corpus is lost.
 Build a shapefile corpus for the reader tests.
 
@@ -13,7 +13,7 @@ alongside proves nothing. Real geometry comes out of the PostGIS corpus.
 import io, os, struct, zipfile, subprocess, json
 import shapefile
 
-OUT = r"c:\Personal\Projects\GIS\tests\GisServer.Core.Tests\corpus\shapefile"
+OUT = r"c:\Personal\Projects\GIS\tests\Graticula.Core.Tests\corpus\shapefile"
 os.makedirs(OUT, exist_ok=True)
 
 
