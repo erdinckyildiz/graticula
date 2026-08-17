@@ -30,7 +30,7 @@ namespace GisServer.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(16);
+    public static SchemaVersion ComponentSchemaVersion => new(17);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -51,6 +51,7 @@ public static class PlatformMigrations
         ServiceStyleV14,
         FolderCaseV15,
         ServiceCapabilitiesV16,
+        ServiceCostCeilingsV17,
     ]);
 
     /// <summary>
@@ -1167,6 +1168,75 @@ public static class PlatformMigrations
           add constraint service_statement_timeout_positive check (
             statement_timeout_ms is null
             or (statement_timeout_ms > 0 and statement_timeout_ms <= 86400000)
+          )
+        """);
+
+    /// <summary>
+    /// What a request may cost a service: rows, bytes in, bytes out, edits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Q-113's other five knobs, and the reason they are one migration rather
+    /// than five.</b> Every one of them bounds the cost of a single request, they
+    /// are set on the same screen, and an operator who wants one usually wants the
+    /// neighbouring one — splitting them would be five migrations to reach one
+    /// coherent state.
+    /// </para>
+    /// <para>
+    /// <b>Null is unset, as in migration 16, and that is what keeps it additive.</b>
+    /// A null max record count means the server's own figure applies, which is what
+    /// every service does today.
+    /// </para>
+    /// <para>
+    /// <b>"Max features per layer" is deliberately not a sixth column.</b> The peer's
+    /// screen offers it beside a max record count, and on a service whose layers are
+    /// queried one at a time it is the same ceiling stated twice — two knobs over one
+    /// fact, which ADR-031 §2b refused for sharing and refuses here for the same
+    /// reason. If a per-layer ceiling is ever wanted it belongs on the layer row, not
+    /// as a second service-level number that can disagree with this one.
+    /// </para>
+    /// <para>
+    /// <b>Bytes are <c>bigint</c> and rows are <c>integer</c></b>, because a payload
+    /// ceiling above two gigabytes is a legitimate thing to write and a row count
+    /// above two billion is not.
+    /// </para>
+    /// </remarks>
+    private static Migration ServiceCostCeilingsV17 => Migration.Expand(
+        new SchemaVersion(17),
+        "A service bounds what one request may cost it: rows, bytes in, bytes out, edits (Q-113).",
+
+        """
+        alter table service
+          add column max_record_count          integer,
+          add column default_record_count      integer,
+          add column max_response_bytes        bigint,
+          add column max_request_bytes         bigint,
+          add column max_edits_per_transaction integer
+        """,
+
+        // Positive, and the default may not exceed the maximum — a service whose
+        // default page is larger than its own ceiling is a configuration that
+        // contradicts itself, and the database is where that cannot be stored
+        // rather than where it is later detected.
+        """
+        alter table service
+          add constraint service_record_counts_sane check (
+            (max_record_count is null or max_record_count > 0)
+            and (default_record_count is null or default_record_count > 0)
+            and (
+              max_record_count is null
+              or default_record_count is null
+              or default_record_count <= max_record_count
+            )
+          )
+        """,
+
+        """
+        alter table service
+          add constraint service_cost_ceilings_positive check (
+            (max_response_bytes is null or max_response_bytes > 0)
+            and (max_request_bytes is null or max_request_bytes > 0)
+            and (max_edits_per_transaction is null or max_edits_per_transaction > 0)
           )
         """);
 }

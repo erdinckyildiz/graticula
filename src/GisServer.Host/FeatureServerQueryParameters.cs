@@ -8,6 +8,7 @@ using GisServer.Api.ArcGis;
 using GisServer.Catalog;
 using GisServer.Features;
 using GisServer.Geometries;
+using GisServer.Platform.Catalog;
 using Microsoft.AspNetCore.Http;
 
 namespace GisServer.Host;
@@ -138,6 +139,13 @@ internal static class FeatureServerQueryParameters
     /// <param name="query">The parsed query.</param>
     /// <param name="shape">What the caller asked the response to be.</param>
     /// <param name="error">Why it could not be parsed.</param>
+    /// <param name="cost">
+    /// What one request may cost this layer's service, or null for the server's own
+    /// figures (Q-113). Narrows and never widens.
+    /// </param>
+    /// <param name="serverDefaultRecordCount">
+    /// The page size to use when neither the caller nor the service says.
+    /// </param>
     public static bool TryParse(
         IQueryCollection parameters,
         string objectIdColumn,
@@ -145,7 +153,9 @@ internal static class FeatureServerQueryParameters
         IReadOnlyList<FieldDescription> allFields,
         [NotNullWhen(true)] out FeatureQuery? query,
         out QueryShape shape,
-        [NotNullWhen(false)] out string? error)
+        [NotNullWhen(false)] out string? error,
+        ServiceCostCeilings? cost = null,
+        int serverDefaultRecordCount = DefaultRecordCount)
     {
         query = null;
         shape = QueryShape.Features;
@@ -169,7 +179,11 @@ internal static class FeatureServerQueryParameters
         // false — and silencing it with a ! would be asserting exactly the thing
         // worth having checked.
         if (!TryUnknown(parameters, out error)) { return Fail(out error, error); }
-        if (!TryLimit(parameters, out int limit, out error)) { return Fail(out error, error); }
+        if (!TryLimit(parameters, cost ?? ServiceCostCeilings.Unset, serverDefaultRecordCount,
+                out int limit, out error))
+        {
+            return Fail(out error, error);
+        }
         if (!TryOffset(parameters, out int offset, out error)) { return Fail(out error, error); }
         if (!TrySpatial(
                 parameters, layerSrid, out SpatialFilter? spatial, out Envelope? box,
@@ -470,9 +484,25 @@ internal static class FeatureServerQueryParameters
         return false;
     }
 
-    private static bool TryLimit(IQueryCollection parameters, out int limit, out string? error)
+    /// <summary>The page size used when a caller does not ask for one.</summary>
+    /// <remarks>
+    /// <b>A named constant since Q-113, and it was a literal 1000 inside the parser
+    /// before.</b> A number a service can override has to be readable from the place
+    /// that overrides it, and a number nobody can find is a number nobody tunes.
+    /// </remarks>
+    public const int DefaultRecordCount = 1000;
+
+    private static bool TryLimit(
+        IQueryCollection parameters,
+        ServiceCostCeilings cost,
+        int serverDefault,
+        out int limit,
+        out string? error)
     {
-        limit = 1000;
+        // The service's own default when it has one, clamped by whichever ceiling is
+        // in force — so a page size set in one edit cannot exceed a maximum set in
+        // another.
+        limit = cost.PageSize(serverDefault, FeatureQuery.MaximumLimit);
         error = null;
 
         if (!parameters.TryGetValue("resultRecordCount", out Microsoft.Extensions.Primitives.StringValues count)
@@ -491,7 +521,12 @@ internal static class FeatureServerQueryParameters
         // Clamped, not refused: a client asking for everything is asking a
         // reasonable question badly, and exceededTransferLimit is how the
         // response tells them there is more.
-        limit = Math.Min(limit, FeatureQuery.MaximumLimit);
+        //
+        // <b>Clamped by the service's ceiling as well as the server's, and by the
+        // smaller of the two</b> — Q-113. A service may ask for less and never for
+        // more, or a per-service setting would make the server-wide figure advisory
+        // and an operator who lowered it globally would not have lowered it.
+        limit = Math.Min(limit, cost.RecordCount(FeatureQuery.MaximumLimit));
         return true;
     }
 

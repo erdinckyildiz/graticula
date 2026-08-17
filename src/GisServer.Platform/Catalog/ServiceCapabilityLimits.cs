@@ -43,6 +43,28 @@ public sealed class ServiceCapabilityLimits
     /// <summary>Nothing configured: the data and the caller decide everything.</summary>
     public static ServiceCapabilityLimits Unset { get; } = new(null, null, null, null);
 
+    /// <summary>What one request may cost this service, or null for the server's own.</summary>
+    /// <remarks>
+    /// <b>Separate from the capability ceiling above, and the distinction is the
+    /// point.</b> A capability answers *may you*; a cost ceiling answers *how much*.
+    /// Turning `Update` off refuses an act; a max record count shortens an answer to
+    /// an act that is permitted. Conflating them would make "this service is
+    /// read-only" and "this service returns 500 rows at a time" the same kind of
+    /// setting, and an operator reading the screen has to be able to tell them apart.
+    /// </remarks>
+    public ServiceCostCeilings Cost { get; private init; } = ServiceCostCeilings.Unset;
+
+    /// <summary>The same limits with a cost ceiling attached.</summary>
+    public ServiceCapabilityLimits With(ServiceCostCeilings cost)
+    {
+        ArgumentNullException.ThrowIfNull(cost);
+
+        return new ServiceCapabilityLimits(ServesFeatures, ServesTiles, Ceiling, StatementTimeout)
+        {
+            Cost = cost,
+        };
+    }
+
     /// <summary>Creates a set of limits.</summary>
     /// <param name="servesFeatures">Whether the feature face is offered, or null for unset.</param>
     /// <param name="servesTiles">Whether the tile face is offered, or null for unset.</param>
@@ -107,7 +129,7 @@ public sealed class ServiceCapabilityLimits
     /// <summary>True when nothing is configured.</summary>
     public bool IsUnset =>
         ServesFeatures is null && ServesTiles is null
-        && Ceiling is null && StatementTimeout is null;
+        && Ceiling is null && StatementTimeout is null && Cost.IsUnset;
 
     /// <summary>
     /// The capabilities that survive both this ceiling and what the caller may do.

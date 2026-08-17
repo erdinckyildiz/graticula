@@ -78,12 +78,22 @@ internal sealed record SharingRequest(string? Sharing);
 /// <param name="StatementTimeoutMilliseconds">
 /// A timeout this service asks for, or null for the source's own. May only lower.
 /// </param>
+/// <param name="MaxRecordCount">Most rows one response may carry, or null.</param>
+/// <param name="DefaultRecordCount">Rows when the caller does not ask, or null.</param>
+/// <param name="MaxResponseBytes">Most bytes one response body may reach, or null.</param>
+/// <param name="MaxRequestBytes">Most bytes one request body may carry, or null.</param>
+/// <param name="MaxEditsPerTransaction">Most edits one applyEdits may carry, or null.</param>
 internal sealed record ServiceCapabilitiesRequest(
     string? Folder,
     bool? ServesFeatures,
     bool? ServesTiles,
     IReadOnlyList<string>? Capabilities,
-    int? StatementTimeoutMilliseconds);
+    int? StatementTimeoutMilliseconds,
+    int? MaxRecordCount = null,
+    int? DefaultRecordCount = null,
+    long? MaxResponseBytes = null,
+    long? MaxRequestBytes = null,
+    int? MaxEditsPerTransaction = null);
 
 /// <summary>How long a layer's tiles stay fresh.</summary>
 /// <param name="Seconds">
@@ -787,7 +797,13 @@ internal static class AdminEndpoints
                 request.Capabilities,
                 request.StatementTimeoutMilliseconds is { } ms
                     ? TimeSpan.FromMilliseconds(ms)
-                    : null);
+                    : null)
+                .With(new ServiceCostCeilings(
+                    request.MaxRecordCount,
+                    request.DefaultRecordCount,
+                    request.MaxResponseBytes,
+                    request.MaxRequestBytes,
+                    request.MaxEditsPerTransaction));
         }
         catch (Exception e) when (e is ArgumentException or ArgumentOutOfRangeException)
         {
@@ -831,6 +847,11 @@ internal static class AdminEndpoints
             servesTiles = limits.ServesTiles,
             capabilities = limits.Ceiling,
             statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
+            maxRecordCount = limits.Cost.MaximumRecordCount,
+            defaultRecordCount = limits.Cost.DefaultRecordCount,
+            maxResponseBytes = limits.Cost.MaximumResponseBytes,
+            maxRequestBytes = limits.Cost.MaximumRequestBytes,
+            maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
 
             // <b>Said back, because a ceiling is easy to misread as a grant.</b> An
             // operator who ticks Update on a service whose readers lack the

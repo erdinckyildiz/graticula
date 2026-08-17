@@ -501,6 +501,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    serves_tiles        = @tiles,
                    capability_ceiling  = @ceiling::text[],
                    statement_timeout_ms = @timeout,
+                   max_record_count     = @maxRows,
+                   default_record_count = @defaultRows,
+                   max_response_bytes   = @responseBytes,
+                   max_request_bytes    = @requestBytes,
+                   max_edits_per_transaction = @edits,
                    updated_at          = now()
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -522,6 +527,17 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             limits.StatementTimeout is { } span
                 ? (object)(int)span.TotalMilliseconds
                 : DBNull.Value);
+
+        command.Parameters.AddWithValue(
+            "maxRows", (object?)limits.Cost.MaximumRecordCount ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "defaultRows", (object?)limits.Cost.DefaultRecordCount ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "responseBytes", (object?)limits.Cost.MaximumResponseBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "requestBytes", (object?)limits.Cost.MaximumRequestBytes ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "edits", (object?)limits.Cost.MaximumEditsPerTransaction ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

@@ -31,13 +31,15 @@ public sealed class PublishedLayer
         string? serviceName = null,
         string? folder = null,
         int? parentIndex = null,
-        TimeSpan? cacheLifetime = null)
+        TimeSpan? cacheLifetime = null,
+        ServiceCostCeilings? cost = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
         Id = id;
+        Cost = cost ?? ServiceCostCeilings.Unset;
         Definition = definition;
         DataSourceName = dataSourceName;
         ConnectionString = connectionString;
@@ -64,6 +66,19 @@ public sealed class PublishedLayer
     /// them would make it impossible to ask for the second.
     /// </remarks>
     public TimeSpan? CacheLifetime { get; }
+
+    /// <summary>
+    /// What one request may cost the service this layer belongs to (Q-113).
+    /// </summary>
+    /// <remarks>
+    /// <b>A service-level fact carried on the layer, as sharing and status already
+    /// are.</b> The query path resolves a layer and never the service around it, and
+    /// the read that produces this layer already joins the service — so carrying it
+    /// costs nothing while asking for the service again would cost a round trip. The
+    /// SQL that fills it says the same of sharing: <em>from the service, never from
+    /// the layer</em>.
+    /// </remarks>
+    public ServiceCostCeilings Cost { get; }
 
     /// <summary>The group layer above it, or null when it sits at the top.</summary>
     public int? ParentIndex { get; }

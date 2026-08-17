@@ -43,7 +43,13 @@ public sealed class PostgresLayerCatalog
         -- The configured capability ceiling (ADR-031). All four are null on a
         -- service nobody has configured, which is every service that existed
         -- before migration 16 — so reading them changes no document.
-        s.serves_features, s.serves_tiles, s.capability_ceiling, s.statement_timeout_ms
+        s.serves_features, s.serves_tiles, s.capability_ceiling, s.statement_timeout_ms,
+
+        -- What one request may cost this service (Q-113, migration 17). Null
+        -- throughout on a service nobody has configured, which is every service
+        -- that existed before it.
+        s.max_record_count, s.default_record_count, s.max_response_bytes,
+        s.max_request_bytes, s.max_edits_per_transaction
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -180,7 +186,12 @@ public sealed class PostgresLayerCatalog
             reader.GetString(19),
             reader.IsDBNull(20) ? null : reader.GetString(20),
             reader.IsDBNull(23) ? null : reader.GetInt32(23),
-            reader.IsDBNull(24) ? null : TimeSpan.FromSeconds(reader.GetInt32(24)));
+            reader.IsDBNull(24) ? null : TimeSpan.FromSeconds(reader.GetInt32(24)),
+
+            // The service's cost ceilings, carried on the layer for the reason
+            // PublishedLayer.Cost documents: the query path resolves a layer and
+            // never the service, and this read already joined it.
+            ReadCost(reader));
     }
 
     /// <summary>The group layers held by the services named.</summary>
@@ -392,16 +403,47 @@ public sealed class PostgresLayerCatalog
         string[]? ceiling = reader.IsDBNull(28) ? null : reader.GetFieldValue<string[]>(28);
         int? timeout = reader.IsDBNull(29) ? null : reader.GetInt32(29);
 
+        ServiceCostCeilings cost = ReadCost(reader);
+
+        // <b>Cost is read before the shortcut, and getting that order wrong was a
+        // real bug for the length of one edit.</b> The two axes are independent: a
+        // service may bound what a request costs without configuring any capability,
+        // so returning `Unset` on the capability columns alone would silently discard
+        // every cost ceiling on that service.
         if (features is null && tiles is null && ceiling is null && timeout is null)
         {
-            return ServiceCapabilityLimits.Unset;
+            return cost.IsUnset
+                ? ServiceCapabilityLimits.Unset
+                : ServiceCapabilityLimits.Unset.With(cost);
         }
 
         return new ServiceCapabilityLimits(
             features,
             tiles,
             ceiling,
-            timeout is { } ms ? TimeSpan.FromMilliseconds(ms) : null);
+            timeout is { } ms ? TimeSpan.FromMilliseconds(ms) : null)
+            .With(cost);
+    }
+
+    /// <summary>Reads a service's cost ceilings (Q-113, migration 17).</summary>
+    /// <remarks>
+    /// Read unconditionally rather than behind the same all-null shortcut as the
+    /// capability set, because a service may configure cost and not capability — the
+    /// two are separate axes and the shortcut above already returned for the case
+    /// where neither is set.
+    /// </remarks>
+    private static ServiceCostCeilings ReadCost(NpgsqlDataReader reader)
+    {
+        int? maxRows = reader.IsDBNull(30) ? null : reader.GetInt32(30);
+        int? defaultRows = reader.IsDBNull(31) ? null : reader.GetInt32(31);
+        long? responseBytes = reader.IsDBNull(32) ? null : reader.GetInt64(32);
+        long? requestBytes = reader.IsDBNull(33) ? null : reader.GetInt64(33);
+        int? edits = reader.IsDBNull(34) ? null : reader.GetInt32(34);
+
+        return maxRows is null && defaultRows is null && responseBytes is null
+            && requestBytes is null && edits is null
+            ? ServiceCostCeilings.Unset
+            : new ServiceCostCeilings(maxRows, defaultRows, responseBytes, requestBytes, edits);
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

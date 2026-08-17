@@ -1492,6 +1492,34 @@ public static class Program
             return;
         }
 
+        // <b>The request-body ceiling, checked before the body is read</b> — Q-113.
+        // Content-Length is advisory and a chunked request carries none, so this
+        // refuses a request that *declares* too much while Kestrel's own limit stays
+        // the backstop for one that lies. Checking it here rather than after parsing
+        // is the whole point: an edit batch is parsed into memory, so a ceiling
+        // applied afterwards would already have paid the cost it exists to avoid.
+        if (layer.Cost.MaximumRequestBytes is { } maximumRequest
+            && context.Request.ContentLength is { } declared
+            && declared > maximumRequest)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 413,
+                        message =
+                            $"This request declares {declared} bytes and this service accepts at "
+                            + $"most {maximumRequest}. Send the edits in smaller batches: "
+                            + "applyEdits is transactional per call, so several calls are several "
+                            + "transactions rather than one partial one.",
+                    },
+                },
+                statusCode: StatusCodes.Status413PayloadTooLarge)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         IFormCollection form = context.Request.HasFormContentType
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
             : FormCollection.Empty;
@@ -1602,6 +1630,40 @@ public static class Program
         {
             await Results.Json(
                 new { error = new { code = 400, message = malformed } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The edit ceiling, after parsing and before writing</b> — Q-113. It has
+        // to be here: the count is only known once the batch has parsed, and the
+        // thing being bounded is the transaction, not the parse. A batch refused at
+        // this point has cost memory and no database work, which is the cheaper half
+        // of the two.
+        //
+        // <b>Refused rather than truncated, and this is the one ceiling in Q-113 that
+        // must not truncate.</b> Shortening a response is a smaller answer to the
+        // same question; shortening a transaction is a *different edit* than the one
+        // the caller asked for, applied silently. `rollbackOnFailure` exists so a
+        // caller can insist on all-or-nothing, and a server that quietly applied
+        // half would break that guarantee while reporting success.
+        if (layer.Cost.MaximumEditsPerTransaction is { } maximumEdits
+            && parsed.Batch.Count > maximumEdits)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            $"This batch carries {parsed.Batch.Count} edits and this service "
+                            + $"accepts at most {maximumEdits} in one transaction. It is refused "
+                            + "rather than trimmed: applying part of a batch would be a different "
+                            + "edit than the one requested, and rollbackOnFailure exists so a "
+                            + "caller can require all or nothing.",
+                    },
+                },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -2058,6 +2120,9 @@ public static class Program
             return;
         }
 
+        // Q-113: the service's own cost ceilings, carried on the layer.
+        ServiceCostCeilings cost = layer.Cost;
+
         if (!FeatureServerQueryParameters.TryParse(
                 context.Request.Query,
                 layer.Definition.ObjectIdColumn!,
@@ -2065,7 +2130,9 @@ public static class Program
                 described.Fields,
                 out FeatureQuery? query,
                 out QueryShape shape,
-                out string? error))
+                out string? error,
+                cost,
+                FeatureServerQueryParameters.DefaultRecordCount))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },
@@ -2112,7 +2179,8 @@ public static class Program
         // committed — and a ceiling enforced anywhere else would have to buffer the
         // response to measure it, which is the allocation A-037 measured as the
         // binding constraint.
-        FeatureServerQueryWriter writer = new(layer.Definition, settings.MaximumResponseBytes);
+        FeatureServerQueryWriter writer = new(
+            layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes));
 
         context.Response.ContentType = "application/json; charset=utf-8";
 
