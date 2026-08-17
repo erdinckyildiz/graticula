@@ -479,12 +479,6 @@
           <button class="tiny" id="mCancel">Cancel</button>
         </div>
 
-        <!--
-          <b>Shown here rather than in a toast, and that is the point.</b> A toast fades, and this
-          is the one moment the password exists in the clear — only an Argon2id hash is stored, so a
-          reader who misses it has to issue another. It stays until dismissed.
-        -->
-        <div id="mIssued" hidden></div>
       </div>
     </div>
 
@@ -612,6 +606,34 @@
   </header>
   <div id="drawerBody"></div>
 </aside>
+
+<!--
+  <b>A dialog, and it used to be a panel inside the new-member form.</b> The owner pressed **Set
+  password** on a row and watched the *create a member* form open: *"set password diyince neden yeni
+  kullanıcı ekranı açılıyor. modal bir pencerede şifreyi verebilirdi."* — why does pressing Set
+  password open the new-user screen; it could give the password in a modal window. They are right,
+  and the cause was reuse of the wrong container: the issued-password block lived inside
+  `#memberForm`, so showing it meant revealing that form. Two unrelated things sharing a parent
+  because it was convenient.
+
+  <b>`<dialog>`, not a div with a z-index.</b> The element gives the backdrop, the focus trap, Escape
+  to close and the inert page for free — all four of which a hand-rolled overlay gets wrong on the
+  first try, and two of which matter here: this is the one moment the password exists, so a stray
+  click behind it should not dismiss it, and the field it contains should have the focus.
+-->
+<dialog id="issued">
+  <h4 id="issuedTitle">—</h4>
+  <div class="setting">
+    <span class="q">The password the server issued:</span>
+    <input id="issuedValue" type="text" readonly>
+    <span class="u"></span>
+  </div>
+  <p class="hint" id="issuedNote"></p>
+  <div class="row" style="margin-bottom:0">
+    <span style="flex:1"></span>
+    <button class="primary" id="issuedDone">I have it</button>
+  </div>
+</dialog>
 
 <div id="toast"></div>
 

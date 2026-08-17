@@ -1225,24 +1225,18 @@ async function loadMembers() {
  * works everywhere and shows the reader exactly what they are taking.
  */
 function showIssuedPassword(issued) {
-  const box = $("mIssued");
-  if (!box) return;
+  const dialog = $("issued");
+  if (!dialog) return;
 
-  box.innerHTML = `
-    <h4>Give this to ${h(issued.name)}</h4>
-    <div class="setting">
-      <span class="q">The password the server issued:</span>
-      <input id="mIssuedValue" type="text" readonly value="${h(issued.password)}"
-             style="width:20ch;text-align:left">
-      <span class="u"></span>
-    </div>
-    <p class="hint">${h(issued.note)}</p>
-    <div class="row"><button class="tiny" id="mIssuedDone">Done</button></div>`;
+  $("issuedTitle").textContent = `Give this to ${issued.name}`;
+  $("issuedValue").value = issued.password;
+  $("issuedNote").textContent = issued.note;
 
-  box.hidden = false;
-  const field = $("mIssuedValue");
-  field.focus();
-  field.select();
+  // <b>Modal, so the page behind it is inert.</b> `show()` would leave the row's buttons clickable
+  // behind the dialog — including *Set password* again, which would issue a second one and make the
+  // first useless while it is still on screen being read.
+  dialog.showModal();
+  $("issuedValue").select();
 }
 
 /** What each role carries, kept from the last listing so the picker can explain itself. */
@@ -2935,9 +2929,8 @@ async function handleClick(event) {
 
   // A service with no layers is started and stopped through its own route, because it is its
   // own row in its own table — see SetSystemStatusAsync for why that is not the layer route.
-  if (t.id === "mIssuedDone") {
-    $("mIssued").hidden = true;
-    $("memberForm").hidden = true;
+  if (t.id === "issuedDone") {
+    $("issued").close();
     await section("members", loadMembers, "members");
     return;
   }
@@ -2950,7 +2943,6 @@ async function handleClick(event) {
 
   if (t.id === "mCancel") {
     $("memberForm").hidden = true;
-    $("mIssued").hidden = true;
     for (const id of ["mName", "mDisplay"]) $(id).value = "";
     return;
   }
@@ -2968,8 +2960,9 @@ async function handleClick(event) {
           userType: $("mType").value,
         }),
       });
-      showIssuedPassword(made);
+      $("memberForm").hidden = true;
       for (const id of ["mName", "mDisplay"]) $(id).value = "";
+      showIssuedPassword(made);
     } catch (e) { toast(e.message); }
     t.disabled = false;
     await section("members", loadMembers, "members");
@@ -2998,7 +2991,6 @@ async function handleClick(event) {
     try {
       const r = await api(`/admin/members/${encodeURIComponent(d.memberPassword)}/password`,
         { method: "PUT" });
-      $("memberForm").hidden = false;
       showIssuedPassword(r);
     } catch (e) { toast(e.message); }
     return;

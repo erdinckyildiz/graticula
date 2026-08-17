@@ -190,6 +190,21 @@
   #basemapBar input { flex: 1 1 300px; font-size: 12.5px; font-family: var(--mono); }
   #basemapBar .val { flex: 0 1 auto; }
 
+  /*
+    <b>One dialog, for a value that exists once.</b> The drawer below is for a form you fill and
+    dismiss; this is for a secret you read and lose. `::backdrop` is the element's own, so there is
+    no scrim div to keep in sync with anything.
+  */
+  #issued { border: 1px solid var(--rule); border-radius: 6px; padding: 20px 22px;
+            max-width: 560px; background: var(--surface); color: var(--ink);
+            box-shadow: 0 24px 60px -30px rgba(0,0,0,.5); }
+  #issued::backdrop { background: rgba(20, 32, 30, .38); }
+  #issued h4 { margin: 0 0 14px; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
+               color: var(--faint); font-weight: 600; padding-bottom: 8px;
+               border-bottom: 1px solid var(--rule); }
+  #issuedValue { width: 22ch; font-family: var(--mono); font-size: 15px; letter-spacing: .04em;
+                 text-align: center; }
+
   /* ----------------------------------------------------------------- drawer */
 
   #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 620px; max-width: 96vw;
