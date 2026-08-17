@@ -774,9 +774,16 @@ internal static class AdminEndpoints
                 name = service.Name,
                 stored = false,
                 sourceLayers = service.SourceLayers,
-                note = "This service has no stored style, so it serves a generated one: every "
-                     + "layer in publication order, one colour per geometry type, no labels. "
-                     + "PUT a style document here to replace it.",
+                // <b>This sentence said "one colour per geometry type" until 2026-08-17</b>,
+                // which was true of the generated style for as long as it was two constants.
+                // ADR-033 §5b gave each layer its own colour, so the description outlived the
+                // thing it described by exactly one commit — and operator-facing text about
+                // what the server will do is the worst place for that.
+                note = "This service has no stored style, so it serves a generated one: a "
+                     + "deterministic colour per layer, in publication order, with no labels. "
+                     + "A style written here replaces it for the tile face only — an ArcGIS "
+                     + "client reads drawingInfo from the layer document, which is still "
+                     + "generated until ADR-033's canonical per-layer symbology is built.",
             }).ExecuteAsync(context).ConfigureAwait(false);
 
             return;
