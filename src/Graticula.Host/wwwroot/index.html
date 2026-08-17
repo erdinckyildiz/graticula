@@ -95,13 +95,114 @@
     <nav id="tabs"></nav>
 
     <!--
-      <b>The decorative element the brief asked to restore, and it is the product's own subject.</b>
-      A GIS layer stack — three skewed rectangles, which is what a service is here — drawn in CSS
-      with no asset and no request. It sits below the navigation at half opacity and is the first
-      thing to go when the column collapses; if it ever competes with a section name, the numbers in
-      `#railArt` are wrong.
+      <b>The illustration, as one inline SVG.</b> Owner 2026-08-17, on the CSS version: *"bunu
+      beğenmedim. collapse çok silik. noktalar çok saçma. ve biraz daha yukarıda olması lazım."* —
+      didn't like it, the Collapse is too faint, the dots are silly, and it needs to sit higher.
+
+      <b>The dots were the tell, and they were a limit rather than a choice.</b> A regular square
+      lattice was what `background-image` could draw; the reference has an *irregular* mesh — a
+      triangulated network with nodes, which is what a surveyed surface looks like and what a square
+      grid never will. So this is markup instead: four plates, each with its own mesh clipped inside
+      it, and markers above. Still no asset and no request — an SVG in the page is the same weight as
+      the CSS it replaces, and it can draw the thing.
+
+      <b>Held to the same restraint as before.</b> One group opacity, strokes under 0.4, and it is
+      `aria-hidden` and `pointer-events: none` — the first thing to go when the column collapses.
     -->
-    <div id="railArt" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <svg id="railArt" viewBox="0 0 232 300" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="plate4" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#4ef0cd"/><stop offset=".6" stop-color="#18b8b4"/>
+          <stop offset="1" stop-color="#0f8aa4"/>
+        </linearGradient>
+        <linearGradient id="plate3" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#37d6d8"/><stop offset=".6" stop-color="#3184d6"/>
+          <stop offset="1" stop-color="#2a5cba"/>
+        </linearGradient>
+        <linearGradient id="plate2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#5a86ee"/><stop offset=".6" stop-color="#4f5cd4"/>
+          <stop offset="1" stop-color="#4340b8"/>
+        </linearGradient>
+        <linearGradient id="plate1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#9a6ff0"/><stop offset=".6" stop-color="#7749d8"/>
+          <stop offset="1" stop-color="#5e34ba"/>
+        </linearGradient>
+
+        <radialGradient id="railGlow">
+          <stop offset="0" stop-color="#2ad3c4" stop-opacity=".26"/>
+          <stop offset="1" stop-color="#2ad3c4" stop-opacity="0"/>
+        </radialGradient>
+
+        <!--
+          One plate outline, reused four times. A rhombus with rounded corners is a square seen from
+          above at 60 degrees, which is the projection the whole illustration is drawn in.
+        -->
+        <path id="plate" d="M116 0 210 34 116 68 22 34Z"/>
+        <clipPath id="clip4"><use href="#plate" y="150"/></clipPath>
+        <clipPath id="clip3"><use href="#plate" y="180"/></clipPath>
+        <clipPath id="clip2"><use href="#plate" y="210"/></clipPath>
+        <clipPath id="clip1"><use href="#plate" y="240"/></clipPath>
+      </defs>
+
+      <ellipse cx="116" cy="240" rx="118" ry="74" fill="url(#railGlow)"/>
+
+      <!--
+        Markers: a thin line with a lit head, at irregular heights and positions. The reference has
+        them and they do a job — a column with a stack at the bottom and nothing above is
+        bottom-heavy — and irregular is the whole point, since evenly spaced ones are a lattice again.
+      -->
+      <g stroke-width="1" opacity=".85">
+        <path d="M62 42v118" stroke="#7de8dc" stroke-opacity=".5"/>
+        <circle cx="62" cy="40" r="3" fill="#7de8dc" fill-opacity=".9"/>
+        <path d="M148 16v146" stroke="#a9b4ff" stroke-opacity=".45"/>
+        <circle cx="148" cy="14" r="3.4" fill="#a9b4ff" fill-opacity=".9"/>
+        <path d="M96 74v92" stroke="#7de8dc" stroke-opacity=".34"/>
+        <circle cx="96" cy="72" r="2.4" fill="#7de8dc" fill-opacity=".75"/>
+        <path d="M182 58v112" stroke="#c39cff" stroke-opacity=".34"/>
+        <circle cx="182" cy="56" r="2.4" fill="#c39cff" fill-opacity=".75"/>
+        <path d="M30 96v78" stroke="#a9b4ff" stroke-opacity=".26"/>
+        <circle cx="30" cy="94" r="2" fill="#a9b4ff" fill-opacity=".6"/>
+      </g>
+
+      <!--
+        The plates, bottom-first so each sits in front of the one below it. Violet at the bottom and
+        teal on top: down the stack is further away, and the cool bright plate belongs where the eye
+        lands.
+      -->
+      <g stroke="#dff3ff" stroke-opacity=".34" stroke-width="1">
+        <use href="#plate" y="240" fill="url(#plate1)"/>
+        <g clip-path="url(#clip1)" stroke="#f3ecff" stroke-opacity=".30" fill="none">
+          <path d="M40 274 96 250 150 286 206 262M70 296 128 244M96 300 168 254M52 262 118 292 186 250M84 244 108 300M150 246 132 296"/>
+          <circle cx="96" cy="250" r="2" fill="#fff" fill-opacity=".55" stroke="none"/>
+          <circle cx="150" cy="286" r="1.6" fill="#fff" fill-opacity=".4" stroke="none"/>
+          <circle cx="128" cy="266" r="1.4" fill="#fff" fill-opacity=".35" stroke="none"/>
+        </g>
+
+        <use href="#plate" y="210" fill="url(#plate2)"/>
+        <g clip-path="url(#clip2)" stroke="#eaf0ff" stroke-opacity=".30" fill="none">
+          <path d="M34 240 88 216 140 254 200 228M62 262 132 210M104 268 176 220M46 228 112 260 180 216M78 210 102 266M142 212 126 262"/>
+          <circle cx="88" cy="216" r="2" fill="#fff" fill-opacity=".55" stroke="none"/>
+          <circle cx="140" cy="254" r="1.6" fill="#fff" fill-opacity=".4" stroke="none"/>
+          <circle cx="112" cy="238" r="1.4" fill="#fff" fill-opacity=".35" stroke="none"/>
+        </g>
+
+        <use href="#plate" y="180" fill="url(#plate3)"/>
+        <g clip-path="url(#clip3)" stroke="#e6fbff" stroke-opacity=".32" fill="none">
+          <path d="M36 210 92 186 146 222 202 198M64 232 134 180M100 238 172 190M48 198 114 230 182 186M80 180 104 236M146 182 128 232"/>
+          <circle cx="92" cy="186" r="2" fill="#fff" fill-opacity=".6" stroke="none"/>
+          <circle cx="146" cy="222" r="1.6" fill="#fff" fill-opacity=".45" stroke="none"/>
+          <circle cx="118" cy="206" r="1.4" fill="#fff" fill-opacity=".4" stroke="none"/>
+        </g>
+
+        <use href="#plate" y="150" fill="url(#plate4)"/>
+        <g clip-path="url(#clip4)" stroke="#eafff9" stroke-opacity=".38" fill="none">
+          <path d="M38 180 94 156 148 192 204 168M66 202 136 150M102 208 174 160M50 168 116 200 184 156M82 150 106 206M148 152 130 202"/>
+          <circle cx="94" cy="156" r="2.2" fill="#fff" fill-opacity=".7" stroke="none"/>
+          <circle cx="148" cy="192" r="1.8" fill="#fff" fill-opacity=".5" stroke="none"/>
+          <circle cx="120" cy="176" r="1.5" fill="#fff" fill-opacity=".45" stroke="none"/>
+        </g>
+      </g>
+    </svg>
 
     <div id="railFoot">
       <!--
@@ -111,7 +212,7 @@
         and no per-user settings to hang on them.
       -->
       <button id="collapse" title="Narrow the sidebar">
-        <span aria-hidden="true">&lsaquo;</span><span class="label">Collapse</span>
+        <span class="arrow" aria-hidden="true">&larr;</span><span class="label">Collapse</span>
       </button>
     </div>
   </aside>

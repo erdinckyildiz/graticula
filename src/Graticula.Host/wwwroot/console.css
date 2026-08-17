@@ -262,87 +262,20 @@ a:hover { text-decoration: underline; }
   different scale, so the two read as one texture rather than two decorations.
 */
 /*
-  <b>A stack of map surfaces, not a stack of empty rectangles.</b> Owner 2026-08-17: *"katmanlardaki
-  şu geçişler daha güzel. içinde de harita var gibi. bizde içi boş dikdörtgenler var."* — the
-  reference's layers have nicer gradients and look like there is a map inside them; ours are hollow
-  rectangles. Both halves are fair, and the second is the one that matters: a hollow outline says
-  *box*, and a surface with a graticule and a few nodes on it says *layer*.
+  <b>The illustration's box, and it sits higher than it did.</b> Owner 2026-08-17: *"biraz daha
+  yukarıda olması lazım."* It was anchored 118 pixels off the bottom, which put it in the Collapse
+  button's lap on a short window; 196 gives it the empty middle of the column, which is what the
+  reference does with the space.
 
-  <b>Four things per layer, all CSS, no asset.</b> A filled gradient rather than a border; a graticule
-  drawn on it; a scatter of nodes; and a rim light on the top edge so the plates read as stacked
-  rather than as concentric. The whole group is rotated once, so the grid inside each plate is
-  skewed with it — which is what makes it read as a map in perspective instead of as a texture.
-
-  <b>And beams above it</b>, because the reference has them and they do a job: a column with a stack
-  at the bottom and nothing above is bottom-heavy. Thin vertical gradients fading downward, with the
-  dot field, are enough — no animation, because a sidebar that moves is a sidebar you look at instead
-  of navigating with.
+  <b>Everything else about it is in the markup now.</b> The plates, their meshes and the markers are
+  one inline SVG — see index.html for why the CSS version's regular dot lattice was a limit rather
+  than a choice.
 */
 #railArt {
-  position: absolute; left: 0; right: 0; bottom: 118px; height: 230px;
-  pointer-events: none; opacity: .9; z-index: 0;
+  position: absolute; left: 0; right: 0; bottom: 196px;
+  width: 100%; height: auto;
+  pointer-events: none; opacity: .92; z-index: 0;
 }
-
-/* The atmosphere: a survey-dot field, and light falling into the stack. */
-/*
-  <b>The dot field and the light falling into the stack.</b> The first version masked both away — a
-  radial mask centred on the plates cut the beams off at their brightest end, which is the half that
-  makes them read as light rather than as three stray lines. The mask is now a vertical fade, so the
-  beams start at full strength above the stack and the dots thin out into the navy.
-*/
-#railArt::before {
-  content: ""; position: absolute; inset: -96px -12px 46px;
-  background-image:
-    linear-gradient(to bottom, rgba(120, 235, 225, .55), transparent 78%),
-    linear-gradient(to bottom, rgba(160, 175, 255, .42), transparent 70%),
-    linear-gradient(to bottom, rgba(120, 235, 225, .32), transparent 62%),
-    linear-gradient(to bottom, rgba(180, 150, 255, .30), transparent 56%),
-    radial-gradient(rgba(172, 180, 245, .34) 1px, transparent 1.4px);
-  background-size: 1px 188px, 1px 150px, 1px 118px, 1px 96px, 23px 23px;
-  background-position: 31% 0, 58% 0, 74% 0, 44% 0, 0 0;
-  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
-  mask-image: linear-gradient(to bottom, #000 0 62%, rgba(0, 0, 0, .35) 82%, transparent 100%);
-}
-
-/* The glow the stack sits in. */
-#railArt::after {
-  content: ""; position: absolute; left: 50%; bottom: 6px;
-  width: 270px; height: 160px; margin-left: -135px;
-  background: radial-gradient(closest-side, rgba(42, 211, 196, .22), transparent 72%),
-              radial-gradient(closest-side at 62% 42%, rgba(122, 92, 220, .20), transparent 76%);
-  filter: blur(3px);
-}
-
-#railArt i {
-  position: absolute; left: 50%; width: 126px; height: 126px; margin-left: -63px;
-  border-radius: 12px;
-  transform: rotateX(60deg) rotateZ(45deg) scale(.86);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28),
-              0 12px 24px -16px rgba(0, 0, 0, .75);
-  /*
-    Three layers inside each plate: the graticule, the nodes, and the fill. Ordered so the fill is
-    underneath — a grid over a gradient reads as drawn on it, a gradient over a grid hides it.
-  */
-  background-image:
-    repeating-linear-gradient(to right, rgba(255, 255, 255, .20) 0 1px, transparent 1px 21px),
-    repeating-linear-gradient(to bottom, rgba(255, 255, 255, .20) 0 1px, transparent 1px 21px),
-    radial-gradient(rgba(255, 255, 255, .55) 1.4px, transparent 1.8px),
-    var(--plate);
-  background-size: 21px 21px, 21px 21px, 42px 42px, auto;
-  background-position: 0 0, 0 0, 8px 12px, 0 0;
-}
-
-/*
-  <b>Teal on top, violet at the bottom, which is the reference's order and not an arbitrary one.</b>
-  The first version had it upside down. Down the stack is *further from the viewer*, and the cool
-  bright plate belongs where the eye lands; a violet top plate makes the stack read as sinking rather
-  than as layers seen from above. It is also the order a legend uses.
-*/
-#railArt i:nth-child(1) { bottom: -14px; --plate: linear-gradient(142deg, #8a63e8, #6f45d0 58%, #5a34b4); }
-#railArt i:nth-child(2) { bottom: 12px;  --plate: linear-gradient(142deg, #4f7ce8, #4a58cc 58%, #4340b4); }
-#railArt i:nth-child(3) { bottom: 38px;  --plate: linear-gradient(142deg, #2ecfd2, #2f7fd0 60%, #2a5cb8); }
-#railArt i:nth-child(4) { bottom: 64px;  --plate: linear-gradient(142deg, #3ce8c6, #16b0b0 62%, #0f86a2); }
-
 #shell.tight #railArt { display: none; }
 
 #brand {
@@ -455,14 +388,22 @@ a:hover { text-decoration: underline; }
   z-index: 1;
 }
 
+/*
+  <b>Collapse reads now.</b> Owner 2026-08-17: *"collapse çok silik."* It was `--nav-faint` at the
+  small size — a control drawn as though it were a caption. It is a control: the label goes to the
+  navigation's own ink at 500, and the arrow gets its own line-height so the two sit on one baseline.
+  Still quiet relative to a section, because it is not navigation.
+*/
 #collapse {
   width: 100%;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 11px;
   background: none; border: 0; cursor: pointer;
-  padding: 8px 12px; border-radius: var(--round);
-  color: var(--nav-faint); font: var(--t-small) var(--sans);
+  padding: 10px 14px; border-radius: 7px;
+  color: #c3c8ec; font: 500 var(--t-small)/1 var(--sans);
 }
-#collapse:hover { background: var(--nav-on); color: var(--nav-ink); }
+#collapse .arrow { font-size: 15px; line-height: 1; opacity: .8; }
+#collapse:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+#collapse:hover .arrow { opacity: 1; }
 #shell.tight #collapse .label { display: none; }
 #shell.tight #collapse { justify-content: center; }
 
