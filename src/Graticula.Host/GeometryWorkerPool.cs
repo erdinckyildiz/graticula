@@ -68,7 +68,18 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
     public static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
     private readonly TimeSpan _deadline;
+    private readonly TimeSpan? _wait;
     private readonly long _maximumCandidatePairs;
+
+    /// <summary>Ticks of idleness after which a worker is disposed, or zero to keep it for ever.</summary>
+    /// <remarks>
+    /// <b>A long rather than a TimeSpan, and set from the request path.</b> The budget is stored on
+    /// the service (migration 21) so an administrator can change it, and this pool has no route to
+    /// the platform store — so the endpoint that has already read the service row hands the value
+    /// over. Ticks because a <c>TimeSpan</c> assignment is not atomic on a 32-bit runtime and a torn
+    /// read here would be a reaper working to half a number.
+    /// </remarks>
+    private long _idleTicks;
 
     /// <summary>The deadline this pool enforces when a request names none.</summary>
     /// <remarks>
@@ -82,6 +93,23 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
 
     /// <summary>The pre-flight threshold this pool enforces, zero meaning none.</summary>
     public long EnforcedPreflightPairs => _maximumCandidatePairs;
+
+    /// <summary>The wait budget this pool enforces when a request names none.</summary>
+    public TimeSpan EnforcedWait => _wait ?? _deadline;
+
+    /// <summary>
+    /// How long a worker may sit idle before it is disposed, or <see cref="TimeSpan.Zero"/> for
+    /// never.
+    /// </summary>
+    /// <remarks>
+    /// <b>Settable at runtime, unlike the per-request bounds, because it is not a property of a
+    /// request.</b> The reaper reads it on each sweep, so a change takes effect on the next one.
+    /// </remarks>
+    public TimeSpan IdleBudget
+    {
+        get => TimeSpan.FromTicks(Interlocked.Read(ref _idleTicks));
+        set => Interlocked.Exchange(ref _idleTicks, value.Ticks);
+    }
 
     /// <summary>
     /// The pre-flight threshold, in candidate segment pairs.
@@ -172,6 +200,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
     private readonly ConcurrentBag<Worker> _idle = [];
     private readonly string _executable;
     private readonly ILogger _log;
+    private readonly Timer _reaper;
     private bool _disposed;
 
     /// <summary>Creates a pool.</summary>
@@ -188,12 +217,24 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
     /// <param name="maximumCandidatePairs">
     /// The pre-flight threshold, or null for <see cref="MaximumCandidatePairs"/>.
     /// </param>
+    /// <param name="wait">
+    /// How long a request may queue for a free worker, or null for <paramref name="deadline"/>.
+    /// <b>Its own budget since 2026-08-17</b>, from ArcGIS Server Manager's Pooling page, which
+    /// the owner pointed at: waiting and working are separate boxes there and were one number here.
+    /// </param>
+    /// <param name="idle">
+    /// How long a worker may sit unused before it is disposed, or null for
+    /// <see cref="DefaultIdleBudget"/>. Zero keeps workers for ever, which is what this pool did
+    /// until the same conversation.
+    /// </param>
     public GeometryWorkerPool(
         string executable,
         int workers,
         ILoggerFactory loggerFactory,
         TimeSpan? deadline = null,
-        long? maximumCandidatePairs = null)
+        long? maximumCandidatePairs = null,
+        TimeSpan? wait = null,
+        TimeSpan? idle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentOutOfRangeException.ThrowIfLessThan(workers, 1);
@@ -203,7 +244,115 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         _slots = new SemaphoreSlim(workers, workers);
         _log = loggerFactory.CreateLogger("overlay");
         _deadline = deadline ?? Deadline;
+        _wait = wait;
         _maximumCandidatePairs = maximumCandidatePairs ?? MaximumCandidatePairs;
+        IdleBudget = idle ?? DefaultIdleBudget;
+
+        // <b>One timer, and it sweeps rather than schedules per worker.</b> A per-worker timer
+        // would be one timer per process for a job that is cheap to do in a batch, and the
+        // granularity nobody needs: reclaiming a process thirty seconds late costs nothing.
+        _reaper = new Timer(
+            static state => ((GeometryWorkerPool)state!).Reap(),
+            this,
+            SweepPeriod,
+            SweepPeriod);
+    }
+
+    /// <summary>
+    /// How long a worker may sit unused before it is disposed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Half an hour, taken from the reference and kept because the arithmetic agrees.</b>
+    /// ArcGIS Server Manager's Pooling page has *the maximum time an idle instance can be kept
+    /// running* at 1800 seconds; the owner supplied it and asked whether these were good examples.
+    /// They are, and this one closed a real gap: workers went into a bag on return and came out
+    /// again for ever, so a deployment that ran one overlay at nine in the morning held two worker
+    /// processes until it was restarted.
+    /// </para>
+    /// <para>
+    /// <b>The cost is one cold start, and it is 650 ms rather than the 60 ms this comment first
+    /// claimed.</b> Measured after a real reclaim: the same trivial overlay took 674 ms
+    /// end-to-end cold against 26 ms warm, of which the overlay itself was 112 ms and 1 ms — so
+    /// most of it is process launch, runtime start and first-call JIT. The number was written
+    /// before it was measured, which is the thing §3 exists to stop, and it was wrong by an order
+    /// of magnitude.
+    /// </para>
+    /// <para>
+    /// <b>Half an hour is the right trade at 650 ms, which is why the default did not change.</b>
+    /// A deployment quiet for thirty minutes is not one whose next request is measured in
+    /// milliseconds; against that, two processes each able to have grown to a 1 GB ceiling are
+    /// memory nobody is getting back. <see cref="RentAsync"/> warms outside the caller's *deadline*
+    /// — deliberately, because a cold start inside a ten-second budget was once a rare unexplained
+    /// timeout — but it is still 650 ms of the caller's wall clock, and saying otherwise would be
+    /// the same mistake twice.
+    /// </para>
+    /// </remarks>
+    public static readonly TimeSpan DefaultIdleBudget = TimeSpan.FromMinutes(30);
+
+    /// <summary>How often the reaper looks, which bounds how late a reclaim can be.</summary>
+    private static readonly TimeSpan SweepPeriod = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Disposes workers that have been idle longer than <see cref="IdleBudget"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It takes from the bag and puts back what it keeps</b>, because a <c>ConcurrentBag</c>
+    /// cannot be inspected without removing. Taking everything and returning the young ones is the
+    /// only correct shape; the alternative — a lock around the bag — would put a lock on the hot
+    /// path to serve the cold one.
+    /// </para>
+    /// <para>
+    /// <b>A worker rented right now is not in the bag</b>, so this cannot reclaim one that is
+    /// working. That is the property that makes a sweep safe without coordinating with
+    /// <see cref="ComputeAsync"/> at all.
+    /// </para>
+    /// </remarks>
+    /// <summary>Runs one sweep and reports how many workers it disposed.</summary>
+    /// <returns>How many were reclaimed.</returns>
+    /// <remarks>
+    /// <b>Internal rather than private, so a test can drive the sweep instead of waiting for it.</b>
+    /// The alternative is a thirty-second test, and a test that sleeps for the period under test is
+    /// a test nobody runs. The timer calls the same method.
+    /// </remarks>
+    internal int ReapForTest() => Reap();
+
+    private int Reap()
+    {
+        TimeSpan budget = IdleBudget;
+
+        if (budget <= TimeSpan.Zero || _disposed)
+        {
+            return 0;
+        }
+
+        List<Worker> keep = [];
+        int reclaimed = 0;
+
+        while (_idle.TryTake(out Worker? worker))
+        {
+            if (worker.Healthy && DateTimeOffset.UtcNow - worker.IdleSince < budget)
+            {
+                keep.Add(worker);
+                continue;
+            }
+
+            worker.Dispose();
+            reclaimed++;
+        }
+
+        foreach (Worker worker in keep)
+        {
+            _idle.Add(worker);
+        }
+
+        if (reclaimed > 0)
+        {
+            Log.OverlayWorkersReclaimed(_log, reclaimed, (long)budget.TotalSeconds, null);
+        }
+
+        return reclaimed;
     }
 
     /// <summary>Whether the worker executable is where it should be.</summary>
@@ -242,16 +391,23 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
                 0);
         }
 
-        // Waiting for a slot is bounded by the same deadline as the work: a
-        // caller queued behind two long overlays should be told the server is
-        // busy, not left holding a connection for a minute.
-        if (!await _slots.WaitAsync(deadline, cancellationToken).ConfigureAwait(false))
+        // <b>Its own budget since 2026-08-17, and it used to be the work's deadline.</b> The
+        // comment here already argued for the split — a caller queued behind two long overlays
+        // should be told the server is busy rather than left holding a connection — and then used
+        // one number for both. ArcGIS Server Manager's Pooling page keeps them apart, with
+        // *the maximum time a client can use a service* and *the maximum time a client will wait
+        // to get* one as separate boxes; the owner pointed at it, and the shape is right.
+        TimeSpan wait = request.Wait ?? _wait ?? deadline;
+
+        if (!await _slots.WaitAsync(wait, cancellationToken).ConfigureAwait(false))
         {
             return new EngineResult(
                 [],
                 EngineRefusal.Unavailable,
-                "Every geometry worker is busy. This work runs in a small pool of processes so "
-                + "that its memory cost is bounded; try again shortly.",
+                $"Every geometry worker is busy and this request waited {wait.TotalSeconds:0} "
+                + "seconds for one. This work runs in a small pool of processes so that its "
+                + "memory cost is bounded; try again shortly. The wait and the work have separate "
+                + "budgets — this one ran out of patience, not out of time.",
                 0,
                 0);
         }
@@ -272,6 +428,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
             {
                 if (worker.Healthy)
                 {
+                    worker.IdleSince = DateTimeOffset.UtcNow;
                     _idle.Add(worker);
                 }
                 else
@@ -328,6 +485,8 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         }
 
         _disposed = true;
+        await _reaper.DisposeAsync().ConfigureAwait(false);
+
 
         while (_idle.TryTake(out Worker? worker))
         {
@@ -353,6 +512,13 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         }
 
         public bool Healthy => !_broken && !_process.HasExited;
+
+        /// <summary>When this worker was last returned to the pool.</summary>
+        /// <remarks>
+        /// Set on return rather than on rent, because *idle since* is the question the reaper asks
+        /// and a worker that has never been returned is not in the bag to be asked about.
+        /// </remarks>
+        public DateTimeOffset IdleSince { get; set; } = DateTimeOffset.UtcNow;
 
         public static Worker Start(string executable, ILogger log)
         {

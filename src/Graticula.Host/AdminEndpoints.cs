@@ -118,7 +118,21 @@ internal sealed record CacheLifetimeRequest(int? Seconds);
 /// The pre-flight threshold in candidate segment pairs, zero meaning none, or null for the
 /// configured default.
 /// </param>
-internal sealed record SystemLimitsRequest(int? DeadlineSeconds, long? PreflightPairs);
+/// <param name="WaitSeconds">
+/// How long a request may queue for a free worker, or null for the configured default. <b>A
+/// separate budget from the deadline</b>, which is ArcGIS Server Manager's Pooling page's split and
+/// the one this server was missing: a deployment can accept long work and still refuse to hold a
+/// connection behind somebody else's.
+/// </param>
+/// <param name="IdleSeconds">
+/// How long a worker may sit unused before it is reclaimed — <b>zero meaning never</b>, which is
+/// what this pool did before — or null for the configured default.
+/// </param>
+internal sealed record SystemLimitsRequest(
+    int? DeadlineSeconds,
+    long? PreflightPairs,
+    int? WaitSeconds,
+    int? IdleSeconds);
 
 /// <summary>
 /// The administrative surface (ADR-017).
@@ -2141,6 +2155,7 @@ internal static class AdminEndpoints
         string name,
         PostgresSystemServices services,
         IGeometryEngine engine,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
@@ -2165,6 +2180,14 @@ internal static class AdminEndpoints
         long defaultPreflight =
             pool?.EnforcedPreflightPairs ?? GeometryWorkerPool.MaximumCandidatePairs;
 
+        double defaultWait = (pool?.EnforcedWait ?? GeometryWorkerPool.Deadline).TotalSeconds;
+
+        // <b>Read from the pool rather than from the setting, because the request path may have
+        // pushed a stored value into it.</b> Reporting the configured number while the pool holds
+        // another would be the fault this endpoint exists to remove, one field along.
+        double defaultIdle =
+            (pool?.IdleBudget ?? GeometryWorkerPool.DefaultIdleBudget).TotalSeconds;
+
         await Results.Json(new
         {
             name = service.Name,
@@ -2173,25 +2196,35 @@ internal static class AdminEndpoints
             // What is stored: null means nobody has said.
             deadlineSeconds = service.DeadlineSeconds,
             preflightPairs = service.PreflightPairs,
+            waitSeconds = service.WaitSeconds,
+            idleSeconds = service.IdleSeconds,
 
             // What the server would use if nothing were stored — from configuration, not from a
             // constant, so this answer moves when Graticula:OverlayDeadlineSeconds does.
             defaultDeadlineSeconds = defaultDeadline,
             defaultPreflightPairs = defaultPreflight,
+            defaultWaitSeconds = defaultWait,
+            defaultIdleSeconds = defaultIdle,
 
             // And therefore what is in force, so a caller does not have to do the arithmetic and
             // get it subtly different from the request path.
             effectiveDeadlineSeconds = service.DeadlineSeconds ?? defaultDeadline,
             effectivePreflightPairs = service.PreflightPairs ?? defaultPreflight,
+            effectiveWaitSeconds = service.WaitSeconds ?? defaultWait,
+            effectiveIdleSeconds = service.IdleSeconds ?? defaultIdle,
 
             // <b>Two bounds that are not settings, said here rather than left to be discovered
             // by an administrator who assumed this endpoint covered everything.</b>
             maximumVertices = GeometryServerEndpoints.MaximumVertices,
+            workers = settings.OverlayWorkers,
             note = "maximumVertices is fixed: every operation on this surface is one pass over "
                  + "the coordinates, so input size bounds the work exactly and a cap is the right "
                  + "mechanism rather than a preference. The 1 GB worker heap ceiling is fixed for "
-                 + "the same reason — total exposure is OverlayWorkers times that ceiling, and "
-                 + "OverlayWorkers is a setting. ADR-022 §3.",
+                 + "the same reason — total exposure is `workers` times that ceiling. `workers` is "
+                 + "one number rather than a minimum and a maximum, so this pool does not grow or "
+                 + "shrink: elastic pooling needs a concrete problem before it earns the machinery "
+                 + "(§82). The four budgets above are per service; `workers` is per server, from "
+                 + "Graticula:OverlayWorkers. ADR-022 §3.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -2246,8 +2279,36 @@ internal static class AdminEndpoints
             return;
         }
 
+        if (request.WaitSeconds is { } waiting && (waiting < 1 || waiting > 3600))
+        {
+            await Refuse(
+                context, 400,
+                $"A queue wait of {waiting} seconds is outside 1..3600. This is how long a request "
+                + "may wait for a free worker, which is a different budget from how long the work "
+                + "itself may take — zero would refuse every request that arrives while the pool "
+                + "is busy.").ConfigureAwait(false);
+            return;
+        }
+
+        if (request.IdleSeconds is { } idle && (idle < 0 || idle > 86_400))
+        {
+            await Refuse(
+                context, 400,
+                $"An idle budget of {idle} seconds is outside 0..86400. Zero is meaningful here — "
+                + "it keeps worker processes for ever, which is what this server did before the "
+                + "budget existed — and a day is longer than any deployment gains from.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         if (!await services
-            .SetBoundsAsync(name, request.DeadlineSeconds, request.PreflightPairs, cancellation)
+            .SetBoundsAsync(
+                name,
+                request.DeadlineSeconds,
+                request.PreflightPairs,
+                request.WaitSeconds,
+                request.IdleSeconds,
+                cancellation)
             .ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No system service '{name}'.").ConfigureAwait(false);
@@ -2268,12 +2329,16 @@ internal static class AdminEndpoints
             name,
             deadlineSeconds = request.DeadlineSeconds,
             preflightPairs = request.PreflightPairs,
+            waitSeconds = request.WaitSeconds,
+            idleSeconds = request.IdleSeconds,
             note = request.DeadlineSeconds is null
-                ? "Back to the configured default. It applies to the next operation — the deadline "
-                  + "is read per request, so nothing has to be restarted."
+                ? "Back to the configured defaults. They apply from the next operation — the "
+                  + "per-request budgets are read per request and the idle budget on the reaper's "
+                  + "next sweep, so nothing has to be restarted."
                 : $"Operations on this service are cut off after {request.DeadlineSeconds} "
-                  + "seconds, starting with the next one. Nothing is restarted: the deadline is "
-                  + "read per request.",
+                  + "seconds and queue for at most "
+                  + (request.WaitSeconds is { } w ? $"{w} seconds" : "the default")
+                  + ", starting with the next one. Nothing is restarted.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

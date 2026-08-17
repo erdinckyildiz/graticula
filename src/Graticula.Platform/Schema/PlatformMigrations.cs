@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(20);
+    public static SchemaVersion ComponentSchemaVersion => new(21);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -55,6 +55,7 @@ public static class PlatformMigrations
         FolderRegisterV18,
         SystemServiceStatusV19,
         SystemServiceBoundsV20,
+        SystemServicePoolingV21,
     ]);
 
     /// <summary>
@@ -135,6 +136,59 @@ public static class PlatformMigrations
         """
         alter table system_service add constraint system_service_preflight_not_negative
           check (preflight_pairs is null or preflight_pairs >= 0)
+        """);
+
+    /// <summary>
+    /// The other two numbers on the reference's pooling page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner, with a screenshot of ArcGIS Server Manager's <em>Pooling</em> page for the
+    /// geometry service:</b> *"e bunlar güzel örnekler değil mi?"* — aren't these good examples?
+    /// They are. It carries five controls, and three of them named real gaps here:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// *The maximum time a client can use a service* — we had it for overlay, and migration 20
+    /// made it settable.
+    /// </description></item>
+    /// <item><description>
+    /// *The maximum time a client will wait to get a service* — we bounded the wait by the
+    /// **work's** deadline, one number doing two jobs. Their split is right: a deployment can
+    /// accept long work and still refuse to hold a connection behind somebody else's.
+    /// </description></item>
+    /// <item><description>
+    /// *The maximum time an idle instance can be kept running* — we had **nothing**. A returned
+    /// worker went into a bag and came out again for ever, so one overlay at nine in the morning
+    /// held two processes until the server was restarted.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// The two it did not transfer are the instance minimum and maximum per machine. Ours is one
+    /// number, <c>OverlayWorkers</c>, so minimum and maximum are the same by construction — and
+    /// elastic pooling needs a concrete problem before it is worth the machinery (§82). *Per
+    /// machine* does not transfer at all: this is one process.
+    /// </para>
+    /// <para>
+    /// <b>Null means nobody has said</b>, as with migration 20 — and for the idle budget **zero is
+    /// a third answer**, meaning keep workers for ever, which is what this pool did before.
+    /// </para>
+    /// </remarks>
+    private static Migration SystemServicePoolingV21 => Migration.Expand(
+        new SchemaVersion(21),
+        "Let a system service carry its own queue-wait and idle-worker budgets.",
+
+        "alter table system_service add column wait_seconds integer",
+        "alter table system_service add column idle_seconds integer",
+
+        """
+        alter table system_service add constraint system_service_wait_positive
+          check (wait_seconds is null or wait_seconds between 1 and 3600)
+        """,
+
+        """
+        alter table system_service add constraint system_service_idle_not_negative
+          check (idle_seconds is null or idle_seconds between 0 and 86400)
         """);
 
     /// <summary>

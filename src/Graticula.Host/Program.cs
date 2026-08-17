@@ -168,7 +168,9 @@ public static class Program
             // deployment could have — which is what the owner's question about the timeout
             // uncovered. The defaults are unchanged, so no existing deployment moves.
             settings.OverlayDeadline,
-            settings.OverlayPreflightPairs));
+            settings.OverlayPreflightPairs,
+            settings.OverlayWait,
+            settings.OverlayIdle));
 
         builder.Services.AddSingleton<IGeometryEngine>(services =>
             services.GetRequiredService<GeometryWorkerPool>());

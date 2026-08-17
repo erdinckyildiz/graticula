@@ -421,15 +421,33 @@
     -->
     <div class="panel" id="serviceLimits" hidden>
       <h4>What one operation may spend</h4>
-      <p class="hint">Both fall back to the server's configured default when left empty — which is
-        not the same as typing the default in, because a typed copy stops tracking the setting.</p>
+      <!--
+        <b>Four boxes, and their shape comes from the reference.</b> The owner sent ArcGIS Server
+        Manager's *Pooling* page for its own geometry service and asked *"e bunlar güzel örnekler
+        değil mi?"* Three of its five controls named real gaps here: the timeout, which we had for
+        overlay only; the queue wait, which we bounded by the *work's* deadline — one number doing
+        two jobs; and the idle reclaim, which we had not at all, so a returned worker was kept for
+        ever. The two that did not transfer are the instance minimum and maximum, because ours is
+        one number and elastic pooling needs a problem before it earns the machinery.
+      -->
+      <p class="hint">Each falls back to the server's configured default when left empty — which is
+        not the same as typing the default in, because a typed copy stops tracking the setting.
+        <b>Timeout</b> is how long the work may take; <b>queue wait</b> is how long a request may
+        wait for a free worker, which is a different budget.</p>
       <div class="row">
         <label for="limDeadline">Timeout, seconds</label>
-        <input id="limDeadline" type="number" min="1" max="3600" style="width:8em">
+        <input id="limDeadline" type="number" min="1" max="3600" style="width:7em">
+        <label for="limWait">Queue wait, seconds</label>
+        <input id="limWait" type="number" min="1" max="3600" style="width:7em">
+      </div>
+      <div class="row">
         <label for="limPreflight">Pre-flight, segment pairs</label>
-        <input id="limPreflight" type="number" min="0" style="width:10em">
+        <input id="limPreflight" type="number" min="0" style="width:9em">
+        <label for="limIdle">Reclaim idle after, seconds</label>
+        <input id="limIdle" type="number" min="0" max="86400" style="width:8em">
+        <span style="flex:1"></span>
         <button class="tiny" id="limSave">Save</button>
-        <button class="tiny" id="limClear">Use the default</button>
+        <button class="tiny" id="limClear">Use the defaults</button>
       </div>
       <p class="hint" id="limNote"></p>
     </div>

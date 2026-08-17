@@ -182,6 +182,54 @@ that is stored and reported and does nothing is worse than one that does not exi
 deployment believes it is protected. Found by measuring against a running server, not by reading the
 diff, and `RequestBoundsTests` is now the cheap test that would have caught it.
 
+### The other three controls on the reference's pooling page — added 2026-08-17
+
+The owner, with a screenshot of ArcGIS Server Manager's *Pooling* page for its own geometry service:
+*"e bunlar güzel örnekler değil mi?"* — aren't these good examples? They are. Five controls, and
+mapping them honestly is worth more than adopting them:
+
+| Theirs | Ours, before | Ours, now |
+|---|---|---|
+| Max time a client can **use** a service (600 s) | the overlay deadline, compiled in | settable per service (above) |
+| Max time a client will **wait** to get a service (60 s) | **the work's deadline**, one number doing two jobs | its own budget, settable |
+| Max time an **idle instance** can be kept (1800 s) | **nothing** — a worker was kept for ever | reclaimed after 30 min, settable |
+| **Minimum** instances per machine (1) | `OverlayWorkers`, one number | unchanged, and see below |
+| **Maximum** instances per machine (2) | the same one number | unchanged |
+
+**The wait was the subtler gap, because the code already argued for the fix.** The comment beside
+`_slots.WaitAsync` said *"a caller queued behind two long overlays should be told the server is busy,
+not left holding a connection for a minute"* — and then passed the work's deadline as the wait. So a
+deployment that wanted long work had to accept long queueing, which is exactly the trade their two
+boxes let an operator refuse. **Measured:** one worker, a 30-second work deadline and a 1-second wait
+budget, three concurrent 200-tooth overlays — the third is refused after **1,053 ms** naming the
+budget it exhausted, while the other two complete in 4.3 and 4.6 s. Under the old arrangement that
+third request would have held its connection for up to thirty seconds.
+
+**The idle reclaim was a plain absence.** A returned worker went into a `ConcurrentBag` and came out
+again for ever, so a deployment that ran one overlay at nine in the morning held two worker
+processes — each able to have grown to its 1 GB ceiling — until it was restarted. A timer now sweeps
+every thirty seconds and disposes workers idle past the budget; a rented worker is not in the bag, so
+the sweep needs no coordination with the compute path at all. **Measured:** with the budget at 35 s,
+one trivial overlay leaves two processes, and both are gone within a sweep — `Get-Process` reports 2,
+then 0, and the log records *"Reclaimed 2 geometry worker process(es) idle for more than 35 s"*.
+
+**And the cost of reclaiming was measured after being guessed wrong.** The first version of this
+paragraph said a cold start costs about 60 ms. It does not: the same trivial overlay took **674 ms
+cold against 26 ms warm**, of which the overlay itself was 112 ms and 1 ms — the rest is process
+launch, runtime start and first-call JIT. Recorded rather than corrected silently, because writing a
+number before measuring it is the thing §3 exists to stop and it happened here. Half an hour remains
+the right default *at* 650 ms: a deployment quiet that long is not one whose next request is measured
+in milliseconds, and `RentAsync` warms outside the caller's **deadline** — though not outside their
+wall clock, which the first version also implied and which is the same mistake twice.
+
+**The two that did not transfer, and why not adopting them is the decision.** Their minimum and
+maximum instances per machine describe an elastic pool; ours is one number, so minimum equals
+maximum by construction. Making it elastic means a supervisor deciding when to grow and shrink, and
+§82's question — *what concrete problem does this solve* — has no answer here yet: the pool exists to
+**bound** memory, and its worst case is `OverlayWorkers` times the heap ceiling whether the processes
+are running or not. *Per machine* does not transfer at all, since this is one process. Recorded so
+the absence reads as a choice rather than an oversight.
+
 **What is still not a setting, and why:**
 
 - **The 500,000-vertex cap.** §3's argument is that a cap is the right mechanism *here* because
@@ -192,6 +240,16 @@ diff, and `RequestBoundsTests` is now the cheap test that would have caught it.
   is `OverlayWorkers` times this ceiling, and `OverlayWorkers` is already a setting, so the
   operator-facing number already exists. The 400-teeth measurement above is what makes leaving it
   fixed safe: an administrator who raises the deadline has not removed the memory bound.
+- **A seconds-timeout on the in-process half, and this one is a gap rather than a decision.** Their
+  *maximum time a client can use a service* governs every request; ours governs overlay only. The
+  seven in-process operations — `project`, `areasAndLengths`, `lengths`, `labelPoints`, `convexHull`,
+  `densify`, `generalize` — are bounded by the vertex cap and by nothing in seconds. §3's argument
+  for the cap holds and is why this has not mattered, **but the honest reason it is not simply added
+  is that it could not be enforced**: none of `GeometryOperations` takes a `CancellationToken`, so a
+  timeout there would abandon the response while the CPU kept burning. That is worse than no timeout,
+  because it looks like protection. Fixing it means either threading cancellation through those
+  algorithms or moving them behind the worker — a real choice, recorded as
+  [Q-115](../open-questions.md) rather than papered over with a timer that stops nothing.
 
 ### Verified rather than asserted
 

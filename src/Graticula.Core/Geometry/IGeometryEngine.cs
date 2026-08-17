@@ -145,6 +145,28 @@ public readonly record struct EngineRequest(
     public long? PreflightPairs { get; init; }
 
     /// <summary>
+    /// How long this operation may wait for a free worker, or null for the engine's own bound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A second budget, because waiting and working are different costs.</b> Taken from ArcGIS
+    /// Server Manager's *Pooling* page, which the owner supplied and which splits them: *the
+    /// maximum time a client can use a service* and *the maximum time a client will wait to get
+    /// a service* are two boxes with 600 and 60 seconds in them. Ours had one number doing both
+    /// jobs, and the comment beside it argued for the split it was not making — *"a caller queued
+    /// behind two long overlays should be told the server is busy, not left holding a
+    /// connection"* — while bounding the wait by the work's deadline.
+    /// </para>
+    /// <para>
+    /// <b>The two are independent in the direction that matters.</b> A deployment can accept long
+    /// work and still refuse to hold a connection: thirty seconds of overlay is reasonable and
+    /// thirty seconds of queueing behind somebody else's is a request that should have been told
+    /// *busy* immediately. Merged, one number cannot express that.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? Wait { get; init; }
+
+    /// <summary>
     /// The distance for <see cref="EngineOperation.Buffer"/> and
     /// <see cref="EngineOperation.Offset"/>, in the units of the reference.
     /// </summary>

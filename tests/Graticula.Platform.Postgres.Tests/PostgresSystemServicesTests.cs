@@ -176,17 +176,17 @@ public sealed class PostgresSystemServicesTests : PostgresFixture
 
         Assert.Null((await services.FindAsync("Geometry", CancellationToken.None))!.Value.DeadlineSeconds);
 
-        Assert.True(await services.SetBoundsAsync("Geometry", 45, 100_000, CancellationToken.None));
+        Assert.True(await services.SetBoundsAsync("Geometry", 45, 100_000, null, null, CancellationToken.None));
 
         SystemService set = (await services.FindAsync("Geometry", CancellationToken.None))!.Value;
         Assert.Equal(45, set.DeadlineSeconds);
         Assert.Equal(100_000, set.PreflightPairs);
 
         // Zero is a value, not an absence: it means run no pre-flight.
-        await services.SetBoundsAsync("Geometry", 45, 0, CancellationToken.None);
+        await services.SetBoundsAsync("Geometry", 45, 0, null, null, CancellationToken.None);
         Assert.Equal(0, (await services.FindAsync("Geometry", CancellationToken.None))!.Value.PreflightPairs);
 
-        await services.SetBoundsAsync("Geometry", null, null, CancellationToken.None);
+        await services.SetBoundsAsync("Geometry", null, null, null, null, CancellationToken.None);
 
         SystemService cleared = (await services.FindAsync("Geometry", CancellationToken.None))!.Value;
         Assert.Null(cleared.DeadlineSeconds);
@@ -209,7 +209,7 @@ public sealed class PostgresSystemServicesTests : PostgresFixture
 
         await services.SetStatusAsync("Geometry", ServiceStatus.Stopped, CancellationToken.None);
         await services.SetSharingAsync("Geometry", SharingScope.Public, CancellationToken.None);
-        await services.SetBoundsAsync("Geometry", 20, null, CancellationToken.None);
+        await services.SetBoundsAsync("Geometry", 20, null, null, null, CancellationToken.None);
 
         SystemService service =
             (await services.FindAsync("Geometry", CancellationToken.None))!.Value;
@@ -231,6 +231,6 @@ public sealed class PostgresSystemServicesTests : PostgresFixture
         PostgresSystemServices services = new(DataSource);
 
         Assert.False(
-            await services.SetBoundsAsync("NoSuchService", 10, null, CancellationToken.None));
+            await services.SetBoundsAsync("NoSuchService", 10, null, null, null, CancellationToken.None));
     }
 }

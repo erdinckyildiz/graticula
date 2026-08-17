@@ -32,6 +32,15 @@ namespace Graticula.Platform.Postgres;
 /// the configured default. Kept beside the deadline because they are the same kind of choice: how
 /// much of a caller's request this deployment is willing to spend.
 /// </param>
+/// <param name="WaitSeconds">
+/// How long a request may queue for a free worker, or null for the configured default. <b>Its own
+/// budget rather than the work's deadline</b>, which is the split ArcGIS Server Manager's Pooling
+/// page makes and this server did not.
+/// </param>
+/// <param name="IdleSeconds">
+/// How long a worker may sit unused before it is disposed — zero meaning keep it for ever — or
+/// null for the configured default.
+/// </param>
 public readonly record struct SystemService(
     string Name,
     string Kind,
@@ -39,7 +48,9 @@ public readonly record struct SystemService(
     SharingScope Sharing,
     ServiceStatus Status,
     int? DeadlineSeconds = null,
-    long? PreflightPairs = null);
+    long? PreflightPairs = null,
+    int? WaitSeconds = null,
+    int? IdleSeconds = null);
 
 /// <summary>
 /// Services with no layer behind them, and their sharing.
@@ -74,7 +85,8 @@ public sealed class PostgresSystemServices
     public async Task<IReadOnlyList<SystemService>> ListAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select name, kind, folder, sharing, status, deadline_seconds, preflight_pairs "
+            "select name, kind, folder, sharing, status, deadline_seconds, preflight_pairs, "
+            + "wait_seconds, idle_seconds "
             + "from system_service order by folder, name");
 
         List<SystemService> services = [];
@@ -91,7 +103,9 @@ public sealed class PostgresSystemServices
                 Parse(reader.GetString(3)),
                 ParseStatus(reader.GetString(4)),
                 reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                reader.IsDBNull(6) ? null : reader.GetInt64(6)));
+                reader.IsDBNull(6) ? null : reader.GetInt64(6),
+                reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                reader.IsDBNull(8) ? null : reader.GetInt32(8)));
         }
 
         return services;
@@ -104,7 +118,8 @@ public sealed class PostgresSystemServices
     public async Task<SystemService?> FindAsync(string name, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select name, kind, folder, sharing, status, deadline_seconds, preflight_pairs "
+            "select name, kind, folder, sharing, status, deadline_seconds, preflight_pairs, "
+            + "wait_seconds, idle_seconds "
             + "from system_service where name = @name");
 
         command.Parameters.AddWithValue("name", name);
@@ -124,7 +139,9 @@ public sealed class PostgresSystemServices
             Parse(reader.GetString(3)),
             ParseStatus(reader.GetString(4)),
             reader.IsDBNull(5) ? null : reader.GetInt32(5),
-            reader.IsDBNull(6) ? null : reader.GetInt64(6));
+            reader.IsDBNull(6) ? null : reader.GetInt64(6),
+            reader.IsDBNull(7) ? null : reader.GetInt32(7),
+            reader.IsDBNull(8) ? null : reader.GetInt32(8));
     }
 
     /// <summary>Changes who may use a service.</summary>
@@ -182,6 +199,11 @@ public sealed class PostgresSystemServices
     /// <param name="preflightPairs">
     /// The pre-flight threshold, zero meaning none, or null to fall back to the configured default.
     /// </param>
+    /// <param name="waitSeconds">The queue-wait budget, or null for the configured default.</param>
+    /// <param name="idleSeconds">
+    /// How long a worker may sit unused — zero for never reclaiming one — or null for the
+    /// configured default.
+    /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the service existed.</returns>
     /// <remarks>
@@ -201,6 +223,8 @@ public sealed class PostgresSystemServices
         string name,
         int? deadlineSeconds,
         long? preflightPairs,
+        int? waitSeconds,
+        int? idleSeconds,
         CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
@@ -208,6 +232,8 @@ public sealed class PostgresSystemServices
             update system_service
                set deadline_seconds = @deadline,
                    preflight_pairs = @preflight,
+                   wait_seconds = @wait,
+                   idle_seconds = @idle,
                    updated_at = now()
              where name = @name
             """);
@@ -215,6 +241,8 @@ public sealed class PostgresSystemServices
         command.Parameters.AddWithValue("name", name);
         command.Parameters.AddWithValue("deadline", (object?)deadlineSeconds ?? DBNull.Value);
         command.Parameters.AddWithValue("preflight", (object?)preflightPairs ?? DBNull.Value);
+        command.Parameters.AddWithValue("wait", (object?)waitSeconds ?? DBNull.Value);
+        command.Parameters.AddWithValue("idle", (object?)idleSeconds ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

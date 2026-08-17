@@ -43,6 +43,8 @@ internal sealed record HostSettings(
     int OverlayWorkers,
     TimeSpan OverlayDeadline,
     long OverlayPreflightPairs,
+    TimeSpan OverlayWait,
+    TimeSpan OverlayIdle,
     TimeSpan CatalogFallbackWindow,
     long MaximumResponseBytes,
     IReadOnlyList<string>? LegacyKeys = null)
@@ -178,6 +180,29 @@ internal sealed record HostSettings(
             // than spend the deadline on it can choose that — GeometryWorkerPool.PreflightAbove
             // is the value it used to have.
             Math.Max(0, (long)keys.Value("OverlayPreflightPairs", 0)),
+
+            // <b>The queue wait, its own budget since 2026-08-17.</b> It used to be the work's
+            // deadline, one number doing two jobs, and the comment beside it argued for the split
+            // it was not making. ArcGIS Server Manager's Pooling page keeps them apart — *the
+            // maximum time a client can use a service* and *the maximum time a client will wait to
+            // get* one — and the owner asked whether that was a good example. It is: a deployment
+            // can accept long work and still refuse to hold a connection behind somebody else's.
+            //
+            // The default equals the deadline, so an untouched deployment behaves exactly as it did.
+            TimeSpan.FromSeconds(Math.Max(1, keys.Value("OverlayWaitSeconds",
+                Math.Max(1, keys.Value("OverlayDeadlineSeconds", 10))))),
+
+            // <b>How long an unused worker is kept, and this one closed a real gap.</b> A returned
+            // worker went into a bag and came out again for ever, so a deployment that ran one
+            // overlay at nine in the morning held two worker processes — each able to have grown to
+            // its 1 GB ceiling — until it was restarted. Thirty minutes is the reference's own
+            // number and it survives measurement: the cost of reclaiming is one cold start, and a
+            // real one measured **674 ms against 26 ms warm** for the same trivial overlay — mostly
+            // process launch and first-call JIT rather than the work. Half an hour of quiet is not
+            // a window in which 650 ms matters, and two idle processes are memory nobody is getting
+            // back. Zero keeps them for ever, which is the old behaviour.
+            TimeSpan.FromSeconds(Math.Max(0, keys.Value("OverlayIdleSeconds",
+                (int)GeometryWorkerPool.DefaultIdleBudget.TotalSeconds))),
 
             // <b>How long a remembered catalogue entry may be served while the
             // platform store is unreachable (Q-95).</b> Zero disables degraded

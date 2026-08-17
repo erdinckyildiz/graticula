@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Geometries;
@@ -195,5 +196,123 @@ public sealed class RequestBoundsTests : IAsyncLifetime, IAsyncDisposable
         Assert.True(
             result.Milliseconds > 0,
             "The pool reported no elapsed time, so this did not measure the work it claims to.");
+    }
+
+    /// <summary>
+    /// A request's wait budget is applied, and it is not the work's deadline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The split the reference's Pooling page makes and this pool did not.</b> The owner sent
+    /// ArcGIS Server Manager's page for its own geometry service — *the maximum time a client can
+    /// use a service* at 600 seconds beside *the maximum time a client will wait to get a service*
+    /// at 60 — and asked whether these were good examples. This one was: the wait was bounded by
+    /// the work's deadline, so a request queued behind somebody else's long overlay held a
+    /// connection for as long as the work was allowed to take.
+    /// </para>
+    /// <para>
+    /// <b>One worker and two requests, which is the only arrangement that tests a queue.</b> The
+    /// second cannot get a slot until the first finishes, so it must come back on its own budget
+    /// rather than on the deadline — asserted by the clock, because the two numbers are far enough
+    /// apart that timing distinguishes them without being flaky.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_requests_wait_budget_is_not_the_work_deadline()
+    {
+        await using GeometryWorkerPool pool = new(
+            GeometryWorkerPool.ExecutableBesideThisOne(),
+            workers: 1,
+            NullLoggerFactory.Instance,
+            deadline: TimeSpan.FromMinutes(1),
+            maximumCandidatePairs: 0,
+            wait: TimeSpan.FromMinutes(1));
+
+        Assert.True(pool.Available, "The geometry worker is not built beside these tests.");
+
+        // Long enough that the queued request is certainly still waiting: the 200-tooth pair
+        // measures a few seconds.
+        Task<EngineResult> busy = pool.ComputeAsync(Intersect(200), CancellationToken.None);
+
+        Stopwatch clock = Stopwatch.StartNew();
+
+        EngineResult queued = await pool.ComputeAsync(
+            Intersect(200) with { Wait = TimeSpan.FromMilliseconds(200) },
+            CancellationToken.None);
+
+        clock.Stop();
+
+        Assert.Equal(EngineRefusal.Unavailable, queued.Refusal);
+
+        Assert.True(
+            clock.Elapsed < TimeSpan.FromSeconds(3),
+            $"The queued request came back after {clock.Elapsed.TotalSeconds:0.0} s. Its wait "
+            + "budget was 200 ms and the pool's deadline is a minute, so anything near the work's "
+            + "duration means the wait is still bounded by the deadline.");
+
+        await busy;
+    }
+
+    /// <summary>
+    /// An idle worker is reclaimed, and the pool still answers afterwards.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added because the pool kept every worker it had ever started.</b> A returned worker went
+    /// into a bag and came out again for ever, so a deployment that ran one overlay in the morning
+    /// held its worker processes — each able to have grown to a 1 GB heap — until it was restarted.
+    /// ArcGIS Server Manager's *maximum time an idle instance can be kept running* is the control
+    /// that was missing.
+    /// </para>
+    /// <para>
+    /// <b>The second half is the half worth asserting.</b> Reclaiming is easy; reclaiming without
+    /// breaking the next request is the property, and a pool that disposed a worker it had left in
+    /// the bag would pass a test that only counted reclaims.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_idle_worker_is_reclaimed_and_the_next_request_still_works()
+    {
+        await using GeometryWorkerPool pool = new(
+            GeometryWorkerPool.ExecutableBesideThisOne(),
+            workers: 1,
+            NullLoggerFactory.Instance,
+            idle: TimeSpan.FromMilliseconds(1));
+
+        Assert.True(pool.Available, "The geometry worker is not built beside these tests.");
+
+        Assert.Equal(
+            EngineRefusal.None,
+            (await pool.ComputeAsync(Intersect(4), CancellationToken.None)).Refusal);
+
+        // The reaper's own period is thirty seconds, which is too long for a test, so this drives
+        // the sweep directly — the same method the timer calls.
+        pool.ReapForTest();
+
+        Assert.Equal(
+            EngineRefusal.None,
+            (await pool.ComputeAsync(Intersect(4), CancellationToken.None)).Refusal);
+    }
+
+    /// <summary>An idle budget of zero keeps workers, which is what this pool did before.</summary>
+    /// <remarks>
+    /// Zero is a value here rather than an absence, and it is the one an operator picks who would
+    /// rather pay memory than a 650 ms cold start. Asserted so that *never reclaim* cannot quietly
+    /// become *reclaim immediately*.
+    /// </remarks>
+    [Fact]
+    public async Task An_idle_budget_of_zero_keeps_the_worker()
+    {
+        await using GeometryWorkerPool pool = new(
+            GeometryWorkerPool.ExecutableBesideThisOne(),
+            workers: 1,
+            NullLoggerFactory.Instance,
+            idle: TimeSpan.Zero);
+
+        Assert.True(pool.Available, "The geometry worker is not built beside these tests.");
+
+        await pool.ComputeAsync(Intersect(4), CancellationToken.None);
+
+        Assert.Equal(0, pool.ReapForTest());
     }
 }

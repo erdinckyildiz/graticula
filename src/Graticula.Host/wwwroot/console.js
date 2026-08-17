@@ -1071,18 +1071,30 @@ async function loadServiceLimits(name) {
     return null;
   }
 
-  $("limDeadline").value = limits.deadlineSeconds ?? "";
-  $("limDeadline").placeholder = `${limits.defaultDeadlineSeconds} (default)`;
-  $("limPreflight").value = limits.preflightPairs ?? "";
-  $("limPreflight").placeholder = `${num(limits.defaultPreflightPairs)} (default)`;
+  const box = (id, stored, fallback) => {
+    $(id).value = stored ?? "";
+    $(id).placeholder = `${fallback} (default)`;
+  };
+
+  box("limDeadline", limits.deadlineSeconds, limits.defaultDeadlineSeconds);
+  box("limWait", limits.waitSeconds, limits.defaultWaitSeconds);
+  box("limPreflight", limits.preflightPairs, num(limits.defaultPreflightPairs));
+  box("limIdle", limits.idleSeconds, limits.defaultIdleSeconds);
 
   $("limNote").innerHTML =
-    `In force now: a <b>${h(limits.effectiveDeadlineSeconds)}-second</b> cut-off, `
+    `In force now: work is cut off after <b>${h(limits.effectiveDeadlineSeconds)} s</b>, `
+    + `a request queues for at most <b>${h(limits.effectiveWaitSeconds)} s</b>, `
     + `${limits.effectivePreflightPairs
-        ? `a pre-flight above <b>${num(limits.effectivePreflightPairs)}</b> segment pairs`
-        : "<b>no</b> pre-flight"}, `
-    + `and a fixed ceiling of ${num(limits.maximumVertices)} vertices per request. `
-    + `A change applies to the next operation — nothing is restarted.`;
+        ? `work above <b>${num(limits.effectivePreflightPairs)}</b> segment pairs is refused before `
+          + `it starts`
+        : "there is <b>no</b> pre-flight"}, and `
+    + `${limits.effectiveIdleSeconds
+        ? `an unused worker is reclaimed after <b>${h(limits.effectiveIdleSeconds)} s</b>`
+        : "workers are <b>kept for ever</b>"}. `
+    + `${num(limits.workers)} worker process${limits.workers === 1 ? "" : "es"}, each capped at a `
+    + `1 GB heap, and a fixed ceiling of ${num(limits.maximumVertices)} vertices per request — `
+    + `those two are per server rather than per service. A change applies from the next operation; `
+    + `nothing is restarted.`;
 
   panel.hidden = false;
   return limits;
@@ -2716,8 +2728,13 @@ async function handleClick(event) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clearing
-          ? { deadlineSeconds: null, preflightPairs: null }
-          : { deadlineSeconds: number("limDeadline"), preflightPairs: number("limPreflight") }),
+          ? { deadlineSeconds: null, preflightPairs: null, waitSeconds: null, idleSeconds: null }
+          : {
+              deadlineSeconds: number("limDeadline"),
+              preflightPairs: number("limPreflight"),
+              waitSeconds: number("limWait"),
+              idleSeconds: number("limIdle"),
+            }),
       });
       toast(r.note, true);
     } catch (e) { toast(e.message); }

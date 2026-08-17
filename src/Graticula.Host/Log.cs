@@ -203,4 +203,15 @@ internal static partial class Log
                 + "the input predicts overlay cost, so the only reliable limit is on execution.")]
     public static partial void OverlayKilled(
         ILogger logger, long deadlineMs, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1010,
+        Level = LogLevel.Information,
+        Message = "Reclaimed {Workers} geometry worker process(es) idle for more than "
+                + "{IdleSeconds} s. Each holds a heap that may have grown to its 1 GB ceiling, "
+                + "so an unused pool is memory a deployment is not getting back. Information "
+                + "rather than a warning: this is the designed behaviour, and the next request "
+                + "pays one process start, which is warmed outside its deadline.")]
+    public static partial void OverlayWorkersReclaimed(
+        ILogger logger, int workers, long idleSeconds, System.Exception? exception);
 }

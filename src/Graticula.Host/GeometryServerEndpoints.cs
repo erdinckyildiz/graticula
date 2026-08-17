@@ -251,13 +251,40 @@ internal static class GeometryServerEndpoints
     /// endpoint that reports it does the same arithmetic and says so, which is the only way the
     /// screen and the server can agree.
     /// </remarks>
-    private static (TimeSpan? Deadline, long? Preflight) BoundsOf(HttpContext context) =>
-        context.Items.TryGetValue(ServiceItem, out object? held) && held is SystemService service
-            ? (service.DeadlineSeconds is { } seconds
-                    ? TimeSpan.FromSeconds(seconds)
-                    : null,
-               service.PreflightPairs)
-            : (null, null);
+    private static (TimeSpan? Deadline, long? Preflight, TimeSpan? Wait) BoundsOf(
+        HttpContext context)
+    {
+        if (context.Items.TryGetValue(ServiceItem, out object? held)
+            && held is SystemService service)
+        {
+            return (
+                service.DeadlineSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null,
+                service.PreflightPairs,
+                service.WaitSeconds is { } waiting ? TimeSpan.FromSeconds(waiting) : null);
+        }
+
+        return (null, null, null);
+    }
+
+    /// <summary>
+    /// Tells the pool how long an unused worker may be kept, from what the store says.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pushed from here because the pool cannot pull.</b> Reclaiming an idle worker is not a
+    /// property of a request — it happens while nothing is happening — so it cannot ride on one the
+    /// way the deadline does. The pool has no route to the platform store and should not grow one
+    /// for a number, so the request path, which has just read the row anyway, hands the value over.
+    /// The reaper reads it on its next sweep, which is why a change needs no restart.
+    /// </remarks>
+    private static void TellPoolTheIdleBudget(HttpContext context, IGeometryEngine engine)
+    {
+        if (engine is GeometryWorkerPool pool
+            && context.Items.TryGetValue(ServiceItem, out object? held)
+            && held is SystemService { IdleSeconds: { } idle })
+        {
+            pool.IdleBudget = TimeSpan.FromSeconds(idle);
+        }
+    }
 
     private static readonly IResult Refusal = Results.Json(
         new
@@ -414,7 +441,7 @@ internal static class GeometryServerEndpoints
 
         // This service's own bounds where it has them, so the document states what a caller will
         // actually be held to rather than what the configuration file says.
-        (TimeSpan? deadline, long? preflight) = BoundsOf(context);
+        (TimeSpan? deadline, long? preflight, TimeSpan? wait) = BoundsOf(context);
 
         var document = new
         {
@@ -430,6 +457,11 @@ internal static class GeometryServerEndpoints
         maximumVertices = MaximumVertices,
         maximumCandidatePairs = preflight ?? pool.EnforcedPreflightPairs,
         deadlineSeconds = (deadline ?? pool.EnforcedDeadline).TotalSeconds,
+
+        // <b>Advertised because a client that can be made to queue should be able to see for how
+        // long.</b> The two are separate budgets and a caller told only the work's deadline would
+        // size its own timeout wrongly by exactly this much.
+        queueWaitSeconds = (wait ?? pool.EnforcedWait).TotalSeconds,
         note = $"{string.Join(", ", Engine)} run in a separate worker process with a "
              + $"{(deadline ?? pool.EnforcedDeadline).TotalSeconds:0}-second deadline and a "
              + "1 GB heap ceiling. That, and nothing about the input, is the bound: measurement "
@@ -880,8 +912,9 @@ internal static class GeometryServerEndpoints
         // request rather than configured into the pool because the pool applies it per operation —
         // which is why setting it needs no restart, and why the earlier claim that it did was
         // wrong.
-        (TimeSpan? deadline, long? preflight) = BoundsOf(context);
-        request = request with { Deadline = deadline, PreflightPairs = preflight };
+        (TimeSpan? deadline, long? preflight, TimeSpan? wait) = BoundsOf(context);
+        request = request with { Deadline = deadline, PreflightPairs = preflight, Wait = wait };
+        TellPoolTheIdleBudget(context, engine);
 
         EngineResult result = await engine
             .ComputeAsync(request, cancellation)
