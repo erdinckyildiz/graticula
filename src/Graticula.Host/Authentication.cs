@@ -87,7 +87,10 @@ internal sealed class Authentication
                 await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
             return new RequestPrincipal(
-                principal, session?.SessionId, Authorization.Resolve(userType, roles));
+                principal,
+                session?.SessionId,
+                Authorization.Resolve(userType, roles),
+                session?.MustChangePassword ?? false);
         }
         catch (Npgsql.NpgsqlException)
         {
@@ -202,7 +205,14 @@ internal sealed class RequestPrincipal
     /// <param name="principal">Who the request is from.</param>
     /// <param name="sessionId">Their session, or null for anonymous.</param>
     /// <param name="authorization">What they may do.</param>
-    public RequestPrincipal(Principal principal, Guid? sessionId, Authorization authorization)
+    /// <param name="mustChangePassword">
+    /// Whether the credential this session was opened with is one its owner must replace.
+    /// </param>
+    public RequestPrincipal(
+        Principal principal,
+        Guid? sessionId,
+        Authorization authorization,
+        bool mustChangePassword = false)
     {
         ArgumentNullException.ThrowIfNull(principal);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -210,6 +220,7 @@ internal sealed class RequestPrincipal
         Principal = principal;
         SessionId = sessionId;
         Authorization = authorization;
+        MustChangePassword = mustChangePassword;
     }
 
     /// <summary>Who the request is from. Never null — anonymous is a principal.</summary>
@@ -220,4 +231,16 @@ internal sealed class RequestPrincipal
 
     /// <summary>What they may do, resolved once for the request.</summary>
     public Authorization Authorization { get; }
+
+    /// <summary>
+    /// Whether this caller is holding a password the server issued and its owner has not replaced.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from the store on every request, not stamped into the token.</b> Owner rule
+    /// 2026-08-17: a password the system issued is dirty until its owner changes it. Resolving it
+    /// per request is what makes the change take effect on the request *after* they set their own
+    /// — and it is the rule three of this month's defects came from breaking, each time by caching
+    /// a fact that governs what a caller may do.
+    /// </remarks>
+    public bool MustChangePassword { get; }
 }

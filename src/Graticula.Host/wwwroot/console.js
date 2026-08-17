@@ -1213,6 +1213,38 @@ async function loadMembers() {
     </tr>`).join("");
 }
 
+/**
+ * Shows a password the server has just issued, and says what it is for.
+ *
+ * <b>On the page rather than in a toast, because this is the only moment it exists.</b> Only an
+ * Argon2id hash is stored, so a reader who looks away has to issue another — a message that fades
+ * after four seconds is the wrong container for a value that cannot be recovered.
+ *
+ * <b>Selectable, and not a copy button.</b> The clipboard API needs a permission prompt in some
+ * browsers and silently does nothing in others; a `readonly` field with its text already selected
+ * works everywhere and shows the reader exactly what they are taking.
+ */
+function showIssuedPassword(issued) {
+  const box = $("mIssued");
+  if (!box) return;
+
+  box.innerHTML = `
+    <h4>Give this to ${h(issued.name)}</h4>
+    <div class="setting">
+      <span class="q">The password the server issued:</span>
+      <input id="mIssuedValue" type="text" readonly value="${h(issued.password)}"
+             style="width:20ch;text-align:left">
+      <span class="u"></span>
+    </div>
+    <p class="hint">${h(issued.note)}</p>
+    <div class="row"><button class="tiny" id="mIssuedDone">Done</button></div>`;
+
+  box.hidden = false;
+  const field = $("mIssuedValue");
+  field.focus();
+  field.select();
+}
+
 /** What each role carries, kept from the last listing so the picker can explain itself. */
 let memberGrants = {};
 
@@ -2903,6 +2935,13 @@ async function handleClick(event) {
 
   // A service with no layers is started and stopped through its own route, because it is its
   // own row in its own table — see SetSystemStatusAsync for why that is not the layer route.
+  if (t.id === "mIssuedDone") {
+    $("mIssued").hidden = true;
+    $("memberForm").hidden = true;
+    await section("members", loadMembers, "members");
+    return;
+  }
+
   if (t.id === "memberNew") {
     $("memberForm").hidden = false;
     $("mName").focus();
@@ -2911,7 +2950,8 @@ async function handleClick(event) {
 
   if (t.id === "mCancel") {
     $("memberForm").hidden = true;
-    for (const id of ["mName", "mDisplay", "mPassword"]) $(id).value = "";
+    $("mIssued").hidden = true;
+    for (const id of ["mName", "mDisplay"]) $(id).value = "";
     return;
   }
 
@@ -2924,14 +2964,12 @@ async function handleClick(event) {
         body: JSON.stringify({
           name: $("mName").value,
           displayName: $("mDisplay").value || null,
-          password: $("mPassword").value,
           role: $("mRole").value,
           userType: $("mType").value,
         }),
       });
-      toast(made.note, true);
-      $("memberForm").hidden = true;
-      for (const id of ["mName", "mDisplay", "mPassword"]) $(id).value = "";
+      showIssuedPassword(made);
+      for (const id of ["mName", "mDisplay"]) $(id).value = "";
     } catch (e) { toast(e.message); }
     t.disabled = false;
     await section("members", loadMembers, "members");
@@ -2950,19 +2988,18 @@ async function handleClick(event) {
   }
 
   if (d.memberPassword) {
-    // <b>`prompt`, and it is the honest control for this.</b> A password field on every row would
-    // be a page full of empty password boxes, and a drawer for one field is a drawer. What matters
-    // is the sentence: whoever types this knows it afterwards.
-    const password = prompt(`A new password for ${d.memberPassword}. You will know it afterwards, `
-      + `so tell them to change it. At least 8 characters.`);
-    if (!password) return;
+    // <b>A confirmation, not a prompt for a value</b> — there is no value to ask for, because the
+    // server picks it. The first version prompted for one and its own message admitted the
+    // consequence, *"you will know it afterwards"*, which is a hazard described rather than removed.
+    if (!confirm(`Issue a new password for ${d.memberPassword}? The server picks it, you see it `
+      + `once, and they must replace it on first use. Their current password stops working.`)) {
+      return;
+    }
     try {
-      const r = await api(`/admin/members/${encodeURIComponent(d.memberPassword)}/password`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      toast(r.note, true);
+      const r = await api(`/admin/members/${encodeURIComponent(d.memberPassword)}/password`,
+        { method: "PUT" });
+      $("memberForm").hidden = false;
+      showIssuedPassword(r);
     } catch (e) { toast(e.message); }
     return;
   }
@@ -3223,6 +3260,47 @@ $("signinForm").addEventListener("submit", async event => {
  * it has answered. If it refuses, stay and say why — a console that cannot sign
  * out must not pretend it did.
  */
+/**
+ * Replaces an issued password with the member's own.
+ *
+ * <b>The server's own message on failure, because there are three different failures.</b> The
+ * password they were given can be mistyped, the new one can be too short, and the account can have
+ * been reset again by an administrator while they were typing — and each sends the reader somewhere
+ * different.
+ */
+$("mustchangeForm").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const button = $("cGo");
+  const error = $("mustchangeError");
+  error.hidden = true;
+  button.disabled = true;
+
+  try {
+    await api("/rest/auth/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentPassword: $("cCurrent").value,
+        newPassword: $("cNew").value,
+      }),
+    });
+
+    // <b>Straight back through `start`, not a reload.</b> The flag is resolved per request, so the
+    // session in hand is already clean — re-reading `whoami` is enough, and a reload would throw
+    // away the session this page holds in `sessionStorage` for no reason.
+    $("cCurrent").value = "";
+    $("cNew").value = "";
+    await start();
+    toast("That is your password now. Nothing else on this server knows it.", true);
+  } catch (e) {
+    error.textContent = e.message || String(e);
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("signout").addEventListener("click", async event => {
   const button = event.currentTarget;
   button.disabled = true;
@@ -3300,6 +3378,25 @@ async function start() {
 
   $("signinCookie").hidden = true;
 
+  // <b>Signed in, and holding a password that reaches nothing else.</b> Checked before any screen
+  // is drawn, because every one of them would answer 403 — which is how a client behaves against a
+  // server enforcing a rule it does not advertise, and `/rest/whoami` advertises this one.
+  if (me.mustChangePassword) {
+    $("signin").style.display = "none";
+    $("app").style.display = "none";
+    $("tabs").style.display = "none";
+    $("signout").style.display = "";
+    $("surfaces").hidden = true;
+    $("healthDot").hidden = true;
+    $("healthLine").hidden = true;
+    $("mustchange").style.display = "";
+    $("mustchangeWho").innerHTML =
+      `Signed in as <b>${h(me.name)}</b>. This has to be done before anything else works.`;
+    $("cCurrent").focus();
+    return;
+  }
+
+  $("mustchange").style.display = "none";
   $("signin").style.display = "none";
   $("app").style.display = "";
   $("tabs").style.display = "";

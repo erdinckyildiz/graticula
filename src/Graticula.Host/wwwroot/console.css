@@ -244,11 +244,21 @@
 
   /* --------------------------------------------------------------- sign in */
 
-  #signin { max-width: 360px; margin: 88px auto; }
-  #signin .panel { padding: 22px; }
-  #signin label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
-  #signin input, #signin button { width: 100%; }
-  #signin button { margin-top: 18px; }
+  /*
+    <b>Two panels, one set of rules.</b> The forced password change is the same shape as signing in
+    — a narrow centred card of labelled fields — and its first version got none of this because the
+    selectors named `#signin`. It rendered as labels and boxes side by side, spilling out of the
+    card. That is D-46 again and in the same file as instance 8: reuse the shape, do not rebuild it.
+    Listed rather than given a class because these two are the only full-page forms in the console,
+    and inventing `.card-form` for two would be the abstraction §82 asks about.
+  */
+  #signin, #mustchange { max-width: 360px; margin: 88px auto; }
+  #signin .panel, #mustchange .panel { padding: 22px; }
+  #signin label, #mustchange label { display: block; font-size: 13px; color: var(--muted);
+                                     margin: 12px 0 4px; }
+  #signin input, #signin button,
+  #mustchange input, #mustchange button { width: 100%; }
+  #signin button, #mustchange button { margin-top: 18px; }
   .bad-inline { margin: 12px 0 0; padding: 9px 11px; font-size: 13px;
                 color: var(--alert); background: #fbefec; border: 1px solid #dcb1a9;
                 border-radius: 3px; }

@@ -10,8 +10,18 @@ namespace Graticula.Platform.Identity;
 /// <param name="SessionId">The session's id, for revocation and audit.</param>
 /// <param name="Principal">Who it is.</param>
 /// <param name="ExpiresAt">When it stops working.</param>
+/// <param name="MustChangePassword">
+/// Whether the credential this session was opened with is one its owner has to replace.
+/// <b>Read per request rather than stamped into the token</b>, which is the same rule sharing and
+/// started/stopped follow and for the same reason: a fact that governs what a caller may do must
+/// not be cached in something they hold. It also makes the change take effect on the next request
+/// — the one *after* they set their own password — rather than on their next sign-in.
+/// </param>
 public readonly record struct AuthenticatedSession(
-    Guid SessionId, Principal Principal, DateTimeOffset ExpiresAt);
+    Guid SessionId,
+    Principal Principal,
+    DateTimeOffset ExpiresAt,
+    bool MustChangePassword = false);
 
 /// <summary>
 /// Everything the login and authentication paths read and write.

@@ -42,10 +42,17 @@ public sealed class PostgresIdentityStore : IIdentityStore
         // revoked and disabled are one indistinguishable outcome. Returning the
         // row and deciding in C# would make it trivially easy to log or report
         // the difference, and the difference is only useful to someone probing.
+        // <b>The must-change flag rides on this query rather than costing a second one.</b> It
+        // governs what the caller may do, so it is read per request like sharing and
+        // started/stopped — three defects this month came from caching a fact of that kind, and
+        // stamping it into the token would be the fourth. A left join because a principal from an
+        // identity provider has no local credential, and *no password* is not *a dirty password*.
         const string Sql = """
-            select s.id, s.expires_at, p.id, p.kind, p.name, p.display_name
+            select s.id, s.expires_at, p.id, p.kind, p.name, p.display_name,
+                   coalesce(c.must_change, false)
             from session s
             join principal p on p.id = s.principal_id
+            left join local_credential c on c.principal_id = p.id
             where s.token_hash = @hash
               and s.revoked_at is null
               and s.expires_at > @now
@@ -67,7 +74,8 @@ public sealed class PostgresIdentityStore : IIdentityStore
         return new AuthenticatedSession(
             reader.GetGuid(0),
             ReadPrincipal(reader, idOrdinal: 2, isDisabled: false),
-            reader.GetFieldValue<DateTimeOffset>(1));
+            reader.GetFieldValue<DateTimeOffset>(1),
+            reader.GetBoolean(6));
     }
 
     /// <inheritdoc/>
@@ -215,6 +223,12 @@ public sealed class PostgresIdentityStore : IIdentityStore
               set algorithm = excluded.algorithm,
                   parameters = excluded.parameters,
                   password_hash = excluded.password_hash,
+
+                  -- <b>Set by its owner, so it is clean.</b> This is the only path that clears the
+                  -- flag, and that is the whole enforcement: an administrator's reset sets it (see
+                  -- PostgresMemberDirectory) and nothing else can unset it, so the only way out of
+                  -- *must change* is the member changing it.
+                  must_change = false,
                   updated_at = now()
             """;
 

@@ -356,6 +356,51 @@ public static class Program
                 .ExecuteAsync(context).ConfigureAwait(false);
         });
 
+        // <b>A dirty password reaches nothing but its own replacement.</b> Owner rule 2026-08-17:
+        // the system issues a password, an administrator may pass it along, and its owner has to
+        // change it on signing in. *Has to* is this middleware — not a screen that asks nicely.
+        //
+        // <b>Middleware rather than a check in each endpoint</b>, for the reason the geometry
+        // service's sharing filter is one: eighty-odd routes each remembering a guard is eighty
+        // chances to ship one that forgets, and the one that forgets is the interesting route.
+        //
+        // <b>What is allowed through, and each is required.</b> The password change, obviously.
+        // `whoami`, because the console has to be able to say who you are and why it is showing
+        // you one screen. Logout, because refusing to let somebody leave is not a security
+        // control. The static console files, because a page that cannot load cannot offer the
+        // form. And the anonymous surfaces — the services directory and health — because they are
+        // not this caller's to be restricted from: a dirty password is a fact about an account,
+        // not about the server.
+        app.Use(async (context, next) =>
+        {
+            RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+
+            if (current is not { MustChangePassword: true } || Reachable(context.Request))
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            // <b>403 with the way out named.</b> Not 401: the credential was accepted and the
+            // session is real, which is exactly why the caller can be told what to do about it.
+            // A 401 would send a client back to sign in again and land it here again.
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 403,
+                        message =
+                            "This password was issued by the server and has to be replaced before "
+                            + "the account can be used. Set your own with "
+                            + "POST /rest/auth/password. Nothing else answers until then — the "
+                            + "password you were given is known to whoever passed it to you.",
+                    },
+                },
+                statusCode: StatusCodes.Status403Forbidden)
+                .ExecuteAsync(context).ConfigureAwait(false);
+        });
+
         // ADR-020 §2: the console is static files and nothing else. Mapped
         // after the setup gate so an unconfigured server does not serve a UI
         // whose every call would 503, and scoped to /console so that the file
@@ -429,6 +474,43 @@ public static class Program
     /// chance they have to see that an upgrade closes the rollback window before
     /// it does.
     /// </remarks>
+    /// <summary>
+    /// Whether a caller holding a password they must replace may reach this request.
+    /// </summary>
+    /// <remarks>
+    /// <b>An allow-list, and the direction matters.</b> A deny-list of *the interesting routes*
+    /// would let every route added afterwards through by default, which is the wrong way round for
+    /// a control whose whole job is that nothing else answers. Written as a method so the list is
+    /// one thing a reviewer can read rather than a condition inside a lambda.
+    /// </remarks>
+    /// <param name="request">The request.</param>
+    /// <returns>Whether it is one of the few that answer.</returns>
+    private static bool Reachable(HttpRequest request)
+    {
+        PathString path = request.Path;
+
+        // The way out, and the two things a client needs around it.
+        if (path == "/rest/auth/password" || path == "/rest/auth/logout" || path == "/rest/whoami")
+        {
+            return true;
+        }
+
+        // The console's own files: a page that cannot load cannot offer the form.
+        if (path.StartsWithSegments("/server") || path.StartsWithSegments("/studio")
+            || path.StartsWithSegments("/console"))
+        {
+            return true;
+        }
+
+        // <b>Anonymous surfaces, because they are not this caller's to be restricted from.</b> The
+        // services directory answers strangers by design (ADR-023) and health answers an outage
+        // (D-18). Refusing them here would make a dirty password *less* than no credential at all,
+        // which is a strange shape and would break a browser that is signed in and reading a map.
+        return path.StartsWithSegments("/rest/services")
+            || path == "/healthz/live"
+            || path == "/admin/health";
+    }
+
     private static async Task<int> MigrateAsync(IServiceProvider services, bool apply)
     {
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
@@ -776,6 +858,13 @@ public static class Program
                 authenticated = !current.Principal.IsAnonymous,
                 userType = current.Authorization.UserType,
                 roles = current.Authorization.Roles,
+
+                // <b>Reported here because this is one of the three calls a caller holding an
+                // issued password may make.</b> Without it a console would sign somebody in, paint
+                // its screens, and watch every one of them answer 403 — which is what a client sees
+                // when a server enforces a rule it does not advertise.
+                mustChangePassword = current.MustChangePassword,
+
                 privileges = current.Authorization.Privileges
                     .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal),
             });

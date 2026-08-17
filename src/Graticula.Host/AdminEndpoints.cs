@@ -111,17 +111,19 @@ internal sealed record CacheLifetimeRequest(int? Seconds);
 /// <summary>A member to create.</summary>
 /// <param name="Name">Their sign-in name.</param>
 /// <param name="DisplayName">What to show, or null for the name.</param>
-/// <param name="Password">Their first password, in the clear over TLS — see the endpoint.</param>
 /// <param name="Role">The role to grant.</param>
 /// <param name="UserType">Their ceiling, or null for the default.</param>
+/// <remarks>
+/// <b>There is no password field, and that is the decision.</b> Owner rule 2026-08-17: the system
+/// issues the password, the administrator may pass it along, and its owner has to replace it. A
+/// field here would let a caller choose somebody else's secret, which is the thing being removed —
+/// see <see cref="IssuedPassword"/>.
+/// </remarks>
 internal sealed record MemberRequest(
-    string? Name, string? DisplayName, string? Password, string? Role, string? UserType);
+    string? Name, string? DisplayName, string? Role, string? UserType);
 
 /// <summary>A role to hold, or null to hold none.</summary>
 internal sealed record MemberRoleRequest(string? Role);
-
-/// <summary>A password to set, without knowing the old one.</summary>
-internal sealed record MemberPasswordRequest(string? Password);
 
 /// <summary>What one operation on a service with no layers may spend.</summary>
 /// <param name="DeadlineSeconds">
@@ -2267,26 +2269,6 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (request.Password is not { Length: > 0 } password)
-        {
-            await Refuse(
-                context, 400,
-                "A member needs a first password. This server cannot send an invitation — it has "
-                + "no way to send a message at all — so an administrator sets one and tells them.")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        if (password.Length < AuthEndpoints.MinimumPasswordLength)
-        {
-            await Refuse(
-                context, 400,
-                $"The password must be at least {AuthEndpoints.MinimumPasswordLength} characters. "
-                + "Length is the only rule (ADR-015 §6a), and nothing here checks it against known "
-                + "breached lists — D-23.").ConfigureAwait(false);
-            return;
-        }
-
         string role = (request.Role ?? "").Trim();
 
         if (!Roles.All.Contains(role, StringComparer.Ordinal))
@@ -2310,6 +2292,12 @@ internal static class AdminEndpoints
                 .ConfigureAwait(false);
             return;
         }
+
+        // <b>The server chooses it.</b> Owner rule 2026-08-17: an administrator does not get to
+        // pick somebody else's password. It is dirty from the moment it exists — the store sets
+        // must_change on every credential it writes — so this is a one-use secret rather than an
+        // account password that happens to be known to two people.
+        string password = IssuedPassword.Issue();
 
         Principal? created = await directory.CreateMemberAsync(
             name,
@@ -2340,8 +2328,15 @@ internal static class AdminEndpoints
             name = created.Name,
             role,
             userType,
-            note = $"'{name}' can sign in now with the password you set. Tell them to change it "
-                 + "with PUT /rest/auth/password — this one is known to whoever typed it here.",
+            // <b>Returned once, and this is the only time it exists in the clear.</b> It is not
+            // stored — only its Argon2id hash is — so an administrator who loses it issues another
+            // rather than looking it up.
+            password,
+            mustChange = true,
+            note = $"Give this password to '{name}'. It works once: the server marks it as needing "
+                 + "replacement, so their first act after signing in has to be setting their own — "
+                 + "nothing else answers until they do. It is not stored in the clear and is not "
+                 + "shown again; if it is lost, issue another.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -2510,29 +2505,20 @@ internal static class AdminEndpoints
     private static async Task SetMemberPasswordAsync(
         HttpContext context,
         string name,
-        MemberPasswordRequest request,
         IMemberDirectory directory,
         IPasswordHasher hasher,
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
         {
             return;
         }
 
-        if (request.Password is not { Length: > 0 } password
-            || password.Length < AuthEndpoints.MinimumPasswordLength)
-        {
-            await Refuse(
-                context, 400,
-                $"The password must be at least {AuthEndpoints.MinimumPasswordLength} characters.")
-                .ConfigureAwait(false);
-            return;
-        }
+        // Issued, not accepted — see CreateMemberAsync. There is no body on this request at all,
+        // which is the clearest statement available that the caller does not choose it.
+        string password = IssuedPassword.Issue();
 
         if (!await directory.SetPasswordAsync(name, hasher.Hash(password), cancellation)
             .ConfigureAwait(false))
@@ -2549,9 +2535,16 @@ internal static class AdminEndpoints
         await Results.Json(new
         {
             name,
-            note = "Their existing sessions still work: a session is not a credential, and "
-                 + "revoking them is a separate act. Tell them to change this one — it is known to "
-                 + "whoever typed it here.",
+            password,
+            mustChange = true,
+
+            // <b>Two facts an administrator would otherwise assume, one of them wrongly.</b> Their
+            // old sessions keep working, because a session is not a credential; and the new
+            // password reaches nothing but its own replacement, so *keeps working* does not mean
+            // *keeps working with this*.
+            note = $"Give this password to '{name}'. It needs replacing on first use, so it will "
+                 + "not do anything except set their own. Their existing sessions are untouched — a "
+                 + "session is not a credential, and revoking them is a separate act.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

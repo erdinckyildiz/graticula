@@ -82,8 +82,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
 
         await using (NpgsqlCommand credential = new(
             """
-            insert into local_credential (principal_id, algorithm, parameters, password_hash)
-            values (@principal, @algorithm, @parameters::jsonb, @hash)
+            insert into local_credential
+                (principal_id, algorithm, parameters, password_hash, must_change)
+            values (@principal, @algorithm, @parameters::jsonb, @hash, true)
             """,
             connection,
             transaction))
@@ -272,14 +273,21 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // update alone would report success having changed nothing.
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             """
-            insert into local_credential (principal_id, algorithm, parameters, password_hash)
-            select p.id, @algorithm, @parameters::jsonb, @hash
+            insert into local_credential
+                (principal_id, algorithm, parameters, password_hash, must_change)
+            select p.id, @algorithm, @parameters::jsonb, @hash, true
               from principal p
              where p.name = @name and p.kind = 'user'
             on conflict (principal_id) do update
                set algorithm = @algorithm,
                    parameters = @parameters::jsonb,
-                   password_hash = @hash
+                   password_hash = @hash,
+
+                   -- <b>Dirty, always, and not a parameter.</b> Owner rule 2026-08-17: a password
+                   -- the system issued and an administrator passed along is one its owner must
+                   -- replace. Making it an argument would let a caller ask for a permanent password
+                   -- on somebody else's account, which is the thing being removed.
+                   must_change = true
             """);
 
         command.Parameters.AddWithValue("name", name);

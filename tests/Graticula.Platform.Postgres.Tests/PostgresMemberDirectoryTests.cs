@@ -265,4 +265,111 @@ public sealed class PostgresMemberDirectoryTests : PostgresFixture
         Assert.False(
             await directory.SetPasswordAsync("nobody", Secret(), CancellationToken.None));
     }
+
+    /// <summary>A password an administrator issued is dirty; one its owner set is not.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner rule 2026-08-17:</b> *"kullanıcıya yeni parola veremem. sistem bana yeni bir parola
+    /// verir. bunu kullanıcı ile paylaşabilirim. ama sistem otomatik olarak o parolayı kirli kabul
+    /// eder. kullanıcı giriş yapınca değiştirmek zorunda kalır."* — the system issues the password,
+    /// the administrator passes it on, and its owner has to replace it on signing in.
+    /// </para>
+    /// <para>
+    /// <b>The asymmetry is the control and this is where it is pinned.</b> Two write paths reach one
+    /// column: everything in <c>PostgresMemberDirectory</c> sets it, and only the self-service change
+    /// clears it. Neither takes it as an argument — if either did, a caller could ask for a
+    /// permanent password on somebody else's account, which is the thing being removed.
+    /// </para>
+    /// <para>
+    /// <b>Read through the session, because that is what enforces it.</b> The flag governs what a
+    /// request may do, so it is resolved per request rather than stamped into the token — the rule
+    /// three of this month's defects came from breaking. Asserting it through
+    /// <c>FindSessionAsync</c> is asserting the thing the middleware actually reads.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_issued_password_is_dirty_until_its_owner_replaces_it()
+    {
+        PostgresMemberDirectory directory = await ReadyAsync();
+
+        Principal made = (await directory.CreateMemberAsync(
+            "esra", null, Secret("issued"), Roles.Publisher, UserTypes.Creator,
+            CancellationToken.None))!;
+
+        PostgresIdentityStore identity = new(DataSource);
+
+        Guid session = await identity.CreateSessionAsync(
+            made.Id,
+            SessionToken.HashOf("token-one"),
+            DateTimeOffset.UtcNow.AddHours(1),
+            null,
+            CancellationToken.None);
+
+        Assert.NotEqual(Guid.Empty, session);
+
+        AuthenticatedSession opened = (await identity.FindSessionAsync(
+            SessionToken.HashOf("token-one"), DateTimeOffset.UtcNow, CancellationToken.None))!.Value;
+
+        Assert.True(
+            opened.MustChangePassword,
+            "A credential the directory wrote is one the server issued, so it has to arrive dirty.");
+
+        // The member sets their own, through the path the request handler uses.
+        await identity.SetPasswordAsync(made.Id, Secret("their own"), CancellationToken.None);
+
+        AuthenticatedSession clean = (await identity.FindSessionAsync(
+            SessionToken.HashOf("token-one"), DateTimeOffset.UtcNow, CancellationToken.None))!.Value;
+
+        Assert.False(
+            clean.MustChangePassword,
+            "The same session must come back clean: the flag is read per request, so setting their "
+            + "own password takes effect on the next one rather than on the next sign-in.");
+
+        // And an administrator's reset makes it dirty again.
+        await directory.SetPasswordAsync("esra", Secret("reset"), CancellationToken.None);
+
+        Assert.True(
+            (await identity.FindSessionAsync(
+                SessionToken.HashOf("token-one"), DateTimeOffset.UtcNow, CancellationToken.None))!
+                .Value.MustChangePassword);
+    }
+
+    /// <summary>A principal with no local credential is not made to change anything.</summary>
+    /// <remarks>
+    /// <b>*No password* is not *a dirty password*.</b> D-10 records the order — local accounts
+    /// first, an identity provider later — and a principal that arrives from a provider has no
+    /// <c>local_credential</c> row. The session query left-joins for exactly this, and a caller
+    /// with nothing to change must not be told to change it, because there is no form that could
+    /// satisfy the demand.
+    /// </remarks>
+    [Fact]
+    public async Task A_member_with_no_local_password_is_not_asked_to_change_one()
+    {
+        await MigrateAsync();
+
+        PostgresIdentityStore identity = new(DataSource);
+
+        Principal made = await identity.CreateUserAsync(
+            "federated", null, Secret(), CancellationToken.None);
+
+        await using (Npgsql.NpgsqlCommand drop = DataSource.CreateCommand(
+            "delete from local_credential where principal_id = @id"))
+        {
+            drop.Parameters.AddWithValue("id", made.Id);
+            await drop.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+
+        await identity.CreateSessionAsync(
+            made.Id,
+            SessionToken.HashOf("token-two"),
+            DateTimeOffset.UtcNow.AddHours(1),
+            null,
+            CancellationToken.None);
+
+        AuthenticatedSession opened = (await identity.FindSessionAsync(
+            SessionToken.HashOf("token-two"), DateTimeOffset.UtcNow, CancellationToken.None))!.Value;
+
+        Assert.False(
+            opened.MustChangePassword);
+    }
 }

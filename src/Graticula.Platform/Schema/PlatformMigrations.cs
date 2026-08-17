@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(21);
+    public static SchemaVersion ComponentSchemaVersion => new(22);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -56,6 +56,7 @@ public static class PlatformMigrations
         SystemServiceStatusV19,
         SystemServiceBoundsV20,
         SystemServicePoolingV21,
+        CredentialMustChangeV22,
     ]);
 
     /// <summary>
@@ -190,6 +191,43 @@ public static class PlatformMigrations
         alter table system_service add constraint system_service_idle_not_negative
           check (idle_seconds is null or idle_seconds between 0 and 86400)
         """);
+
+    /// <summary>
+    /// A password an administrator issued is dirty until its owner replaces it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner correction 2026-08-17, and it is better than what it replaced:</b> *"kullanıcıya
+    /// yeni parola veremem. sistem bana yeni bir parola verir. bunu kullanıcı ile paylaşabilirim.
+    /// ama sistem otomatik olarak o parolayı kirli kabul eder. kullanıcı giriş yapınca değiştirmek
+    /// zorunda kalır."* — I cannot give the user a new password; the system gives me one, I can
+    /// share it, and the system treats that password as dirty automatically, so the user has to
+    /// change it when they sign in.
+    /// </para>
+    /// <para>
+    /// <b>What was wrong with the version this replaces.</b> An administrator typed the first
+    /// password, and the endpoint's own note admitted the consequence — *"this one is known to
+    /// whoever typed it here"* — and then did nothing about it. A note describing a hazard is not a
+    /// control. Worse, it was the administrator's choice of password: their habits, their reuse,
+    /// their idea of *long enough*, on somebody else's account.
+    /// </para>
+    /// <para>
+    /// <b>On the credential rather than on the principal, because that is what is dirty.</b> A
+    /// person is not dirty; the secret they were handed is. It also means the flag disappears with
+    /// the credential — a member who moves to an identity provider has no local password to be made
+    /// to change.
+    /// </para>
+    /// <para>
+    /// <b>Default false, so no existing account is locked out by a migration.</b> Every credential
+    /// in a store before this was either chosen by its owner at setup or changed by them, which is
+    /// exactly the state this column means by *clean*.
+    /// </para>
+    /// </remarks>
+    private static Migration CredentialMustChangeV22 => Migration.Expand(
+        new SchemaVersion(22),
+        "Mark a credential an administrator issued as one its owner must replace.",
+
+        "alter table local_credential add column must_change boolean not null default false");
 
     /// <summary>
     /// A folder becomes a thing rather than a string on a service.

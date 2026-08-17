@@ -270,6 +270,66 @@ teaches people the messages are not worth reading.
 
 ---
 
+## 6b. Decision — a password an administrator hands over is dirty, and the server picks it
+
+**Added 2026-08-17 on the owner's correction, which replaced something worse.** The first version
+of member creation had an administrator type both the first password and any reset, and its own
+hint admitted the consequence: *"this one is known to whoever typed it here."* **A note describing
+a hazard is not a control.** It also put one person's habits on another person's account — their
+idea of *long enough*, their reuse, their pattern across the three accounts they made that morning.
+
+The owner: *"kullanıcıya yeni parola veremem. sistem bana yeni bir parola verir. bunu kullanıcı ile
+paylaşabilirim. ama sistem otomatik olarak o parolayı kirli kabul eder. kullanıcı giriş yapınca
+değiştirmek zorunda kalır."* — I cannot give the user a new password; the system gives me one, I can
+share it, and the system treats that password as dirty automatically, so the user has to change it
+when they sign in.
+
+**The three parts, and each one is load-bearing:**
+
+- **The server chooses it.** `POST /admin/members` and `PUT /admin/members/{name}/password` take
+  **no password field at all** — the reset takes no body. A field would let a caller choose somebody
+  else's secret, which is the thing being removed. `IssuedPassword` produces sixteen characters of a
+  thirty-character alphabet in four hyphenated groups: about 78 bits, and *readable aloud*, because
+  it will be. The ambiguous characters are out for Crockford's reason, and the hyphens are there so
+  a reader can check they have it.
+- **It is returned once and stored only as a hash.** An administrator who loses it issues another.
+  The response says so, because *where do I see it again* is the next question and the answer is
+  *nowhere*.
+- **It is dirty from the moment it exists**, and *must change* is enforced rather than requested.
+  `local_credential.must_change` (migration 22) is set by every write the member directory makes and
+  cleared **only** by the self-service change. So the way out of *must change* is the member
+  changing it, and no argument or endpoint can produce a permanent password on somebody else's
+  account.
+
+**How *has to* is enforced: one middleware, not a screen.** A caller whose credential is dirty gets
+`403` on everything except the password change, `whoami`, logout, the console's own files, and the
+anonymous surfaces. **An allow-list rather than a deny-list**, because a deny-list lets every route
+added afterwards through by default, and this control's whole job is that nothing else answers.
+
+- **403 and not 401**, because the credential was accepted and the session is real — which is
+  exactly why the caller can be told what to do about it. A 401 would send a client back to sign in
+  and land it here again.
+- **Signing in succeeds**, and it must: they need a session in order to change the password.
+- **The anonymous surfaces stay open.** The services directory answers strangers by design
+  (ADR-023) and health answers an outage (D-18). Refusing them would make a dirty password *less*
+  than no credential at all, and would break a browser that is signed in and reading a map.
+- **`/rest/whoami` reports `mustChangePassword`**, because a server that enforces a rule it does not
+  advertise produces a client that signs somebody in and then watches every screen answer 403.
+
+**The flag is read on every request and not stamped into the token**, which is the same rule sharing
+and started/stopped follow. Three defects this month came from caching a fact of that kind, and this
+would have been the fourth. It also gives the better behaviour: setting your own password takes
+effect on the **next request**, in the session you already hold, rather than on your next sign-in.
+Measured end to end — issue, sign in, `403` on `/content/layers`, change, `200` on the same session,
+administrator resets, `403` again.
+
+**What this does not do, said so the gap is a decision.** There is no invitation flow, because this
+server cannot send a message at all — no mail, no token table, no expiry policy — so the alternative
+to an administrator relaying a password was no member at all. The issued password does not expire;
+it is single-use in effect because the account cannot do anything else until it is replaced, which
+is a weaker property than an expiry and a much simpler one. And nothing checks any password against
+known breached lists, which is [D-23](../architecture-debt.md) and unchanged.
+
 ## 7. What this hands to other decisions
 
 - **RLS delegation (§1a)** gets a stable principal name and an

@@ -138,6 +138,31 @@
   </form>
 </div>
 
+<!--
+  <b>The one screen a member holding an issued password can use.</b> Owner rule 2026-08-17: the
+  server issues a password, an administrator passes it on, and its owner must replace it before the
+  account does anything. The middleware enforces that; this is the form that satisfies it.
+
+  <b>It is not the sign-in panel with different words.</b> They *are* signed in — the credential was
+  accepted and a session exists — and saying otherwise would send them back to sign in again and
+  land them here. The distinction matters enough to be a separate panel.
+-->
+<div id="mustchange" class="wrap" style="display:none">
+  <form class="panel" id="mustchangeForm" method="post" action="">
+    <h2>Set your own password</h2>
+    <p class="hint" id="mustchangeWho"></p>
+    <label for="cCurrent">The password you were given</label>
+    <input id="cCurrent" type="password" autocomplete="current-password">
+    <label for="cNew">Your own, at least 8 characters</label>
+    <input id="cNew" type="password" autocomplete="new-password">
+    <button class="primary" id="cGo" type="submit">Set it</button>
+    <p class="bad-inline" id="mustchangeError" hidden></p>
+    <p class="hint" style="margin-top:14px"><b>Why this is in the way.</b> The password you have was
+      chosen by the server and passed to you by somebody else, so it is known to at least two
+      people. Nothing on this server answers to it except this form.</p>
+  </form>
+</div>
+
 <main class="wrap" id="app" style="display:none">
 
   <!-- ------------------------------------------------------------ services -->
@@ -429,8 +454,6 @@
           <input id="mName" type="text" autocomplete="off"><span class="u"></span></div>
         <div class="setting"><span class="q">Shown instead of the name, if you like:</span>
           <input id="mDisplay" type="text" autocomplete="off"><span class="u"></span></div>
-        <div class="setting"><span class="q">Their first password:</span>
-          <input id="mPassword" type="password" autocomplete="new-password"><span class="u">8+</span></div>
         <div class="setting"><span class="q">Role, which decides what they may do:</span>
           <select id="mRole"></select><span class="u"></span></div>
         <div class="setting"><span class="q">User type, which caps whatever the role grants:</span>
@@ -439,20 +462,29 @@
         <p class="hint" id="mGrants"></p>
 
         <!--
-          <b>Said plainly rather than left as a gap somebody assumes we filled.</b> There is no
-          invitation flow because this server cannot send a message — no mail, no token table, no
-          expiry policy — so the alternative to an administrator typing a first password was no
-          member at all.
+          <b>There is no password box, by owner rule 2026-08-17:</b> *"kullanıcıya yeni parola
+          veremem. sistem bana yeni bir parola verir. bunu kullanıcı ile paylaşabilirim. ama sistem
+          otomatik olarak o parolayı kirli kabul eder. kullanıcı giriş yapınca değiştirmek zorunda
+          kalır."* The version this replaces had an administrator type it, and admitted in its own
+          hint that the password was then known to whoever typed it — a note describing a hazard
+          instead of a control. It also put one person's habits on another person's account.
         -->
-        <p class="hint"><b>You type their first password and tell them.</b> This server cannot send
-          an invitation — it has no way to send a message at all — so the password is known to
-          whoever fills this in, and they should change it with their own password page. Nothing
-          here checks it against known breached lists (<b>D-23</b>).</p>
+        <p class="hint"><b>The server picks the password, not you.</b> You see it once, on this
+          screen, and you pass it on. It is marked as needing replacement, so their first act after
+          signing in has to be setting their own — nothing else answers until they do. There is no
+          invitation e-mail because this server cannot send a message at all.</p>
 
         <div class="row">
           <button class="primary" id="mSave">Create</button>
           <button class="tiny" id="mCancel">Cancel</button>
         </div>
+
+        <!--
+          <b>Shown here rather than in a toast, and that is the point.</b> A toast fades, and this
+          is the one moment the password exists in the clear — only an Argon2id hash is stored, so a
+          reader who misses it has to issue another. It stays until dismissed.
+        -->
+        <div id="mIssued" hidden></div>
       </div>
     </div>
 
