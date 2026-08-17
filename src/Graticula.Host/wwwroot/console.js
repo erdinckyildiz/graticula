@@ -101,8 +101,8 @@ function metric(label, value, note) {
  * <b>Server is for the operator and Studio is for the publisher</b>, and the gate is a
  * privilege the API already enforces rather than a rule invented here: Server needs
  * `admin:manageServer`, Studio needs a session. A reader without it gets no Server tab, no
- * Server link, and `#/server/anything` answers with a sentence instead of four refusals —
- * which is what the single console did, one screen at a time.
+ * Server link, and `/server/` itself puts them in Studio with a sentence instead of four
+ * refusals — which is what the single console did, one screen at a time.
  *
  * Each surface owns its tab strip, and the strip is built rather than written down, because a
  * tab a reader cannot use must not be in the document at all.
@@ -131,13 +131,22 @@ const SURFACES = {
   },
 };
 
-/** Which surface a screen belongs to, so an old address can be translated. */
-const WAS = {
-  services: "server/services",
-  operations: "server/operations",
-  anonymous: "server/anonymous",
-  sources: "studio/sources",
-  layer: "server/layer",
+/**
+ * Which surface each screen lives in.
+ *
+ * <b>So a screen asked for in the wrong surface is a navigation, not a 404.</b> A link to
+ * `#/sources` from Server means Studio's data sources — the reader is not wrong, the address is
+ * just short — and the same table is what lets a hash left over from earlier today, when the
+ * surface was in the hash, be translated once instead of guessed at.
+ */
+const SCREEN_SURFACE = {
+  services: "server",
+  service: "server",
+  layer: "server",
+  operations: "server",
+  anonymous: "server",
+  content: "studio",
+  sources: "studio",
 };
 
 let privileges = new Set();
@@ -148,38 +157,70 @@ const may = privilege => !privilege || privileges.has(privilege);
 const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].needs));
 
 /**
+ * Which surface this page *is*, from its own address.
+ *
+ * <b>The path carries the environment and the hash carries the screen</b> — `/server/#/services`
+ * and `/studio/#/content`. The owner's objection was that the application still lived at
+ * `/console` after being renamed: *"console yerine server kullanacaktık ya."* A surface in the
+ * path is also what ArcGIS does, where the two environments are two applications; ours are one
+ * application served at two paths, which is ADR-034 §5a's *one deployable* without pretending
+ * the two audiences share an address.
+ */
+const surfaceOfPath = () =>
+  location.pathname.startsWith("/studio") ? "studio" : "server";
+
+/** A link into the other surface, keeping the reader's place in mind. */
+const surfaceHref = (surface, hash) => `/${surface}/#/${hash}`;
+
+/**
  * The address, read.
  *
- * <b>The hash carries the surface as its first segment</b> — `#/server/services`,
- * `#/studio/content` — so a link is unambiguous about which environment it opens. Addresses
- * from before the split are translated rather than 404'd: ADR-020 §5c took *frozen URLs* from
- * the reference as a rule, and this breaks it once, deliberately, with a redirect.
+ * <b>The surface is the path and the screen is the hash</b> — `/server/#/services`,
+ * `/studio/#/content`. Addresses from before the surfaces existed are translated rather than
+ * 404'd, in both shapes they have had today: ADR-020 §5c took *frozen URLs* from the reference
+ * as a rule, and a rename is the case that rule is for.
  */
 function route() {
-  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean)
-    .map(decodeURIComponent);
+  const surface = surfaceOfPath();
 
-  // An address from before ADR-034: translate and replace, so Back does not bounce.
-  if (parts.length && !(parts[0] in SURFACES) && WAS[parts[0]]) {
-    location.replace(
-      `#/${WAS[parts[0]]}${parts.length > 1 ? "/" + parts.slice(1).join("/") : ""}`);
+  // <b>Refused by leaving, with a sentence.</b> Not a 403 toast over an empty Server screen:
+  // the reader cannot be in this environment, so they are put in one they can be, told why.
+  // This is the only place that knows their privileges, which is why the redirect from
+  // /console cannot make this decision.
+  if (!may(SURFACES[surface].needs)) {
+    toast(`${SURFACES[surface].title} administers this server, which needs `
+      + `${SURFACES[surface].needs}. You are in Studio, where your own content is.`);
+    location.replace(surfaceHref("studio", SURFACES.studio.home));
     return;
   }
 
-  const surface = parts[0] in SURFACES ? parts[0] : allowed()[0];
+  const rest = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean)
+    .map(decodeURIComponent);
 
-  // <b>Refused with a sentence, in Studio.</b> Not a 403 toast over an empty Server screen:
-  // the reader cannot be here, so they are somewhere they can be, told why.
-  if (!may(SURFACES[surface].needs)) {
-    toast(`${SURFACES[surface].title} is for administering this server, which needs `
-      + `${SURFACES[surface].needs}. You are in Studio, where your own content is.`);
-    location.replace("#/studio/" + SURFACES.studio.home);
+  // <b>A hash that names a surface is from earlier today</b>, when the surface lived in the
+  // hash rather than the path: `#/server/services` becomes `/server/#/services`. Translated in
+  // place so Back does not bounce between the two shapes.
+  if (rest[0] in SURFACES) {
+    location.replace(surfaceHref(rest[0], rest.slice(1).join("/")));
+    return;
+  }
+
+  // <b>A screen that lives in the other surface is a navigation.</b> `#/sources` asked for in
+  // Server is Studio's data sources: the reader named a screen, not an environment, and sending
+  // them to the environment that has it beats a 404 or a silent fallback to the home screen.
+  const lives = SCREEN_SURFACE[rest[0]];
+  if (lives && lives !== surface) {
+    if (!may(SURFACES[lives].needs)) {
+      toast(`That screen is in ${SURFACES[lives].title}, which needs `
+        + `${SURFACES[lives].needs}.`);
+      location.replace(surfaceHref(surface, SURFACES[surface].home));
+      return;
+    }
+    location.assign(`/${lives}/${location.hash}`);
     return;
   }
 
   drawSurfaces(surface);
-
-  const rest = parts.slice(1);
 
   if (rest[0] === "layer" && rest[1]) {
     showLayer(rest[1], EDIT_PAGES.includes(rest[2]) ? rest[2] : EDIT_PAGES[0]);
@@ -187,7 +228,7 @@ function route() {
   }
 
   // A service, and what is in it. The address carries the folder because a service is
-  // addressed by folder and name — `#/server/service/turkiye/tr_ref`.
+  // addressed by folder and name — `#/service/turkiye/tr_ref`.
   if (rest[0] === "service" && rest[1]) {
     showService(rest.slice(1).join("/"));
     return;
@@ -209,7 +250,9 @@ function drawSurfaces(surface) {
 
   $("surfaces").hidden = both.length < 2;
   for (const link of document.querySelectorAll("#surfaces a")) {
-    if (link.dataset.surface === surface) link.setAttribute("aria-current", "page");
+    const name = link.dataset.surface;
+    link.href = surfaceHref(name, SURFACES[name].home);
+    if (name === surface) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   }
 
@@ -217,7 +260,7 @@ function drawSurfaces(surface) {
 
   $("tabs").innerHTML =
     config.tabs.map(([name, label]) =>
-      `<a href="#/${surface}/${name}" data-tab="${name}">${h(label)}${
+      `<a href="#/${name}" data-tab="${name}">${h(label)}${
         name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
         name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("")
     + (config.action
@@ -236,7 +279,10 @@ function drawSurfaces(surface) {
  * taken to it.
  */
 function toMap() {
-  if (!location.hash.startsWith("#/studio/content")) location.hash = "#/studio/content";
+  // Studio's content screen is where the map is, and it is another *path* now — so this is a
+  // navigation rather than a hash change when the reader is in Server.
+  if (surfaceOfPath() === "studio") location.hash = "#/content";
+  else location.assign(surfaceHref("studio", "content"));
 }
 
 /** Shows one view, and marks its tab. */
@@ -846,7 +892,7 @@ async function loadLayers() {
   if (!layers.some(l => l.name === editing.name)) {
     selected = null;
     editing = null;
-    location.hash = "#/server/services";
+    location.hash = "#/services";
     return;
   }
   redrawLayerPage();
@@ -935,7 +981,7 @@ async function showService(qualified) {
   const { folder, name } = splitService(qualified);
 
   $("serviceCrumb").innerHTML =
-    `<a href="#/server/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
+    `<a href="#/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
      › ${folder ? h(folder) : "root"} › <b>${h(name)}</b>`;
   $("serviceFacts").textContent = "";
   $("serviceLayers").innerHTML = `<tr><td colspan="6" class="empty">reading the service…</td></tr>`;
@@ -963,7 +1009,7 @@ async function showService(qualified) {
           <td class="val">${l.parentLayerId >= 0 ? `group ${l.parentLayerId}` : "top level"}</td>
           <td style="text-align:right">${group
             ? `<span class="val">a group, not a layer</span>`
-            : `<a href="#/server/layer/${encodeURIComponent(l.name)}" class="tiny">Settings</a>`}</td>
+            : `<a href="#/layer/${encodeURIComponent(l.name)}" class="tiny">Settings</a>`}</td>
         </tr>`;
       }).join("");
   } catch (e) {
@@ -991,7 +1037,7 @@ async function loadFolders() {
 
   const entry = (name, label, counts, extra = "") => {
     const here = (selectedFolder ?? "") === (name ?? "");
-    return `<a href="#/server/services${name ? "/" + encodeURIComponent(name) : ""}"
+    return `<a href="#/services${name ? "/" + encodeURIComponent(name) : ""}"
       class="rail-item${here ? " on" : ""}"${here ? ' aria-current="page"' : ""}>
       <span class="rail-name">${h(label)}${extra}</span>
       <span class="rail-count">${counts}</span></a>`;
@@ -2334,7 +2380,7 @@ async function handleClick(event) {
   // to a layer somebody guessed from a flat table.
   const service = t.closest("tr[data-service]");
   if (service && !d.serviceDelete && !d.serviceShare) {
-    location.hash = `#/server/service/${encodeURIComponent(service.dataset.service)}`;
+    location.hash = `#/service/${encodeURIComponent(service.dataset.service)}`;
     return;
   }
 
@@ -2342,7 +2388,7 @@ async function handleClick(event) {
   // sharing are.
   const pick = t.closest("tr[data-pick]");
   if (pick && !d.show && !d.tiles) {
-    location.hash = `#/server/layer/${encodeURIComponent(pick.dataset.pick)}`;
+    location.hash = `#/layer/${encodeURIComponent(pick.dataset.pick)}`;
     return;
   }
 

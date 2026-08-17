@@ -355,15 +355,43 @@ public static class Program
         Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider contentTypes = new();
         contentTypes.Mappings[".geojson"] = "application/geo+json";
 
-        app.UseFileServer(new FileServerOptions
+        // <b>Two paths, one directory, since ADR-034.</b> The application used to be *the
+        // console* and lived at `/console`; it is now two surfaces — Server for the operator
+        // and Studio for the publisher — and the owner's objection was exactly this: *"console
+        // yerine server kullanacaktık ya."* A name nobody uses any more should not be in the
+        // address bar.
+        //
+        // <b>The surface is the path and the screen is the hash.</b> `/server/#/services` and
+        // `/studio/#/content`. The path carries the environment because that is what it is —
+        // ArcGIS separates them as far as two applications — while the hash keeps doing what
+        // ADR-020 §5c needs: a screen you can link to and reach with Back.
+        //
+        // <b>One physical directory served twice, not two copies.</b> ADR-034 condition 2 asks
+        // for one stylesheet and one map module across both surfaces, and two mounts over one
+        // folder is the cheapest way to mean it: there is nothing to keep in step.
+        PhysicalFileProvider surfaces = new(Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+
+        foreach (string surface in (string[])["/server", "/studio"])
         {
-            FileProvider = new PhysicalFileProvider(
-                Path.Combine(AppContext.BaseDirectory, "wwwroot")),
-            RequestPath = "/console",
-            EnableDefaultFiles = true,
-            EnableDirectoryBrowsing = false,
-            StaticFileOptions = { ContentTypeProvider = contentTypes },
-        });
+            app.UseFileServer(new FileServerOptions
+            {
+                FileProvider = surfaces,
+                RequestPath = surface,
+                EnableDefaultFiles = true,
+                EnableDirectoryBrowsing = false,
+                StaticFileOptions = { ContentTypeProvider = contentTypes },
+            });
+        }
+
+        // <b>The old address keeps working.</b> ADR-020 §5c took *frozen URLs* from the
+        // reference as a rule, and a rename is exactly the case that rule is about: anybody
+        // who bookmarked `/console/` is sent to Server, which is where the screens they knew
+        // now are. A reader without `admin:manageServer` is bounced on to Studio by the
+        // application itself, which is the only place that knows their privileges.
+        app.MapGet("/console/{**rest}", (string? rest) =>
+            Results.Redirect($"/server/{rest}", permanent: true));
+
+        app.MapGet("/console", () => Results.Redirect("/server/", permanent: true));
 
         MapEndpoints(app);
 
@@ -1444,9 +1472,9 @@ public static class Program
                     // account this product exists for people not to need.
                     links:
                     [
-                        ("Map", "/console/view.html"
+                        ("Map", "/studio/view.html"
                             + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
-                        ("ArcGIS SDK", "/console/map.html"
+                        ("ArcGIS SDK", "/studio/map.html"
                             + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
                     ],
                     linksLabel: "View in",
@@ -1576,10 +1604,10 @@ public static class Program
                     // the two jobs visible as two jobs instead of one page trying
                     // to be both.
                     [
-                        ("Map", "/console/view.html"
+                        ("Map", "/studio/view.html"
                             + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
                             + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
-                        ("ArcGIS SDK", "/console/map.html"
+                        ("ArcGIS SDK", "/studio/map.html"
                             + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
                             + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
                         ("Query", context.Request.Path + "/query"),

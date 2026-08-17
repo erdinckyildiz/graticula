@@ -625,7 +625,9 @@ internal static class RestDirectory
     {
         string here = U(path);
 
-        string console = "<a href=\"/console/\">Console</a> &middot; ";
+        // Server rather than Console: the application was renamed with ADR-034 and a link
+        // that says otherwise teaches the wrong word.
+        string console = "<a href=\"/server/\">Server</a> &middot; ";
 
         return Current.Value is { Length: > 0 } name
             ? console

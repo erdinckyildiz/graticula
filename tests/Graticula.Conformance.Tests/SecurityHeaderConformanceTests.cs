@@ -167,7 +167,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     [Fact]
     public async Task The_console_may_run_its_own_script()
     {
-        using HttpResponseMessage page = await GetAsync("/console/", "text/html");
+        using HttpResponseMessage page = await GetAsync("/server/", "text/html");
         page.EnsureSuccessStatusCode();
 
         string policy = Header(page, "Content-Security-Policy")!;
@@ -190,7 +190,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
 
         // And the file itself must be reachable: a policy that permits a script
         // the server does not serve is the same outcome by a different route.
-        using HttpResponseMessage script = await GetAsync("/console/console.js");
+        using HttpResponseMessage script = await GetAsync("/server/console.js");
         script.EnsureSuccessStatusCode();
     }
 
@@ -200,8 +200,9 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// <remarks>
     /// <para>
     /// <b>The invariant, after checking one page proved not to be enough.</b>
-    /// D-44's first test asserted that <c>/console/</c> loads its behaviour from a
-    /// file. It does — and one edit later the viewer at <c>/console/map.html</c>
+    /// D-44's first test asserted that the application's own page loads its behaviour from a
+    /// file. It does — and one edit later the viewer beside it (then <c>/console/map.html</c>,
+    /// now <c>/studio/map.html</c>)
     /// was still inline, so the same policy blocked the same way and the page
     /// rendered a header with nothing under it. A test that names one page
     /// protects one page.
@@ -214,8 +215,9 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("/console/")]
-    [InlineData("/console/map.html")]
+    [InlineData("/server/")]
+    [InlineData("/studio/")]
+    [InlineData("/studio/map.html")]
     public async Task No_console_page_carries_an_inline_script(string path)
     {
         using HttpResponseMessage page = await GetAsync(path, "text/html");
@@ -270,9 +272,10 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("/console/")]
-    [InlineData("/console/map.html")]
-    [InlineData("/console/view.html")]
+    [InlineData("/server/")]
+    [InlineData("/studio/")]
+    [InlineData("/studio/map.html")]
+    [InlineData("/studio/view.html")]
     public async Task Every_file_a_console_page_asks_for_is_permitted(string path)
     {
         using HttpResponseMessage page = await GetAsync(path, "text/html");
@@ -352,7 +355,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     [Fact]
     public async Task The_sign_in_form_cannot_leak_a_credential_without_script()
     {
-        using HttpResponseMessage page = await GetAsync("/console/", "text/html");
+        using HttpResponseMessage page = await GetAsync("/server/", "text/html");
         string html = await page.Content.ReadAsStringAsync();
 
         int form = html.IndexOf("id=\"signinForm\"", StringComparison.Ordinal);

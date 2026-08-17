@@ -136,11 +136,29 @@ from the 4.x release"*. Two things follow:
 
 ## 5. Decision
 
-### 5a. Two surfaces, one server
+### 5a. Two surfaces, one server — the surface is the path
 
-`#/server/…` and `#/studio/…`, in one application, over one API, with one stylesheet and one
-map module. Not two deployables (ADR-019), not two identity stores
+**`/server/` and `/studio/`**, one application over one API, one stylesheet, one map module.
+Not two deployables (ADR-019), not two identity stores
 ([ADR-015 §5a](ADR-015-authentication.md)), not two viewers.
+
+**The surface is the path and the screen is the hash** — `/server/#/services/turkiye`,
+`/studio/#/content`. The first attempt put the surface in the hash and left the application at
+`/console`, which the owner caught immediately: *"console neden hala ayakta. console yerine
+server kullanacaktık ya."* They were right, and not only about the word: an environment is what
+a path is for, and a name nobody uses any more should not be in the address bar. It is also
+how the product this follows separates them — Server Manager and the portal are two
+applications at two paths.
+
+**One directory served twice, not two copies.** Condition 2 asks for one stylesheet and one map
+module across both surfaces; two mounts over one folder is the cheapest way to mean it, because
+there is nothing to keep in step. `/console/*` answers 301 to `/server/*`, which honours
+ADR-020 §5c's frozen-URL rule for the one case that rule is for — and a reader without
+`admin:manageServer` is then moved on to Studio by the application, since the redirect cannot
+know their privileges.
+
+**A screen asked for in the wrong surface is a navigation, not a refusal.** `#/sources` in
+Server is Studio's data sources: the reader named a screen, not an environment.
 
 The header is shared and names which surface you are in, with one control that moves between
 them — visible only to a reader who may be in both.

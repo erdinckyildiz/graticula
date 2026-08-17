@@ -135,6 +135,22 @@ internal static class SecurityHeaders
     /// </remarks>
     private const string DocumentPolicy = "default-src 'none'; frame-ancestors 'none'";
 
+    /// <summary>
+    /// Whether a path belongs to one of the two application surfaces.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two paths since ADR-034, and this is the one place that knows the list.</b> The
+    /// application was `/console` and is now `/server` and `/studio`; a policy that named one
+    /// of them would leave the other served under the document policy — no `script-src`, no
+    /// `style-src 'self'` — which is D-44 exactly, twice over. The check is a helper rather
+    /// than a repeated literal for that reason.
+    /// </remarks>
+    /// <param name="path">The request path.</param>
+    /// <returns>True for a surface.</returns>
+    private static bool IsSurface(PathString path) =>
+        path.StartsWithSegments("/server", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Stamps the headers on every response.</summary>
     /// <param name="app">The application.</param>
     /// <param name="https">Whether this server requires HTTPS, for HSTS.</param>
@@ -173,8 +189,7 @@ internal static class SecurityHeaders
                 // protect still cannot leave. What a third party learns is that
                 // this server exists, which it learns from the request anyway.
                 Set(headers, "Referrer-Policy",
-                    context.Request.Path.StartsWithSegments(
-                        "/console", StringComparison.OrdinalIgnoreCase)
+                    IsSurface(context.Request.Path)
                         ? "strict-origin-when-cross-origin"
                         : "no-referrer");
 
@@ -194,8 +209,7 @@ internal static class SecurityHeaders
                 // different needs — and the page that needed something else broke
                 // silently, because a blocked script logs nothing the server can
                 // see.
-                bool console = context.Request.Path
-                    .StartsWithSegments("/console", StringComparison.OrdinalIgnoreCase);
+                bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
                     console ? ConsolePolicy : html ? HtmlPolicy : DocumentPolicy);

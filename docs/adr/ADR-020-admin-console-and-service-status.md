@@ -37,7 +37,7 @@ client of it. That reasoning survives; the deferral does not.
 
 ## 2. Decision — there is a console, and it is a client with no back door
 
-**It ships with the server, served from the same process at `/console`.**
+**It ships with the server, served from the same process** — at `/console` when this was written, and at `/server` and `/studio` since [ADR-034](ADR-034-server-and-studio.md) split the audiences.
 
 The alternative — a separate deployable, as Honua does with `honua-console` — is
 the right shape for a product with several servers under one UI, and the wrong
@@ -274,8 +274,8 @@ So the two jobs are now two artefacts:
 
 | | Library | Where | Why |
 |---|---|---|---|
-| **Layer viewer** | **OpenLayers 10.3.1, vendored** | `/console/view.html` | BSD-2-Clause, 858 KB committed. No CDN at runtime, so the console's policy needs no third-party origin for it, an air-gapped deployment (Q-15) works, and no third party learns this server exists |
-| **Compatibility probe** | ArcGIS Maps SDK, from Esri's CDN | `/console/map.html` | §4's argument, kept where it applies. It is the real client and it asks for everything |
+| **Layer viewer** | **OpenLayers 10.3.1, vendored** | `/studio/view.html` | BSD-2-Clause, 858 KB committed. No CDN at runtime, so the console's policy needs no third-party origin for it, an air-gapped deployment (Q-15) works, and no third party learns this server exists |
+| **Compatibility probe** | ArcGIS Maps SDK, from Esri's CDN | `/studio/map.html` (then `/console/map.html`) | §4's argument, kept where it applies. It is the real client and it asks for everything |
 
 Both are offered from the services directory as `View in: Map · ArcGIS SDK`, so the
 distinction is visible rather than implied. GeoServer ships an OpenLayers preview for
@@ -394,7 +394,7 @@ Share (public and embed) — with code splitting so the public surfaces paint wi
 loading the administrative ones.
 
 **What we have.** One 28 KB static HTML page and a 4.5 KB map page, served from the
-same process at `/console`, with three sections: Services, Data sources, New hosted
+same process (then `/console`), with three sections: Services, Data sources, New hosted
 layer. That is not the same category of artefact and pretending otherwise would be
 useless.
 
@@ -594,7 +594,7 @@ forward have to work, which they could not when the editor was a slide-over: the
 had no record that anything had opened, so Back left the console. Every surface is now an
 address — `#/services`, `#/layer/tr_ilce/limits` — reached by an ordinary link, so the
 browser's own buttons, middle-click and copy-link cost this console no code. A pushState
-path was rejected because the console is static files: `/console/layer/tr_ilce` is a
+path was rejected because the console is static files: `/server/layer/tr_ilce` is a
 route nothing here answers, and an address that 404s on refresh is not an address.
 Verified by driving it — services → limits → caching → Back → Back → Forward lands on
 `#/layer/tr_ilce/limits` with that page shown and its left column marked.

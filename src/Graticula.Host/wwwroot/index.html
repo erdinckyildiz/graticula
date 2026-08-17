@@ -63,9 +63,14 @@
 -->
 <header>
   <h1>Graticula</h1>
+  <!--
+    The hrefs are set by the router, because a surface is a path now (`/server/`, `/studio/`)
+    and the screen it lands on is that surface's home. Written here without one so the switch is
+    inert until the router has read who is looking.
+  -->
   <nav id="surfaces" hidden>
-    <a href="#/server/services" data-surface="server">Server</a>
-    <a href="#/studio/content" data-surface="studio">Studio</a>
+    <a data-surface="server">Server</a>
+    <a data-surface="studio">Studio</a>
   </nav>
   <span class="dot unknown" id="healthDot"></span>
   <span id="healthLine">checking…</span>
