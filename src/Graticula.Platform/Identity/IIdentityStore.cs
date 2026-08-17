@@ -116,6 +116,13 @@ public interface IIdentityStore
     Task<Principal> CreateUserAsync(
         string name, string? displayName, PasswordHash password, CancellationToken cancellationToken);
 
+    // <b>Member administration is not here, and this interface's own remarks are why.</b> They
+    // say: *"this is not a repository over the identity tables — administration will need a much
+    // wider surface (ADR-017), and putting it here would mean the request path depends on an
+    // interface mostly concerned with things it must never do."* Creating members, granting roles
+    // and resetting passwords were written into this file first on 2026-08-17 and moved out again
+    // on reading that paragraph. See IMemberDirectory.
+
     /// <summary>Reads the role names granted to a principal.</summary>
     /// <remarks>
     /// <para>

@@ -108,6 +108,21 @@ internal sealed record ServiceCapabilitiesRequest(
 /// </param>
 internal sealed record CacheLifetimeRequest(int? Seconds);
 
+/// <summary>A member to create.</summary>
+/// <param name="Name">Their sign-in name.</param>
+/// <param name="DisplayName">What to show, or null for the name.</param>
+/// <param name="Password">Their first password, in the clear over TLS — see the endpoint.</param>
+/// <param name="Role">The role to grant.</param>
+/// <param name="UserType">Their ceiling, or null for the default.</param>
+internal sealed record MemberRequest(
+    string? Name, string? DisplayName, string? Password, string? Role, string? UserType);
+
+/// <summary>A role to hold, or null to hold none.</summary>
+internal sealed record MemberRoleRequest(string? Role);
+
+/// <summary>A password to set, without knowing the old one.</summary>
+internal sealed record MemberPasswordRequest(string? Password);
+
 /// <summary>What one operation on a service with no layers may spend.</summary>
 /// <param name="DeadlineSeconds">
 /// The cut-off in seconds, or null for the configured default. <b>Null is a value here, not an
@@ -128,6 +143,7 @@ internal sealed record CacheLifetimeRequest(int? Seconds);
 /// How long a worker may sit unused before it is reclaimed — <b>zero meaning never</b>, which is
 /// what this pool did before — or null for the configured default.
 /// </param>
+
 internal sealed record SystemLimitsRequest(
     int? DeadlineSeconds,
     long? PreflightPairs,
@@ -190,6 +206,21 @@ internal static class AdminEndpoints
         // 2026-08-15: "we might make all services public, private or
         // organization" — including the geometry service, which has no layer
         // and was therefore governed by nothing.
+        // <b>Members, and until 2026-08-17 there were none to speak of.</b> A deployment had
+        // exactly one account for ever: first-run setup made the administrator and nothing made a
+        // second, so `admin:manageMembers` was a privilege with nothing behind it and Studio was a
+        // surface with no possible occupant — D-56.
+        app.MapGet("/admin/members", ListMembersAsync);
+        app.MapPost("/admin/members", CreateMemberAsync);
+        app.MapPut("/admin/members/{name}/role", SetMemberRoleAsync);
+        app.MapPut("/admin/members/{name}/password", SetMemberPasswordAsync);
+        app.MapPost("/admin/members/{name}/disable", (HttpContext c, string name,
+            IMemberDirectory d, IIdentityStore i, IAuditLog l, CancellationToken t) =>
+            SetMemberDisabledAsync(c, name, true, d, i, l, t));
+        app.MapPost("/admin/members/{name}/enable", (HttpContext c, string name,
+            IMemberDirectory d, IIdentityStore i, IAuditLog l, CancellationToken t) =>
+            SetMemberDisabledAsync(c, name, false, d, i, l, t));
+
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
 
@@ -2138,6 +2169,389 @@ internal static class AdminEndpoints
             name,
             from = before is { } was ? PostgresSharing(was.Sharing) : null,
             to = PostgresSharing(scope),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Everybody with an account, and what they hold.</summary>
+    /// <remarks>
+    /// <b><c>admin:manageMembers</c>, and reading is the same privilege as writing here.</b> A
+    /// list of accounts is not neutral: it is the shape of an organisation and a target list for
+    /// somebody guessing passwords. ADR-018 has no separate *view members* privilege, and
+    /// inventing one to make the listing softer would be a privilege whose only purpose is to be
+    /// granted by mistake.
+    /// </remarks>
+    private static async Task ListMembersAsync(
+        HttpContext context, IMemberDirectory directory, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IReadOnlyList<Member> members =
+            await directory.ListMembersAsync(cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            members = members.Select(m => new
+            {
+                m.Name,
+                displayName = m.DisplayName,
+                m.Roles,
+                userType = m.UserType,
+                disabled = m.IsDisabled,
+                createdAt = m.CreatedAt,
+
+                // Why there is no delete on this surface, said per row rather than in a paragraph
+                // somebody has to find.
+                ownsServices = m.OwnsServices,
+            }),
+            roles = Roles.All,
+            userTypes = UserTypes.All,
+
+            // <b>What each role can do, from the one place that decides it.</b> A console drawing
+            // a role picker needs to say what the choice means, and the alternative is a copy of
+            // ADR-018 §2a in JavaScript — which would be the copy nobody updates.
+            grants = Roles.All.ToDictionary(
+                role => role,
+                role => Roles.PrivilegesOf(role)
+                    .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal)),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Creates a member with a role and a first password.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The endpoint <see href="../../docs/architecture-debt.md">D-56</see> asked for.</b> Until
+    /// this existed a deployment had one account for ever, so
+    /// <see href="../../docs/adr/ADR-034-server-and-studio.md">ADR-034</see>'s Studio had no
+    /// possible occupant and its condition 1 — *no screen appears that its reader cannot use* —
+    /// could not be tested, because the test needs somebody without <c>admin:manageServer</c>.
+    /// </para>
+    /// <para>
+    /// <b>The password is set here rather than invited.</b> An invitation flow needs mail, a token
+    /// table and an expiry policy, and this server has no way to send a message — so the
+    /// alternative to an administrator typing a first password is no member at all. Recorded as the
+    /// compromise it is: the password crosses the wire, which is why every write on this surface
+    /// requires HTTPS, and the response does not echo it back.
+    /// </para>
+    /// <para>
+    /// <b>The role is required and there is no default.</b> A member created with no role holds
+    /// nothing and reads as broken; a member defaulted to <c>publisher</c> is an authorization
+    /// decision made by whoever wrote the default. Naming it is one field.
+    /// </para>
+    /// </remarks>
+    private static async Task CreateMemberAsync(
+        HttpContext context,
+        MemberRequest request,
+        IMemberDirectory directory,
+        IPasswordHasher hasher,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string name = (request.Name ?? "").Trim();
+
+        if (name.Length == 0)
+        {
+            await Refuse(context, 400, "A member needs a name to sign in with.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (request.Password is not { Length: > 0 } password)
+        {
+            await Refuse(
+                context, 400,
+                "A member needs a first password. This server cannot send an invitation — it has "
+                + "no way to send a message at all — so an administrator sets one and tells them.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (password.Length < AuthEndpoints.MinimumPasswordLength)
+        {
+            await Refuse(
+                context, 400,
+                $"The password must be at least {AuthEndpoints.MinimumPasswordLength} characters. "
+                + "Length is the only rule (ADR-015 §6a), and nothing here checks it against known "
+                + "breached lists — D-23.").ConfigureAwait(false);
+            return;
+        }
+
+        string role = (request.Role ?? "").Trim();
+
+        if (!Roles.All.Contains(role, StringComparer.Ordinal))
+        {
+            await Refuse(
+                context, 400,
+                $"'{role}' is not a role. The roles are {string.Join(", ", Roles.All)}, and one is "
+                + "required: a member with none holds nothing, and a default would be an "
+                + "authorization decision made by whoever wrote it.").ConfigureAwait(false);
+            return;
+        }
+
+        string userType = (request.UserType ?? UserTypes.Unrestricted).Trim();
+
+        if (!UserTypes.All.Contains(userType, StringComparer.Ordinal))
+        {
+            await Refuse(
+                context, 400,
+                $"'{userType}' is not a user type. They are {string.Join(", ", UserTypes.All)}, and "
+                + "a type is a ceiling: it caps whatever the role grants (ADR-018 §3).")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Principal? created = await directory.CreateMemberAsync(
+            name,
+            string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim(),
+            hasher.Hash(password),
+            role,
+            userType,
+            cancellation).ConfigureAwait(false);
+
+        if (created is null)
+        {
+            await Refuse(context, 409, $"There is already a member called '{name}'.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>Audited without the password and without a hash of it.</b> An audit row is read by
+        // more people than the credential table and lives longer.
+        await AuditAsync(
+            context, audit, "member.create", name,
+            Detail(new { role, userType }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        context.Response.StatusCode = StatusCodes.Status201Created;
+
+        await Results.Json(new
+        {
+            name = created.Name,
+            role,
+            userType,
+            note = $"'{name}' can sign in now with the password you set. Tell them to change it "
+                 + "with PUT /rest/auth/password — this one is known to whoever typed it here.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Replaces the role a member holds.</summary>
+    /// <remarks>
+    /// <b>It refuses to remove the last administrator, and that refusal is the whole reason this
+    /// is not one <c>update</c>.</b> A server whose only administrator has been demoted cannot be
+    /// administered by anybody, and there is no recovery path short of SQL against the platform
+    /// store — the same class of unrecoverable state the first-run setup is careful about at the
+    /// other end of the account's life.
+    /// </remarks>
+    private static async Task SetMemberRoleAsync(
+        HttpContext context,
+        string name,
+        MemberRoleRequest request,
+        IMemberDirectory directory,
+        IIdentityStore identity,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? role = string.IsNullOrWhiteSpace(request.Role) ? null : request.Role.Trim();
+
+        if (role is not null && !Roles.All.Contains(role, StringComparer.Ordinal))
+        {
+            await Refuse(context, 400, $"'{role}' is not a role.").ConfigureAwait(false);
+            return;
+        }
+
+        if (role != Roles.Administrator
+            && !await SomebodyElseAdministersAsync(directory, name, cancellation)
+                .ConfigureAwait(false))
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' is the only administrator. Taking that role away would leave a server "
+                + "nobody can administer, and there is no way back except SQL against the platform "
+                + "store. Make somebody else an administrator first.").ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<string>? before =
+            await directory.SetRoleAsync(name, role, cancellation).ConfigureAwait(false);
+
+        if (before is null)
+        {
+            await Refuse(context, 404, $"There is no member called '{name}'.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "member.role", name,
+            Detail(new { from = before, to = role }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            from = before,
+            to = role,
+
+            // <b>Said because it is not obvious and it is a security answer.</b> Sessions carry a
+            // principal, not a privilege set, and the privileges are resolved per request — so a
+            // demotion takes effect on the member's next request rather than on their next sign-in.
+            note = "Their existing sessions are unaffected as sessions and immediately affected as "
+                 + "privileges: what a role grants is resolved on every request, not stamped into "
+                 + "the token.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether an administrator other than this member exists.</summary>
+    /// <remarks>
+    /// Asked of the listing rather than with a count query, because the listing already reports
+    /// roles and a second SQL path for the same fact is a second place to get it wrong.
+    /// </remarks>
+    private static async Task<bool> SomebodyElseAdministersAsync(
+        IMemberDirectory directory, string name, CancellationToken cancellation) =>
+        (await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
+            .Any(m => !string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
+                && !m.IsDisabled
+                && m.Roles.Contains(Roles.Administrator, StringComparer.Ordinal));
+
+    /// <summary>Disables or re-enables a member.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>There is no delete, and the listing's <c>ownsServices</c> is why.</b> A member owns
+    /// content: removing the row would orphan every service whose owner points at it, and the
+    /// sharing evaluator reads that column to decide who may read what. Disabling stops the
+    /// sign-in and leaves the ownership standing, which is the reversible half of the same intent.
+    /// </para>
+    /// <para>
+    /// <b>Their sessions are revoked, which disabling alone would not do.</b> A disabled account
+    /// with a live session is an account that keeps working until the session expires — the
+    /// opposite of what an administrator revoking access believes they have done.
+    /// </para>
+    /// </remarks>
+    private static async Task SetMemberDisabledAsync(
+        HttpContext context,
+        string name,
+        bool disabled,
+        IMemberDirectory directory,
+        IIdentityStore identity,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (disabled
+            && !await SomebodyElseAdministersAsync(directory, name, cancellation)
+                .ConfigureAwait(false))
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' is the only administrator, so disabling them would leave a server "
+                + "nobody can administer.").ConfigureAwait(false);
+            return;
+        }
+
+        bool? was = await directory
+            .SetDisabledAsync(name, disabled, cancellation).ConfigureAwait(false);
+
+        if (was is null)
+        {
+            await Refuse(context, 404, $"There is no member called '{name}'.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, disabled ? "member.disable" : "member.enable", name,
+            Detail(new { wasDisabled = was }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            wasDisabled = was,
+            disabled,
+            note = disabled
+                ? "They cannot sign in, and what they own is untouched — which is why there is no "
+                  + "delete here: removing the row would orphan every service that names them as "
+                  + "its owner."
+                : "They can sign in again with the password they had.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Sets a member's password without knowing the old one.</summary>
+    /// <remarks>
+    /// <b>A stronger act than it looks, and separate from the self-service change for that
+    /// reason.</b> <c>PUT /rest/auth/password</c> requires the current password; this cannot,
+    /// because an administrator resetting a forgotten one does not know it. So it hands somebody a
+    /// working credential for an account that owns content, and it is audited under its own name.
+    /// </remarks>
+    private static async Task SetMemberPasswordAsync(
+        HttpContext context,
+        string name,
+        MemberPasswordRequest request,
+        IMemberDirectory directory,
+        IPasswordHasher hasher,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.Password is not { Length: > 0 } password
+            || password.Length < AuthEndpoints.MinimumPasswordLength)
+        {
+            await Refuse(
+                context, 400,
+                $"The password must be at least {AuthEndpoints.MinimumPasswordLength} characters.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!await directory.SetPasswordAsync(name, hasher.Hash(password), cancellation)
+            .ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"There is no member called '{name}'.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "member.password", name, Detail(new { reset = true }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            note = "Their existing sessions still work: a session is not a credential, and "
+                 + "revoking them is a separate act. Tell them to change this one — it is known to "
+                 + "whoever typed it here.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

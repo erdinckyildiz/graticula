@@ -20,6 +20,20 @@
   /* One accent, and the form controls use it too rather than the browser's blue. */
   :root { accent-color: var(--accent); }
   body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
+
+  /*
+    <b>`hidden` has to win, and it did not.</b> The browser's own rule for the attribute is
+    `[hidden] { display: none }` at user-agent weight, which **any** author rule with a `display`
+    beats — so `#surfaces { display: flex }` kept the Server/Studio switch on screen for a reader
+    who is only allowed one surface, although `drawSurfaces` had set `hidden` on it. Found
+    2026-08-17 the first time a publisher account existed to look with, and it had been false the
+    whole time: the claim that the switch hides was read out of the code, which is exactly what
+    ADR-034 condition 1 warned about.
+    <b>Written as a class rather than as `#surfaces[hidden]`</b>, because the next element given a
+    `display` and a `hidden` would have the same bug and nobody would connect the two — this
+    stylesheet already has several (D-46).
+  */
+  [hidden] { display: none !important; }
   a { color: var(--accent); }
 
   /* ---------------------------------------------------------------- chrome */

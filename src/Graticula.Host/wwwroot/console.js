@@ -137,6 +137,12 @@ const SURFACES = {
       // deployment then depends on, and its failures are operational.
       ["sources", "Data sources"],
 
+      // <b>Members, needing `admin:manageMembers`.</b> It sits in Server because making somebody
+      // an administrator is an administrative act, not a content one — the same split §5c draws
+      // everywhere else. The tab is drawn for everybody who can enter Server, which today is the
+      // same set: the administrator role carries both privileges.
+      ["members", "Members"],
+
       ["operations", "Operations"],
     ],
     action: null,
@@ -179,6 +185,7 @@ const SCREEN_SURFACE = {
   content: "studio",
   anonymous: "studio",
   sources: "server",
+  members: "server",
 };
 
 let privileges = new Set();
@@ -366,6 +373,7 @@ function openScreen(surface, screen, folder) {
   }
 
   if (screen === "content") section("your content", loadMyContent, "mine");
+  if (screen === "members") section("members", loadMembers, "members");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
 }
@@ -1149,6 +1157,74 @@ async function loadServiceLimits(name) {
   $("limClear").hidden = false;
   panel.hidden = false;
   return limits;
+}
+
+/**
+ * Everybody with an account, and the form that makes one.
+ *
+ * <b>This is what <a href="../../../docs/architecture-debt.md">D-56</a> was.</b> A deployment had
+ * exactly one account for ever, so every claim about what a publisher sees was reasoning rather
+ * than measurement — including ADR-034's, whose condition 1 asks for a test that signs in
+ * *without* `admin:manageServer`.
+ *
+ * <b>The role picker says what each role carries, from the server.</b> `/admin/members` reports
+ * the grants beside the roles for exactly this: a picker whose options are words an administrator
+ * has to look up elsewhere is a picker that gets used wrongly, and a copy of ADR-018 §2a written
+ * into this file would be the copy nobody updates.
+ */
+async function loadMembers() {
+  const answer = await api("/admin/members");
+  const rows = answer.members || [];
+
+  memberGrants = answer.grants || {};
+
+  const fill = (id, values, chosen) => {
+    $(id).innerHTML = values.map(v =>
+      `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(v)}</option>`).join("");
+  };
+
+  fill("mRole", answer.roles || [], "publisher");
+  fill("mType", answer.userTypes || [], "creator");
+  describeRole();
+
+  $("memberCount").textContent =
+    `${rows.length} member${rows.length === 1 ? "" : "s"}`;
+
+  $("members").innerHTML = rows.map(m => `
+    <tr>
+      <td class="name">${h(m.name)}${m.displayName
+        ? `<div class="val" style="font-weight:400">${h(m.displayName)}</div>` : ""}</td>
+      <td><select data-member-role="${h(m.name)}">
+        ${(answer.roles || []).map(r =>
+          `<option value="${h(r)}"${m.roles.includes(r) ? " selected" : ""}>${h(r)}</option>`)
+          .join("")}
+        <option value=""${m.roles.length === 0 ? " selected" : ""}>— none —</option>
+      </select></td>
+      <td class="val">${h(m.userType)}</td>
+      <td>${pill(m.disabled ? "disabled" : "active")}</td>
+      <td class="num">${num(m.ownsServices)}</td>
+      <td class="val">${h(String(m.createdAt).slice(0, 10))}</td>
+      <td class="acts" style="text-align:right">
+        <button class="tiny" data-member-password="${h(m.name)}">Set password</button>
+        <button class="tiny ${m.disabled ? "" : "danger"}"
+          data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
+          >${m.disabled ? "Enable" : "Disable"}</button>
+      </td>
+    </tr>`).join("");
+}
+
+/** What each role carries, kept from the last listing so the picker can explain itself. */
+let memberGrants = {};
+
+/** Names the privileges of the role the form has selected. */
+function describeRole() {
+  const role = $("mRole")?.value;
+  const carries = memberGrants[role] || [];
+
+  $("mGrants").innerHTML = carries.length
+    ? `<b>${h(role)}</b> carries ${carries.map(p => `<code>${h(p)}</code>`).join(" ")}`
+    : `<b>${h(role)}</b> carries nothing. Reading is governed by each layer's sharing rather than `
+      + `by a privilege, so a viewer reads plenty and can change nothing (ADR-018 §2).`;
 }
 
 /** Which folder the Server services screen is looking at: null is the root. */
@@ -2827,6 +2903,70 @@ async function handleClick(event) {
 
   // A service with no layers is started and stopped through its own route, because it is its
   // own row in its own table — see SetSystemStatusAsync for why that is not the layer route.
+  if (t.id === "memberNew") {
+    $("memberForm").hidden = false;
+    $("mName").focus();
+    return;
+  }
+
+  if (t.id === "mCancel") {
+    $("memberForm").hidden = true;
+    for (const id of ["mName", "mDisplay", "mPassword"]) $(id).value = "";
+    return;
+  }
+
+  if (t.id === "mSave") {
+    t.disabled = true;
+    try {
+      const made = await api("/admin/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: $("mName").value,
+          displayName: $("mDisplay").value || null,
+          password: $("mPassword").value,
+          role: $("mRole").value,
+          userType: $("mType").value,
+        }),
+      });
+      toast(made.note, true);
+      $("memberForm").hidden = true;
+      for (const id of ["mName", "mDisplay", "mPassword"]) $(id).value = "";
+    } catch (e) { toast(e.message); }
+    t.disabled = false;
+    await section("members", loadMembers, "members");
+    return;
+  }
+
+  if (d.memberState) {
+    t.disabled = true;
+    try {
+      const r = await api(`/admin/members/${encodeURIComponent(d.memberState)}/${d.to}`,
+        { method: "POST" });
+      toast(`${r.name}: ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+    await section("members", loadMembers, "members");
+    return;
+  }
+
+  if (d.memberPassword) {
+    // <b>`prompt`, and it is the honest control for this.</b> A password field on every row would
+    // be a page full of empty password boxes, and a drawer for one field is a drawer. What matters
+    // is the sentence: whoever types this knows it afterwards.
+    const password = prompt(`A new password for ${d.memberPassword}. You will know it afterwards, `
+      + `so tell them to change it. At least 8 characters.`);
+    if (!password) return;
+    try {
+      const r = await api(`/admin/members/${encodeURIComponent(d.memberPassword)}/password`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      toast(r.note, true);
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
   if (t.id === "limSave" || t.id === "limClear") {
     const clearing = t.id === "limClear";
     const name = ($("serviceCrumb").querySelector("b")?.textContent || "").trim();
@@ -2942,6 +3082,29 @@ document.addEventListener("change", async event => {
       toast(`${d.share}: shared ${r.from} → ${r.to}`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();
+    return;
+  }
+
+  // <b>A role change is a select, so it belongs here and not in the click handler.</b> Applied the
+  // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
+  // revoking somebody's ability to publish has to be able to trust that it happened, rather than
+  // press Save afterwards.
+  if (d.memberRole) {
+    try {
+      const r = await api(`/admin/members/${encodeURIComponent(d.memberRole)}/role`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: event.target.value || null }),
+      });
+      toast(`${r.name}: ${(r.from || []).join(", ") || "none"} → ${r.to || "none"}. ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+    await section("members", loadMembers, "members");
+    return;
+  }
+
+  // The form's own role picker only explains itself; nothing is saved until Create.
+  if (event.target?.id === "mRole") {
+    describeRole();
     return;
   }
 
@@ -3154,6 +3317,15 @@ async function start() {
   // `admin:viewAllContent`, so asking for it as a publisher is a refusal in the corner of a
   // screen they should not have been shown — which is the defect ADR-034 exists to fix, and
   // it would be silly to reproduce it during boot.
+  // <b>Nothing that says it is working on something it will not do.</b> The health line reads
+  // *checking…* until `refreshHealth` answers, and `refreshHealth` is only called for a reader
+  // with `admin:manageServer` — so for a publisher it said *checking…* for ever. The same small
+  // lie as the tokenless case, found the same way: by looking at the screen as somebody else.
+  if (!may("admin:manageServer")) {
+    $("healthDot").hidden = true;
+    $("healthLine").hidden = true;
+  }
+
   await Promise.all([
     may("admin:manageServer") ? section("health", refreshHealth) : Promise.resolve(),
     may("admin:viewAllContent") ? section("layers", loadLayers) : Promise.resolve(),

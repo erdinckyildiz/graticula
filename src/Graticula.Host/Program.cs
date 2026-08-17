@@ -136,6 +136,12 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // <b>A second port over the same store, and the split is deliberate</b> — see
+        // IMemberDirectory. Every request touches IIdentityStore to authenticate; only
+        // admin:manageMembers touches this, so the login path has no route to member creation.
+        builder.Services.AddSingleton<IMemberDirectory>(services =>
+            new PostgresMemberDirectory(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>Its own pool, not the platform store's, and the difference is the
         // search path.</b> The platform store's connection names the schema
         // holding `layer` and `principal`; PostGIS lives in `public`. Sharing

@@ -405,6 +405,73 @@
     client reads — because a second admin route returning the same list would be a second place
     for it to be wrong.
   -->
+  <!-- ------------------------------------------------- SERVER · members -->
+  <!--
+    <b>The screen D-56 was about.</b> Until 2026-08-17 a deployment had exactly one account for
+    ever: first-run setup made the administrator and nothing made a second, so `admin:manageMembers`
+    was a privilege with nothing behind it and Studio was a surface with no possible occupant.
+
+    <b>Built out of the idioms the other screens use</b> — a `.setting` column for the form, one
+    table for the list, actions in the row — rather than a new shape, which is D-46 instance 8's
+    lesson from the same day.
+  -->
+  <section class="view" id="view-members">
+    <div class="toolbar">
+      <span class="val" id="memberCount"></span>
+      <span style="flex:1"></span>
+      <button class="primary" id="memberNew">New member</button>
+    </div>
+
+    <div class="panel" id="memberForm" hidden>
+      <div class="page on" id="memberPages">
+        <h4>A new member</h4>
+        <div class="setting"><span class="q">Name they sign in with:</span>
+          <input id="mName" type="text" autocomplete="off"><span class="u"></span></div>
+        <div class="setting"><span class="q">Shown instead of the name, if you like:</span>
+          <input id="mDisplay" type="text" autocomplete="off"><span class="u"></span></div>
+        <div class="setting"><span class="q">Their first password:</span>
+          <input id="mPassword" type="password" autocomplete="new-password"><span class="u">8+</span></div>
+        <div class="setting"><span class="q">Role, which decides what they may do:</span>
+          <select id="mRole"></select><span class="u"></span></div>
+        <div class="setting"><span class="q">User type, which caps whatever the role grants:</span>
+          <select id="mType"></select><span class="u"></span></div>
+
+        <p class="hint" id="mGrants"></p>
+
+        <!--
+          <b>Said plainly rather than left as a gap somebody assumes we filled.</b> There is no
+          invitation flow because this server cannot send a message — no mail, no token table, no
+          expiry policy — so the alternative to an administrator typing a first password was no
+          member at all.
+        -->
+        <p class="hint"><b>You type their first password and tell them.</b> This server cannot send
+          an invitation — it has no way to send a message at all — so the password is known to
+          whoever fills this in, and they should change it with their own password page. Nothing
+          here checks it against known breached lists (<b>D-23</b>).</p>
+
+        <div class="row">
+          <button class="primary" id="mSave">Create</button>
+          <button class="tiny" id="mCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Member</th><th>Role</th><th>User type</th><th>State</th>
+          <th class="num">Owns</th><th>Since</th><th></th>
+        </tr></thead>
+        <tbody id="members"></tbody>
+      </table>
+    </div>
+
+    <p class="hint"><b>There is no delete, and the <em>Owns</em> column is why.</b> A member owns
+      content: removing the row would orphan every service that names them as its owner, and the
+      sharing rules read that to decide who may see what. Disabling stops the sign-in and leaves
+      the ownership standing.</p>
+  </section>
+
   <section class="view" id="view-service">
     <div id="editHead">
       <div class="crumbs" id="serviceCrumb"></div>

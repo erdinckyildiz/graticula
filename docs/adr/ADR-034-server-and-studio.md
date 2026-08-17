@@ -401,12 +401,30 @@ sometimes *"3 layers, 1 group"*.
    sentence naming the missing privilege (`route`), and every write behind it is gated at the
    endpoint. Restating a requirement is not evidence that it holds, and this remains the one
    condition whose evidence is unobtainable.
-   **Blocked, and the block is worth more than the condition:** there is no way to create a
-   second user. The first-run setup makes the administrator and no endpoint makes another, so
-   the reader this condition needs cannot exist — [D-56](../architecture-debt.md), opened
-   2026-08-17 on finding it. Until then §5b's gate is written and unexercised, and every claim
-   in this ADR about what a publisher sees is reasoning rather than measurement. **That includes
-   §1's account of the console refusing four times**, which was read out of the code.
+   **PARTLY DISCHARGED 2026-08-17, and the part that is not is honest about why.** D-56 closed:
+   `POST /admin/members` creates a member with a role, a user type and a first password, so the
+   reader this condition needs now exists. **Measured with one:** a `publisher`/`creator` account
+   holds seven privileges and neither `admin:manageServer` nor `content:registerDataStore`; every
+   `/admin` route it touched refused it (403 × 8, `/admin/health` 200 because it is deliberately
+   anonymous and redacted — D-18); `/content/layers` answered with 0 owned and 12 shared; and a
+   browser holding that account's token, asked for `/server/#/services`, landed in Studio with
+   `esra · publisher · creator` in the header and *My content* selected.
+
+   **The first thing that measurement did was falsify a claim in this ADR.** The Server/Studio
+   switch was **visible** to the publisher, although `drawSurfaces` sets `hidden` on it: the
+   attribute's rule is user-agent weight and `#surfaces { display: flex }` beats it. So the
+   sentence *the switch is hidden below two allowed surfaces* — written here and in a commit
+   message the same day, from reading the code — was false for as long as it had been written.
+   Fixed as `[hidden] { display: none !important }`, recorded as [D-46](../architecture-debt.md)
+   instance 9, and re-measured: the publisher's header now carries no switch and no health line,
+   the administrator's carries both.
+
+   **What is still not discharged is the test.** All of the above is a person running a script and
+   looking at a screenshot; the condition asks for something that fails a build. That needs a
+   browser harness, which this repository has none of — [D-59](../architecture-debt.md) — and it
+   is the same absence that let the switch claim stand for a day. **Marked `PARTLY DISCHARGED`
+   rather than done, because the difference between *measured once* and *asserted on every push*
+   is exactly what this session kept paying for.**
 2. **One stylesheet and one map module across both surfaces**, asserted by a test that fails
    if a second copy of either appears. D-46 has six recorded instances and this decision
    doubles the opportunity.
