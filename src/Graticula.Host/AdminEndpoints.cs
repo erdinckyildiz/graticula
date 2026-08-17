@@ -144,6 +144,13 @@ internal static class AdminEndpoints
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
         app.MapPost("/admin/layers", PublishAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
+
+        // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
+        // listing above needs `admin:viewAllContent`, so a publisher asking for their own
+        // layers is refused: it is an administrator's view of everybody's content. Studio
+        // cannot be built on it. This answers the other question, for whoever is asking,
+        // with no privilege beyond being signed in.
+        app.MapGet("/content/layers", ListMyContentAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -267,6 +274,118 @@ internal static class AdminEndpoints
             // here is ADR-018 condition 5 failing.
             ungoverned = routes.Count(r =>
                 !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The layers this caller may see, and which of them are theirs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No privilege beyond being signed in, and that is the point.</b> Everything else on
+    /// this surface asks for one; this asks *who are you* and answers accordingly. A reader
+    /// with no content of their own gets the public and organisation-shared layers, which is
+    /// exactly what they can already reach through the services directory — so this discloses
+    /// nothing new. It reshapes what the directory says into what a content screen needs.
+    /// </para>
+    /// <para>
+    /// <b>Mine and shared-with-me are reported apart</b>, because a publisher acts differently
+    /// on each: one they may restyle and unpublish, the other they may only look at. Returning
+    /// one flat list and letting the browser guess from an owner name is how a UI ends up
+    /// offering a delete that will be refused.
+    /// </para>
+    /// <para>
+    /// <b>The same evaluator the serving path uses</b> — <see cref="LayerAccess"/> — rather
+    /// than a second reading of the sharing rules. ADR-018's refusal is deliberately identical
+    /// for absent and not-shared, and a listing that computed visibility its own way would
+    /// eventually disagree with the endpoint that enforces it. That disagreement is
+    /// [D-45](../../docs/architecture-debt.md) in a different shape: two documents, one
+    /// question, and a client that cannot act on either.
+    /// </para>
+    /// </remarks>
+    private static async Task ListMyContentAsync(
+        HttpContext context,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        // <b>`IsAnonymous`, not an empty id — the first version of this check was dead
+        // code.</b> An anonymous request carries a real `Principal.Anonymous` with its own
+        // identity, because ADR-015 §2a made anonymous a principal whose grants are looked up
+        // like anybody's. Comparing its id to `Guid.Empty` therefore never matched, and an
+        // unauthenticated caller received a 200 listing the public layers under a heading that
+        // says *mine*. Measured, not reasoned: the endpoint answered 200 with no credential.
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401,
+                "This lists your own content, so it needs to know who you are. Sign in at "
+                + "/rest/auth/login. The public layers are in the services directory at "
+                + "/rest/services, which needs no credential.").ConfigureAwait(false);
+            return;
+        }
+
+        // The services, because a layer's address is its service and its index — the fact
+        // /admin/layers does not carry and D-45 records. A content screen has to be able to
+        // build a URL.
+        IReadOnlyList<PublishedService> services =
+            await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        List<object> mine = [];
+        List<object> shared = [];
+
+        foreach (PublishedService service in services)
+        {
+            LayerAccess.Reason reason = LayerAccess.Evaluate(
+                service.Sharing, service.Owner, current.Principal, current.Authorization);
+
+            if (!reason.IsAllowed())
+            {
+                continue;
+            }
+
+            bool owned = service.Owner == current.Principal.Id;
+
+            foreach (PublishedLayer layer in service.Layers)
+            {
+                object entry = new
+                {
+                    name = layer.Definition.Name,
+                    service = service.QualifiedName,
+                    folder = service.Folder,
+                    layerId = layer.LayerIndex,
+
+                    // The address, built here rather than left to be guessed. This is the
+                    // whole of D-45's complaint answered for this listing.
+                    url = $"/rest/services/{service.QualifiedName}/FeatureServer/{layer.LayerIndex}",
+
+                    sharing = PostgresSharing(service.Sharing),
+                    status = Wire(service.Status),
+                    hosted = layer.Definition.IsHosted,
+                    geometry = layer.GeometryType.ToString(),
+
+                    // Why it is visible, in the evaluator's own words: owner, organisation, or
+                    // public. A publisher reading *organization* knows why they cannot restyle
+                    // it before they try.
+                    because = reason.ToString(),
+                };
+
+                (owned ? mine : shared).Add(entry);
+            }
+        }
+
+        await Results.Json(new
+        {
+            mine,
+            shared,
+
+            // Said rather than counted by the caller, because "you have published nothing
+            // yet" and "nothing is shared with you" are different first-run screens.
+            note = mine.Count == 0
+                ? "You have not published anything yet. Everything listed under 'shared' is "
+                  + "visible to you but owned by somebody else."
+                : null,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

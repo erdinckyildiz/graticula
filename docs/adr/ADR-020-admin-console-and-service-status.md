@@ -7,6 +7,16 @@
 | **Decided** | 2026-08-14 |
 | **Answers** | [ADR-017](ADR-017-admin-api.md) §7's deferred *whether there is a web console* · owner request for start/stop |
 
+
+> **Amended 2026-08-17 by [ADR-034](ADR-034-server-and-studio.md).** One console becomes two
+> surfaces over the same API: **Server** for the operator, gated on `admin:manageServer`, and
+> **Studio** for the publisher, gated on being signed in. Everything below still describes the
+> screens; what changes is which surface each is in and who is shown it. The reason is a defect
+> in what this ADR built: §5e's per-section failure isolation was designed for a half-broken
+> *server* and, against a half-privileged *reader*, produces a console whose screens refuse one
+> at a time. §5c of ADR-034 has the allocation, derived from the privileges each endpoint
+> already demands rather than from where a screen currently sits.
+
 ---
 
 ## 1. Context
