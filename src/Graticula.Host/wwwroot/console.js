@@ -3123,6 +3123,10 @@ async function handleClick(event) {
   if (t.id === "collapse" || t.closest?.("#collapse")) {
     const tight = $("shell").classList.toggle("tight");
     try { localStorage.setItem("gis-rail", tight ? "tight" : "wide"); } catch { /* private mode */ }
+
+    // The label is hidden when narrow, so the tooltip is the only thing left that can say what
+    // pressing this does — and it has to say the *next* state, like the arrow beside it.
+    $("collapse").title = tight ? "Widen the sidebar" : "Narrow the sidebar";
     return;
   }
 
@@ -3810,7 +3814,10 @@ $("signout").addEventListener("click", async event => {
  * from wide to narrow while the session is being read.
  */
 try {
-  if (localStorage.getItem("gis-rail") === "tight") $("shell").classList.add("tight");
+  if (localStorage.getItem("gis-rail") === "tight") {
+    $("shell").classList.add("tight");
+    $("collapse").title = "Widen the sidebar";
+  }
 } catch { /* private mode: the default width is a fine answer */ }
 
 async function start() {

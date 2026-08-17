@@ -448,7 +448,15 @@ a:hover { text-decoration: underline; }
   padding: 10px 14px; border-radius: 7px;
   color: #d3d7f4; font: 500 var(--t-body)/1 var(--sans);
 }
-#collapse .arrow { font-size: 15px; line-height: 1; opacity: .8; }
+/*
+  <b>The arrow points at what pressing it will do.</b> Owner 2026-08-18: *"collapse olunca ok öbür
+  yöne mi dönse?"* Yes — an arrow on a toggle names the next state, not the current one, so a
+  collapsed column shows the arrow that widens it. Flipped rather than swapped for another character:
+  one glyph that turns is one glyph, and the two directions cannot drift apart.
+*/
+#collapse .arrow { font-size: 15px; line-height: 1; opacity: .8;
+                   transition: transform .16s ease-out; }
+#shell.tight #collapse .arrow { transform: scaleX(-1); }
 #collapse:hover { background: rgba(255, 255, 255, .06); color: #fff; }
 #collapse:hover .arrow { opacity: 1; }
 #shell.tight #collapse .label { display: none; }
