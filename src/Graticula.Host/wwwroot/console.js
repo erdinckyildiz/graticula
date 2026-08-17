@@ -1160,7 +1160,8 @@ async function showService(qualified) {
     $("serviceLayers").innerHTML = layers.length === 0
       ? `<tr><td colspan="5" class="empty">This service holds no layers yet. Publish one into it
            by naming it in the publish form.</td></tr>`
-      : layers.map(l => `<tr>
+      : layers.map(l => `<tr${l.type === "Group Layer"
+          ? "" : ` class="pick" data-pick="${h(l.name)}"`}>
           <td class="num">${l.id}</td>
           <td class="name">${h(l.name)}</td>
           <td class="val">${h(l.type)}</td>
@@ -1795,8 +1796,13 @@ async function loadServices() {
 
       const stopped = r.status === "stopped";
 
-      // One layer and no groups: the drill-in would show a single row, so the row goes to it.
-      const only = !r.system && r.layers === 1 && !r.groups && r.cover ? r.cover.name : "";
+      // <b>The shortcut is gone, and its removal is the fix to a defect it caused.</b> A
+      // single-layer service used to open its layer directly, because the drill-in was then a
+      // one-row table whose only control was a *Settings* link (owner: *"this is a really
+      // meaningless page tbh"*). That page now holds the **service's** settings — so the shortcut
+      // meant eight of nine services had no reachable Capabilities or Limits at all, which is what
+      // *"tüm servislerden limits ler uçmuş"* was. A row opens its service; the service's list
+      // opens a layer.
 
       // <b>A system row opens as well.</b> It used to be the one row on this screen that was
       // not clickable, on the argument that there are no layers inside to list — true, and it
@@ -1812,8 +1818,7 @@ async function loadServices() {
       // menu where appropriate."* Start/Stop is the thing an operator does here, so it stays; Delete
       // moves into the menu, where its refusal — a service that still holds layers cannot be
       // removed — has room to be a sentence instead of a tooltip.
-      return `<tr class="pick" data-service="${h(r.qualified)}"${
-        only ? ` data-only="${h(only)}"` : ""}>
+      return `<tr class="pick" data-service="${h(r.qualified)}">
         <td>${r.cover
           ? `<canvas class="thumb" width="104" height="74"
                data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
@@ -3224,10 +3229,7 @@ async function handleClick(event) {
   // choice. `data-only` carries the member's name, from the same `cover` the preview uses.
   const service = t.closest("tr[data-service]");
   if (service && !control) {
-    const only = service.dataset.only;
-    location.hash = only
-      ? `#/layer/${encodeURIComponent(only)}/general`
-      : `#/service/${encodeURIComponent(service.dataset.service)}`;
+    location.hash = `#/service/${encodeURIComponent(service.dataset.service)}`;
     return;
   }
 
