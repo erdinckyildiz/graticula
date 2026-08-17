@@ -60,7 +60,16 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             // the other three suites are loading.
             Graticula.Testing.OneSuiteAtATime.Enter();
 
-            _source = NpgsqlDataSource.Create(connection);
+            // <b>The same two-minute bound as PostgresFixture, for the same measured
+            // reason.</b> These compare the overlay worker against PostGIS on the same
+            // 2,240 MB corpus table, so they meet the same 1,362 MB cold read at 40.8
+            // MB/s — 33.4 s against Npgsql's 30-second default. The full account is in
+            // PostgresFixture and on D-43; what matters here is that the bound lives in
+            // both places that read the corpus, because a fix applied to one of the
+            // several places that carry a behaviour is D-46 exactly.
+            NpgsqlDataSourceBuilder builder = new(connection);
+            builder.ConnectionStringBuilder.CommandTimeout = 120;
+            _source = builder.Build();
 
             _pool = new GeometryWorkerPool(
                 GeometryWorkerPool.ExecutableBesideThisOne(),

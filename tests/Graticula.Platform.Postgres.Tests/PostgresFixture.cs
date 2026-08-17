@@ -84,6 +84,41 @@ public abstract class PostgresFixture : IAsyncLifetime
         // outright makes st_asbinary vanish with a confusing "function does not
         // exist" rather than an obvious configuration error.
         builder.ConnectionStringBuilder.SearchPath = $"{_schema},public";
+
+        // <b>Two minutes, not Npgsql's thirty seconds, and the number comes from a
+        // measurement rather than from caution.</b> D-43: three of these classes failed
+        // on the first run after a build and passed on every rerun, always at 31–33
+        // seconds — which is the default `CommandTimeout` and not an assertion
+        // disagreeing.
+        //
+        // <b>The mechanism, measured 2026-08-18.</b> The oracle classes read
+        // `public.planet_osm_polygon` — 6,499,215 rows, 2,240 MB — with
+        // `order by osm_id limit 500`. There is no index on `osm_id`, only a spatial
+        // one on `way`, so that is a parallel sequential scan with a top-N sort:
+        // `explain (analyze, buffers)` reports **166,335 blocks read**, which is
+        // 1,362 MB. The container's virtual disk reads at **40.8 MB/s** uncached
+        // (`dd iflag=direct`). 1,362 ÷ 40.8 = **33.4 s** — the observed failure, to the
+        // second. Warm, the same query is 1.4 s, which is why a rerun passes.
+        //
+        // <b>And why a build triggers it.</b> The whole 5 GB database normally sits in
+        // the WSL2 virtual machine's page cache. A build's allocations put Windows
+        // under memory pressure, WSL2 hands memory back and drops that cache, and the
+        // next read comes off the virtual disk.
+        //
+        // <b>Why a bound rather than a smaller sample.</b> D-43 said raising this would
+        // hide the contention — written while the cause was believed to be contention
+        // between suites. It is not: it is a known, bounded, one-off physical read whose
+        // size and rate are both measured above. The alternative repairs each cost
+        // something real — restricting the read spatially would use the `way` index and
+        // cut the I/O by 8.7×, but it narrows what an oracle test compares against and
+        // makes the sample depend on which extract is loaded. So the sample stays whole
+        // and the bound fits the physics. **Two minutes is 3.6× the measured cold read**,
+        // which still fails fast on a query that is genuinely not returning.
+        //
+        // <b>The permanent fix is not this repository's to make.</b> An index on
+        // `osm_id` makes the query instant — about 140 MB on a table this server does
+        // not own and did not create. That is the operator's call, and D-43 records it.
+        builder.ConnectionStringBuilder.CommandTimeout = 120;
         _dataSource = builder.Build();
 
         await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync();
