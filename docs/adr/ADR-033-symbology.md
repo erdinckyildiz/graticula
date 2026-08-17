@@ -236,6 +236,65 @@ its input.
 
 **Not SLD** — §2E.
 
+### 5h. It lives in the platform store, and the boundary is a rule rather than a habit
+
+Asked by the owner directly — *the PostgreSQL database is mandatory, so this or the file
+system?* The repository already applies a three-way rule, written in
+[HostSettings](../../src/Graticula.Host/HostSettings.cs)'s own comments, and symbology is
+only ambiguous until the rule is stated:
+
+| Home | The test it applies | What is there |
+|---|---|---|
+| **Platform store** | authored state — somebody's decision, unrecoverable if lost | the catalogue, sharing, the style column from migration 14, sessions, the audit log |
+| **`StatePath`** | a secret that must survive a container replacement | the serving certificate |
+| **`TileCachePath`** | derived — **must not be backed up**, rebuilt in seconds | tiles |
+
+Symbology fails the second and third tests and passes the first, so it goes in the store.
+Four arguments beyond that, of which the first is decisive:
+
+- **Instances are interchangeable.** [ADR-029](ADR-029-affinity-routing-is-not-the-default.md)
+  rejected affinity routing, so any request may land on any instance. A tile cache missing
+  on the second node is *slower* — a miss, a rebuild, the same answer. A **style** missing
+  on the second node is a **different answer**: the layer draws in different colours
+  depending on which node replied, and nothing in the response says so. The file system
+  loses this outright without shared storage, which [deployment.md](../deployment.md)
+  records as unvalidated and which §6's anti-overengineering rule would ask to justify.
+- **One transaction, one foreign key.** A style names its service's source layers and is
+  validated against them (ADR-028). Deleting a layer must not leave an orphan style. In
+  the same database that is a constraint; on the file system it is a second store with its
+  own consistency story — the *one fact, two homes* class this project has already paid
+  for three times ([D-24](../architecture-debt.md), [D-47](../architecture-debt.md), and
+  the stale registers found on 2026-08-17).
+- **One backup ([Q-48](../open-questions.md)).** A single dump restores the catalogue and
+  its cartography at the same instant. Files mean a second backup nobody schedules and a
+  restore that yields last week's colours — and **nothing looks broken**, which is the
+  worst property a restore can have.
+- **The audit trail is already there.** Every administrative write is audited in this
+  store, and §5a's revisions belong beside it. A file's modification time is not *who*.
+
+**The size objection is where the file system usually wins, and it does not apply.** Real
+styles are tens of kilobytes; the bound is a megabyte, enforced as a **check constraint**
+in the database rather than in our code, so a second writer cannot bypass it. A thousand
+services is thirty megabytes in practice and a gigabyte at the absurd bound. The column is
+`text` rather than `jsonb` so an author gets back the bytes they sent.
+
+**The one real objection, measured rather than argued:** if the store is unreachable, does
+a map lose its appearance? [ADR-026](ADR-026-serving-through-a-platform-store-outage.md)
+serves remembered public layers for a bounded window, and the style endpoint resolves
+through that same fallback — `PublishedService.Style` travels on the remembered record, so
+the last known style is served for as long as the window lasts. That was verified in the
+code rather than assumed, and it is written here because it is the property that makes the
+storage choice safe. Had it not held, the answer would still have been a cache and not a
+different home.
+
+**Where the file system keeps winning, so this boundary is principled:** glyph ranges are
+build artefacts, identical in every deployment and served immutable, and they stay in the
+image ([ADR-027](ADR-027-glyphs-and-sprites.md)); tiles are derived and per-node;
+certificates are secrets. The interesting edge is an **operator-uploaded sprite sheet**,
+which is authored content rather than a build artefact — by the rule above it belongs in
+the store as bytes, and attachments (ADR-013) are the precedent. If attachments later move
+to disk or object storage, sprites follow them; the style does not.
+
 ## 6. Consequences
 
 - **A migration**, adding the canonical column and the fidelity report to the layer. The
@@ -260,6 +319,14 @@ its input.
    by a test that draws the same layer through the tile style, the feature document and
    the console's own choice and compares the colour. Three faces agreeing by accident is
    how they drift apart later.
+   *(Discharged 2026-08-17. `GeneratedSymbologyTests.Both_faces_draw_the_layer_in_the_same_colour`
+   compares the two protocol faces per geometry kind, converting `[r, g, b, a]` back to
+   hex; the console has no third choice left to compare, because it now reads
+   `drawingInfo` from the document instead of picking from a palette. Measured on the
+   running server as well — seven layers, both faces, every pair equal — and **measured
+   from inside a real client**: the ArcGIS Maps SDK parsed our document into a `simple`
+   renderer with a `simple-fill` at `#ccbb44` and alpha `0.451`, which is the generator's
+   0.45 carried through the alpha channel and applied once rather than twice.)*
 2. **The derivation reports its losses, and the report is tested against a style that
    loses something** — a zoom-interpolated width is the obvious case. A conversion that
    silently approximates is the failure mode this whole decision accepts a risk on, and
@@ -271,6 +338,10 @@ its input.
 4. **No absolute URL is ever stored in a canonical document**, asserted by a test that
    writes one and reads the stored form back. §5c is the kind of rule that decays the
    first time somebody stores what they were sent.
+5. **The size bound on the new column is a check constraint, not a C# guard.** Migration
+   14 already did this for the per-service style and its comment says why: a bound that
+   lives only in the application is a bound the next writer bypasses. A column that can
+   hold a megabyte of anything becomes a place to store something else.
 
 ## 8. Assumptions
 

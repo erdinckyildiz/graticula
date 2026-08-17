@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Graticula.Cartography;
 using Graticula.Catalog;
 using Graticula.Features;
 using Graticula.Geometries;
@@ -86,6 +87,112 @@ public static class FeatureServerMetadataWriter
             shortLivedTokenValidity = 720,
         },
     };
+
+    /// <summary>
+    /// The <c>drawingInfo</c> an ArcGIS client draws with, from the generated appearance.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The renderer is <c>simple</c>, and the symbol vocabulary is the documented
+    /// subset</b> — <c>esriSFS</c>, <c>esriSLS</c>, <c>esriSMS</c>. ADR-033 §5e says we do
+    /// not claim CIM, and the honest way to not claim something is to emit only what we
+    /// mean: a client asking for a fill gets a fill it understands rather than a symbol
+    /// reference it has to resolve.
+    /// </para>
+    /// <para>
+    /// <b>Colours are <c>[r, g, b, a]</c> with alpha in 0–255</b>, which is the shape the
+    /// ArcGIS REST specification defines for a symbol colour. Opacity therefore lives in
+    /// the alpha channel here and in a separate paint property on the tile face — the same
+    /// decision expressed twice because the two formats spell it differently, which is
+    /// precisely why one generator decides it and two writers only translate.
+    /// </para>
+    /// </remarks>
+    /// <param name="layerName">The layer, which is what the colour is derived from.</param>
+    /// <param name="geometryType">Its geometry, which decides the symbol shape.</param>
+    /// <returns>An object ready for JSON serialisation.</returns>
+    public static object DrawingInfo(string layerName, GeometryKind geometryType)
+    {
+        Appearance appearance = GeneratedSymbology.For(layerName, geometryType);
+
+        (byte red, byte green, byte blue) = GeneratedSymbology.Bytes(appearance.Colour);
+        int alpha = (int)Math.Round(appearance.Opacity * 255);
+
+        int[] colour = [red, green, blue, alpha];
+
+        object? outline = appearance.Outline is { } line
+            ? new
+            {
+                type = "esriSLS",
+                style = "esriSLSSolid",
+                color = Outline(line),
+                width = appearance.OutlineWidth,
+            }
+            : null;
+
+        object symbol = appearance.Kind switch
+        {
+            AppearanceKind.Marker => new
+            {
+                type = "esriSMS",
+                style = "esriSMSCircle",
+                color = colour,
+
+                // Points, because that is the unit an ArcGIS symbol size is in — the
+                // generated appearance is in pixels, and at 96 DPI the conversion is
+                // three quarters. Rounding is deliberate: a fractional point size is
+                // rendered inconsistently across clients.
+                size = Math.Round(appearance.Size * 2 * 0.75, 1),
+                outline,
+            },
+
+            AppearanceKind.Line => new
+            {
+                type = "esriSLS",
+                style = "esriSLSSolid",
+                color = colour,
+                width = Math.Round(appearance.Size * 0.75, 1),
+            },
+
+            _ => new
+            {
+                type = "esriSFS",
+                style = "esriSFSSolid",
+                color = colour,
+                outline,
+            },
+        };
+
+        return new
+        {
+            renderer = new
+            {
+                type = "simple",
+                symbol,
+
+                // Named because ArcGIS Pro's table of contents shows this string, and an
+                // empty label there reads as a broken layer rather than as a single
+                // symbol. The layer's own name is the only honest thing to put in it.
+                label = layerName,
+                description = string.Empty,
+            },
+
+            // <b>Zero, and the opacity is in the symbol's alpha instead.</b> Both are
+            // honoured by clients and applying both would multiply them, so a 45% fill
+            // would arrive at 20% — the class of fault that looks like a rendering bug.
+            transparency = 0,
+
+            // No labels yet. Emitting null rather than omitting it says the server
+            // considered labelling and has nothing to say, which is what ADR-033 §5g
+            // leaves for later.
+            labelingInfo = (object?)null,
+        };
+    }
+
+    private static int[] Outline(string hex)
+    {
+        (byte red, byte green, byte blue) = GeneratedSymbology.Bytes(hex);
+        return [red, green, blue, 255];
+    }
 
     /// <summary>The service catalogue, at the root or inside a folder.</summary>
     /// <param name="serviceNames">The layers this caller may see, unqualified.</param>
@@ -451,6 +558,16 @@ public static class FeatureServerMetadataWriter
             extent = ExtentOrNull(description.Extent, layer.Srid),
 
             capabilities,
+
+            // <b>What this layer looks like, which this document said nothing about until
+            // 2026-08-17 (ADR-033).</b> An ArcGIS client with no `drawingInfo` invents a
+            // default, so the same layer arrived grey in one client and blue in another
+            // and the server had no opinion. It is generated rather than authored until
+            // somebody stores a style — `drawingInfoGenerated` says which, because a
+            // default presented as a decision is a decision nobody made.
+            drawingInfo = DrawingInfo(layer.Name, geometryType),
+            drawingInfoGenerated = true,
+
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
             supportedQueryFormats = "JSON",
             // Hosted layers only: ADR-013 §4c's registered cases are designed

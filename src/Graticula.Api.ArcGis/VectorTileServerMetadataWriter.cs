@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Graticula.Cartography;
 using Graticula.Catalog;
 using Graticula.Geometries;
 
@@ -245,38 +246,53 @@ public static class VectorTileServerMetadataWriter
         return head;
     }
 
-    /// <summary>One style layer, keyed and painted by its geometry.</summary>
+    /// <summary>
+    /// One style layer, keyed and painted by its geometry.
+    /// </summary>
+    /// <remarks>
+    /// <b>The colour comes from <see cref="GeneratedSymbology"/> now, and that is the whole
+    /// of ADR-033 §5b on this face.</b> It used to be two constants — every line
+    /// <c>#1f6f8b</c> and every fill <c>#8fb8cc</c> — so a map of six layers was six
+    /// shades of the same blue, which is the complaint ADR-028 §2A wrote down and could
+    /// not fix from here. The same call decides the feature service's `drawingInfo`, so
+    /// the two faces agree by construction rather than by two people remembering.
+    /// </remarks>
     private static object StyleLayer((string Name, GeometryKind Geometry) source)
     {
         (string sourceLayerName, GeometryKind geometryType) = source;
 
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
 
-        Dictionary<string, object> paint = geometryType switch
+        Appearance appearance = GeneratedSymbology.For(sourceLayerName, geometryType);
+
+        Dictionary<string, object> paint = appearance.Kind switch
         {
-            GeometryKind.Point or GeometryKind.MultiPoint => new()
+            AppearanceKind.Marker => new()
             {
-                ["circle-radius"] = 3,
-                ["circle-color"] = "#1f6f8b",
-                ["circle-opacity"] = 0.85,
+                ["circle-radius"] = appearance.Size,
+                ["circle-color"] = appearance.Colour,
+                ["circle-opacity"] = appearance.Opacity,
+                ["circle-stroke-color"] = appearance.Outline!,
+                ["circle-stroke-width"] = appearance.OutlineWidth,
             },
-            GeometryKind.LineString or GeometryKind.MultiLineString => new()
+            AppearanceKind.Line => new()
             {
-                ["line-color"] = "#1f6f8b",
-                ["line-width"] = 1.2,
+                ["line-color"] = appearance.Colour,
+                ["line-width"] = appearance.Size,
+                ["line-opacity"] = appearance.Opacity,
             },
             _ => new()
             {
-                ["fill-color"] = "#8fb8cc",
-                ["fill-outline-color"] = "#1c3a52",
-                ["fill-opacity"] = 0.65,
+                ["fill-color"] = appearance.Colour,
+                ["fill-outline-color"] = appearance.Outline!,
+                ["fill-opacity"] = appearance.Opacity,
             },
         };
 
-        string type = geometryType switch
+        string type = appearance.Kind switch
         {
-            GeometryKind.Point or GeometryKind.MultiPoint => "circle",
-            GeometryKind.LineString or GeometryKind.MultiLineString => "line",
+            AppearanceKind.Marker => "circle",
+            AppearanceKind.Line => "line",
             _ => "fill",
         };
 

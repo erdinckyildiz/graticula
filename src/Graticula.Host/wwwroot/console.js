@@ -15,9 +15,12 @@
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem("gis-token") || null;
 
-// One colour per shown layer, so the legend means something.
 const SCOPES = ["private", "organization", "public"];
 
+// <b>A fallback, not a palette.</b> This list used to be where a layer's colour came
+// from; since ADR-033 the server publishes one in the layer document and this console
+// reads it. The first entry is used only when a document arrives without `drawingInfo` —
+// an older server, or a layer whose document could not be read.
 const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
 const TILE_COLOUR = "#8fb8cc";
 const shown = new Map();     // layer name -> { colour, layer }
@@ -414,7 +417,7 @@ async function resetBasemap() {
       else {
         const doc = await api(
           `${(await layerUrl(name)).replace(location.origin, "")}?f=json`);
-        await show(name, doc.geometryType);
+        await show(name, doc);
       }
     } catch (e) { toast(`${name}: ${e.message || e}`); }
   }
@@ -444,14 +447,22 @@ function drawBasemapControl() {
   $("basemapInput").value = url;
 }
 
-function symbolFor(geometryType, colour) {
-  if (geometryType === "esriGeometryPolygon") {
-    return { type: "simple-fill", color: colour + "55", outline: { color: colour, width: 1.6 } };
-  }
-  if (geometryType === "esriGeometryPolyline") {
-    return { type: "simple-line", color: colour, width: 2.4 };
-  }
-  return { type: "simple-marker", size: 9, color: colour, outline: { color: "#fff", width: 1.2 } };
+/**
+ * The colour the server says this layer is, for the legend swatch.
+ *
+ * <b>Read, not chosen — ADR-033 §5b.</b> This console used to pick from a palette of its
+ * own, so a layer was one colour here, another in the tile style and a third in whatever
+ * client somebody else was using. The layer document now carries `drawingInfo`, the SDK
+ * draws the layer from it without being told to, and the only thing left for this file to
+ * do is read the same colour into the legend so the swatch matches the map.
+ *
+ * Esri colours are `[r, g, b, a]` with the channels in 0–255.
+ */
+function serverColour(doc) {
+  const rgba = doc?.drawingInfo?.renderer?.symbol?.color;
+  if (!Array.isArray(rgba) || rgba.length < 3) return PALETTE[0];
+
+  return "#" + rgba.slice(0, 3).map(c => Number(c).toString(16).padStart(2, "0")).join("");
 }
 
 function drawLegend() {
@@ -464,7 +475,8 @@ function drawLegend() {
   // reference — the second part because a map with no basemap gives no other clue
   // about where in the world it is looking.
   $("legend").innerHTML = [...shown.entries()].map(([name, s]) =>
-    `<span><i class="swatch" style="background:${h(s.colour)}"></i><b>${h(name)}</b></span>`).join("")
+    `<span title="The colour the server publishes for this layer"><i class="swatch"
+       style="background:${h(s.colour)}"></i><b>${h(name)}</b></span>`).join("")
     + `<span style="margin-left:auto">EPSG:3857</span>`;
 }
 
@@ -620,21 +632,33 @@ function clearMap() {
   for (const key of [...shown.keys()]) hide(key);
 }
 
-async function show(name, geometryType) {
+/**
+ * Draws a layer, with **no renderer of our own**.
+ *
+ * <b>Passing no `renderer` is the change, and it is the point.</b> The SDK then reads
+ * `drawingInfo` from the layer document — so what this console shows is what the server
+ * told every client, and if the two ever disagree it is visible here first. Before
+ * 2026-08-17 this file built its own symbol from a local palette, which meant the console
+ * was the one viewer guaranteed *not* to show what anybody else saw.
+ *
+ * The document is passed in because the caller already fetched it to decide the geometry
+ * type; asking for it again to read a colour would be a second request for a fact in hand.
+ */
+async function show(name, doc) {
   const { FeatureLayer } = await loadEsri();
   const mapView = await ensureMap();
+  const colour = serverColour(doc);
 
   const layer = new FeatureLayer({
     url: await layerUrl(name),
     title: name,
     outFields: ["*"],
-    renderer: { type: "simple", symbol: symbolFor(geometryType, PALETTE[0]) },
     popupTemplate: { title: name, content: "{*}" },
   });
 
   clearMap();
   mapView.map.add(layer);
-  shown.set(name, { colour: PALETTE[0], layer });
+  shown.set(name, { colour, layer });
   drawLegend();
   $("mapPanel").classList.add("on");
 
@@ -2081,11 +2105,11 @@ async function handleClick(event) {
     if (shown.has(d.show)) { hide(d.show); await loadLayers(); return; }
     t.disabled = true;
     try {
-      // The geometry type comes from the layer document, which is what the SDK
-      // will read anyway — asking first only chooses the symbol.
+      // The whole document, because the SDK will read it anyway and this console now
+      // takes its colour from the server's `drawingInfo` rather than choosing one.
       const doc = await api(
         `${serviceRoot(layerNamed(d.show)).replace(location.origin, "")}/FeatureServer/0?f=json`);
-      await show(d.show, doc.geometryType);
+      await show(d.show, doc);
       await loadLayers();
       toMap();
       return;
