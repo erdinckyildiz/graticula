@@ -94,6 +94,15 @@
     -->
     <nav id="tabs"></nav>
 
+    <!--
+      <b>The decorative element the brief asked to restore, and it is the product's own subject.</b>
+      A GIS layer stack — three skewed rectangles, which is what a service is here — drawn in CSS
+      with no asset and no request. It sits below the navigation at half opacity and is the first
+      thing to go when the column collapses; if it ever competes with a section name, the numbers in
+      `#railArt` are wrong.
+    -->
+    <div id="railArt" aria-hidden="true"><i></i><i></i><i></i></div>
+
     <div id="railFoot">
       <!--
         <b>Collapsing is real, which is why it is here.</b> It sets a class and remembers the choice.
@@ -264,8 +273,15 @@
         -->
         <div class="widget" id="healthWidget" hidden>
           <div class="label">Service health</div>
-          <div class="tally"><b id="hwTotal">&mdash;</b><span>services in this folder</span></div>
-          <div class="bar" id="hwBar"></div>
+          <!--
+            <b>A ring and a count, then the breakdown.</b> The arc lengths are the real counts — one
+            custom property set from the listing, and `conic-gradient` does the geometry, so there is
+            no chart library and no second copy of the numbers.
+          -->
+          <div class="donutrow">
+            <div class="donut" id="hwDonut"></div>
+            <div class="tally"><b id="hwTotal">&mdash;</b><span>Total services</span></div>
+          </div>
           <div id="hwRows"></div>
         </div>
 

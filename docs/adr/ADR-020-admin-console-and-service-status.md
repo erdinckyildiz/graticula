@@ -696,6 +696,62 @@ Studio interfaces should ultimately feel like two parts of the same Graticula pr
 tells them apart by hue — teal for Server, violet for Studio — so *which environment am I in* does
 not depend on noticing which button is darker.
 
+### 5g. The refinement pass — 2026-08-17
+
+The owner's verdict on §5f: *"functionally good, but visually it is still too conservative and too
+close to the old Graticula UI… it still feels like old enterprise admin UI with a modern sidebar."*
+They were right, and the diagnosis is more useful than the fix: **§5f copied the reference's
+structure and left its personality behind.** A sidebar, a page heading and a token layer are the
+skeleton; what makes the reference read as a product is where the colour is and how much depth each
+surface has, and §5f had one teal doing every job on two very different backgrounds.
+
+**The one substantive discovery: two accents, not one.** A single teal is why the page went
+monochrome. On navy it reads as grey-green, so the selected section had no presence at all; bright
+enough to hold a dark surface, it would be garish on white. So `--cyan` is the sidebar's accent and
+`--accent` (teal) is the workspace's, and the primary action is the one place they meet — a
+cyan→blue→violet gradient, and **the only gradient in the workspace**, because one element having it
+is what makes it read as *the* action rather than as a theme.
+
+**The sidebar is four painted layers and no asset:** a base navy so contrast is decided by one
+colour, an indigo wash from the top-left where the eye enters, a cyan glow low down, and the
+graticule grid masked to fade in downwards. The decorative element the brief asked to restore is the
+product's own subject — a GIS layer stack, three skewed rectangles in CSS. No stop is above 22%
+opacity; *keep it professional, do not make it neon* is a ceiling on numbers rather than an
+intention.
+
+**Service health became a ring**, which is a `conic-gradient` with a hole punched in it: the arc
+lengths are the real counts, no chart library and no second copy of the numbers.
+
+**Server resources got the sparklines, and this is where the brief's two instructions had to be
+reconciled.** It asked for the reference's sparklines *and* said not to fabricate — and both are
+possible, because a line does not have to come from the server's history. It comes from **ours**:
+the page samples `/admin/health` every five seconds while the widget is on screen and draws what it
+has actually observed. The first sample draws nothing and says *sampling…*; after a minute there is a
+minute of real measurement. It is thrown away on reload, which is the honest bargain — the
+alternative is a server-side time series, and that is a decision about storage and retention rather
+than a chart. **A flat series gets a flat line**, deliberately: it means nothing changed, and
+inventing a wiggle for it would be the exact thing being refused. The metrics are unchanged — CPU as
+a real ratio, heap and tiles as figures, uptime — because the brief said to redesign their
+presentation rather than invent new data.
+
+**Error is now the third row in Service health, at zero and dimmed, with the reason on hover.** The
+owner asked for Started/Stopped/Error twice, in the reference and in the brief. `service.status` is
+`started` or `stopped` by a check constraint, so this server has no error state — showing the row
+undimmed would imply a detection it does not do, and dropping it would ignore a direct instruction
+given twice. Zero, dimmed, and a title that says why is the only reading of both that is true.
+
+**In the table, three of the brief's items turned out to be one.** Row height, vertical alignment and
+subtle separators: at twelve pixels of padding a full-weight rule is needed to tell rows apart, and
+at sixteen the spacing does it, so the rule drops to a tint. The preview lost its grey box — it is
+white like the row, held by a hairline — because *"the GIS preview should feel integrated into the
+row rather than placed inside a generic gray rectangle."* And the name/caption pair differs in four
+ways at once (15.5 against 12.5, 650 against 400, ink against muted, counts in the monospace face),
+which is what *"do not just change font sizes"* asks for.
+
+**What is still not reproduced, and each is the same reason as in §5f:** no grid toggle, no
+notification bell, no avatar menu. There is no grid view, there are no notifications and there are no
+per-user settings, and a control that implies one is worse than a control that is missing.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

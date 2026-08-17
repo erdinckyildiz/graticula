@@ -64,6 +64,19 @@
   --violet: #6a4bc0;
   --violet-soft: #f0ebfb;
 
+  /*
+    <b>Cyan is the sidebar's accent and teal is the workspace's, and they are not the same colour.</b>
+    Owner refinement pass 2026-08-17: *"use a brighter cyan/teal accent for the selected navigation
+    item"*, and separately that the page had gone monochrome. A single teal doing both jobs is what
+    made it so — on navy it reads as grey-green, so the selected section had no presence. Cyan is
+    bright enough to hold its own against a dark surface and would be garish on white, which is
+    exactly why there are two.
+  */
+  --cyan: #2ad3c4;
+  --cyan-deep: #0fb3ba;
+  --indigo: #2a3f7a;
+  --indigo-glow: #3b52a8;
+
   /* Status: hue *and* lightness differ, so a state is never carried by colour alone. */
   --ok: #1c7d4d;
   --ok-soft: #e6f4ec;
@@ -151,8 +164,28 @@ a:hover { text-decoration: underline; }
 #shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
 #shell.tight { grid-template-columns: 64px 1fr; }
 
+/*
+  <b>Navy into indigo, with two glows and a graticule over them.</b> The first pass was one flat
+  navy and the owner was right about it: *"the current sidebar is too flat and empty… the sidebar
+  should become one of the strongest elements of the product identity."* Four layers, painted
+  bottom-up, none of which is an image:
+
+  1. a base navy, so text contrast is decided by one colour rather than by wherever a gradient
+     happens to be;
+  2. an indigo wash from the top-left, which is where the eye enters the column;
+  3. a cyan glow low down, behind the decorative element, so the bottom of a tall empty column is
+     not a dead rectangle;
+  4. the graticule grid, masked to fade in downwards.
+
+  <b>Restraint is in the numbers.</b> No stop is above 22% opacity and the whole thing resolves to
+  one perceived colour from two feet away. The brief's line was *keep it professional — do not make
+  it neon or gaming-like*, and that is what the ceiling on those numbers is for.
+*/
 #rail {
-  background: var(--nav-base);
+  background:
+    radial-gradient(920px 420px at -12% -6%, rgba(59, 82, 168, .55), transparent 62%),
+    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .13), transparent 68%),
+    linear-gradient(178deg, #12203a 0%, var(--nav-base) 44%, #0c1425 100%);
   border-right: 1px solid var(--nav-line);
   display: flex;
   flex-direction: column;
@@ -174,24 +207,51 @@ a:hover { text-decoration: underline; }
   inset: 0;
   pointer-events: none;
   background:
-    repeating-linear-gradient(to right, rgba(120, 190, 220, .05) 0 1px, transparent 1px 34px),
-    repeating-linear-gradient(to bottom, rgba(120, 190, 220, .05) 0 1px, transparent 1px 34px);
-  mask-image: linear-gradient(to bottom, transparent 55%, #000 100%);
+    repeating-linear-gradient(to right, rgba(140, 200, 235, .07) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(to bottom, rgba(140, 200, 235, .07) 0 1px, transparent 1px 32px);
+  mask-image: linear-gradient(to bottom, transparent 42%, #000 92%);
 }
+
+/*
+  <b>The decorative element, and it is the product's own subject.</b> The reference has an isometric
+  stack of translucent layers low in the sidebar; ours is the same idea drawn as three skewed
+  rectangles — a GIS layer stack, which is what a service *is* here. CSS transforms and gradients,
+  no asset, no request.
+
+  <b>Understated is a measurement, not an intention.</b> It sits at 0.5 opacity over the cyan glow,
+  below the navigation, `pointer-events: none`, and it is the first thing to go when the column is
+  collapsed. If it competes with a section name, the numbers are wrong.
+*/
+#railArt {
+  position: absolute; left: 0; right: 0; bottom: 132px; height: 150px;
+  pointer-events: none; opacity: .5; z-index: 0;
+}
+#railArt i {
+  position: absolute; left: 50%; width: 116px; height: 58px; margin-left: -58px;
+  border-radius: 8px;
+  transform: rotateX(58deg) rotateZ(45deg);
+  border: 1px solid rgba(190, 230, 245, .22);
+}
+#railArt i:nth-child(1) { bottom: 4px;  background: linear-gradient(140deg, rgba(42,211,196,.42), rgba(15,179,186,.16)); }
+#railArt i:nth-child(2) { bottom: 30px; background: linear-gradient(140deg, rgba(59,120,220,.40), rgba(42,63,122,.16)); }
+#railArt i:nth-child(3) { bottom: 56px; background: linear-gradient(140deg, rgba(122,92,220,.40), rgba(58,44,120,.16)); }
+#shell.tight #railArt { display: none; }
 
 #brand {
   display: flex;
   align-items: center;
   gap: var(--gap-3);
-  padding: 18px var(--gap-4) 20px;
+  padding: 20px var(--gap-4) 22px;
+  margin-bottom: var(--gap-2);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
   position: relative;
   z-index: 1;
 }
 
 #brand .mark {
-  width: 26px; height: 26px; flex: none;
-  border-radius: 6px;
-  background: linear-gradient(150deg, var(--accent-hot), #0b6f8f);
+  width: 28px; height: 28px; flex: none;
+  border-radius: 7px;
+  background: linear-gradient(148deg, var(--cyan), var(--cyan-deep) 55%, #2a5fb0);
   display: grid; place-items: center;
   color: #fff; font-size: 13px; font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
@@ -199,7 +259,7 @@ a:hover { text-decoration: underline; }
 
 #brand h1 {
   margin: 0;
-  font-size: var(--t-head);
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -.01em;
   color: var(--nav-ink);
@@ -226,27 +286,44 @@ a:hover { text-decoration: underline; }
 #tabs a[data-tab] {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 9px 12px;
-  border-radius: var(--round);
-  border-left: 3px solid transparent;
-  color: var(--nav-muted);
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 7px;
+  color: #b6c6de;
   font-size: var(--t-body);
   text-decoration: none;
   white-space: nowrap;
+  transition: background .12s, color .12s;
 }
 
-#tabs a[data-tab]:hover { background: var(--nav-on); color: var(--nav-ink); text-decoration: none; }
-
-#tabs a[data-tab][aria-current="page"] {
-  background: var(--nav-on);
-  border-left-color: var(--accent-hot);
+#tabs a[data-tab]:hover {
+  background: rgba(255, 255, 255, .055);
   color: #fff;
-  font-weight: 500;
+  text-decoration: none;
 }
 
-/* The glyph, drawn from a token so a section cannot arrive without one. */
-#tabs .ico { width: 18px; flex: none; text-align: center; font-size: 15px; opacity: .9; }
+/*
+  <b>The selected section is a filled row with a cyan edge and a cyan glyph.</b> The first pass gave
+  it a slightly lighter background and a 3-pixel bar, which the owner read as no presence at all —
+  correct: on navy, a teal bar and a 6% lift are both nearly invisible. Three signals now, and none
+  of them is only colour: the surface lifts, the glyph goes cyan, and the label goes to full white
+  at a heavier weight.
+*/
+#tabs a[data-tab][aria-current="page"] {
+  background: linear-gradient(96deg, rgba(42, 211, 196, .17), rgba(59, 82, 168, .22));
+  box-shadow: inset 3px 0 0 var(--cyan), var(--lift);
+  color: #fff;
+  font-weight: 600;
+}
+#tabs a[data-tab][aria-current="page"] .ico { color: var(--cyan); opacity: 1; }
+
+/*
+  The glyph, from a token so a section cannot arrive without one. Brighter than the label on purpose
+  — the owner asked for icon contrast, and an icon at the same weight as its text is decoration.
+*/
+#tabs .ico { width: 20px; flex: none; text-align: center; font-size: 16px; color: #8ea6c8;
+             opacity: 1; }
+#tabs a[data-tab]:hover .ico { color: #cfe0f4; }
 #tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
                font-weight: inherit; color: inherit; margin: 0; }
 #collapse .label { font-size: var(--t-small); letter-spacing: 0; text-transform: none;
@@ -325,18 +402,30 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
 
 /* --------------------------------------------------------------------- content */
 
-.wrap { padding: var(--gap-5); max-width: 1560px; }
+/*
+  <b>The workspace uses the width it has.</b> Owner refinement pass: *"the current content area feels
+  slightly compressed toward the top-left… use the available desktop width more confidently."* The
+  padding grows with the viewport instead of being one number, and the ceiling is high enough that a
+  wide screen is filled and low enough that a line of prose never runs to 200 characters.
+*/
+.wrap { padding: var(--gap-6) clamp(var(--gap-5), 3vw, 44px); max-width: 1720px; }
 
 /*
   <b>A page says what it is.</b> The brief asked for a strong heading and a secondary line, and the
   pair is worth more than it looks: this console has eight screens that were previously
   distinguishable only by which table was on them.
 */
-.pagehead { display: flex; align-items: flex-start; gap: var(--gap-4); margin-bottom: var(--gap-5); }
+.pagehead { display: flex; align-items: flex-start; gap: var(--gap-4); margin-bottom: var(--gap-6); }
+
+/*
+  <b>A stronger title, and the strongest thing on the page.</b> 30 pixels at 650 against a service
+  name's 15.5 at 650: the difference is size and nothing else, which is what makes them read as the
+  same voice at two levels rather than as two decisions.
+*/
 .pagehead h2 {
-  margin: 0; font-size: var(--t-page); font-weight: 600; letter-spacing: -.02em; line-height: 1.15;
+  margin: 0; font-size: 30px; font-weight: 650; letter-spacing: -.025em; line-height: 1.1;
 }
-.pagehead p { margin: 3px 0 0; color: var(--muted); font-size: var(--t-body); }
+.pagehead p { margin: 5px 0 0; color: var(--muted); font-size: 14.5px; }
 .pagehead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
 
 .lede { color: var(--muted); max-width: 88ch; margin: 0 0 var(--gap-4); }
@@ -393,20 +482,48 @@ code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
 
 table { width: 100%; border-collapse: collapse; font-size: var(--t-body); }
 
+/*
+  <b>The header is a label row, not a band.</b> Owner refinement pass: the table *"still feels too
+  much like the old interface"*. A filled grey header with a heavy rule under it is the shape of a
+  2008 grid; this is uppercase 11-pixel labels on a barely-tinted surface with one hairline, so the
+  first strong thing on the screen is a service name rather than the word SERVICE.
+*/
 th {
   text-align: left;
-  padding: 10px var(--gap-4);
-  font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  padding: 13px var(--gap-5) 11px;
+  font-size: var(--t-label); font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
   color: var(--faint);
-  background: var(--surface-2);
+  background: linear-gradient(to bottom, #fafbfd, var(--surface-2));
   border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
 th:first-child { border-top-left-radius: var(--round-lg); }
 th:last-child { border-top-right-radius: var(--round-lg); }
 
-td { padding: 12px var(--gap-4); border-bottom: 1px solid var(--rule); vertical-align: middle; }
+/*
+  <b>Taller rows and a lighter separator.</b> The brief asked for row height, vertical alignment and
+  subtle row separators in one breath, and they are one thing: at 12 pixels of padding a full-weight
+  rule is needed to tell rows apart, and at 18 the eye does it from the spacing, so the rule can drop
+  to a tint. Density is unchanged in the sense that matters — the same nine services fit a screen.
+*/
+td { padding: 16px var(--gap-5); border-bottom: 1px solid #eef1f6; vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
+
+/*
+  <b>The preview and the name are one unit, so the gutter between them is small.</b> At the row's own
+  padding they read as two columns that happen to be adjacent; at 14 the picture belongs to the name
+  beside it, which is what the brief meant by the preview being integrated into the row.
+*/
+#services td:first-child { padding-right: 14px; }
+
+/*
+  <b>The name column takes the width, and its caption does not wrap.</b> `look_EarlyAlert · 3 layers,
+  1 group` was breaking across two lines and making one row taller than the rest — a ragged table
+  reads as a bug. Giving the column 42% and the caption `nowrap` fixes both, and the states beside it
+  need only what their badges are wide.
+*/
+#services td:nth-child(2) { width: 42%; }
+#services .rowmeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /*
   <b>The row is clickable and says so once, on hover.</b> Not a cursor change plus a colour plus an
@@ -414,7 +531,15 @@ tr:last-child td { border-bottom: 0; }
   exceptions, which is how a Stop button once opened a service page (D-46).
 */
 tr.pick { cursor: pointer; }
-tr.pick:hover td { background: var(--surface-2); }
+tr.pick td { transition: background .1s; }
+
+/*
+  <b>Hover tints the row and leaves a teal edge on it.</b> One signal was a background change, which
+  on a near-white surface is almost nothing; the edge is what makes *this row is the one under the
+  pointer* readable at a glance without darkening the row enough to fight the previews for attention.
+*/
+tr.pick:hover td { background: #f7fafc; }
+tr.pick:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent-hot); }
 
 td.acts { white-space: nowrap; text-align: right; }
 td.acts > * + * { margin-left: var(--gap-1); }
@@ -436,11 +561,25 @@ button:hover { background: var(--surface-2); }
 button:disabled { opacity: .45; cursor: default; }
 button:disabled:hover { background: var(--surface); }
 
+/*
+  <b>The primary action carries the product's gradient, and it is the only gradient in the
+  workspace.</b> Owner refinement pass: *"visually give it the stronger cyan → blue/violet treatment
+  from the approved design."* One element having it is what makes it read as *the* action; two would
+  make it a theme, which is on the list of things to avoid.
+*/
 button.primary {
-  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
-  padding: 8px 16px; box-shadow: var(--lift);
+  background: linear-gradient(96deg, var(--cyan-deep), #2f6fd0 62%, #5a49c4);
+  border-color: transparent; color: #fff; font-weight: 600;
+  padding: 9px 17px; letter-spacing: -.005em;
+  box-shadow: 0 1px 2px rgba(16, 24, 38, .12), 0 6px 16px -10px rgba(47, 111, 208, .7);
+  transition: filter .12s, box-shadow .12s;
 }
-button.primary:hover { background: #0a6a5f; }
+button.primary:hover {
+  background: linear-gradient(96deg, var(--cyan-deep), #2f6fd0 62%, #5a49c4);
+  filter: brightness(1.06);
+  box-shadow: 0 1px 2px rgba(16, 24, 38, .14), 0 10px 22px -12px rgba(47, 111, 208, .8);
+}
+button.primary .plus { font-weight: 400; margin-right: 7px; opacity: .9; }
 
 button.tiny { padding: 5px 10px; font-size: 12px; }
 button.ghost { border-color: transparent; background: none; color: var(--muted); }
@@ -585,7 +724,7 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   between navigation, operational information and service data, and this is that separation as a
   grid rather than as more borders.
 */
-#serverGrid { display: grid; grid-template-columns: 264px 1fr; gap: var(--gap-4);
+#serverGrid { display: grid; grid-template-columns: 276px minmax(0, 1fr); gap: var(--gap-5);
               align-items: start; }
 @media (max-width: 1080px) { #serverGrid { grid-template-columns: 1fr; } }
 
@@ -607,8 +746,12 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   color: var(--ink); font-size: var(--t-body); text-decoration: none;
 }
 .rail-item:hover { background: var(--surface-2); text-decoration: none; }
-.rail-item.on { background: var(--accent-soft); border-left-color: var(--accent);
-                font-weight: 500; }
+.rail-item { transition: background .1s; }
+.rail-item.on {
+  background: linear-gradient(96deg, var(--accent-soft), #f2f8fd);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
 .rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { margin-left: auto; font: var(--t-small)/1 var(--mono); color: var(--faint); }
 .rail-item.on .rail-count { color: var(--accent); }
@@ -625,34 +768,72 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
           box-shadow: var(--lift); padding: var(--gap-4); margin-bottom: var(--gap-4); }
 .widget > .label { margin-bottom: var(--gap-3); }
 
-.tally { display: flex; align-items: baseline; gap: var(--gap-2); margin-bottom: var(--gap-3); }
-.tally b { font-size: 26px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
+/*
+  <b>A ring, because a proportion reads faster as an arc than as a column of percentages.</b> Owner
+  refinement pass: *"use a compact donut/ring visualization… this should look like an operational
+  monitoring widget, not a statistics table."* One `conic-gradient` and a hole punched with a
+  pseudo-element: no SVG, no library, no canvas, and the arc lengths are the real counts.
+*/
+.donutrow { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
+
+.donut {
+  width: 78px; height: 78px; flex: none; border-radius: 50%;
+  position: relative;
+  background: conic-gradient(var(--ok) 0turn var(--started), var(--warn) var(--started) 1turn);
+}
+.donut::after {
+  content: ""; position: absolute; inset: 11px; border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.donut.none { background: var(--surface-3); }
+
+.tally b { display: block; font-size: 30px; font-weight: 650; letter-spacing: -.03em; line-height: 1; }
 .tally span { font-size: var(--t-small); color: var(--muted); }
 
-.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-3);
-       margin-bottom: var(--gap-3); }
-.bar i { display: block; height: 100%; }
-.bar i.ok { background: var(--ok); }
-.bar i.warn { background: var(--warn); }
-
+/*
+  A legend row: a coloured dot, a name, the count in tabular figures, then the share. Four columns of
+  different weight, which is the hierarchy the brief asked for at this scale — the count is the
+  answer and the percentage is context.
+*/
 .legendrow { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--t-small);
-             padding: 3px 0; }
-.legendrow .key { display: flex; align-items: center; gap: 7px; color: var(--muted); }
-.legendrow .key::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+             padding: 5px 0; border-top: 1px solid var(--rule); }
+.legendrow:first-child { border-top: 0; }
+.legendrow .key { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.legendrow .key::before { content: ""; width: 8px; height: 8px; border-radius: 50%;
                           background: var(--faint); }
 .legendrow.ok .key::before { background: var(--ok); }
 .legendrow.warn .key::before { background: var(--warn); }
-.legendrow b { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
-.legendrow em { font-style: normal; color: var(--faint); width: 44px; text-align: right;
+.legendrow.alert .key::before { background: var(--alert); }
+.legendrow b { margin-left: auto; font: 600 var(--t-body)/1 var(--mono); color: var(--ink);
+               font-variant-numeric: tabular-nums; }
+.legendrow em { font-style: normal; color: var(--faint); width: 42px; text-align: right;
                 font-variant-numeric: tabular-nums; }
 
-.meter { display: grid; grid-template-columns: 68px 1fr auto; align-items: center;
-         gap: var(--gap-3); padding: 5px 0; font-size: var(--t-small); }
+/* A state this server cannot enter is dimmed rather than dropped — see drawHealthWidget. */
+.legendrow.impossible { color: var(--faint); }
+.legendrow.impossible b { color: var(--faint); font-weight: 400; }
+
+/*
+  <b>A resource row: name, sparkline, value.</b> The brief asked for the reference's sparklines and,
+  in the same breath, for the real metrics to be preserved rather than replaced by invented
+  percentages. Both are possible: the line is drawn from samples this page has actually taken since
+  it opened, so it is a real history of a real measurement rather than a shape.
+*/
+.meter { display: grid; grid-template-columns: 58px 1fr 74px; align-items: center;
+         gap: var(--gap-3); padding: 7px 0; font-size: var(--t-small);
+         border-top: 1px solid var(--rule); }
+.meter:first-child { border-top: 0; }
 .meter .k { color: var(--muted); }
-.meter .t { font-family: var(--mono); color: var(--ink); text-align: right;
+.meter .t { font: 500 var(--t-small)/1 var(--mono); color: var(--ink); text-align: right;
             font-variant-numeric: tabular-nums; }
-.meter .track { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
-.meter .track i { display: block; height: 100%; background: var(--accent); }
+.meter svg { display: block; width: 100%; height: 22px; overflow: visible; }
+.meter svg path.line { fill: none; stroke: var(--violet); stroke-width: 1.5;
+                       stroke-linejoin: round; stroke-linecap: round; }
+.meter svg path.area { fill: rgba(106, 75, 192, .12); stroke: none; }
+.meter.warm svg path.line { stroke: var(--cyan-deep); }
+.meter.warm svg path.area { fill: rgba(15, 179, 186, .12); }
+.meter .waiting { font-size: 11px; color: var(--faint); }
 
 /*
   The preview box. ArcGIS Server Manager shows a rendered map image here; we have no renderer
@@ -660,16 +841,35 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   why that is an indication rather than a thumbnail. The border is the lightest one available,
   because the picture is the thing and its frame is not.
 */
-.thumb { display: block; width: 104px; height: 74px; border: 1px solid var(--rule);
-         border-radius: var(--round); background: var(--surface-2); }
-.thumb.empty { position: relative; }
+/*
+  <b>The preview sits on the row rather than in a box on it.</b> Owner refinement pass: it *"should
+  feel integrated into the row rather than placed inside a generic gray rectangle."* So the grey
+  fill is gone — the canvas is white like the row, held by a hairline and a shadow small enough to
+  read as a lift rather than a frame. The geometry keeps its own colours, which is the point: cyan,
+  yellow and pink coming out of the data are most of this screen's personality (ADR-033 §5b).
+*/
+.thumb { display: block; width: 112px; height: 78px; border-radius: 6px;
+         background: var(--surface);
+         box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(16, 24, 38, .05); }
+tr.pick:hover .thumb { box-shadow: 0 0 0 1px var(--rule-strong), 0 2px 6px -2px rgba(16, 24, 38, .12); }
+
+.thumb.empty { position: relative; background: repeating-linear-gradient(
+                 135deg, #f7f9fb 0 6px, #f1f4f8 6px 12px); }
 .thumb.empty::after { content: "—"; position: absolute; inset: 0; display: grid;
                       place-items: center; color: var(--faint); font-size: 12px; }
 
-/* Two lines under a service name: what it is, and what it holds. Deliberately not badges. */
+/*
+  <b>The name is the row, and its metadata is a caption.</b> Four differences at once, which is what
+  the brief meant by *not just font sizes*: 15.5 against 12.5, 650 against 400, ink against muted,
+  and the counts in the monospace face because they are quantities. The separator is a hairline dot
+  at rule strength — visible enough to group, too faint to read as punctuation.
+*/
+td .name { display: block; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em;
+           color: var(--ink); line-height: 1.25; }
 .rowmeta { display: block; font-size: var(--t-small); color: var(--muted); font-weight: 400;
-           margin-top: 2px; }
-.rowmeta .sep { color: var(--rule-strong); margin: 0 6px; }
+           margin-top: 3px; }
+.rowmeta .sep { color: var(--rule-strong); margin: 0 7px; }
+.rowmeta .count { font-family: var(--mono); }
 
 /* --------------------------------------------------------------------- the map */
 
@@ -759,6 +959,24 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   above it: everything in it can be changed by the boxes, which is the opposite of the fixed facts.
 */
 #limNote { margin-top: var(--gap-4); padding-top: var(--gap-3); border-top: 1px solid var(--rule); }
+
+/*
+  <b>The note under the service list is a tinted strip, which is what the reference does with it.</b>
+  It was a paragraph of grey text at the bottom of a page, i.e. the shape of something nobody reads.
+  A tint, a teal edge and an ⓘ make it a place rather than a leftover — and the tint is 4% of the
+  accent, because a full-strength callout for a sentence about previews would be shouting.
+*/
+#serviceNote {
+  display: flex; gap: var(--gap-3); align-items: flex-start;
+  margin: var(--gap-4) 0 0; padding: var(--gap-3) var(--gap-4);
+  background: linear-gradient(96deg, var(--accent-soft), #f4f8fd 70%);
+  border: 1px solid var(--accent-line); border-left-width: 3px;
+  border-radius: var(--round);
+  color: var(--muted); max-width: none;
+}
+#serviceNote::before { content: "ⓘ"; color: var(--accent); font-size: 14px; line-height: 1.3;
+                       flex: none; }
+#serviceNote:empty { display: none; }
 
 /* -------------------------------------------------------------- dialog & drawer */
 

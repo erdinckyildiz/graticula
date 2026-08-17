@@ -335,7 +335,8 @@ function drawSurfaces(surface) {
   // slot; naming them apart and asking for both is what keeps the router from having to know which
   // view is visible.
   const markup = config.action
-    ? `<button class="primary" id="${config.action.id}">${h(config.action.label)}</button>`
+    ? `<button class="primary" id="${config.action.id}"><span class="plus"
+         aria-hidden="true">+</span>${h(config.action.label)}</button>`
     : "";
 
   for (const id of ["pageAction", "pageActionContent"]) {
@@ -1313,27 +1314,39 @@ function drawHealthWidget(rows) {
   if (!widget) return;
 
   const real = rows.filter(r => !r.system);
-  const started = real.filter(r => r.status !== "stopped").length;
-  const stopped = real.length - started;
 
   if (real.length === 0) {
     widget.hidden = true;
     return;
   }
 
+  const started = real.filter(r => r.status !== "stopped").length;
+  const stopped = real.length - started;
+
   $("hwTotal").textContent = num(real.length);
+
+  // The arc is the real proportion: one custom property, and the conic-gradient does the geometry.
+  $("hwDonut").style.setProperty("--started", `${started / real.length}turn`);
+  $("hwDonut").classList.toggle("none", started === 0 && stopped === 0);
 
   const share = n => `${Math.round((n / real.length) * 100)}%`;
 
-  $("hwBar").innerHTML =
-    `<i class="ok" style="width:${(started / real.length) * 100}%"></i>`
-    + `<i class="warn" style="width:${(stopped / real.length) * 100}%"></i>`;
+  const line = (kind, name, count, note) =>
+    `<div class="legendrow ${kind}"${note ? ` title="${h(note)}"` : ""}>`
+    + `<span class="key">${name}</span><b>${num(count)}</b><em>${share(count)}</em></div>`;
 
+  // <b>Three rows, and the third is a state this server cannot enter.</b> The owner asked for
+  // Started/Stopped/Error twice — in the reference and in the refinement brief — so it is here, at
+  // zero, dimmed, and with the reason on hover. `service.status` is `started` or `stopped` by a
+  // check constraint: a service that cannot be started is a service that was never created, and a
+  // request that fails is a request, not a service state. Showing it undimmed would imply a
+  // detection this server does not do; dropping it would ignore a direct instruction twice given.
   $("hwRows").innerHTML =
-    `<div class="legendrow ok"><span class="key">Started</span><b>${num(started)}</b>`
-    + `<em>${share(started)}</em></div>`
-    + `<div class="legendrow warn"><span class="key">Stopped</span><b>${num(stopped)}</b>`
-    + `<em>${share(stopped)}</em></div>`;
+    line("ok", "Started", started)
+    + line("warn", "Stopped", stopped)
+    + line("alert impossible", "Error", 0,
+        "This server has no error state: a service is started or stopped by a check constraint on "
+        + "the column. Shown at zero so the absence is visible rather than assumed.");
 
   widget.hidden = false;
 }
@@ -1365,25 +1378,122 @@ async function drawResourceWidget() {
     ? runtime.cpuMilliseconds / (runtime.uptimeMilliseconds * (runtime.cores || 1))
     : 0;
 
-  const meter = (key, text, fraction) =>
-    `<div class="meter"><span class="k">${h(key)}</span>`
-    + (fraction === null
-        ? `<span></span>`
-        : `<span class="track"><i style="width:${Math.min(100, fraction * 100)}%"></i></span>`)
-    + `<span class="t">${h(text)}</span></div>`;
+  remember("cpu", busy * 100);
+  remember("heap", runtime.heapBytes / 1048576);
+  remember("tiles", health.tileCache?.megabytes ?? 0);
 
   $("rwRows").innerHTML =
-    meter("CPU", `${(busy * 100).toFixed(1)}%`, busy)
-    + meter("Heap", bytesPlain(runtime.heapBytes), null)
-    + meter("Tiles", `${(health.tileCache?.megabytes ?? 0).toFixed(1)} MB`, null)
-    + meter("Uptime", duration(runtime.uptimeMilliseconds).replace(/<[^>]+>/g, ""), null);
+    meterRow("CPU", "cpu", `${(busy * 100).toFixed(1)}%`, true)
+    + meterRow("Heap", "heap", bytesPlain(runtime.heapBytes))
+    + meterRow("Tiles", "tiles", `${(health.tileCache?.megabytes ?? 0).toFixed(1)} MB`)
+    + `<div class="meter"><span class="k">Uptime</span><span></span>`
+      + `<span class="t">${h(duration(runtime.uptimeMilliseconds).replace(/<[^>]+>/g, ""))}</span></div>`;
 
   $("rwNote").innerHTML =
     `CPU is process time since start over ${num(runtime.cores)} cores. Heap and tiles are figures `
     + `rather than percentages: this server has no memory limit and no disk quota for them to be a `
-    + `share of.`;
+    + `share of. <b>The lines are samples this page has taken since you opened it</b> — not a `
+    + `history the server keeps, because it keeps none.`;
 
   widget.hidden = false;
+  keepSampling();
+}
+
+/**
+ * Samples of a metric, in the order they were observed.
+ *
+ * <b>This is how the sparklines are honest.</b> The brief asked for the reference's sparklines and,
+ * in the same breath, said not to fabricate data — and both are possible, because a line does not
+ * have to come from the server's history. It can come from *ours*: each visit to this screen reads
+ * `/admin/health`, and every reading is kept here in order. The first sample draws nothing, the
+ * second draws a segment, and after a minute there is a minute of real measurement.
+ *
+ * <b>Bounded and thrown away on reload</b>, which is the honest bargain: the alternative is a
+ * server-side time series, and that is a decision about storage and retention rather than a chart.
+ * Sixty samples at five seconds is five minutes, which is as far back as a line 74 pixels wide can
+ * say anything about anyway.
+ */
+const samples = new Map();
+const SAMPLE_LIMIT = 60;
+
+function remember(key, value) {
+  const series = samples.get(key) ?? [];
+  series.push(Number.isFinite(value) ? value : 0);
+  if (series.length > SAMPLE_LIMIT) series.shift();
+  samples.set(key, series);
+}
+
+/**
+ * One resource row: name, sparkline, value.
+ *
+ * <b>Inline SVG rather than a canvas.</b> A canvas needs a device-pixel-ratio dance to avoid looking
+ * soft, and this is four polylines — the markup is shorter than the drawing code would be, and it
+ * scales with the row.
+ */
+function meterRow(label, key, text, warm = false) {
+  const series = samples.get(key) ?? [];
+
+  const chart = series.length < 2
+    ? `<span class="waiting">sampling…</span>`
+    : sparkline(series);
+
+  return `<div class="meter${warm ? " warm" : ""}"><span class="k">${h(label)}</span>`
+    + `<span>${chart}</span><span class="t">${h(text)}</span></div>`;
+}
+
+/**
+ * A line and a fill under it, scaled to what has been seen.
+ *
+ * <b>The scale is the observed range, not zero to a guess.</b> Heap sits between 30 and 90 MB and a
+ * chart anchored at zero would draw a flat line across the top — which is a picture of the axis
+ * rather than of the metric. A flat series gets a flat line in the middle, deliberately: it means
+ * *nothing changed*, and inventing a wiggle for it would be the exact thing the brief forbids.
+ */
+function sparkline(series) {
+  const w = 100;
+  const h_ = 22;
+  const low = Math.min(...series);
+  const high = Math.max(...series);
+  const span = high - low || 1;
+
+  const at = (value, i) => {
+    const x = (i / (series.length - 1)) * w;
+    const y = h_ - 2 - ((value - low) / span) * (h_ - 5);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  };
+
+  const line = series.map(at).join(" L ");
+
+  return `<svg viewBox="0 0 ${w} ${h_}" preserveAspectRatio="none" aria-hidden="true">`
+    + `<path class="area" d="M ${line} L ${w},${h_} L 0,${h_} Z"/>`
+    + `<path class="line" d="M ${line}"/></svg>`;
+}
+
+/**
+ * Keeps sampling while this screen is the one on show.
+ *
+ * <b>It stops itself rather than being stopped.</b> There is no teardown hook per screen, so the
+ * interval checks whether the widget is still on screen and clears itself when it is not — which
+ * also covers navigating away, signing out and the surface changing, without three call sites
+ * remembering to cancel it.
+ */
+let sampler = null;
+
+function keepSampling() {
+  if (sampler) return;
+
+  sampler = setInterval(() => {
+    const widget = $("resourceWidget");
+    const showing = widget && !widget.hidden && widget.offsetParent !== null;
+
+    if (!showing) {
+      clearInterval(sampler);
+      sampler = null;
+      return;
+    }
+
+    drawResourceWidget();
+  }, 5000);
 }
 
 /** Bytes as a plain string, for a widget that has no room for markup. */
@@ -1544,7 +1654,7 @@ async function loadServices() {
           <span class="rowmeta">${h(r.kind)}${r.description
             ? `<span class="sep">·</span>${h(r.description)}` : ""}${r.system
             ? ""
-            : `<span class="sep">·</span>${held || "empty"}`}</span>
+            : `<span class="sep">·</span><span class="count">${held || "empty"}</span>`}</span>
         </td>
 
         <td>${pill(r.status)}</td>
