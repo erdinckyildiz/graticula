@@ -1117,7 +1117,6 @@ async function showService(qualified) {
     `<a href="#/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
      › ${folder ? h(folder) : "root"} › <b>${h(name)}</b>`;
   $("serviceFacts").textContent = "";
-  $("serviceLayers").innerHTML = `<tr><td colspan="6" class="empty">reading the service…</td></tr>`;
 
   // <b>A service with no layers is a different screen.</b> There is nothing to list and there are
   // bounds to set, and asking the server which kind this is beats guessing from the shape of a
@@ -1128,14 +1127,9 @@ async function showService(qualified) {
   if (limits) {
     $("serviceFacts").textContent = `${limits.kind} · no layers`;
 
-    // <b>The table goes away rather than saying it is empty.</b> A header of Id/Layer/Type/
-    // Geometry/In over one sentence explaining that there are none is a table pretending to be
-    // informative — and it was the first thing on this screen the owner's eye landed on.
-    $("serviceLayerPanel").hidden = true;
     return;
   }
 
-  $("serviceLayerPanel").hidden = false;
 
   // <b>The service's own settings, on the service.</b> Rendered before the layer list, because they
   // are what this page is now for: the list below says what is inside, and these say what the
@@ -1152,25 +1146,13 @@ async function showService(qualified) {
       `${layers.length} layer${layers.length === 1 ? "" : "s"} · max ${num(doc.maxRecordCount)} rows`
       + ` · ${doc.capabilities || "no capabilities"}`;
 
-    // <b>The list is what is inside, and nothing to press.</b> Owner 2026-08-17, pointing at a
-    // *Settings* link on every row: *"yahu böyle bir ayar yok. tüm servisin ayarları var, o
-    // kadar."* Right, and the link was the claim itself: a per-layer entry point on a service's
-    // page says each layer is configurable, which is exactly what D-61 is about. This was the last
-    // place the console still said so.
-    $("serviceLayers").innerHTML = layers.length === 0
-      ? `<tr><td colspan="5" class="empty">This service holds no layers yet. Publish one into it
-           by naming it in the publish form.</td></tr>`
-      : layers.map(l => `<tr${l.type === "Group Layer"
-          ? "" : ` class="pick" data-pick="${h(l.name)}"`}>
-          <td class="num">${l.id}</td>
-          <td class="name">${h(l.name)}</td>
-          <td class="val">${h(l.type)}</td>
-          <td class="val">${h((l.geometryType || "").replace("esriGeometry", "") || "—")}</td>
-          <td class="val">${l.parentLayerId >= 0 ? `group ${l.parentLayerId}` : "top level"}</td>
-        </tr>`).join("");
+    // The layer list was here until 2026-08-18, when the owner asked for it to go: this page is
+    // the service's settings, and the counts are in the facts line above. What went with it is a
+    // route — a layer's own page is reachable from Studio's content list and by its address, and no
+    // longer from Server.
   } catch (e) {
-    $("serviceLayers").innerHTML =
-      `<tr><td colspan="5" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
+    $("serviceFacts").textContent = "";
+    toast(`${qualified}: ${e.message || e}`);
   }
 }
 
