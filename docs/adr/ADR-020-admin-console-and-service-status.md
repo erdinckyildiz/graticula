@@ -752,6 +752,30 @@ which is what *"do not just change font sizes"* asks for.
 notification bell, no avatar menu. There is no grid view, there are no notifications and there are no
 per-user settings, and a control that implies one is worse than a control that is missing.
 
+### 5h. The polish pass, and the one place two instructions disagreed — 2026-08-17
+
+Six items, all visual, all in the stylesheet. Five were arithmetic: the type scale up about a tenth
+**in the tokens rather than per component**, so the ratios between the levels — which are the
+hierarchy — moved together; the sidebar illustration up to 0.78 opacity with a survey-dot field and a
+cyan-violet glow behind it; two washes under 4% giving the workspace an ambient tint while the panels
+stay white; the resource values to 15 pixels of monospace with 28-pixel charts; and the primary action
+to 21 pixels of horizontal padding.
+
+**The sixth was the useful one.** *"The long explanatory paragraph makes the widget feel like a debug
+panel."* True, and the text still earns its place — CPU is a ratio since start and the lines are the
+page's own samples, so a first-time reader needs both facts or the numbers are misread. So it is one
+glyph with a `title`, complete rather than shortened to fit: a caveat trimmed to look tidy is a
+caveat that stops being true.
+
+**And the place the brief contradicted itself, which is worth recording because the resolution was a
+judgement rather than a calculation.** It asked for a 10% scale-up including row heights, *and* for the
+populated table to be compared against the approved screenshot. Those pull opposite ways: the
+reference's own rows are **tighter** than a proportional increase produces — about 82×50 of preview in
+a 77-pixel row, against the 122×84 in 121 pixels that +10% gave. Both cannot be satisfied. **The type
+kept the increase and the picture did not**: 104×70 in a ~101-pixel row, so names, labels and the
+folder panel are a tenth larger as asked while the row is much nearer the reference's density. Said
+out loud here because the alternative is silently picking one and calling it done.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

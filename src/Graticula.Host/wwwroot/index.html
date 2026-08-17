@@ -286,9 +286,15 @@
         </div>
 
         <div class="widget" id="resourceWidget" hidden>
-          <div class="label">Server resources</div>
+          <!--
+            <b>The caveats are one glyph now.</b> They were three sentences under the numbers, which
+            the owner read as a debug panel — right, and the text still earns its place: CPU is a
+            ratio since start and the lines are this page's own samples, so somebody reading the
+            widget for the first time needs both facts. One hover away rather than always on screen.
+          -->
+          <div class="label">Server resources<span class="why" id="rwWhy" role="img"
+            aria-label="About these numbers" title="">?</span></div>
           <div id="rwRows"></div>
-          <p class="hint" style="margin:12px 0 0" id="rwNote"></p>
         </div>
       </div>
 

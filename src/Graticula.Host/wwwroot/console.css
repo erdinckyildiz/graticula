@@ -97,11 +97,18 @@
     service name is 15/600; its type and counts are 12.5/400 muted; a section label is 11/600
     uppercase and faint. Nothing else is allowed a size.
   */
-  --t-page: 26px;
-  --t-head: 16px;
-  --t-body: 14px;
-  --t-small: 12.5px;
-  --t-label: 11px;
+  /*
+    <b>Raised about a tenth on 2026-08-17, in the tokens rather than per component.</b> Owner polish
+    pass: *"increase the overall UI scale slightly (~10%). The reference feels more confident and
+    less compressed."* Every size on these screens is one of these five, so the whole interface moves
+    together and the ratios between the levels — which are the hierarchy — are unchanged. Editing
+    twenty components by hand is how a type scale stops being one.
+  */
+  --t-page: 29px;
+  --t-head: 17px;
+  --t-body: 15px;
+  --t-small: 13.5px;
+  --t-label: 11.5px;
 
   --gap-1: 4px;
   --gap-2: 8px;
@@ -161,7 +168,7 @@ a:hover { text-decoration: underline; }
   the reference's arrangement and the reason it survives a narrow window: at 980 px the sidebar
   becomes a strip of icons rather than wrapping into the content.
 */
-#shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+#shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
 #shell.tight { grid-template-columns: 64px 1fr; }
 
 /*
@@ -222,19 +229,46 @@ a:hover { text-decoration: underline; }
   below the navigation, `pointer-events: none`, and it is the first thing to go when the column is
   collapsed. If it competes with a section name, the numbers are wrong.
 */
+/*
+  <b>The layer stack, and an atmosphere around it.</b> Owner polish pass: make the illustration more
+  visible and *"introduce a very subtle cyan/blue/violet geospatial glow or dot/grid atmosphere
+  around it. Do not make it neon."* Two additions and one number: a dot field behind the stack, a
+  cyan-violet glow under it, and the opacity from 0.5 to 0.78.
+
+  <b>The dots are a survey field, which is the honest version of *geospatial atmosphere*.</b> A
+  radial-gradient repeated on a 22-pixel pitch — the same idea as the graticule higher up, at a
+  different scale, so the two read as one texture rather than two decorations.
+*/
 #railArt {
-  position: absolute; left: 0; right: 0; bottom: 132px; height: 150px;
-  pointer-events: none; opacity: .5; z-index: 0;
+  position: absolute; left: 0; right: 0; bottom: 126px; height: 190px;
+  pointer-events: none; opacity: .78; z-index: 0;
 }
+
+#railArt::before {
+  content: ""; position: absolute; inset: -26px -10px 10px;
+  background-image: radial-gradient(rgba(150, 210, 240, .30) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(closest-side at 50% 62%, #000 8%, transparent 84%);
+}
+
+#railArt::after {
+  content: ""; position: absolute; left: 50%; bottom: 8px;
+  width: 260px; height: 150px; margin-left: -130px;
+  background: radial-gradient(closest-side, rgba(42, 211, 196, .20), transparent 72%),
+              radial-gradient(closest-side at 62% 44%, rgba(122, 92, 220, .18), transparent 76%);
+  filter: blur(2px);
+}
+
 #railArt i {
-  position: absolute; left: 50%; width: 116px; height: 58px; margin-left: -58px;
-  border-radius: 8px;
+  position: absolute; left: 50%; width: 128px; height: 64px; margin-left: -64px;
+  border-radius: 9px;
   transform: rotateX(58deg) rotateZ(45deg);
-  border: 1px solid rgba(190, 230, 245, .22);
+  border: 1px solid rgba(200, 236, 250, .30);
+  box-shadow: 0 10px 22px -14px rgba(0, 0, 0, .6);
 }
-#railArt i:nth-child(1) { bottom: 4px;  background: linear-gradient(140deg, rgba(42,211,196,.42), rgba(15,179,186,.16)); }
-#railArt i:nth-child(2) { bottom: 30px; background: linear-gradient(140deg, rgba(59,120,220,.40), rgba(42,63,122,.16)); }
-#railArt i:nth-child(3) { bottom: 56px; background: linear-gradient(140deg, rgba(122,92,220,.40), rgba(58,44,120,.16)); }
+#railArt i:nth-child(1) { bottom: 6px;  background: linear-gradient(140deg, rgba(42,211,196,.60), rgba(15,179,186,.24)); }
+#railArt i:nth-child(2) { bottom: 36px; background: linear-gradient(140deg, rgba(59,120,220,.58), rgba(42,63,122,.24)); }
+#railArt i:nth-child(3) { bottom: 66px; background: linear-gradient(140deg, rgba(122,92,220,.58), rgba(58,44,120,.24)); }
 #shell.tight #railArt { display: none; }
 
 #brand {
@@ -286,8 +320,8 @@ a:hover { text-decoration: underline; }
 #tabs a[data-tab] {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+  gap: 13px;
+  padding: 12px 15px;
   border-radius: 7px;
   color: #b6c6de;
   font-size: var(--t-body);
@@ -321,7 +355,7 @@ a:hover { text-decoration: underline; }
   The glyph, from a token so a section cannot arrive without one. Brighter than the label on purpose
   — the owner asked for icon contrast, and an icon at the same weight as its text is decoration.
 */
-#tabs .ico { width: 20px; flex: none; text-align: center; font-size: 16px; color: #8ea6c8;
+#tabs .ico { width: 21px; flex: none; text-align: center; font-size: 17px; color: #8ea6c8;
              opacity: 1; }
 #tabs a[data-tab]:hover .ico { color: #cfe0f4; }
 #tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
@@ -358,7 +392,24 @@ a:hover { text-decoration: underline; }
 #shell.tight #collapse .label { display: none; }
 #shell.tight #collapse { justify-content: center; }
 
-#main { min-width: 0; display: flex; flex-direction: column; }
+/*
+  <b>An ambient tint under the workspace, and the panels stay white.</b> Owner polish pass: *"the main
+  workspace is currently too uniformly gray. Introduce an extremely subtle ambient cyan/violet tint or
+  gradient in the page background, especially around the upper content area."*
+
+  <b>Two washes, both under 4%, and neither is a surface.</b> Cyan enters from the left where the
+  content starts and violet from the right where the primary action sits, so the tint agrees with
+  where the eye already goes. `background-attachment: fixed` keeps it a property of the window rather
+  than of the scroll position — a gradient that slides under a long table reads as a rendering fault.
+*/
+#main {
+  min-width: 0; display: flex; flex-direction: column;
+  background:
+    radial-gradient(1100px 520px at 6% -8%, rgba(42, 211, 196, .07), transparent 70%),
+    radial-gradient(900px 460px at 96% -12%, rgba(122, 92, 220, .06), transparent 72%),
+    var(--paper);
+  background-attachment: fixed;
+}
 
 /* --------------------------------------------------------------------- top bar */
 
@@ -423,9 +474,9 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
   same voice at two levels rather than as two decisions.
 */
 .pagehead h2 {
-  margin: 0; font-size: 30px; font-weight: 650; letter-spacing: -.025em; line-height: 1.1;
+  margin: 0; font-size: 33px; font-weight: 650; letter-spacing: -.028em; line-height: 1.1;
 }
-.pagehead p { margin: 5px 0 0; color: var(--muted); font-size: 14.5px; }
+.pagehead p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px; }
 .pagehead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
 
 .lede { color: var(--muted); max-width: 88ch; margin: 0 0 var(--gap-4); }
@@ -490,7 +541,7 @@ table { width: 100%; border-collapse: collapse; font-size: var(--t-body); }
 */
 th {
   text-align: left;
-  padding: 13px var(--gap-5) 11px;
+  padding: 14px var(--gap-4) 12px;
   font-size: var(--t-label); font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
   color: var(--faint);
   background: linear-gradient(to bottom, #fafbfd, var(--surface-2));
@@ -506,7 +557,13 @@ th:last-child { border-top-right-radius: var(--round-lg); }
   rule is needed to tell rows apart, and at 18 the eye does it from the spacing, so the rule can drop
   to a tint. Density is unchanged in the sense that matters — the same nine services fit a screen.
 */
-td { padding: 16px var(--gap-5); border-bottom: 1px solid #eef1f6; vertical-align: middle; }
+/*
+  <b>Vertical padding is the row's presence and horizontal padding is the table's budget.</b> The
+  10% scale-up pushed the actions column off a 1440-pixel viewport, and the fix is not narrower rows
+  — it is 16 pixels of gutter instead of 22, six columns' worth of which is 72 pixels back. Row
+  height, which is what the eye reads as generous, is untouched.
+*/
+td { padding: 15px var(--gap-4); border-bottom: 1px solid #eef1f6; vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 
 /*
@@ -522,8 +579,15 @@ tr:last-child td { border-bottom: 0; }
   reads as a bug. Giving the column 42% and the caption `nowrap` fixes both, and the states beside it
   need only what their badges are wide.
 */
-#services td:nth-child(2) { width: 42%; }
+/*
+  <b>The name column takes what is left rather than a fixed share.</b> A 42% width was holding the
+  caption on one line and, after the scale-up, shoving the actions off the screen — `auto` plus a
+  non-wrapping caption does the first job without the second. The states beside it need only what
+  their badges are wide, which is what `width: 1%` on a nowrap cell asks for.
+*/
 #services .rowmeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#services td:nth-child(3), #services td:nth-child(4),
+#services td:nth-child(5), #services td:nth-child(6) { width: 1%; white-space: nowrap; }
 
 /*
   <b>The row is clickable and says so once, on hover.</b> Not a cursor change plus a colour plus an
@@ -570,7 +634,7 @@ button:disabled:hover { background: var(--surface); }
 button.primary {
   background: linear-gradient(96deg, var(--cyan-deep), #2f6fd0 62%, #5a49c4);
   border-color: transparent; color: #fff; font-weight: 600;
-  padding: 9px 17px; letter-spacing: -.005em;
+  padding: 11px 21px; font-size: var(--t-body); letter-spacing: -.005em;
   box-shadow: 0 1px 2px rgba(16, 24, 38, .12), 0 6px 16px -10px rgba(47, 111, 208, .7);
   transition: filter .12s, box-shadow .12s;
 }
@@ -724,7 +788,7 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   between navigation, operational information and service data, and this is that separation as a
   grid rather than as more borders.
 */
-#serverGrid { display: grid; grid-template-columns: 276px minmax(0, 1fr); gap: var(--gap-5);
+#serverGrid { display: grid; grid-template-columns: 282px minmax(0, 1fr); gap: var(--gap-5);
               align-items: start; }
 @media (max-width: 1080px) { #serverGrid { grid-template-columns: 1fr; } }
 
@@ -740,8 +804,8 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 }
 
 .rail-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px var(--gap-4);
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px var(--gap-4);
   border-left: 3px solid transparent;
   color: var(--ink); font-size: var(--t-body); text-decoration: none;
 }
@@ -766,7 +830,25 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 */
 .widget { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
           box-shadow: var(--lift); padding: var(--gap-4); margin-bottom: var(--gap-4); }
-.widget > .label { margin-bottom: var(--gap-3); }
+.widget > .label { margin-bottom: var(--gap-3); display: flex; align-items: center;
+                   gap: var(--gap-2); }
+
+/*
+  <b>A paragraph of caveats became one glyph with a tooltip.</b> Owner polish pass: *"the long
+  explanatory paragraph makes the widget feel like a debug panel. Move detailed explanations into an
+  info tooltip or compact help affordance."* The text is unchanged and still one hover away — these
+  numbers genuinely need it, since CPU is a ratio since start and the lines are the page's own
+  samples — but a widget is not the place to read three sentences.
+*/
+.widget .why {
+  margin-left: auto; width: 17px; height: 17px; flex: none;
+  border-radius: 50%; border: 1px solid var(--rule-strong);
+  color: var(--faint); background: var(--surface);
+  font: 600 11px/15px var(--sans); text-align: center; text-transform: none; letter-spacing: 0;
+  cursor: help;
+}
+.widget .why:hover { color: var(--accent); border-color: var(--accent-line);
+                     background: var(--accent-soft); }
 
 /*
   <b>A ring, because a proportion reads faster as an arc than as a column of percentages.</b> Owner
@@ -777,7 +859,7 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 .donutrow { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
 
 .donut {
-  width: 78px; height: 78px; flex: none; border-radius: 50%;
+  width: 84px; height: 84px; flex: none; border-radius: 50%;
   position: relative;
   background: conic-gradient(var(--ok) 0turn var(--started), var(--warn) var(--started) 1turn);
 }
@@ -788,7 +870,7 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 }
 .donut.none { background: var(--surface-3); }
 
-.tally b { display: block; font-size: 30px; font-weight: 650; letter-spacing: -.03em; line-height: 1; }
+.tally b { display: block; font-size: 33px; font-weight: 650; letter-spacing: -.03em; line-height: 1; }
 .tally span { font-size: var(--t-small); color: var(--muted); }
 
 /*
@@ -820,15 +902,22 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   percentages. Both are possible: the line is drawn from samples this page has actually taken since
   it opened, so it is a real history of a real measurement rather than a shape.
 */
-.meter { display: grid; grid-template-columns: 58px 1fr 74px; align-items: center;
-         gap: var(--gap-3); padding: 7px 0; font-size: var(--t-small);
+/*
+  <b>The value is the thing, and it now looks like it.</b> Owner polish pass: *"make the values and
+  charts more visually prominent."* The number goes to 15 in the monospace face at 600, the chart to
+  28 pixels tall, and the metric's name drops to the label size — so the row reads value first, shape
+  second, name last, which is the order somebody scanning an operations widget wants.
+*/
+.meter { display: grid; grid-template-columns: 52px 1fr 82px; align-items: center;
+         gap: var(--gap-3); padding: 10px 0; font-size: var(--t-small);
          border-top: 1px solid var(--rule); }
 .meter:first-child { border-top: 0; }
-.meter .k { color: var(--muted); }
-.meter .t { font: 500 var(--t-small)/1 var(--mono); color: var(--ink); text-align: right;
-            font-variant-numeric: tabular-nums; }
-.meter svg { display: block; width: 100%; height: 22px; overflow: visible; }
-.meter svg path.line { fill: none; stroke: var(--violet); stroke-width: 1.5;
+.meter .k { color: var(--faint); font-size: var(--t-label); font-weight: 600;
+            letter-spacing: .04em; text-transform: uppercase; }
+.meter .t { font: 600 15px/1 var(--mono); color: var(--ink); text-align: right;
+            font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.meter svg { display: block; width: 100%; height: 28px; overflow: visible; }
+.meter svg path.line { fill: none; stroke: var(--violet); stroke-width: 1.75;
                        stroke-linejoin: round; stroke-linecap: round; }
 .meter svg path.area { fill: rgba(106, 75, 192, .12); stroke: none; }
 .meter.warm svg path.line { stroke: var(--cyan-deep); }
@@ -848,7 +937,19 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   read as a lift rather than a frame. The geometry keeps its own colours, which is the point: cyan,
   yellow and pink coming out of the data are most of this screen's personality (ADR-033 §5b).
 */
-.thumb { display: block; width: 112px; height: 78px; border-radius: 6px;
+/*
+  <b>Measured against the reference rather than chosen.</b> The polish pass asked for a 10% scale-up
+  *and* for the populated table to be compared with the approved screenshot — and those pull opposite
+  ways here, because the reference's own rows are tighter than what a proportional increase produces.
+  Its preview is about 82×50 in a 77-pixel row; a straight +10% on my previous 112×78 gave 122×84 in a
+  121-pixel row, which is half again as tall as the thing it was being compared to.
+
+  <b>So the type keeps the increase and the picture does not.</b> 104×70 in a ~101-pixel row: the
+  names, labels and folder panel are a tenth larger as asked, and the row is much closer to the
+  reference's density. The two instructions cannot both be satisfied exactly, and this is the split —
+  said out loud because the alternative is silently picking one.
+*/
+.thumb { display: block; width: 104px; height: 70px; border-radius: 7px;
          background: var(--surface);
          box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(16, 24, 38, .05); }
 tr.pick:hover .thumb { box-shadow: 0 0 0 1px var(--rule-strong), 0 2px 6px -2px rgba(16, 24, 38, .12); }
@@ -864,7 +965,7 @@ tr.pick:hover .thumb { box-shadow: 0 0 0 1px var(--rule-strong), 0 2px 6px -2px 
   and the counts in the monospace face because they are quantities. The separator is a hairline dot
   at rule strength — visible enough to group, too faint to read as punctuation.
 */
-td .name { display: block; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em;
+td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.012em;
            color: var(--ink); line-height: 1.25; }
 .rowmeta { display: block; font-size: var(--t-small); color: var(--muted); font-weight: 400;
            margin-top: 3px; }

@@ -1389,11 +1389,15 @@ async function drawResourceWidget() {
     + `<div class="meter"><span class="k">Uptime</span><span></span>`
       + `<span class="t">${h(duration(runtime.uptimeMilliseconds).replace(/<[^>]+>/g, ""))}</span></div>`;
 
-  $("rwNote").innerHTML =
-    `CPU is process time since start over ${num(runtime.cores)} cores. Heap and tiles are figures `
-    + `rather than percentages: this server has no memory limit and no disk quota for them to be a `
-    + `share of. <b>The lines are samples this page has taken since you opened it</b> — not a `
-    + `history the server keeps, because it keeps none.`;
+  // <b>The caveats live on the glyph, not under the numbers.</b> Plain text rather than markup,
+  // because a `title` is plain text — and it has to stay complete: CPU being a ratio since start and
+  // the lines being the page's own samples are the two things that stop these numbers being
+  // misread, so shortening them to fit a tooltip would be the wrong economy.
+  $("rwWhy").title =
+    `CPU is process time since start, over ${runtime.cores} cores — not an instantaneous load. `
+    + `Heap and tiles are figures rather than percentages: this server has no memory limit and no `
+    + `disk quota for them to be a share of. The lines are samples this page has taken since you `
+    + `opened it, five seconds apart — not a history the server keeps, because it keeps none.`;
 
   widget.hidden = false;
   keepSampling();
