@@ -236,6 +236,9 @@
 #editHead .crumbs a:hover { text-decoration: underline; }
 #editHead .crumbs b { color: var(--ink); font-weight: 600; }
 #editHead .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+#editDirty { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+             font-weight: 600; color: var(--stop); border: 1px solid #ddc79a;
+             background: #fbf4e6; border-radius: 2px; padding: 2px 7px; }
 #editCancel { font-size: 13px; color: var(--muted); text-decoration: none; }
 #editCancel:hover { color: var(--ink); text-decoration: underline; }
 

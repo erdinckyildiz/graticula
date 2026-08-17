@@ -733,11 +733,7 @@ async function loadLayers() {
  * of quiet loss as a control that displays a value it never read.
  */
 function redrawLayerPage() {
-  const pending = new Map();
-  for (const el of document.querySelectorAll("#editPages input, #editPages select, #editPages textarea")) {
-    if (el.id) pending.set(el.id, el.type === "checkbox" ? el.checked : el.value);
-  }
-
+  const pending = editedValues();
   const { name, page } = editing;
   editing = null;                // so showLayer rebuilds rather than flipping pages
   showLayer(name, page, pending);
@@ -858,6 +854,38 @@ const EDIT_PAGES = ["general", "capabilities", "limits", "caching", "sharing", "
 let editing = null;
 
 /**
+ * What has been typed and not saved, per layer, for as long as this tab is open.
+ *
+ * <b>Instead of a confirmation dialog, and deliberately.</b> The exits from a
+ * settings page are the breadcrumb, the tab strip and the browser's own Back — and a
+ * hashchange cannot be cancelled once it has fired, so a guard there would have to
+ * navigate the reader back afterwards and would leave a history entry pointing at a
+ * page they were sent away from. Keeping the values is the better answer to the same
+ * risk: nothing is lost, so nothing needs asking about. Returning to the layer puts
+ * them back and says so.
+ *
+ * <b>Cancel is the one exit that clears it</b>, because Cancel is the reader saying
+ * *discard*, which is the only unambiguous signal in the set.
+ */
+const unsaved = new Map();      // layer name -> Map(control id -> value)
+
+/** Reads every control on the open editor, so a redraw can put them back. */
+function editedValues() {
+  const values = new Map();
+  for (const el of document.querySelectorAll(
+    "#editPages input, #editPages select, #editPages textarea")) {
+    if (el.id) values.set(el.id, el.type === "checkbox" ? el.checked : el.value);
+  }
+  return values;
+}
+
+/** Says, next to Save, that there is something to save. */
+function markUnsaved(dirty) {
+  const marker = $("editDirty");
+  if (marker) marker.hidden = !dirty;
+}
+
+/**
  * Opens a layer's settings page — or flips between its pages if it is already open.
  *
  * <b>Flipping rather than rebuilding is why this is one function and not two.</b>
@@ -955,7 +983,7 @@ function showLayer(name, page, pending = null) {
       <div class="setting"><span class="q">The most edits one call may apply:</span>
         <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
       <div class="setting"><span class="q">The longest one statement may run:</span>
-        <input type="number" id="capTimeout" min="1" placeholder="source default"><span class="u">ms</span></div>
+        <input type="number" id="capTimeout" min="1" placeholder="default"><span class="u">ms</span></div>
       <p class="hint" style="margin-top:12px">Empty means the server's own figure applies.
         A row ceiling is reported to the client the way the protocol already reports one,
         through <code>exceededTransferLimit</code>, so a truncated answer is never silent.</p>
@@ -1010,14 +1038,26 @@ function showLayer(name, page, pending = null) {
   showEditPage(page);
   describeContents(name, l);
 
-  if (pending) {
-    // Put back what was on screen before the refresh, and do not re-read: the
-    // server's answer would overwrite exactly the edits this exists to keep.
-    for (const [id, value] of pending) {
+  // A background refresh passes its own snapshot; otherwise anything left unsaved
+  // from earlier in this session is the snapshot.
+  const restore = pending ?? unsaved.get(name) ?? null;
+  markUnsaved(unsaved.has(name));
+
+  if (restore) {
+    // Put back what was on screen, and do not re-read: the server's answer would
+    // overwrite exactly the edits this exists to keep.
+    for (const [id, value] of restore) {
       const el = $(id);
       if (!el) continue;
       if (el.type === "checkbox") el.checked = value;
       else el.value = value;
+    }
+
+    // Said out loud, because a form showing figures the server does not have is
+    // only safe if the reader knows that is what they are looking at.
+    if (!pending) {
+      toast(`${name}: showing what you had typed and not saved. Save applies it; `
+        + `Cancel throws it away.`, true);
     }
   } else {
     const ttl = $("ttl");
@@ -1118,6 +1158,10 @@ async function saveEditing() {
       statementTimeoutMilliseconds: num("capTimeout"),
     }),
   });
+
+  // Saved is saved: the stash exists to survive leaving the page, not the write.
+  unsaved.delete(editing.name);
+  markUnsaved(false);
 
   toast(saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved`, true);
 }
@@ -1856,6 +1900,14 @@ async function handleClick(event) {
   if (t.id === "newLayer") { openNewLayer(); return; }
   if (t.id === "drawerClose") { closeDrawer(); return; }
 
+  // Cancel means discard, and it is the only exit that says so unambiguously — so it
+  // is the only one that throws the typed values away. The link then navigates.
+  if (t.id === "editCancel" && editing) {
+    unsaved.delete(editing.name);
+    markUnsaved(false);
+    return;
+  }
+
   if (t.id === "editSave") {
     t.disabled = true;
     await section("settings", saveEditing);
@@ -2067,6 +2119,11 @@ async function handleClick(event) {
 document.addEventListener("change", async event => {
   const d = event.target.dataset || {};
 
+  // A tick and a chosen option are `change` rather than `input`, so the note lives
+  // here too: a capability unticked and then left behind is exactly the edit worth
+  // keeping.
+  noteEdit(event.target);
+
   if (d.share) {
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(d.share)}/sharing`, {
@@ -2096,10 +2153,26 @@ document.addEventListener("change", async event => {
 });
 
 document.addEventListener("input", event => {
-  if (event.target.id !== "layerFilter") return;
-  filter = event.target.value;
-  drawLayers();
+  if (event.target.id === "layerFilter") {
+    filter = event.target.value;
+    drawLayers();
+    return;
+  }
+
+  noteEdit(event.target);
 });
+
+/** Remembers an edit to the open editor, so leaving the page cannot lose it. */
+function noteEdit(target) {
+  if (!editing || !target.closest || !target.closest("#editPages")) return;
+
+  // Sharing is applied when chosen rather than on Save (ADR-031 §2b), so it is not
+  // an unsaved edit and marking it as one would promise a Save that does nothing.
+  if (target.dataset && target.dataset.share) return;
+
+  unsaved.set(editing.name, editedValues());
+  markUnsaved(true);
+}
 
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {

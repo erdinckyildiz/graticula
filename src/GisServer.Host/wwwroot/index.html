@@ -337,6 +337,12 @@
     <div id="editHead">
       <div class="crumbs" id="editCrumb"></div>
       <div class="right">
+        <!--
+          Not silent. Leaving this page keeps whatever was typed, so the reader has to
+          be able to see that there is something to keep — a page that looks saved and
+          is not is the failure this marker exists for.
+        -->
+        <span id="editDirty" hidden>unsaved</span>
         <a href="#/services" id="editCancel">Cancel</a>
         <button class="primary" id="editSave">Save</button>
       </div>
