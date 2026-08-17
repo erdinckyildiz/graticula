@@ -166,9 +166,15 @@ the same fact.
    server started entirely on `GisServer__*` serves the console and logs
    `Configured under the former product name: GisServer:PlatformStore,
    GisServer:SecretKey, GisServer:RequireHttps, GisServer:Port`.)*
-3. **The names are actually registered.** An availability table in an ADR is a
-   measurement with a shelf life of days; until the domain, the organisation and the
-   package names are held, this decision is reversible by a stranger. Owner action.
+3. **The names are actually registered, and the repository moves to its own home.** An
+   availability table in an ADR is a measurement with a shelf life of days: until the
+   domain, the organisation and the package names are held, this decision is reversible
+   by a stranger. The repository also still lives at a working-title path
+   (`Projects/GIS`), which is where a project sits before it has a name.
+   **Owner action, deferred by owner decision 2026-08-17** — *"graticula'yı sonra
+   ayarlayıp kendi reposuna taşırız"*. Recorded as deferred rather than met, because a
+   condition nobody has done is not discharged by having been postponed, and this one
+   has a clock on it that nobody here controls.
 4. **No document keeps `gis-server` as live text.** Checked by
    [tools/registers-check.py](../../tools/registers-check.py) rather than by memory,
    the way the banned-tally check already works.
