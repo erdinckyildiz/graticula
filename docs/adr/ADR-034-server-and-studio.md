@@ -204,6 +204,48 @@ what it lists.
 Not a new identity model, not a second session, not a per-surface API. Not a rewrite of the
 existing screens: they move and are gated, and their code is the code that works today.
 
+### 5h. Server's shape: a folder rail and one list of services
+
+The owner, seeing the current Services screen while this was being built:
+*"arcgis yapısına gidiyorsak, böyle bir yapıya da ihtiyacım yok."* They are right, and the
+objection is structural rather than visual.
+
+**Today that screen is three tables stacked**, and the primary unit is wrong. *Feature and
+tile services* lists **layers**; *Services* lists services as a secondary table; *System
+services* lists the geometry service as a third kind of thing. So one screen says a layer is
+the unit, a service is a footnote, and a service with no layers is a separate species.
+
+**The reference this is being taken from does one thing:** a **folder rail** on the left —
+*Site (root)* and each folder, with a control to make one — and on the right the **services in
+the selected folder**, one row each, with a search box over them and a publish action above.
+Layers are not on that screen at all: a service is the unit, and you open one to see what is
+inside it. Derived from ArcGIS Server Manager's *Manage Services*, which the owner supplied a
+screenshot of; the structure is what transfers, not the pixels — no thumbnails, no instance
+counts, because we have no instance pool (ADR-031 §2a).
+
+So Server's main screen becomes:
+
+- **The folder rail**, from `GET /admin/folders`, including the root, each with what it holds.
+  Selecting one filters the list. **New folder** is here, which is where it belongs — the rail
+  is the only place folders are a subject rather than a field.
+- **One list of services** in that folder: name, kind, status, sharing, how many layers and
+  groups, owner, and the actions that act on a service — start, stop, delete when it is empty,
+  and its settings.
+- **The system services stop being a separate table.** The geometry service is a service in the
+  `Utilities` folder, and now that folders are real it can be listed as one. Three tables become
+  one list and a rail.
+- **Layers appear when a service is opened**, each linking to its settings page. That is the
+  drill-in the three-table screen was avoiding, and it is why the layer editor already lives at
+  its own address.
+- **The map is not here.** It moves to Studio with the viewer (§5d): looking at data is a
+  content act, and an operator watching a server does not need a map on the way.
+
+**What is lost, and it is deliberate:** the flat all-layers table with its filter over name,
+table, source and owner. It answered *where is this layer* in one screen, which a folder rail
+plus a drill-in does not. The replacement for that question is search across services — the
+reference has a search box over the same list for the same reason — and until it exists this is
+a regression in one specific task, recorded rather than glossed over.
+
 ## 6. Consequences
 
 - **ADR-020 is amended.** Its §5e table of surfaces becomes Server's; Studio is new.
@@ -221,6 +263,12 @@ existing screens: they move and are gated, and their code is the code that works
    `admin:manageServer` and finds no Server surface — not a hidden one, not a 403 toast. The
    current console's per-section failure isolation makes the opposite failure invisible, which
    is why this is a test and not a review note.
+   **Blocked, and the block is worth more than the condition:** there is no way to create a
+   second user. The first-run setup makes the administrator and no endpoint makes another, so
+   the reader this condition needs cannot exist — [D-56](../architecture-debt.md), opened
+   2026-08-17 on finding it. Until then §5b's gate is written and unexercised, and every claim
+   in this ADR about what a publisher sees is reasoning rather than measurement. **That includes
+   §1's account of the console refusing four times**, which was read out of the code.
 2. **One stylesheet and one map module across both surfaces**, asserted by a test that fails
    if a second copy of either appears. D-46 has six recorded instances and this decision
    doubles the opportunity.

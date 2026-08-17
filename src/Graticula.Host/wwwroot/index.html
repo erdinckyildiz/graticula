@@ -55,8 +55,18 @@
 </head>
 <body>
 
+<!--
+  The header is shared by both surfaces (ADR-034 §5a) and names which one you are in. The
+  switch appears only for a reader who may be in both — an administrator is also a publisher
+  and moves between them constantly, so moving costs one click; a publisher never sees that
+  Server exists, which is the point of the split rather than a courtesy.
+-->
 <header>
   <h1>Graticula</h1>
+  <nav id="surfaces" hidden>
+    <a href="#/server/services" data-surface="server">Server</a>
+    <a href="#/studio/content" data-surface="studio">Studio</a>
+  </nav>
   <span class="dot unknown" id="healthDot"></span>
   <span id="healthLine">checking…</span>
   <span class="right">
@@ -68,16 +78,13 @@
 <!--
   Links, not buttons, and that is the router showing through. Each surface has an
   address, so the browser's Back and forward, middle-click and copy-link all work
-  without this console implementing any of them. New layer stays a button: it opens
-  a form over the page rather than going anywhere.
+  without this console implementing any of them.
+
+  Rendered from JavaScript since ADR-034: the strip belongs to whichever surface is
+  open, and a tab the reader's privileges cannot reach must not be in the document at
+  all — not hidden, not refused on click. One place decides that, and it is the router.
 -->
-<nav id="tabs" style="display:none">
-  <a href="#/services" data-tab="services" aria-current="page">Services<span class="count" id="cServices"></span></a>
-  <a href="#/sources" data-tab="sources">Data sources<span class="count" id="cSources"></span></a>
-  <a href="#/operations" data-tab="operations">Operations</a>
-  <a href="#/anonymous" data-tab="anonymous">Anonymous view</a>
-  <span class="right"><button class="primary" id="newLayer">New layer</button></span>
-</nav>
+<nav id="tabs" style="display:none"></nav>
 
 <div id="signin" class="wrap">
   <!--
@@ -121,7 +128,59 @@
 <main class="wrap" id="app" style="display:none">
 
   <!-- ------------------------------------------------------------ services -->
+  <!-- ------------------------------------------------- SERVER · services -->
+  <!--
+    <b>A folder rail and one list of services</b> — ADR-034 §5h, after the owner saw the three
+    tables this replaces and said *"arcgis yapısına gidiyorsak, böyle bir yapıya da ihtiyacım
+    yok."* The objection was structural: that screen listed **layers** as the primary thing,
+    services as a secondary table, and the geometry service as a third kind of thing — so it
+    said a layer is the unit when a service is.
+
+    The shape is taken from ArcGIS Server Manager's Manage Services: folders on the left, the
+    selected folder's services on the right, and layers only when a service is opened. What is
+    not taken is the parts that describe a product we are not — no thumbnails, no instance
+    counts, because there is no instance pool (ADR-031 §2a).
+  -->
   <section class="view on" id="view-services">
+    <div id="serverGrid">
+      <aside id="folderRail">
+        <div class="rail-head">
+          <span>Folders</span>
+          <button class="tiny" id="newFolder" title="Make a folder to publish into">＋</button>
+        </div>
+        <div id="folders"></div>
+      </aside>
+
+      <div id="serverMain">
+        <div class="toolbar">
+          <input type="search" id="serviceFilter" autocomplete="off" spellcheck="false"
+            placeholder="Filter services in this folder">
+          <span class="val" id="serviceCount"></span>
+        </div>
+        <div class="panel">
+          <table>
+            <thead><tr>
+              <th>Service</th><th>Kind</th><th>Status</th><th>Sharing</th>
+              <th class="num">Layers</th><th class="num">Groups</th><th>Owner</th><th></th>
+            </tr></thead>
+            <tbody id="services"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="serviceNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------- STUDIO · my content -->
+  <!--
+    What this reader owns and what is shared with them, from GET /content/layers — the listing
+    ADR-034 §5f had to add, because /admin/layers needs admin:viewAllContent and a publisher
+    asking for their own layers was refused by it.
+
+    The map lives here rather than in Server: looking at data is a content act, and an operator
+    watching a server does not need a map on the way (§5d).
+  -->
+  <section class="view" id="view-content">
     <div class="panel" id="mapPanel">
       <div id="view"></div>
       <div id="legend"></div>
@@ -151,64 +210,29 @@
       </div>
     </div>
 
-    <h2>Feature and tile services</h2>
-    <p class="lede">Every published layer. <b>Map</b> draws one; select a row for its source,
-      cache lifetime, style and the operations that act on it.</p>
-    <div class="toolbar">
-      <input type="search" id="layerFilter" placeholder="Filter by name, table, source or owner"
-        autocomplete="off" spellcheck="false">
-      <span class="val" id="layerCount"></span>
-    </div>
-    <div class="panel">
-      <table>
-        <!--
-          Sortable headers are buttons inside th, not click handlers on th, so the
-          keyboard reaches them and a screen reader is told what they do. aria-sort
-          on the th is what says which one is active.
-        -->
-        <thead id="layerHead"><tr>
-          <th style="width:1%"></th>
-          <th data-sort="name" aria-sort="ascending"><button class="sort" data-sort="name">Layer</button></th>
-          <th data-sort="where" aria-sort="none"><button class="sort" data-sort="where">Where</button></th>
-          <th data-sort="status" aria-sort="none"><button class="sort" data-sort="status">Status</button></th>
-          <th data-sort="sharing" aria-sort="none"><button class="sort" data-sort="sharing">Sharing</button></th>
-          <th data-sort="table" aria-sort="none"><button class="sort" data-sort="table">Source table</button></th>
-          <th data-sort="owner" aria-sort="none"><button class="sort" data-sort="owner">Owner</button></th>
-        </tr></thead>
-        <tbody id="layers"></tbody>
-      </table>
-    </div>
-
-    <!--
-      Added 2026-08-17 with D-48's repair, and the listing mattered as much as the
-      delete. A service is created implicitly by publishing and left behind by
-      unpublishing the last layer, and no screen here could see one: the layer table
-      lists layers, and System services below is a different table holding the geometry
-      service. So the ordinary residue of a day's work was invisible, and the missing
-      delete had nothing to be missing from.
-    -->
-    <h2>Services</h2>
-    <p class="lede">Every feature service and what it holds. A service is a container:
-      deleting one removes the container and never its contents, so it is refused while it
-      still holds a layer or a group — the count is here so you can see which.</p>
+    <h2>My content</h2>
+    <p class="lede">What you own. <b>Map</b> draws one; the address beside it is what any ArcGIS
+      client would use.</p>
     <div class="panel">
       <table>
         <thead><tr>
-          <th>Service</th><th>Status</th><th>Sharing</th>
-          <th class="num">Layers</th><th class="num">Groups</th><th>Owner</th><th></th>
+          <th style="width:1%"></th><th>Layer</th><th>Where</th><th>Status</th>
+          <th>Sharing</th><th>Address</th>
         </tr></thead>
-        <tbody id="services"></tbody>
+        <tbody id="mine"></tbody>
       </table>
     </div>
 
-    <h2>System services</h2>
-    <p class="lede">Services with no layer behind them. They carry their own sharing scope
-      because a service nobody can reach is not governed by the layers it does not have —
-      ADR-018 §3b-i.</p>
+    <h2>Shared with you</h2>
+    <p class="lede">Visible to you and owned by somebody else — so you can draw it and not
+      restyle it. The last column says why you can see it.</p>
     <div class="panel">
       <table>
-        <thead><tr><th>Service</th><th>Kind</th><th>Folder</th><th>Sharing</th><th></th></tr></thead>
-        <tbody id="systemServices"></tbody>
+        <thead><tr>
+          <th style="width:1%"></th><th>Layer</th><th>Where</th><th>Status</th>
+          <th>Sharing</th><th>Why</th>
+        </tr></thead>
+        <tbody id="sharedWithMe"></tbody>
       </table>
     </div>
   </section>
@@ -355,6 +379,28 @@
     would not: this server serves static files and there is no /console/layer/tr_ilce
     for it to serve.
   -->
+  <!-- ------------------------------------------------ SERVER · one service -->
+  <!--
+    The drill-in ADR-034 §5h describes: a service is the unit on the services screen, and its
+    layers are inside it. The layers come from the service document — the same one any ArcGIS
+    client reads — because a second admin route returning the same list would be a second place
+    for it to be wrong.
+  -->
+  <section class="view" id="view-service">
+    <div id="editHead">
+      <div class="crumbs" id="serviceCrumb"></div>
+      <div class="right"><span class="val" id="serviceFacts"></span></div>
+    </div>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th class="num">Id</th><th>Layer</th><th>Type</th><th>Geometry</th><th>In</th><th></th>
+        </tr></thead>
+        <tbody id="serviceLayers"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="view" id="view-layer">
     <div id="editHead">
       <div class="crumbs" id="editCrumb"></div>

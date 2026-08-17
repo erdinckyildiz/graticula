@@ -27,7 +27,8 @@ const shown = new Map();     // layer name -> { colour, layer }
 let esri = null;             // the SDK modules, loaded once
 let view = null;
 
-let known = [];              // last /admin/layers listing
+let known = [];              // last /admin/layers listing — Server only
+let content = new Map();     // name -> the /content/layers entry, which carries its address
 let selected = null;         // the row the table marks: the layer last opened
 const layerNamed = name => known.find(l => l.name === name) || { name, hosted: false };
 
@@ -92,52 +93,153 @@ function metric(label, value, note) {
     note ? `<dd class="val" style="font-size:12px;margin-top:2px">${h(note)}</dd>` : ""}</div>`;
 }
 
-// --------------------------------------------------------------------- routes
+// -------------------------------------------------------------------- surfaces
 
 /**
- * One page, and the hash is the route.
+ * Two surfaces over one API — ADR-034.
  *
- * <b>Back and forward have to work</b>, which they did not when the layer editor
- * was a slide-over: the browser had no record that anything had opened, so Back
- * left the console entirely. Every navigable place is now an address —
- * `#/services`, `#/layer/tr_ilce/limits` — reached by an ordinary link, which
- * means the browser's own buttons, middle-click and copy-paste all work without
- * this file implementing any of them.
+ * <b>Server is for the operator and Studio is for the publisher</b>, and the gate is a
+ * privilege the API already enforces rather than a rule invented here: Server needs
+ * `admin:manageServer`, Studio needs a session. A reader without it gets no Server tab, no
+ * Server link, and `#/server/anything` answers with a sentence instead of four refusals —
+ * which is what the single console did, one screen at a time.
  *
- * <b>The hash rather than a path</b>, and that is a constraint rather than a
- * preference: this console is static files, so `/console/layer/tr_ilce` is a
- * route no server here answers and a refresh would 404. A pushState URL that
- * breaks on reload trades a working address for a prettier one.
+ * Each surface owns its tab strip, and the strip is built rather than written down, because a
+ * tab a reader cannot use must not be in the document at all.
  */
-const TABS = ["services", "sources", "operations", "anonymous"];
+const SURFACES = {
+  server: {
+    title: "Server",
+    needs: "admin:manageServer",
+    home: "services",
+    tabs: [
+      ["services", "Services"],
+      ["operations", "Operations"],
+      ["anonymous", "Anonymous view"],
+    ],
+    action: null,
+  },
+  studio: {
+    title: "Studio",
+    needs: null,
+    home: "content",
+    tabs: [
+      ["content", "My content"],
+      ["sources", "Data sources"],
+    ],
+    action: { id: "newLayer", label: "New layer" },
+  },
+};
 
+/** Which surface a screen belongs to, so an old address can be translated. */
+const WAS = {
+  services: "server/services",
+  operations: "server/operations",
+  anonymous: "server/anonymous",
+  sources: "studio/sources",
+  layer: "server/layer",
+};
+
+let privileges = new Set();
+
+const may = privilege => !privilege || privileges.has(privilege);
+
+/** Which surfaces this reader may enter, in order. */
+const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].needs));
+
+/**
+ * The address, read.
+ *
+ * <b>The hash carries the surface as its first segment</b> — `#/server/services`,
+ * `#/studio/content` — so a link is unambiguous about which environment it opens. Addresses
+ * from before the split are translated rather than 404'd: ADR-020 §5c took *frozen URLs* from
+ * the reference as a rule, and this breaks it once, deliberately, with a redirect.
+ */
 function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean)
     .map(decodeURIComponent);
 
-  if (parts[0] === "layer" && parts[1]) {
-    showLayer(parts[1], EDIT_PAGES.includes(parts[2]) ? parts[2] : EDIT_PAGES[0]);
+  // An address from before ADR-034: translate and replace, so Back does not bounce.
+  if (parts.length && !(parts[0] in SURFACES) && WAS[parts[0]]) {
+    location.replace(
+      `#/${WAS[parts[0]]}${parts.length > 1 ? "/" + parts.slice(1).join("/") : ""}`);
     return;
   }
-  openTab(TABS.includes(parts[0]) ? parts[0] : "services");
+
+  const surface = parts[0] in SURFACES ? parts[0] : allowed()[0];
+
+  // <b>Refused with a sentence, in Studio.</b> Not a 403 toast over an empty Server screen:
+  // the reader cannot be here, so they are somewhere they can be, told why.
+  if (!may(SURFACES[surface].needs)) {
+    toast(`${SURFACES[surface].title} is for administering this server, which needs `
+      + `${SURFACES[surface].needs}. You are in Studio, where your own content is.`);
+    location.replace("#/studio/" + SURFACES.studio.home);
+    return;
+  }
+
+  drawSurfaces(surface);
+
+  const rest = parts.slice(1);
+
+  if (rest[0] === "layer" && rest[1]) {
+    showLayer(rest[1], EDIT_PAGES.includes(rest[2]) ? rest[2] : EDIT_PAGES[0]);
+    return;
+  }
+
+  // A service, and what is in it. The address carries the folder because a service is
+  // addressed by folder and name — `#/server/service/turkiye/tr_ref`.
+  if (rest[0] === "service" && rest[1]) {
+    showService(rest.slice(1).join("/"));
+    return;
+  }
+
+  const screens = SURFACES[surface].tabs.map(([name]) => name);
+  const screen = screens.includes(rest[0]) ? rest[0] : SURFACES[surface].home;
+
+  // The folder a Server services screen is looking at, which is part of its address so that
+  // "the services in turkiye" is a place you can link somebody to.
+  openScreen(surface, screen, screen === "services" ? rest[1] ?? null : null);
 }
 
 window.addEventListener("hashchange", route);
 
+/** Draws the header's surface switch and the surface's own tab strip. */
+function drawSurfaces(surface) {
+  const both = allowed();
+
+  $("surfaces").hidden = both.length < 2;
+  for (const link of document.querySelectorAll("#surfaces a")) {
+    if (link.dataset.surface === surface) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+
+  const config = SURFACES[surface];
+
+  $("tabs").innerHTML =
+    config.tabs.map(([name, label]) =>
+      `<a href="#/${surface}/${name}" data-tab="${name}">${h(label)}${
+        name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
+        name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("")
+    + (config.action
+      ? `<span class="right"><button class="primary" id="${config.action.id}">${
+          h(config.action.label)}</button></span>`
+      : "");
+}
+
 /**
  * Goes where the map is, if we are not already there.
  *
- * <b>Drawing something you cannot see is the same as a button doing nothing.</b>
- * The map belongs to the Services surface, so Show and Tiles pressed from a layer's
- * own page used to add a layer to a map on another screen and leave the operator
- * looking at an unchanged page. Asking to see something is a good enough reason to
- * be taken to it.
+ * <b>Drawing something you cannot see is the same as a button doing nothing.</b> The map
+ * belongs to Studio's content screen (ADR-034 §5d), so Show and Tiles pressed from a layer's
+ * settings page in Server used to add a layer to a map on another screen and leave the
+ * operator looking at an unchanged page. Asking to see something is a good enough reason to be
+ * taken to it.
  */
 function toMap() {
-  if (location.hash.startsWith("#/layer/")) location.hash = "#/services";
+  if (!location.hash.startsWith("#/studio/content")) location.hash = "#/studio/content";
 }
 
-/** Shows one view, and says in the tab strip which surface it belongs to. */
+/** Shows one view, and marks its tab. */
 function showView(id, tab) {
   for (const link of document.querySelectorAll("#tabs a[data-tab]")) {
     if (link.dataset.tab === tab) link.setAttribute("aria-current", "page");
@@ -148,17 +250,28 @@ function showView(id, tab) {
   }
 }
 
-function openTab(name) {
-  // The editing session ends with the page it was on. Leaving it open would let a
-  // background refresh redraw a screen nobody is looking at.
+/**
+ * Opens a screen, and re-reads what it shows.
+ *
+ * Re-read on entry, because a screen showing numbers from when the page was opened is worse
+ * than one that says how old they are.
+ */
+function openScreen(surface, screen, folder) {
+  // The editing session ends with the page it was on. Leaving it open would let a background
+  // refresh redraw a screen nobody is looking at.
   editing = null;
 
-  showView("view-" + name, name);
+  showView("view-" + screen, screen);
 
-  // Re-read on entry, because an operations screen showing numbers from when the
-  // page was opened is worse than one that says how old they are.
-  if (name === "operations") section("operations", loadOperations);
-  if (name === "sources") section("data sources", loadSources, "sources");
+  if (screen === "services") {
+    selectedFolder = folder;
+    section("folders", loadFolders);
+    section("services", loadServices, "services");
+  }
+
+  if (screen === "content") section("your content", loadMyContent, "mine");
+  if (screen === "operations") section("operations", loadOperations);
+  if (screen === "sources") section("data sources", loadSources, "sources");
 }
 
 // ---------------------------------------------------------------------- map
@@ -554,6 +667,12 @@ async function resolvePlaces() {
  * URL to try instead of no answer at all.
  */
 async function layerUrl(name) {
+  // <b>The content listing first, because it came with the address.</b> Studio's reader may
+  // have no administrative privilege at all, and `resolvePlaces` walks the services directory
+  // to answer a question `/content/layers` already answered in the row being drawn.
+  const entry = content.get(name);
+  if (entry) return `${location.origin}${entry.url}`;
+
   const place = (await resolvePlaces()).get(name);
   if (place) return `${location.origin}/rest/services/${place.service}/FeatureServer/${place.id}`;
   return `${serviceRoot(layerNamed(name))}/FeatureServer/0`;
@@ -694,45 +813,26 @@ function hide(name) {
 
 // ------------------------------------------------------------------- services
 
-// How the list is filtered and ordered. Both belong to the reader, so they
-// survive a reload of the data and are never reset by an action taken on a row —
-// stopping a layer must not throw away the search that found it.
-let filter = "";
-let order = { key: "name", down: false };
+// <b>The sort and filter state went with the table.</b> Server lists the services in a folder
+// now (ADR-034 §5h), and the flat all-layers table this replaces owned the ordering, its ORDER
+// map and a search across name, table, source and owner. That search is the one thing the new
+// shape cannot do, and §5h records it rather than dropping it quietly.
 
-// Sorting by a secondary key inside each group, so equal statuses stay in a
-// stable and readable order instead of whatever the server happened to send.
-const ORDER = {
-  name: l => l.name.toLowerCase(),
-  where: l => (l.hosted ? "0" : "1") + l.name.toLowerCase(),
-  status: l => l.status + l.name.toLowerCase(),
-  sharing: l => l.sharing + l.name.toLowerCase(),
-  table: l => (l.table || "").toLowerCase(),
-  owner: l => (l.owner || "").toLowerCase() + l.name.toLowerCase(),
-};
-
-function visibleLayers() {
-  const needle = filter.trim().toLowerCase();
-
-  // Name, table, source and owner all match, because "which layer is on that
-  // table" is a question asked as often as "where is this layer".
-  const rows = needle
-    ? known.filter(l => [l.name, l.table, l.dataSource, l.owner]
-        .some(v => (v || "").toLowerCase().includes(needle)))
-    : [...known];
-
-  const key = ORDER[order.key] || ORDER.name;
-  rows.sort((a, b) => String(key(a)).localeCompare(String(key(b))));
-  if (order.down) rows.reverse();
-  return rows;
-}
-
+/**
+ * The administrative catalogue, which is what the layer editor is edited against.
+ *
+ * <b>It draws nothing since ADR-034.</b> The flat all-layers table it used to fill is gone:
+ * Server lists services in a folder and layers appear when a service is opened (§5h). What is
+ * still needed is `known` — the editor asks it whether a layer is hosted, who owns it, what
+ * table is under it — so this keeps reading and stops rendering.
+ *
+ * It needs `admin:viewAllContent`, so it is only called on the Server surface. Studio reads
+ * `/content/layers` instead, which is the listing §5f had to add.
+ */
 async function loadLayers() {
   const { layers } = await api("/admin/layers");
   known = layers;
   places = null;   // a start, stop, publish or delete moves what the directory holds
-  $("cServices").textContent = layers.length;
-  drawLayers();
 
   // The service list moves whenever the layer list does: publishing creates a service
   // and unpublishing the last layer empties one, and an emptied service that still shows
@@ -746,7 +846,7 @@ async function loadLayers() {
   if (!layers.some(l => l.name === editing.name)) {
     selected = null;
     editing = null;
-    location.hash = "#/services";
+    location.hash = "#/server/services";
     return;
   }
   redrawLayerPage();
@@ -768,105 +868,238 @@ function redrawLayerPage() {
   showLayer(name, page, pending);
 }
 
-function drawLayers() {
-  const rows = visibleLayers();
+/**
+ * What this reader owns and what is shared with them — Studio's screen, from
+ * `GET /content/layers` (ADR-034 §5f).
+ *
+ * <b>It carries the address, so nothing here has to guess one.</b> The administrative listing
+ * does not say which service holds a layer or at which index — D-45 — and the console resolves
+ * that through the services directory. This listing answers it directly, so Studio needs no
+ * `admin:` privilege to draw a map: the URL it draws from came with the row.
+ */
+async function loadMyContent() {
+  const { mine, shared, note } = await api("/content/layers");
 
-  for (const th of document.querySelectorAll("#layerHead th[data-sort]")) {
-    const active = th.dataset.sort === order.key;
-    th.setAttribute("aria-sort", active ? (order.down ? "descending" : "ascending") : "none");
-  }
+  content = new Map([...(mine || []), ...(shared || [])].map(e => [e.name, e]));
 
-  $("layerCount").textContent = filter.trim()
-    ? `${rows.length} of ${known.length}`
-    : `${known.length} layer${known.length === 1 ? "" : "s"}`;
+  const row = (e, last) => {
+    const isShown = shown.has(e.name);
+    const stopped = e.status === "stopped";
+    const swatch = isShown
+      ? `<i class="swatch" style="background:${h(shown.get(e.name).colour)}"></i>` : "";
 
-  $("layers").innerHTML = known.length === 0
-    ? `<tr><td colspan="7" class="empty">No layers yet. <b>New layer</b> designs an empty
-         feature class or imports a file into one.</td></tr>`
-    : rows.length === 0
-      ? `<tr><td colspan="7" class="empty">Nothing matches <b>${h(filter)}</b>.</td></tr>`
-      : rows.map(l => {
-        const isShown = shown.has(l.name);
-        const tilesShown = shown.has(tileKey(l.name));
-        const stopped = l.status === "stopped";
-        const swatch = isShown
-          ? `<i class="swatch" style="background:${h(shown.get(l.name).colour)}"></i>` : "";
+    return `<tr class="pick" data-pick="${h(e.name)}">
+      <td class="acts">${swatch}<button class="tiny ${isShown ? "on" : ""}"
+        data-show="${h(e.name)}" ${stopped
+          ? "disabled title='A stopped service answers 503, so there is nothing to draw.'"
+          : ""}>${isShown ? "Hide" : "Map"}</button>${e.hosted
+        ? `<button class="tiny ${shown.has(tileKey(e.name)) ? "on" : ""}"
+             data-tiles="${h(e.name)}" ${stopped ? "disabled" : ""}>Tiles</button>` : ""}</td>
+      <td class="name">${h(e.name)}</td>
+      <td>${pill(e.hosted ? "hosted" : "registered")}${
+        // The folder, but not when it merely repeats the word beside it: every hosted layer
+        // is in `hosted`, so saying both is noise in a column that has one job.
+        e.folder && e.folder !== "hosted"
+          ? ` <span class="val">${h(e.folder)}</span>` : ""}</td>
+      <td>${pill(e.status)}</td>
+      <td>${pill(e.sharing)}</td>
+      <td class="val">${last(e)}</td>
+    </tr>`;
+  };
 
-        // Map and Tiles are back on the row, not only in the drawer. Comparing two
-        // layers on one map is the common case, and making it cost two drawer
-        // openings was a step backwards from the console this replaced.
-        return `<tr class="pick${selected === l.name ? " sel" : ""}" data-pick="${h(l.name)}">
-          <td class="acts">${swatch}<button class="tiny ${isShown ? "on" : ""}"
-              data-show="${h(l.name)}"
-              ${stopped ? "disabled title='A stopped service answers 503, so there is nothing to draw.'"
-                        : `title="${isShown ? "Take it off the map" : "Draw it on the map"}"`}
-              >${isShown ? "Hide" : "Map"}</button>${l.hosted
-            ? `<button class="tiny ${tilesShown ? "on" : ""}" data-tiles="${h(l.name)}"
-                 ${stopped ? "disabled" : ""}
-                 title="Draw it as vector tiles, through Esri's own VectorTileLayer">Tiles</button>`
-            : ""}</td>
-          <td class="name">${h(l.name)}</td>
-          <td>${pill(l.hosted ? "hosted" : "registered")}</td>
-          <td>${pill(l.status)}</td>
-          <td>${pill(l.sharing)}</td>
-          <td class="val">${h(l.table)}${l.arcGisServable ? "" : " · no object id"}</td>
-          <td class="val">${h(l.owner || "")}</td>
-        </tr>`;
-      }).join("");
+  const address = e => `<a href="${h(e.url)}?f=json" target="_blank" rel="noreferrer">${
+    h(e.service)}/FeatureServer/${e.layerId}</a>`;
+
+  $("mine").innerHTML = (mine || []).length === 0
+    ? `<tr><td colspan="6" class="empty">${h(note || "Nothing yet.")} <b>New layer</b> publishes
+         one.</td></tr>`
+    : mine.map(e => row(e, address)).join("");
+
+  $("sharedWithMe").innerHTML = (shared || []).length === 0
+    ? `<tr><td colspan="6" class="empty">Nothing is shared with you by anybody else.</td></tr>`
+    : shared.map(e => row(e, x => h(x.because))).join("");
 }
 
 /**
- * Every feature service, with what it holds and whether it can go.
+ * One service, and the layers it holds.
  *
- * <b>Delete is offered only where it would work, and disabled with the reason where it
- * would not.</b> ADR-020 §5h's rule about not offering a capability the API lacks has a
- * twin: do not offer one the API will refuse. A disabled button carrying *2 layers, 1
- * group* answers the question before it is asked; an enabled one that returns 409 makes
- * the operator discover the rule by tripping over it.
+ * <b>Read from the service document, not from a new admin route.</b> The document is what every
+ * ArcGIS client reads to find a service's layers, so this screen and every client agree by
+ * construction — and a stopped service refusing it is shown in place, because that refusal is
+ * expected rather than a fault.
  */
-async function loadServices() {
-  const { services } = await api("/admin/featureservices");
+async function showService(qualified) {
+  editing = null;
+  showView("view-service", "services");
 
-  $("services").innerHTML = (services || []).length === 0
-    ? `<tr><td colspan="7" class="empty">None. Publishing a layer creates one.</td></tr>`
-    : services.map(s => {
-      const held = [
-        s.layers ? `${s.layers} layer${s.layers === 1 ? "" : "s"}` : "",
-        s.groups ? `${s.groups} group${s.groups === 1 ? "" : "s"}` : "",
-      ].filter(Boolean).join(", ");
+  const { folder, name } = splitService(qualified);
 
-      return `<tr>
-        <td class="name">${h(s.qualified)}${s.description
-          ? `<br><span class="val" style="font-weight:400">${h(s.description)}</span>` : ""}</td>
-        <td>${pill(s.status)}</td>
-        <td>${pill(s.sharing)}</td>
-        <td class="num">${num(s.layers)}</td>
-        <td class="num">${num(s.groups)}</td>
-        <td class="val">${h(s.owner || "—")}</td>
-        <td style="text-align:right">
-          <button class="tiny danger" data-service-delete="${h(s.name)}"
-            data-folder="${h(s.folder || "")}"
-            ${s.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
-              service delete never removes what is in it."`}>Delete</button>
-        </td></tr>`;
-    }).join("");
+  $("serviceCrumb").innerHTML =
+    `<a href="#/server/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
+     › ${folder ? h(folder) : "root"} › <b>${h(name)}</b>`;
+  $("serviceFacts").textContent = "";
+  $("serviceLayers").innerHTML = `<tr><td colspan="6" class="empty">reading the service…</td></tr>`;
+
+  try {
+    const doc = await api(
+      `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer?f=json`);
+
+    const layers = doc.layers || [];
+
+    $("serviceFacts").textContent =
+      `${layers.length} layer${layers.length === 1 ? "" : "s"} · max ${num(doc.maxRecordCount)} rows`
+      + ` · ${doc.capabilities || "no capabilities"}`;
+
+    $("serviceLayers").innerHTML = layers.length === 0
+      ? `<tr><td colspan="6" class="empty">This service holds no layers yet. Publish one into it
+           by naming it in the publish form.</td></tr>`
+      : layers.map(l => {
+        const group = l.type === "Group Layer";
+        return `<tr>
+          <td class="num">${l.id}</td>
+          <td class="name">${h(l.name)}</td>
+          <td class="val">${h(l.type)}</td>
+          <td class="val">${h((l.geometryType || "").replace("esriGeometry", "") || "—")}</td>
+          <td class="val">${l.parentLayerId >= 0 ? `group ${l.parentLayerId}` : "top level"}</td>
+          <td style="text-align:right">${group
+            ? `<span class="val">a group, not a layer</span>`
+            : `<a href="#/server/layer/${encodeURIComponent(l.name)}" class="tiny">Settings</a>`}</td>
+        </tr>`;
+      }).join("");
+  } catch (e) {
+    $("serviceLayers").innerHTML =
+      `<tr><td colspan="6" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
+  }
 }
 
-async function loadSystemServices() {
-  const { services } = await api("/admin/services");
-  $("systemServices").innerHTML = (services || []).length === 0
-    ? `<tr><td colspan="5" class="empty">None.</td></tr>`
-    : services.map(s => `<tr>
-        <td class="name">${h(s.name)}</td>
-        <td class="val">${h(s.kind)}</td>
-        <td class="val">${h(s.folder || "")}</td>
-        <td>${pill(s.sharing)}</td>
-        <td style="text-align:right">
-          <select data-service-share="${h(s.name)}">
-            ${["private", "organization", "public"].map(v =>
-              `<option value="${v}"${v === s.sharing ? " selected" : ""}>${v}</option>`).join("")}
-          </select>
-        </td></tr>`).join("");
+/** Which folder the Server services screen is looking at: null is the root. */
+let selectedFolder = null;
+
+/** The filter over the services in that folder. */
+let serviceFilter = "";
+
+/**
+ * The folder rail — ADR-034 §5h.
+ *
+ * <b>The root is an entry, not a special case.</b> Their reference shows *Site (root)* at the
+ * top of the same list, and a rail that omits the place half the services are is a rail you
+ * cannot navigate from. `hosted` and `Utilities` are entries too: `hosted` stopped being a
+ * rule when folders became real, and the geometry service is a service in `Utilities`.
+ */
+async function loadFolders() {
+  const { root, folders } = await api("/admin/folders");
+
+  const entry = (name, label, counts, extra = "") => {
+    const here = (selectedFolder ?? "") === (name ?? "");
+    return `<a href="#/server/services${name ? "/" + encodeURIComponent(name) : ""}"
+      class="rail-item${here ? " on" : ""}"${here ? ' aria-current="page"' : ""}>
+      <span class="rail-name">${h(label)}${extra}</span>
+      <span class="rail-count">${counts}</span></a>`;
+  };
+
+  $("folders").innerHTML =
+    entry(null, "Site (root)", num(root.services))
+    + (folders || []).map(f => entry(
+        f.name,
+        f.name,
+        num(f.services + f.systemServices),
+        f.reserved ? ' <span class="val" title="Reserved: this folder is where something the'
+          + ' server does lives">·</span>' : "")).join("");
+}
+
+/**
+ * The services in the selected folder, and what each holds.
+ *
+ * <b>One list, replacing three tables</b> — the owner's objection to what this used to be
+ * (ADR-034 §5h). The system services are in it rather than beside it: the geometry service is
+ * a service in `Utilities`, and now that a folder is a thing it can be listed as one.
+ */
+async function loadServices() {
+  const [{ services }, system] = await Promise.all([
+    api("/admin/featureservices"),
+    api("/admin/services").catch(() => ({ services: [] })),
+  ]);
+
+  const inFolder = (folder) => (folder ?? "") === (selectedFolder ?? "");
+
+  const rows = [
+    ...(services || []).filter(s => inFolder(s.folder)).map(s => ({
+      qualified: s.qualified,
+      name: s.name,
+      folder: s.folder,
+      kind: s.kind,
+      status: s.status,
+      sharing: s.sharing,
+      layers: s.layers,
+      groups: s.groups,
+      owner: s.owner,
+      empty: s.empty,
+      description: s.description,
+      system: false,
+    })),
+
+    // A service with no layers behind it, carrying its own sharing scope — ADR-018 §3b-i. It
+    // has no layers to open and no ceilings to set, so its row offers only what it has.
+    ...(system.services || []).filter(y => inFolder(y.folder)).map(y => ({
+      qualified: y.folder ? `${y.folder}/${y.name}` : y.name,
+      name: y.name,
+      folder: y.folder,
+      kind: y.kind,
+      status: "started",
+      sharing: y.sharing,
+      layers: 0,
+      groups: 0,
+      owner: null,
+      empty: false,
+      description: null,
+      system: true,
+    })),
+  ];
+
+  const needle = serviceFilter.trim().toLowerCase();
+  const shown_ = needle
+    ? rows.filter(r => [r.qualified, r.kind, r.owner].some(v => (v || "").toLowerCase().includes(needle)))
+    : rows;
+
+  $("serviceCount").textContent = needle
+    ? `${shown_.length} of ${rows.length}`
+    : `${rows.length} service${rows.length === 1 ? "" : "s"}`;
+
+  const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
+
+  $("services").innerHTML = shown_.length === 0
+    ? `<tr><td colspan="8" class="empty">${rows.length === 0
+        ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
+        : `Nothing in ${h(where)} matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
+    : shown_.map(r => {
+      const held = [
+        r.layers ? `${r.layers} layer${r.layers === 1 ? "" : "s"}` : "",
+        r.groups ? `${r.groups} group${r.groups === 1 ? "" : "s"}` : "",
+      ].filter(Boolean).join(", ");
+
+      return `<tr${r.system ? "" : ` class="pick" data-service="${h(r.qualified)}"`}>
+        <td class="name">${h(r.name)}${r.description
+          ? `<br><span class="val" style="font-weight:400">${h(r.description)}</span>` : ""}</td>
+        <td class="val">${h(r.kind)}</td>
+        <td>${pill(r.status)}</td>
+        <td>${r.system
+          ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
+              `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
+          : pill(r.sharing)}</td>
+        <td class="num">${r.system ? "—" : num(r.layers)}</td>
+        <td class="num">${r.system ? "—" : num(r.groups)}</td>
+        <td class="val">${h(r.owner || "—")}</td>
+        <td style="text-align:right">${r.system ? "" : `<button class="tiny danger"
+          data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
+          ${r.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
+            service delete never removes what is in it."`}>Delete</button>`}</td>
+      </tr>`;
+    }).join("");
+
+  // What opening a service does, said once rather than per row.
+  $("serviceNote").innerHTML = shown_.some(r => !r.system)
+    ? "Select a service to see its layers and set what it offers."
+    : "";
 }
 
 // --------------------------------------------------------------------- drawer
@@ -2024,6 +2257,24 @@ async function handleClick(event) {
   // breadcrumb and Cancel — so it needs no branch here. The browser follows the
   // href, the hash changes, and route() paints. That is also what makes Back work.
   if (t.id === "newLayer") { openNewLayer(); return; }
+
+  // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject
+  // rather than a field on something else (ADR-034 §5h).
+  if (t.id === "newFolder") {
+    const name = prompt("A folder to publish into. It becomes part of the URL: "
+      + "/rest/services/<folder>/<service>/FeatureServer");
+    if (!name) return;
+    try {
+      const r = await api("/admin/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      toast(r.note, true);
+      await section("folders", loadFolders);
+    } catch (e) { toast(e.message); }
+    return;
+  }
   if (t.id === "drawerClose") { closeDrawer(); return; }
 
   // Cancel means discard, and it is the only exit that says so unambiguously — so it
@@ -2078,17 +2329,20 @@ async function handleClick(event) {
     return;
   }
 
-  // Sorting is local: the listing is already in hand, so re-ordering it must not
-  // cost a request or lose the drawer that is open.
-  if (t.matches("th button.sort")) {
-    order = order.key === d.sort ? { key: d.sort, down: !order.down } : { key: d.sort, down: false };
-    drawLayers();
+  // <b>A service row opens the service, and its layers are inside.</b> ADR-034 §5h: the
+  // service is the unit on this screen, so selecting one goes to what it holds rather than
+  // to a layer somebody guessed from a flat table.
+  const service = t.closest("tr[data-service]");
+  if (service && !d.serviceDelete && !d.serviceShare) {
+    location.hash = `#/server/service/${encodeURIComponent(service.dataset.service)}`;
     return;
   }
 
+  // A content row in Studio: the layer's own page, which is where its appearance and its
+  // sharing are.
   const pick = t.closest("tr[data-pick]");
   if (pick && !d.show && !d.tiles) {
-    location.hash = `#/layer/${encodeURIComponent(pick.dataset.pick)}`;
+    location.hash = `#/server/layer/${encodeURIComponent(pick.dataset.pick)}`;
     return;
   }
 
@@ -2303,14 +2557,14 @@ document.addEventListener("change", async event => {
       // sharing returns, so it says the new scope and not the transition.
       toast(`${r.name}: now shared ${r.sharing}`, true);
     } catch (e) { toast(e.message); }
-    await loadSystemServices();
+    await section("services", loadServices, "services");
   }
 });
 
 document.addEventListener("input", event => {
-  if (event.target.id === "layerFilter") {
-    filter = event.target.value;
-    drawLayers();
+  if (event.target.id === "serviceFilter") {
+    serviceFilter = event.target.value;
+    section("services", loadServices, "services");
     return;
   }
 
@@ -2335,11 +2589,11 @@ document.addEventListener("keydown", event => {
     // is the thing you are most likely to be holding when you press it. It does not
     // leave the layer's page: Escape dismisses something floating, and a page you
     // navigated to is left with Back or Cancel.
-    if (document.activeElement && document.activeElement.id === "layerFilter"
-        && $("layerFilter").value !== "") {
-      $("layerFilter").value = "";
-      filter = "";
-      drawLayers();
+    if (document.activeElement && document.activeElement.id === "serviceFilter"
+        && $("serviceFilter").value !== "") {
+      $("serviceFilter").value = "";
+      serviceFilter = "";
+      section("services", loadServices, "services");
       return;
     }
     if ($("drawer").classList.contains("on")) closeDrawer();
@@ -2350,6 +2604,10 @@ document.addEventListener("keydown", event => {
 
 async function whoami() {
   const me = await api("/rest/whoami");
+
+  // <b>The gate's input.</b> ADR-034 §5b: Server needs `admin:manageServer`, and the router
+  // reads it from here rather than probing an endpoint to see whether it is refused.
+  privileges = new Set(me.privileges || []);
   $("who").innerHTML = me.authenticated
     ? `<b>${h(me.name)}</b> · ${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
     : "anonymous";
@@ -2448,12 +2706,13 @@ async function start() {
   // presenting as a dead page, with the reader given no way to tell which. Now a
   // section that cannot load says so in its own place and the rest still works,
   // which is also how somebody diagnoses a half-broken server.
+  // <b>Only what this reader may read.</b> The catalogue listing needs
+  // `admin:viewAllContent`, so asking for it as a publisher is a refusal in the corner of a
+  // screen they should not have been shown — which is the defect ADR-034 exists to fix, and
+  // it would be silly to reproduce it during boot.
   await Promise.all([
-    section("health", refreshHealth),
-    section("layers", loadLayers, "layers"),
-    section("services", loadServices, "services"),
-    section("system services", loadSystemServices, "systemServices"),
-    section("data sources", loadSources, "sources"),
+    may("admin:manageServer") ? section("health", refreshHealth) : Promise.resolve(),
+    may("admin:viewAllContent") ? section("layers", loadLayers) : Promise.resolve(),
   ]);
 
   // <b>The address is read after the listing, not before.</b> A link straight to
