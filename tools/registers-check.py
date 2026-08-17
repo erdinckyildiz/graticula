@@ -22,6 +22,7 @@ Exits non-zero with the mismatch named. Run from the repository root.
 """
 
 import io
+import subprocess
 import os
 import re
 import sys
@@ -203,6 +204,90 @@ def remembered_numbers():
     return problems
 
 
+def source_the_repository_would_not_receive():
+    """Source files an ignore rule keeps out of the repository.
+
+    **D-62.** `.gitignore` carried `secrets/` under *Local configuration and secrets*,
+    meant for a deployment's own credential files. Unanchored, that pattern matches a
+    directory of that name at any depth -- and case-insensitively on Windows -- so it
+    swallowed `src/Graticula.Platform/Secrets/`. The two files that seal every registered
+    data source credential were never committed, and a clone of this repository could not
+    build.
+
+    **Nothing reported it, and that is the whole reason this check exists.** An ignored
+    file is not an untracked one: `git status` says nothing about it by definition, the
+    working copy compiles because the file is on disk, and every check anybody runs
+    passes. It was found by deleting the working copy by accident and recovering the
+    source from a build output that happened to sit outside the repository.
+
+    **Ignored, not merely untracked.** A file somebody has just written and not yet
+    added is untracked, which is normal and is not what this is about. A file an ignore
+    rule *hides* is the pathological case, and asking `git check-ignore` is the exact
+    question.
+
+    **Why this rather than a CI job that clones and builds.** That is the broader answer
+    and it is [Q-117](docs/open-questions.md); this is the narrow one, it runs wherever
+    the registers are checked, and it catches the failure at the moment the rule is
+    written rather than at the next push.
+    """
+    problems = []
+
+    roots = [os.path.join(conditions.ROOT, "src"), os.path.join(conditions.ROOT, "tests")]
+    candidates = []
+
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+
+        for here, directories, files in os.walk(root):
+            # Build output is ignored on purpose and is not source.
+            directories[:] = [d for d in directories if d not in ("bin", "obj")]
+
+            for name in files:
+                if name.endswith((".cs", ".csproj", ".js", ".css", ".html")):
+                    candidates.append(os.path.join(here, name))
+
+    if not candidates:
+        return problems
+
+    # <b>One call, not one per file.</b> `git check-ignore --stdin` answers for a list;
+    # 700 processes would make this the slowest check here by two orders of magnitude.
+    #
+    # <b>NUL-separated and in bytes, and both halves of that were a defect here.</b>
+    # With `text=True`, Python translates the newlines in the *input* to CRLF on
+    # Windows, so git received a carriage return at the end of each path, took it as
+    # part of the filename, and echoed it back C-quoted -- which printed a path with a
+    # stray escape on the end and looked like this tool was broken rather than the rule
+    # it was reporting. `-z` reads and writes NUL-separated with no quoting at all,
+    # which removes the translation and the un-quoting together.
+    try:
+        answer = subprocess.run(
+            ["git", "check-ignore", "-z", "--stdin", "--no-index"],
+            input=b"\0".join(c.encode("utf-8") for c in candidates),
+            capture_output=True, cwd=conditions.ROOT, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return [f"could not ask git which files are ignored: {e}"]
+
+    for chunk in answer.stdout.decode("utf-8", "replace").split("\0"):
+        hidden = chunk.strip()
+
+        if not hidden:
+            continue
+
+        relative = os.path.relpath(hidden, conditions.ROOT).replace(os.sep, "/")
+
+        problems.append(
+            f"{relative} is source and .gitignore hides it, so a clone of this "
+            "repository would not receive it and could not build. An ignored file is "
+            "invisible to `git status`, which is why this is checked rather than "
+            "noticed -- see D-62, where two files that seal every data source "
+            "credential were absent for six days. Anchor the pattern to the "
+            "repository root, or narrow it."
+        )
+
+    return problems
+
+
 def the_former_product_name():
     """`gis-server` used as a live name rather than as history.
 
@@ -318,7 +403,7 @@ def main() -> int:
     # class of problem and discover the next one on the following run. Somebody
     # repairing registers deserves the whole list at once.
     problems = (duplicate_debt_ids() + broken_links() + remembered_numbers()
-                + the_former_product_name())
+                + the_former_product_name() + source_the_repository_would_not_receive())
 
     if problems:
         for line in problems:
