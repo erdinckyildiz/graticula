@@ -408,51 +408,66 @@
   <section class="view" id="view-service">
     <div id="editHead">
       <div class="crumbs" id="serviceCrumb"></div>
-      <div class="right"><span class="val" id="serviceFacts"></span></div>
-    </div>
-    <!--
-      <b>What one operation may spend, for a service that has no layers.</b> The owner, looking at
-      the geometry service's row: *"geometry server'in, startı stop'u, timeout'u vs si yok mu?"*,
-      and then, on being told the timeout was a configuration-file value: *"iyi de neden yok. yani
-      ben neden max timeout süresi tanımlayamıyorum?"* They were right — the deadline is applied per
-      operation, so nothing had to be restarted for a new value to take effect and the deferral was
-      caution about work nobody needed to do. Hidden for a service that holds layers, whose limits
-      live on each layer's own Limits page.
-    -->
-    <div class="panel" id="serviceLimits" hidden>
-      <h4>What one operation may spend</h4>
-      <!--
-        <b>Four boxes, and their shape comes from the reference.</b> The owner sent ArcGIS Server
-        Manager's *Pooling* page for its own geometry service and asked *"e bunlar güzel örnekler
-        değil mi?"* Three of its five controls named real gaps here: the timeout, which we had for
-        overlay only; the queue wait, which we bounded by the *work's* deadline — one number doing
-        two jobs; and the idle reclaim, which we had not at all, so a returned worker was kept for
-        ever. The two that did not transfer are the instance minimum and maximum, because ours is
-        one number and elastic pooling needs a problem before it earns the machinery.
-      -->
-      <p class="hint">Each falls back to the server's configured default when left empty — which is
-        not the same as typing the default in, because a typed copy stops tracking the setting.
-        <b>Timeout</b> is how long the work may take; <b>queue wait</b> is how long a request may
-        wait for a free worker, which is a different budget.</p>
-      <div class="row">
-        <label for="limDeadline">Timeout, seconds</label>
-        <input id="limDeadline" type="number" min="1" max="3600" style="width:7em">
-        <label for="limWait">Queue wait, seconds</label>
-        <input id="limWait" type="number" min="1" max="3600" style="width:7em">
+      <div class="right">
+        <span class="val" id="serviceFacts"></span>
+        <!--
+          <b>Actions in the head bar, beside the breadcrumb, because that is where this
+          application already puts them.</b> They were in the middle of the second row of controls,
+          which the owner saw and said plainly: *"arayüz konusunda çok kötü olduğunu biliyor musun?
+          benim gösterdiğim bile daha güzeldi."* They were right, and the fault was not taste — it
+          was inventing a second shape for a settings page while the layer editor's shape sat one
+          section below in this file. D-46 is the register entry for exactly that.
+        -->
+        <button class="tiny" id="limClear" hidden>Use the defaults</button>
+        <button class="primary" id="limSave" hidden>Save</button>
       </div>
-      <div class="row">
-        <label for="limPreflight">Pre-flight, segment pairs</label>
-        <input id="limPreflight" type="number" min="0" style="width:9em">
-        <label for="limIdle">Reclaim idle after, seconds</label>
-        <input id="limIdle" type="number" min="0" max="86400" style="width:8em">
-        <span style="flex:1"></span>
-        <button class="tiny" id="limSave">Save</button>
-        <button class="tiny" id="limClear">Use the defaults</button>
-      </div>
-      <p class="hint" id="limNote"></p>
     </div>
 
-    <div class="panel">
+    <!--
+      <b>What one operation may spend, for a service that has no layers.</b> Two owner questions
+      built this: *"geometry server'in, startı stop'u, timeout'u vs si yok mu?"* and then, on being
+      told the timeout was a configuration-file value, *"iyi de neden yok. yani ben neden max
+      timeout süresi tanımlayamıyorum?"*
+
+      <b>The layout is their reference's and so is the grouping.</b> ArcGIS Server Manager's
+      *Pooling* page puts a sentence on the left, a box on the right and the unit outside it, under
+      section headings — *Specify Number of Instances*, *Specify Service Timeouts*. This page had
+      four labelled boxes wrapping across two unaligned rows instead, which read as a form somebody
+      gave up on. The `.setting` row and the `h4` group were already here, on the layer editor's own
+      Limits page; using them was the fix rather than new CSS.
+    -->
+    <div class="panel" id="serviceLimits" hidden>
+      <div class="page on" id="servicePages">
+        <h4>Service timeouts</h4>
+        <div class="setting"><span class="q">The longest one operation may run:</span>
+          <input type="number" id="limDeadline" min="1" max="3600"><span class="u">seconds</span></div>
+        <div class="setting"><span class="q">The longest a request may wait for a free worker:</span>
+          <input type="number" id="limWait" min="1" max="3600"><span class="u">seconds</span></div>
+
+        <h4>Worker processes</h4>
+        <div class="setting"><span class="q">Refuse work above this many candidate segment pairs:</span>
+          <input type="number" id="limPreflight" min="0"><span class="u">pairs</span></div>
+        <div class="setting"><span class="q">Reclaim a worker left unused for longer than:</span>
+          <input type="number" id="limIdle" min="0" max="86400"><span class="u">seconds</span></div>
+
+        <p class="hint">An empty box takes the server's configured default, shown as the
+          placeholder. That is not the same as typing the default in: a typed copy stops tracking
+          the setting.</p>
+
+        <!--
+          <b>Read-only, and separated for that reason.</b> Three numbers govern this service and
+          cannot be set here — two because they are per server rather than per service, one because
+          a cap is the right mechanism for that half of the surface (ADR-022 §3). Mixing them in
+          with the boxes would invite somebody to try.
+        -->
+        <h4>Fixed, and not editable here</h4>
+        <dl class="facts" id="limFixed"></dl>
+
+        <p class="hint" id="limNote"></p>
+      </div>
+    </div>
+
+    <div class="panel" id="serviceLayerPanel">
       <table>
         <thead><tr>
           <th class="num">Id</th><th>Layer</th><th>Type</th><th>Geometry</th><th>In</th><th></th>

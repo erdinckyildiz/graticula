@@ -999,15 +999,16 @@ async function showService(qualified) {
   const limits = await loadServiceLimits(name);
 
   if (limits) {
-    $("serviceFacts").textContent =
-      `${limits.kind} · no layers · ${limits.effectiveDeadlineSeconds}s per operation`;
+    $("serviceFacts").textContent = `${limits.kind} · no layers`;
 
-    $("serviceLayers").innerHTML =
-      `<tr><td colspan="6" class="empty">A ${h(limits.kind)} holds no layers — it computes on the
-         geometry a caller sends. What it will spend on one request is above; who may call it is
-         on the services list.</td></tr>`;
+    // <b>The table goes away rather than saying it is empty.</b> A header of Id/Layer/Type/
+    // Geometry/In over one sentence explaining that there are none is a table pretending to be
+    // informative — and it was the first thing on this screen the owner's eye landed on.
+    $("serviceLayerPanel").hidden = true;
     return;
   }
+
+  $("serviceLayerPanel").hidden = false;
 
   try {
     const doc = await api(
@@ -1061,6 +1062,8 @@ async function loadServiceLimits(name) {
   if (!panel) return;
 
   panel.hidden = true;
+  $("limSave").hidden = true;
+  $("limClear").hidden = true;
 
   let limits;
   try {
@@ -1073,7 +1076,7 @@ async function loadServiceLimits(name) {
 
   const box = (id, stored, fallback) => {
     $(id).value = stored ?? "";
-    $(id).placeholder = `${fallback} (default)`;
+    $(id).placeholder = String(fallback);
   };
 
   box("limDeadline", limits.deadlineSeconds, limits.defaultDeadlineSeconds);
@@ -1081,21 +1084,41 @@ async function loadServiceLimits(name) {
   box("limPreflight", limits.preflightPairs, num(limits.defaultPreflightPairs));
   box("limIdle", limits.idleSeconds, limits.defaultIdleSeconds);
 
-  $("limNote").innerHTML =
-    `In force now: work is cut off after <b>${h(limits.effectiveDeadlineSeconds)} s</b>, `
-    + `a request queues for at most <b>${h(limits.effectiveWaitSeconds)} s</b>, `
-    + `${limits.effectivePreflightPairs
-        ? `work above <b>${num(limits.effectivePreflightPairs)}</b> segment pairs is refused before `
-          + `it starts`
-        : "there is <b>no</b> pre-flight"}, and `
-    + `${limits.effectiveIdleSeconds
-        ? `an unused worker is reclaimed after <b>${h(limits.effectiveIdleSeconds)} s</b>`
-        : "workers are <b>kept for ever</b>"}. `
-    + `${num(limits.workers)} worker process${limits.workers === 1 ? "" : "es"}, each capped at a `
-    + `1 GB heap, and a fixed ceiling of ${num(limits.maximumVertices)} vertices per request — `
-    + `those two are per server rather than per service. A change applies from the next operation; `
-    + `nothing is restarted.`;
+  // The three an operator cannot set here, said with the reason each one is fixed. A number
+  // without its reason invites the question this list exists to answer.
+  // <b>The number in mono, the reason in prose.</b> `dl.facts` sets its values in the monospace
+  // face because they are usually table names and identities; a sentence rendered that way reads
+  // as output rather than as an explanation, which is what it looked like on the first attempt.
+  const fixed = (value, why) =>
+    `<dd><b class="mono">${value}</b> <span class="why">${why}</span></dd>`;
 
+  $("limFixed").innerHTML =
+    `<dt>Worker processes</dt>`
+    + fixed(num(limits.workers),
+        "per server, from <code>Graticula:OverlayWorkers</code>. Total memory exposure is this "
+        + "times the heap below.")
+    + `<dt>Heap per worker</dt>`
+    + fixed("1 GB",
+        "the other half of the timeout: a request can exhaust memory well inside any deadline "
+        + "worth having, so the process has a ceiling and dies instead of the server.")
+    + `<dt>Vertices per request</dt>`
+    + fixed(num(limits.maximumVertices),
+        "every operation here is one pass over the coordinates, so input size bounds the work "
+        + "exactly — a cap is the right mechanism rather than a preference.");
+
+  $("limNote").innerHTML =
+    `<b>In force now:</b> work is cut off after ${h(limits.effectiveDeadlineSeconds)} s, `
+    + `a request queues for at most ${h(limits.effectiveWaitSeconds)} s, `
+    + `${limits.effectivePreflightPairs
+        ? `work above ${num(limits.effectivePreflightPairs)} segment pairs is refused before it starts`
+        : "there is no pre-flight"}, and `
+    + `${limits.effectiveIdleSeconds
+        ? `an unused worker is reclaimed after ${h(limits.effectiveIdleSeconds)} s`
+        : "workers are kept for ever"}. `
+    + `A change applies from the next operation; nothing is restarted.`;
+
+  $("limSave").hidden = false;
+  $("limClear").hidden = false;
   panel.hidden = false;
   return limits;
 }

@@ -147,6 +147,13 @@
                 letter-spacing: .03em; text-transform: uppercase; color: var(--faint);
                 font-weight: 600; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  /*
+    <b>A hint on a settings page gets the page's column.</b> Under a full-width panel a 56ch hint
+    wrapped into a four-line ribbon with two thirds of the panel empty beside it, which reads as a
+    broken layout rather than as a reading measure. The page sets the column (see #servicePages);
+    the hint fills it, so the prose and the controls it explains line up.
+  */
+  .page .hint { max-width: 100%; }
   .hint { font-size: 12.5px; color: var(--muted); max-width: 56ch; margin: 0 0 12px; }
   .hint:last-child { margin-bottom: 0; }
   code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
@@ -189,6 +196,14 @@
              font-size: 13px; }
   dl.facts dt { color: var(--muted); }
   dl.facts dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+  /*
+    A value and the reason for it in one cell: the value keeps the monospace face this list is
+    built for, and the sentence beside it does not — a reason set in mono reads as output rather
+    than as an explanation.
+  */
+  dl.facts dd .mono { font-family: var(--mono); font-weight: 600; color: var(--ink); }
+  dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: normal;
+                     color: var(--muted); }
 
   /* -------------------------------------------------------------- metrics */
 
@@ -253,7 +268,21 @@
              padding: 8px 16px; border-left: 3px solid transparent; }
 #editNav a:hover { background: var(--surface-3); }
 #editNav a[aria-current] { background: var(--accent); color: #fff; font-weight: 500; }
-#editPages { padding: 18px 22px 28px; min-width: 0; }
+/*
+  <b>Two pages, one rule.</b> A service with no layers has a settings page too, and giving
+  it its own padding is how two screens that should look identical start not to — D-46's
+  shape, applied to a stylesheet rather than to a behaviour.
+*/
+#editPages, #servicePages { padding: 18px 22px 28px; min-width: 0; }
+
+/*
+  <b>One column, because a settings page is a column.</b> The layer editor's pages are not bounded
+  — they hold an endpoint list and a wall of field pills that want the width — but this page is
+  four numbers and three sentences, and letting those run to 1,200 px put the prose in one part of
+  the panel and the boxes in another. The reference's own pooling page is a column of about this
+  width, which is not a coincidence: it is what a labelled row reads as.
+*/
+#servicePages { max-width: 780px; }
 
 /* One page shows at a time; all six are in the document, so moving is a class. */
 .page { display: none; }
@@ -273,6 +302,13 @@
 .setting .q { flex: 1; font-size: 14px; }
 .setting input { width: 110px; text-align: right; font-family: var(--mono); font-size: 13px; }
 .setting .u { width: 66px; color: var(--muted); font-size: 13px; }
+
+/*
+  The summary of what is in force, as a footer to the page rather than a fourth row of the list
+  above it. Without the rule it read as one more fixed fact, which is the opposite of what it is:
+  everything in it can be changed by the boxes.
+*/
+#limNote { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--rule); }
 
 /* ------------------------------------------- the two surfaces, and the folder rail */
 /*
