@@ -1664,7 +1664,11 @@ public static class Program
             await RelationshipsForAsync(layer, relationships, catalog, cancellation)
                 .ConfigureAwait(false),
             layer.LayerIndex,
-            layer.Cost.MaximumRecordCount);
+            layer.Cost.MaximumRecordCount,
+
+            // ADR-033 §5a: the stored canonical document, or null for the generated
+            // appearance. The writer decides which; this only carries it.
+            layer.Symbology);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

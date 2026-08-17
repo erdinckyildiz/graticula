@@ -188,6 +188,50 @@ public static class FeatureServerMetadataWriter
         };
     }
 
+    /// <summary>
+    /// The stored symbology if there is one, and the generated appearance if not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-033 §5a and §5b in one method.</b> A layer with a canonical document has
+    /// that document projected onto the three renderer families a client understands;
+    /// a layer without one gets the generated appearance, which is a real answer and
+    /// is reported as generated.
+    /// </para>
+    /// <para>
+    /// <b>A stored document that will not convert falls back rather than 500s.</b> The
+    /// write path refuses anything it cannot project, so reaching this catch means a
+    /// document written by an older build is being read by a newer one — and a
+    /// service document that answers 500 to an anonymous client is a worse outcome
+    /// than one that draws the wrong colour. That lesson has a date on it: the
+    /// capabilities guard did exactly this on 2026-08-17 and took sixteen conformance
+    /// tests with it. The <c>drawingInfoGenerated</c> flag is what tells a reader
+    /// which of the two happened.
+    /// </para>
+    /// </remarks>
+    private static object Drawing(
+        string layerName, GeometryKind geometryType, string? symbology, out bool generated)
+    {
+        if (!string.IsNullOrWhiteSpace(symbology))
+        {
+            try
+            {
+                generated = false;
+
+                return SymbologyConversion
+                    .ToDrawingInfo(symbology, layerName, geometryType)
+                    .DrawingInfo;
+            }
+            catch (SymbologyException)
+            {
+                // Fall through to the generated appearance.
+            }
+        }
+
+        generated = true;
+        return DrawingInfo(layerName, geometryType);
+    }
+
     private static int[] Outline(string hex)
     {
         (byte red, byte green, byte blue) = GeneratedSymbology.Bytes(hex);
@@ -542,6 +586,11 @@ public static class FeatureServerMetadataWriter
     /// This service's own row ceiling, or null when it has none. The smaller of it
     /// and the server's is advertised, because that is the one a client will meet.
     /// </param>
+    /// <param name="symbology">
+    /// The layer's canonical MapLibre document, or null for the generated
+    /// appearance. ADR-033 §5a: this is the only authored artefact for how a layer
+    /// looks, and both faces derive from it rather than holding their own copy.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -549,7 +598,8 @@ public static class FeatureServerMetadataWriter
         string capabilities,
         IEnumerable<object>? relationships = null,
         int layerId = 0,
-        int? maxRecordCount = null)
+        int? maxRecordCount = null,
+        string? symbology = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -585,8 +635,8 @@ public static class FeatureServerMetadataWriter
             // and the server had no opinion. It is generated rather than authored until
             // somebody stores a style — `drawingInfoGenerated` says which, because a
             // default presented as a decision is a decision nobody made.
-            drawingInfo = DrawingInfo(layer.Name, geometryType),
-            drawingInfoGenerated = true,
+            drawingInfo = Drawing(layer.Name, geometryType, symbology, out bool generated),
+            drawingInfoGenerated = generated,
 
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
             supportedQueryFormats = "JSON",

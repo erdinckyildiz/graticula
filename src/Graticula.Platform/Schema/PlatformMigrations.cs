@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(22);
+    public static SchemaVersion ComponentSchemaVersion => new(23);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -57,6 +57,7 @@ public static class PlatformMigrations
         SystemServiceBoundsV20,
         SystemServicePoolingV21,
         CredentialMustChangeV22,
+        LayerSymbologyV23,
     ]);
 
     /// <summary>
@@ -223,6 +224,55 @@ public static class PlatformMigrations
     /// exactly the state this column means by *clean*.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A layer's canonical symbology, which is the document every face derives from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-033 §5a: one column on the layer, holding a MapLibre style.</b> It is the
+    /// only authored artefact for appearance; the tile face and the feature face are both
+    /// derived from it on read, so the two cannot drift apart by being edited separately.
+    /// </para>
+    /// <para>
+    /// <b>Text, not <c>jsonb</c>, for migration 14's reason and one more.</b> 14 said it
+    /// first: <c>jsonb</c> normalises whitespace, reorders keys and collapses duplicates,
+    /// so a cartographer diffing their style against the one the server returned would
+    /// find spurious changes every time. The extra reason here is that this document is
+    /// *normalised on write by us* — <c>sources</c>, <c>sprite</c> and <c>glyphs</c> are
+    /// stripped (§5c) and an absolute URL is refused — and a caller can only be told what
+    /// changed if what comes back is byte-for-byte what was stored.
+    /// </para>
+    /// <para>
+    /// <b>On the layer, not the service, and that is the difference from migration 14.</b>
+    /// A style names source layers and orders them, which is a service-level fact; a
+    /// symbol is a fact about one layer's features. §5d keeps both: the per-service style
+    /// survives as an override for the tile face, and this is the authoring unit.
+    /// </para>
+    /// <para>
+    /// <b>The bound is a check constraint because ADR-033 §7's fifth condition says so
+    /// in those words.</b> The application has a constant too —
+    /// <c>SymbologyConversion.MaximumCharacters</c>, so a refusal can name a number a
+    /// caller can act on — but a bound that lives only there is a bound the next writer
+    /// bypasses. 256 KB is high enough never to be met by a real style and low enough that
+    /// the column cannot become a place to store something else.
+    /// </para>
+    /// <para><b>Expand.</b> Two nullable columns and a check that permits null; a layer
+    /// with no symbology keeps the generated appearance, which §5b makes a real answer
+    /// rather than a placeholder.</para>
+    /// </remarks>
+    private static Migration LayerSymbologyV23 => Migration.Expand(
+        new SchemaVersion(23),
+        "A canonical MapLibre symbology document per layer, which both faces derive from.",
+
+        "alter table layer add column symbology text",
+
+        "alter table layer add column symbology_updated_at timestamptz",
+
+        """
+        alter table layer add constraint layer_symbology_is_bounded
+          check (symbology is null or length(symbology) <= 262144)
+        """);
+
     private static Migration CredentialMustChangeV22 => Migration.Expand(
         new SchemaVersion(22),
         "Mark a credential an administrator issued as one its owner must replace.",

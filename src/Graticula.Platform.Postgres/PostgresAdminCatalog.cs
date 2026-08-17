@@ -809,6 +809,80 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<SymbolisedLayer?> FindLayerForSymbologyAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Sql = """
+            select l.name, coalesce(s.name, l.name), l.geometry_type, l.symbology
+            from layer l
+            left join service s on s.id = l.service_id
+            where lower(l.name) = lower(@name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        // <b>Parsed from text, not cast from an integer.</b> `geometry_type` is a text
+        // column with a check constraint, which is how PostgresLayerCatalog reads it —
+        // and the first version of this cast an int and answered 500 on every request.
+        // A failure here means the constraint and the enum have drifted apart.
+        string kind = reader.GetString(2);
+
+        if (!Enum.TryParse(kind, out GeometryKind geometry))
+        {
+            throw new InvalidOperationException(
+                $"Layer '{reader.GetString(0)}' declares geometry type '{kind}', which this build "
+                + "does not know. The schema's check constraint and GeometryKind have diverged.");
+        }
+
+        return new SymbolisedLayer(
+            reader.GetString(0),
+            reader.GetString(1),
+            geometry,
+            reader.IsDBNull(3) ? null : reader.GetString(3));
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetSymbologyAsync(
+        string name, string? canonical, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>The timestamp moves with the document, including to null.</b> Clearing the
+        // symbology is a decision as much as setting one is, and a stamp left behind
+        // would say a layer was styled at a time when it was un-styled.
+        //
+        // <b>And the parameter is cast, because clearing is what found this.</b> A bare
+        // `@document` inside a `case when ... is null` gives Postgres nothing to infer a
+        // type from — *42P08: could not determine data type of parameter $1* — and the
+        // failure only appears on the clear, where the value is null. Setting a document
+        // worked, so the defect was one code path deep in a pair that looks symmetrical.
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            update layer
+               set symbology = @document::text,
+                   symbology_updated_at =
+                     case when @document::text is null then null else now() end,
+                   updated_at = now()
+             where lower(name) = lower(@name)
+            """);
+
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("document", (object?)canonical ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetStyleAsync(
         string name, string? style, CancellationToken cancellationToken)
     {

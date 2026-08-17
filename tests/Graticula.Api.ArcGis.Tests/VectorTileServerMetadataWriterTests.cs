@@ -204,7 +204,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // dictionary. If it ever regresses to sourceLayer the style loads, the
         // map stays empty, and nothing appears in the browser console.
         JsonElement layer = Parse(
-            VectorTileServerMetadataWriter.Style([("roads", GeometryKind.LineString)]))
+            VectorTileServerMetadataWriter.Style([("roads", GeometryKind.LineString, null)]))
             .GetProperty("layers")[0];
 
         Assert.Equal("roads", layer.GetProperty("source-layer").GetString());
@@ -219,7 +219,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // requests a tile.
         Assert.Equal(
             "../../",
-            Parse(VectorTileServerMetadataWriter.Style([("roads", GeometryKind.Polygon)]))
+            Parse(VectorTileServerMetadataWriter.Style([("roads", GeometryKind.Polygon, null)]))
                 .GetProperty("sources").GetProperty("esri").GetProperty("url").GetString());
     }
 
@@ -237,7 +237,7 @@ public sealed class VectorTileServerMetadataWriterTests
         // reads as a rendering bug rather than a default nobody set.
         Assert.Equal(
             expected,
-            Parse(VectorTileServerMetadataWriter.Style([("x", kind)]))
+            Parse(VectorTileServerMetadataWriter.Style([("x", kind, null)]))
                 .GetProperty("layers")[0].GetProperty("type").GetString());
     }
 
@@ -246,7 +246,7 @@ public sealed class VectorTileServerMetadataWriterTests
     {
         // A fill layer carrying circle-radius is silently ignored by the
         // renderer, so the two have to move together.
-        JsonElement layer = Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon)]))
+        JsonElement layer = Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon, null)]))
             .GetProperty("layers")[0];
 
         Assert.True(layer.GetProperty("paint").EnumerateObject()
@@ -258,7 +258,7 @@ public sealed class VectorTileServerMetadataWriterTests
     {
         Assert.Equal(
             8,
-            Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon)]))
+            Parse(VectorTileServerMetadataWriter.Style([("x", GeometryKind.Polygon, null)]))
                 .GetProperty("version").GetInt32());
     }
 

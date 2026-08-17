@@ -871,6 +871,39 @@ no `DELETE /admin/members` and a suite that created one would leave a live publi
 behind on every run — [Q-116](../open-questions.md). That is why
 [ADR-034](ADR-034-server-and-studio.md) condition 1 stays partly discharged rather than closed here.
 
+### 5l. Symbology becomes a screen — 2026-08-18
+
+ADR-033 built the canonical document and both derived faces; this is the page an operator
+uses it from, and it is in **Studio** because the endpoint behind it asks for
+`content:publishFeatures` — choosing what a layer looks like is the job of whoever published
+it, which is §5c's rule applied to appearance.
+
+**It is not D-61 returning.** That defect was a *service* fact edited on each of its layers'
+pages. Symbology is the opposite: the storage is a column on `layer` and the page is the
+layer's. The service style, which orders and filters across layers, stays on the service
+(ADR-033 §5d) and still wins for the tile face when one is stored.
+
+**Three things on one screen, and the third is the reason for the page.** The canonical
+document in an editor; what an ArcGIS client actually receives, read-only, because it is a
+projection and not a second place to edit; and **what the projection could not carry**. The
+losses are a block under the editor rather than a line in a toast, because a toast is read
+once and dismissed while a conversion that lost four things needs to still be saying so when
+the operator comes back. Amber, not red: none of it is broken, and a page that cried wolf
+about a dashed line would train its reader past the one that matters.
+
+**It reads itself, unlike the service style beside it.** That page has a *Fetch current*
+button because a style can be a megabyte and is usually absent. A layer's symbology is one
+symbol and the whole value of the screen is knowing what is there now — so the state line
+promises *Reading…* and then says either **Generated** in words or how many bytes are
+stored. §5b makes a generated appearance a real answer; an empty editor and a failed load
+look identical, which is the small lie D-46 keeps catching.
+
+**Two browser tests hold it** (`SymbologyPageTests`): the page shows what a client receives
+and says which of the two states it is in, and a returned loss list appears under the
+editor. The second traps the write in the page, because what is under test there is the
+rendering — the server's half is `SymbologyConversionTests` and the measurement in ADR-033
+§5i.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

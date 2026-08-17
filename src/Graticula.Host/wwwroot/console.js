@@ -1269,6 +1269,59 @@ function serviceSettingsMarkup() {
 }
 
 /**
+ * Reads a layer's symbology and draws all three of its faces.
+ *
+ * <b>The canonical document, the derived `drawingInfo`, and what the derivation cost.</b>
+ * ADR-033 §7's second condition is that the conversion reports its losses; a page that
+ * showed only the document a person wrote would leave them to discover the losses from a
+ * client's rendering, which is the failure the condition exists to prevent.
+ */
+async function loadSymbology(name) {
+  const state = $("symState");
+
+  try {
+    const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
+
+    $("symDoc").value = r.symbology ? JSON.stringify(r.symbology, null, 1) : "";
+
+    $("symDerived").textContent = r.drawingInfo
+      ? JSON.stringify(r.drawingInfo, null, 1)
+      : "none — this layer's stored document could not be projected";
+
+    // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
+    // appearance a real answer with a version of 0, and a reader who sees nothing cannot
+    // tell that from a layer whose style failed to load.
+    state.innerHTML = r.stored
+      ? `A stored document, ${num(JSON.stringify(r.symbology).length)} bytes. `
+        + `Both faces are derived from it.`
+      : `<b>Generated.</b> No document is stored, so this layer is drawn in a colour `
+        + `derived from its name — the same colour tomorrow and on another deployment. `
+        + `Storing one replaces it.`;
+
+    drawLosses(r.losses);
+  } catch (e) {
+    state.textContent = e.message;
+    $("symDerived").textContent = "—";
+    drawLosses([]);
+  }
+}
+
+/** The conversion's losses, or nothing when there are none. */
+function drawLosses(losses) {
+  const box = $("symLoss");
+  const list = $("symLossList");
+
+  if (!losses || losses.length === 0) {
+    box.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+
+  list.innerHTML = losses.map(l => `<li>${h(l)}</li>`).join("");
+  box.hidden = false;
+}
+
+/**
  * The bounds of a service that has no layers, and the panel for changing them.
  *
  * <b>Shown only for a system service, and it reads before it draws.</b> A control that displays a
@@ -1958,6 +2011,14 @@ const LAYER_PAGES = {
   // The publisher's: who sees it, how it looks, and how stale a tile may be (A-028 — the
   // administrator is not the person who knows a layer's volatility; its owner is).
   sharing: "studio",
+
+  // <b>Symbology is a layer's own, and it is the one appearance fact that is.</b> ADR-033
+  // §5a stores a canonical document per layer, and the endpoint behind this page asks for
+  // `content:publishFeatures` — choosing what a layer looks like is the job of whoever
+  // published it. It is not the D-61 mistake returning: the *service* style orders and
+  // filters across layers and stays on the service (§5d); this is one layer's symbol.
+  symbology: "studio",
+
   caching: "studio",
 };
 
@@ -2150,6 +2211,37 @@ function showLayer(name, page, pending = null) {
         placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored."></textarea>
     </section>
 
+    <section class="page" id="page-symbology">
+      <h4>How this layer is drawn</h4>
+      <p class="hint" id="symState">Reading…</p>
+
+      <div class="row">
+        <button data-symbology="${h(name)}">Fetch current</button>
+        <button data-symbology-del="${h(name)}" class="ghost">Back to generated</button>
+        <button class="primary" data-symbology-put="${h(name)}">Store</button>
+      </div>
+
+      <textarea id="symDoc" rows="12" spellcheck="false"
+        placeholder="A MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. Both are accepted; a drawingInfo is converted on the way in and you are told what the conversion cost."></textarea>
+
+      <!--
+        <b>The losses are the point of this page, not a footnote.</b> ADR-033 accepted a
+        lossy conversion and the mitigation is that it says so — so the report is a block
+        of its own under the editor rather than a line in a toast that scrolls away.
+      -->
+      <div id="symLoss" hidden>
+        <h4>What the ArcGIS face cannot carry</h4>
+        <ul class="losses" id="symLossList"></ul>
+      </div>
+
+      <h4>What an ArcGIS client receives</h4>
+      <p class="hint">Derived from the document above, in the three renderer families a
+        client understands — <span class="mono">simple</span>,
+        <span class="mono">uniqueValue</span>, <span class="mono">classBreaks</span>.
+        Read-only: it is a projection, not a second place to edit.</p>
+      <pre class="doc" id="symDerived">—</pre>
+    </section>
+
     <section class="page" id="page-sharing">
       <h4>Who may read it</h4>
       <div class="row">
@@ -2270,6 +2362,15 @@ function showEditPage(page) {
 
   for (const s of document.querySelectorAll("#editPages .page")) {
     s.classList.toggle("on", s.id === `page-${page}`);
+  }
+
+  // <b>Symbology reads itself, unlike the service style beside it.</b> The style page has
+  // a *Fetch current* button because a style can be a megabyte and is usually absent; a
+  // layer's symbology is one symbol and its whole value is knowing what is there now —
+  // `#symState` promises *Reading…*, and a line that says it is working on something it
+  // has stopped working on is the small lie D-46 keeps catching.
+  if (page === "symbology" && editing) {
+    section("the symbology", () => loadSymbology(editing.name), "symState");
   }
 }
 
@@ -3327,6 +3428,68 @@ async function handleClick(event) {
         $("styleDoc").value = JSON.stringify(r, null, 1);
       }
     } catch (e) { toast(e.message); }
+    return;
+  }
+
+  if (d.symbology) {
+    await section("the symbology", () => loadSymbology(d.symbology), "symState");
+    return;
+  }
+
+  if (d.symbologyPut) {
+    const body = $("symDoc").value.trim();
+
+    if (!body) {
+      toast("Paste a MapLibre style or an Esri drawingInfo first.");
+      return;
+    }
+
+    t.disabled = true;
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.symbologyPut)}/symbology`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      // <b>The losses go on the page, and the count goes in the toast.</b> A toast is
+      // read once and dismissed; a conversion that lost four things needs to still be
+      // saying so when the operator looks again.
+      $("symDoc").value = JSON.stringify(r.symbology, null, 1);
+      $("symDerived").textContent = JSON.stringify(r.drawingInfo, null, 1);
+      drawLosses(r.losses);
+
+      $("symState").innerHTML = `Stored from your ${h(r.from)}, ${num(r.bytes)} bytes.`;
+
+      toast(
+        r.losses.length === 0
+          ? `${r.name}: stored, and nothing was lost.`
+          : `${r.name}: stored. ${r.losses.length} thing${r.losses.length === 1 ? "" : "s"} `
+            + `the ArcGIS face cannot carry — listed below the editor.`,
+        r.losses.length === 0);
+    } catch (e) { toast(e.message); }
+
+    t.disabled = false;
+    return;
+  }
+
+  if (d.symbologyDel) {
+    if (!confirm(`Clear ${d.symbologyDel}'s symbology? It goes back to the generated `
+      + `appearance, which is a colour derived from its name.`)) return;
+
+    t.disabled = true;
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.symbologyDel)}/symbology`,
+        { method: "DELETE" });
+
+      $("symDoc").value = "";
+      await loadSymbology(d.symbologyDel);
+      toast(r.note, true);
+    } catch (e) { toast(e.message); }
+
+    t.disabled = false;
     return;
   }
 

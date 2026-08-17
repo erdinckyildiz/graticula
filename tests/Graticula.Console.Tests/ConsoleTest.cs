@@ -312,6 +312,43 @@ public abstract class ConsoleTest : IAsyncLifetime
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
     }
 
+    /// <summary>
+    /// Some layer this server holds, for the tests that are about a layer.
+    /// </summary>
+    /// <returns>An unqualified layer name.</returns>
+    /// <remarks>
+    /// <b>Asked for rather than assumed, for the same reason the folders are.</b> Which
+    /// layers exist is a fact about the server a test is pointed at; a suite that named
+    /// one would pass here and fail in CI, where the fixtures are seeded under different
+    /// names.
+    /// </remarks>
+    protected async Task<string> AnyLayerAsync()
+    {
+        JsonElement listing = await ReadAsync("/admin/layers");
+
+        JsonElement layers = listing.ValueKind == JsonValueKind.Array
+            ? listing
+            : listing.TryGetProperty("layers", out JsonElement named)
+                ? named
+                : default;
+
+        Assert.True(
+            layers.ValueKind == JsonValueKind.Array && layers.GetArrayLength() > 0,
+            $"{Root} has no published layers, so the layer tests cannot run. Publish one first.");
+
+        foreach (JsonElement layer in layers.EnumerateArray())
+        {
+            if (layer.TryGetProperty("name", out JsonElement name)
+                && name.GetString() is { Length: > 0 } found)
+            {
+                return found;
+            }
+        }
+
+        Assert.Fail("The layer listing has entries and none of them has a name.");
+        return string.Empty;
+    }
+
     /// <summary>The console address of a folder's services screen.</summary>
     /// <param name="folder">A folder name, or the empty string for the root.</param>
     protected static string ServicesIn(string folder) =>
@@ -545,10 +582,21 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// <param name="expression">JavaScript yielding a boolean.</param>
     /// <param name="why">What the caller was waiting for, for the failure.</param>
     /// <remarks>
+    /// <para>
     /// <b>Polling, because the console loads each section on its own.</b> There is
     /// no single moment at which it is finished — that is deliberate, so one
     /// refused endpoint cannot blank the page — so a test waits for the thing it
     /// is about rather than for the page.
+    /// </para>
+    /// <para>
+    /// <b>The expression must be null-safe, and that is a rule rather than advice.</b>
+    /// A throw is not a false answer: it propagates out of here as a page error and
+    /// skips the diagnostic below entirely. `document.getElementById('x').textContent`
+    /// on a screen the router has not rendered yet reports *cannot read properties of
+    /// null* about a page that was merely a tick early — which cost a diagnosis on the
+    /// Symbology page and looked exactly like a missing element. Write
+    /// `getElementById('x')?.textContent || ''` and let the wait do its job.
+    /// </para>
     /// </remarks>
     protected async Task WaitForAsync(string expression, string why)
     {

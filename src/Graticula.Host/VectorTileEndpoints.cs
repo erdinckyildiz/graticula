@@ -503,7 +503,10 @@ internal static class VectorTileEndpoints
         // decision this default has no business making. Index order is what the
         // publisher chose.
         await Results.Ok(VectorTileServerMetadataWriter.Style(
-            [.. service.Layers.Select(l => (l.Definition.Name, l.GeometryType))],
+            // ADR-033 §5a: each layer's canonical document travels with it, so the
+            // tile face draws what the feature face derives from rather than
+            // generating a second opinion about the same layer.
+            [.. service.Layers.Select(l => (l.Definition.Name, l.GeometryType, l.Symbology))],
             glyphs.Any ? GlyphStore.Fallback : null))
             .ExecuteAsync(context).ConfigureAwait(false);
     }

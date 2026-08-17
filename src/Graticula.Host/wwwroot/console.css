@@ -1253,3 +1253,32 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 #signin input, #signin button,
 #mustchange input, #mustchange button { width: 100%; }
 #signin button, #mustchange button { margin-top: var(--gap-4); }
+
+/*
+  <b>The conversion's losses, and a derived document beside them.</b> ADR-033 accepted a
+  lossy projection onto the ArcGIS face and the mitigation is that it says what it lost —
+  so this reads as a list of statements, not as an error state. Amber rather than red: none
+  of it is broken, and a page that cried wolf about a dashed line would train its reader to
+  stop looking at the one that matters.
+*/
+.losses {
+  margin: 6px 0 0; padding: 0 0 0 18px;
+  color: var(--ink); font: var(--t-small)/1.55 var(--sans);
+}
+.losses li { margin: 4px 0; }
+.losses li::marker { color: var(--warn-dot); }
+
+#symLoss {
+  margin-top: 14px; padding: 12px 14px;
+  border: 1px solid var(--rule); border-left: 3px solid var(--warn-dot);
+  border-radius: var(--round); background: var(--surface);
+}
+#symLoss h4 { margin: 0; }
+
+/* A document this server derived, shown as output because that is what it is. */
+pre.doc {
+  margin: 8px 0 0; padding: 12px 14px; overflow: auto; max-height: 320px;
+  border: 1px solid var(--rule); border-radius: var(--round);
+  background: var(--surface); color: var(--ink);
+  font: 12px/1.5 var(--mono); white-space: pre;
+}

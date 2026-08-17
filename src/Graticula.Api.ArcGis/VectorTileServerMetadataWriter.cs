@@ -194,7 +194,7 @@ public static class VectorTileServerMetadataWriter
     /// 2026-08-15.
     /// </param>
     public static object Style(
-        IReadOnlyList<(string Name, GeometryKind Geometry)> sourceLayers,
+        IReadOnlyList<(string Name, GeometryKind Geometry, string? Symbology)> sourceLayers,
         string? fontStack = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
@@ -232,6 +232,83 @@ public static class VectorTileServerMetadataWriter
     }
 
     /// <summary>
+    /// A layer's stored paint, wired to this service's source, or null if none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The canonical document carries paint and nothing else</b> — ADR-033 §5c
+    /// strips <c>source</c>, <c>source-layer</c>, <c>sources</c>, <c>sprite</c> and
+    /// <c>glyphs</c> on write, because a stored one names a host that a deployment
+    /// moves away from. So this puts them back: the source is this service's, and the
+    /// source layer is this layer's name.
+    /// </para>
+    /// <para>
+    /// <b>A document that cannot be read falls back to the generated appearance.</b>
+    /// The write path refuses anything malformed, so reaching that means an older
+    /// build wrote what a newer one cannot read — and a tile style that fails to parse
+    /// is a blank map, which is a worse answer than a colour somebody did not choose.
+    /// </para>
+    /// </remarks>
+    private static Dictionary<string, object>? Authored(
+        string sourceLayerName, GeometryKind geometryType, string? symbology)
+    {
+        if (string.IsNullOrWhiteSpace(symbology))
+        {
+            return null;
+        }
+
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(symbology)
+                is not System.Text.Json.Nodes.JsonObject document
+                || document["layers"] is not System.Text.Json.Nodes.JsonArray layers)
+            {
+                return null;
+            }
+
+            string wanted = geometryType switch
+            {
+                GeometryKind.Point or GeometryKind.MultiPoint => "circle",
+                GeometryKind.LineString or GeometryKind.MultiLineString => "line",
+                _ => "fill",
+            };
+
+            foreach (System.Text.Json.Nodes.JsonNode? node in layers)
+            {
+                if (node is not System.Text.Json.Nodes.JsonObject layer
+                    || layer["type"]?.GetValue<string>() != wanted)
+                {
+                    continue;
+                }
+
+                Dictionary<string, object> drawn = new()
+                {
+                    ["id"] = sourceLayerName,
+                    ["type"] = wanted,
+                    ["source"] = "esri",
+                    ["source-layer"] = sourceLayerName,
+                };
+
+                foreach (string property in new[] { "paint", "layout", "filter", "minzoom", "maxzoom" })
+                {
+                    if (layer[property] is { } value)
+                    {
+                        drawn[property] = value.DeepClone();
+                    }
+                }
+
+                return drawn;
+            }
+
+            return null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Folds the optional keys in ahead of the rest, keeping the order a reader
     /// expects: version, sources, glyphs, sprite, layers.
     /// </summary>
@@ -257,11 +334,22 @@ public static class VectorTileServerMetadataWriter
     /// not fix from here. The same call decides the feature service's `drawingInfo`, so
     /// the two faces agree by construction rather than by two people remembering.
     /// </remarks>
-    private static object StyleLayer((string Name, GeometryKind Geometry) source)
+    private static object StyleLayer(
+        (string Name, GeometryKind Geometry, string? Symbology) source)
     {
-        (string sourceLayerName, GeometryKind geometryType) = source;
+        (string sourceLayerName, GeometryKind geometryType, string? symbology) = source;
 
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
+
+        // <b>The stored document wins, and this is the half of §5d that had to arrive
+        // with the other one.</b> Deriving the feature face from a canonical document
+        // while this face kept generating its own would have made the two disagree
+        // about the same layer — which is exactly the drift §7's first condition was
+        // written to prevent, arriving by the back door of a half-finished change.
+        if (Authored(sourceLayerName, geometryType, symbology) is { } authored)
+        {
+            return authored;
+        }
 
         Appearance appearance = GeneratedSymbology.For(sourceLayerName, geometryType);
 

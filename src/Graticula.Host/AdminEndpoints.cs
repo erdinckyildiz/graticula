@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
 using Graticula.Geometries;
+using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
@@ -284,6 +285,14 @@ internal static class AdminEndpoints
         app.MapGet("/admin/services/{name}/style", GetStyleAsync);
         app.MapPut("/admin/services/{name}/style", SetStyleAsync);
         app.MapDelete("/admin/services/{name}/style", DeleteStyleAsync);
+
+        // <b>Symbology is per layer, and the style above stays per service.</b>
+        // ADR-033 §5d: a style names source layers and orders them, which is a
+        // service-level fact; a symbol is a fact about one layer's features. Both
+        // exist, and when a service style is stored it wins for the tile face.
+        app.MapGet("/admin/layers/{name}/symbology", GetSymbologyAsync);
+        app.MapPut("/admin/layers/{name}/symbology", SetSymbologyAsync);
+        app.MapDelete("/admin/layers/{name}/symbology", DeleteSymbologyAsync);
     }
 
     /// <summary>
@@ -1213,6 +1222,308 @@ internal static class AdminEndpoints
     /// administrative privilege that would let one be granted without the other.
     /// </remarks>
     /// <summary>Reads back the stored style, or says there is none.</summary>
+    /// <summary>
+    /// The canonical symbology document, and both faces derived from it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Returns the derived <c>drawingInfo</c> beside the canonical document, and
+    /// the losses with it.</b> ADR-033 §5e says the feature face is honest about its
+    /// subset; a reader who can see only the canonical document cannot tell what an
+    /// ArcGIS client will actually receive, which is the question an operator has.
+    /// </para>
+    /// <para>
+    /// <b>An unstyled layer answers with the generated appearance and says so</b> —
+    /// §5b makes that a real answer with a version of 0, rather than an absence.
+    /// </para>
+    /// </remarks>
+    private static async Task GetSymbologyAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (layer.Symbology is not { } canonical)
+        {
+            await Results.Json(new
+            {
+                name = layer.Name,
+                service = layer.ServiceName,
+                geometry = layer.Geometry.ToString(),
+                stored = false,
+
+                // Zero, exactly as ADR-033 §5b asks: a generated appearance is
+                // reported as generated rather than presented as somebody's choice.
+                version = 0,
+                symbology = (object?)null,
+                drawingInfo = FeatureServerMetadataWriter.DrawingInfo(layer.Name, layer.Geometry),
+                losses = Array.Empty<string>(),
+                note = "This layer has no stored symbology, so both faces draw it in the "
+                    + "generated appearance — deterministic from the layer's name, the same "
+                    + "colour tomorrow and on another deployment.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        DerivedDrawingInfo derived;
+
+        try
+        {
+            derived = SymbologyConversion.ToDrawingInfo(canonical, layer.Name, layer.Geometry);
+        }
+        catch (SymbologyException e)
+        {
+            // <b>A stored document that cannot be derived is reported, not hidden.</b>
+            // It can only happen if a document written by an older build is read by a
+            // newer one, and a reader who sees the canonical form and no drawingInfo
+            // with no explanation would go looking in the wrong place.
+            await Results.Json(new
+            {
+                name = layer.Name,
+                service = layer.ServiceName,
+                geometry = layer.Geometry.ToString(),
+                stored = true,
+                version = 1,
+                symbology = System.Text.Json.JsonSerializer.Deserialize<
+                    System.Text.Json.JsonElement>(canonical),
+                drawingInfo = (object?)null,
+                losses = new[] { e.Message },
+                note = "The stored document could not be projected onto an Esri renderer, so the "
+                    + "feature face falls back to the generated appearance.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name = layer.Name,
+            service = layer.ServiceName,
+            geometry = layer.Geometry.ToString(),
+            stored = true,
+            version = 1,
+            symbology = System.Text.Json.JsonSerializer.Deserialize<
+                System.Text.Json.JsonElement>(canonical),
+            drawingInfo = derived.DrawingInfo,
+            losses = derived.Losses,
+            note = derived.Losses.Count == 0
+                ? "Everything in this style survives on both faces."
+                : "The tile face draws the canonical document; the list above is what the "
+                    + "feature face cannot express.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stores a symbology document, in either format.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-033 §5a: the body may be a MapLibre style or an Esri
+    /// <c>drawingInfo</c>.</b> The two are told apart by what they carry rather than
+    /// by a flag, so nobody has to declare which they pasted — and a
+    /// <c>drawingInfo</c> is converted on the way in, which is the whole of the
+    /// migration promise this endpoint exists to make.
+    /// </para>
+    /// <para>
+    /// <b>The losses are in the response, and that is §7's second condition.</b> A
+    /// conversion that silently approximates is the failure mode the decision
+    /// accepted a risk on; returning the report at the moment somebody writes the
+    /// style is the only time they are certainly reading.
+    /// </para>
+    /// <para>
+    /// <b><c>content:publishFeatures</c>, like the service style.</b> Choosing what a
+    /// layer looks like is a publisher's job — the person who published it is the
+    /// person who knows what colour it should be.
+    /// </para>
+    /// </remarks>
+    private static async Task SetSymbologyAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        string body;
+
+        // Bounded before it is read, for the reason SetStyleAsync gives: reading an
+        // unbounded body and then measuring it is an accounting exercise, because the
+        // memory is already spent. One char past the limit so that a document exactly
+        // at it is accepted and one over is refused.
+        using (System.IO.StreamReader reader = new(context.Request.Body))
+        {
+            char[] buffer = new char[SymbologyConversion.MaximumCharacters + 1];
+            int read = 0;
+
+            while (read < buffer.Length)
+            {
+                int got = await reader
+                    .ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellation)
+                    .ConfigureAwait(false);
+
+                if (got == 0)
+                {
+                    break;
+                }
+
+                read += got;
+            }
+
+            body = new string(buffer, 0, read);
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            await Refuse(
+                context, 400,
+                "The body is empty. Send a MapLibre style or an Esri drawingInfo, or DELETE this "
+                + "resource to go back to the generated appearance.").ConfigureAwait(false);
+
+            return;
+        }
+
+        SymbologyWrite written;
+
+        try
+        {
+            written = SymbologyConversion.Read(body, layer.Geometry);
+        }
+        catch (SymbologyException e)
+        {
+            await Refuse(context, 400, e.Message).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetSymbologyAsync(name, written.Canonical, cancellation)
+                .ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        DerivedDrawingInfo derived =
+            SymbologyConversion.ToDrawingInfo(written.Canonical, layer.Name, layer.Geometry);
+
+        // <b>Both sets of losses, kept apart.</b> One list is what did not survive
+        // being read; the other is what the feature face cannot express. They are
+        // different questions — the first is about the document that was sent and the
+        // second about every client that will read it — and merging them would leave
+        // an operator unable to tell which they can fix.
+        string[] losses = [.. written.Losses, .. derived.Losses];
+
+        // The document is not in the audit record: it is readable through this API
+        // anyway, and an audit log that copies its subject is a second place to keep
+        // the same thing correct.
+        await AuditAsync(
+            context, audit, "layer.symbology", name,
+            Detail(new
+            {
+                bytes = written.Canonical.Length,
+                from = written.Source,
+                replaced = layer.Symbology is not null,
+                losses = losses.Length,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name = layer.Name,
+            service = layer.ServiceName,
+            geometry = layer.Geometry.ToString(),
+            from = written.Source,
+            bytes = written.Canonical.Length,
+            replaced = layer.Symbology is not null,
+            symbology = System.Text.Json.JsonSerializer.Deserialize<
+                System.Text.Json.JsonElement>(written.Canonical),
+            drawingInfo = derived.DrawingInfo,
+            losses,
+            note = losses.Length == 0
+                ? "Nothing was lost: both faces draw what you sent."
+                : "Stored. The list above is what did not survive — read it now rather than "
+                    + "from a client's rendering later.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Clears a layer's symbology, which puts back the generated appearance.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a deletion of appearance.</b> §5b: a layer with no stored document has
+    /// a generated one, deterministic from its name, and that is a real answer rather
+    /// than a blank. The response says which colour it went back to, because *back to
+    /// the default* means nothing to somebody looking at a map.
+    /// </remarks>
+    private static async Task DeleteSymbologyAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        bool had = layer.Symbology is not null;
+
+        if (!await catalog.SetSymbologyAsync(name, null, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "layer.symbology.clear", name,
+            Detail(new { had }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        Appearance generated = GeneratedSymbology.For(layer.Name, layer.Geometry);
+
+        await Results.Json(new
+        {
+            name = layer.Name,
+            cleared = had,
+            colour = generated.Colour,
+            note = had
+                ? $"Back to the generated appearance, which for this layer is {generated.Colour}."
+                : "This layer had no stored symbology; nothing changed.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task GetStyleAsync(
         HttpContext context,
         string name,

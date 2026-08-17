@@ -49,7 +49,13 @@ public sealed class PostgresLayerCatalog
         -- throughout on a service nobody has configured, which is every service
         -- that existed before it.
         s.max_record_count, s.default_record_count, s.max_response_bytes,
-        s.max_request_bytes, s.max_edits_per_transaction
+        s.max_request_bytes, s.max_edits_per_transaction,
+
+        -- <b>Appended, and appended deliberately.</b> Every reader below takes its
+        -- columns by ordinal, so inserting one in the middle would silently shift
+        -- every field after it — the shape of defect that reads a sharing scope as a
+        -- status. New columns go on the end (ADR-033, migration 23).
+        l.symbology
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -140,6 +146,13 @@ public sealed class PostgresLayerCatalog
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(reader) : null;
     }
 
+    /// <summary>A nullable text column by name, for the columns added since.</summary>
+    private static string? Nullable(NpgsqlDataReader reader, string column)
+    {
+        int ordinal = reader.GetOrdinal(column);
+        return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
     private PublishedLayer Map(NpgsqlDataReader reader)
     {
         string layerName = reader.GetString(1);
@@ -191,7 +204,18 @@ public sealed class PostgresLayerCatalog
             // The service's cost ceilings, carried on the layer for the reason
             // PublishedLayer.Cost documents: the query path resolves a layer and
             // never the service, and this read already joined it.
-            ReadCost(reader));
+            ReadCost(reader),
+
+            // <b>By name, not by ordinal, and that is a correction rather than a
+            // style preference.</b> Every read above counts columns by hand, which
+            // works because those ordinals were written with the query and have not
+            // moved. This one was hand-counted twice and got 34 and 35 — the wrong
+            // one first, which served a stored symbology as *generated* on the public
+            // document while the admin endpoint derived it correctly, so the two
+            // faces disagreed and neither looked broken. Npgsql caches the lookup, so
+            // the cost is a dictionary hit and the benefit is that adding a column
+            // cannot silently shift this one.
+            Nullable(reader, "symbology"));
     }
 
     /// <summary>The group layers held by the services named.</summary>

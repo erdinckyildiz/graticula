@@ -295,6 +295,40 @@ which is authored content rather than a build artefact — by the rule above it 
 the store as bytes, and attachments (ADR-013) are the precedent. If attachments later move
 to disk or object storage, sprites follow them; the style does not.
 
+### 5i. Built 2026-08-18, and what is not
+
+**Built:** the canonical column (migration 23), the reader that accepts either format and
+reports its losses, the deriver that projects onto the three Esri families and reports what
+it cannot carry, `GET`/`PUT`/`DELETE /admin/layers/{name}/symbology`, both protocol faces
+reading the stored document, and a Symbology page in Studio that shows the canonical
+document, the derived `drawingInfo` and the losses together.
+
+**Both faces, and that had to be one change rather than two.** Deriving the feature face
+from a canonical document while the tile face went on generating its own would have made
+the two disagree about the same layer — which is precisely the drift §7's first condition
+was written to prevent, arriving by the back door of a half-finished change. So
+`VectorTileServerMetadataWriter` reads the same document and puts back the `source` and
+`source-layer` that §5c strips on write. **Measured on the running server:** a
+zoom-interpolated line width survives on the tile face and arrives as 0.375 pt with a loss
+report on the feature face; clearing the document returns both to the generated appearance
+in the same request.
+
+**Not built: §5f, the classification suggestion.**
+`POST /admin/layers/{name}/symbology/suggest` — equal interval, quantile, natural breaks,
+unique values — is designed here and has no code. It is the only part of this decision that
+*changes nothing when called*, which is why it was the part to leave: everything above is
+needed for a layer to have an authored appearance at all, and a suggestion is a
+convenience on top of it. Recorded here rather than in a register, because it is a piece of
+this decision rather than a compromise in it.
+
+**Two defects found on the way in, both worth the sentence.** A hand-counted column ordinal
+was wrong by one, so a stored symbology reached the admin endpoint and not the public
+document — the two faces disagreed and *neither looked broken*. That read is by column name
+now, and the comment says why it is the one read in that file that is. And a parameter
+inside `case when @document is null` gave Postgres no type to infer, which failed only on
+the clear path — so setting a document worked and clearing it answered 503, in a pair that
+looks symmetrical.
+
 ## 6. Consequences
 
 - **A migration**, adding the canonical column and the fidelity report to the layer. The
@@ -331,17 +365,57 @@ to disk or object storage, sprites follow them; the style does not.
    loses something** — a zoom-interpolated width is the obvious case. A conversion that
    silently approximates is the failure mode this whole decision accepts a risk on, and
    an untested report is not a report.
+   *(Discharged 2026-08-18. `SymbologyConversionTests` carries the case this condition
+   names: a `line-width` of `["interpolate", ["linear"], ["zoom"], 6, 0.5, 14, 6]` is
+   reported as varying with zoom, and the width the feature face does emit is asserted to
+   be the value at the lowest stop — 0.5 px, 0.375 pt — rather than an average or a guess.
+   **And the pair, because a report that always fires is a report nobody reads:** a solid
+   fill with an alpha reports nothing on either side of the conversion. Twelve more cases
+   cover a hatched fill, a marker shape with no sprite, a marker angle and offset, a
+   normalised class-breaks renderer, a compound `field2`, a filter, a `symbol` layer's
+   labels, a second paint layer for one geometry, an absent `defaultSymbol`, and the top
+   class of a `step` expression. **Measured through the endpoint too:** `PUT` of a
+   zoom-varying line style on `tr_yol` returned the loss, the tile face kept the
+   interpolation, and the feature face carried 0.375 pt.)*
 3. **A `drawingInfo` accepted as input round-trips to an equivalent `drawingInfo`** for
    the three simple renderer families. If a customer's own symbology comes back different
    from what they sent, the migration promise is worth less than the paste-in convenience
    that motivated accepting it.
+   *(Discharged 2026-08-18, for all three families and with one honest exception stated.
+   `simple` returns the same `esriSFS` with its colour, alpha and outline; `uniqueValue`
+   returns the same field, the same three values in order, their colours and the
+   `defaultSymbol`; `classBreaks` returns the same field and its interior breaks exactly.
+   A 6-point marker comes back 6 points and a 2-point dashed line comes back 2 points and
+   `esriSLSDash` — the arithmetic is ×4/3 and back through a repeating decimal, so the
+   canonical document keeps four decimal places for exactly this reason.
+   **The exception is the top class of a `classBreaks` renderer**, and it is reported
+   rather than hidden: a MapLibre `step` expression has no upper bound on its last class,
+   so the last `classMaxValue` cannot survive and is reconstructed from the last break.
+   The test asserts the loss report, not a number that came back.)*
 4. **No absolute URL is ever stored in a canonical document**, asserted by a test that
    writes one and reads the stored form back. §5c is the kind of rule that decays the
    first time somebody stores what they were sent.
+   *(Discharged 2026-08-18, and enforced wider than the condition asks. Three tests write
+   a style with an absolute `sprite`, `glyphs` and `sources.tiles` and assert that the
+   stored form contains neither the host nor `https://` — and that the writer was told,
+   because a silently dropped block renders differently from the style that was sent.
+   **The rule is checked on every string in the document, not only in those three
+   blocks**, because a version enforced where it was first written is the version this
+   condition predicts will decay: a `fill-pattern` naming somebody's host is refused with
+   the URL in the message. Refused rather than stripped there, deliberately — it is not a
+   block this server regenerates, so dropping it would change the appearance and keeping
+   it would store a fact with an expiry date.)*
 5. **The size bound on the new column is a check constraint, not a C# guard.** Migration
    14 already did this for the per-service style and its comment says why: a bound that
    lives only in the application is a bound the next writer bypasses. A column that can
    hold a megabyte of anything becomes a place to store something else.
+   *(Discharged 2026-08-18. Migration 23 adds `layer.symbology` with
+   `check (symbology is null or length(symbology) <= 262144)`. There is a constant in the
+   application as well — `SymbologyConversion.MaximumCharacters` — and it exists so that a
+   refusal can name a number a caller can act on rather than surfacing as a constraint
+   violation; the constraint is what makes it a bound. Applied to the development store
+   and verified: dry run reported one expand migration, `--apply` took it from 22 to 23,
+   `minimum_reader_version` unchanged at 1.)*
 
 ## 8. Assumptions
 

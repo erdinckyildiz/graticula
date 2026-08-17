@@ -166,7 +166,7 @@ public sealed class GeneratedSymbologyTests
         // The tile face: the same colour, spelled as hex, in whichever paint property this
         // geometry uses.
         JsonElement style = JsonSerializer.SerializeToElement(
-            VectorTileServerMetadataWriter.Style([(Name, geometry)]));
+            VectorTileServerMetadataWriter.Style([(Name, geometry, null)]));
 
         JsonElement paint = style.GetProperty("layers")[0].GetProperty("paint");
 

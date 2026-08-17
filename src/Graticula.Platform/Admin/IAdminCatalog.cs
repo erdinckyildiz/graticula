@@ -270,6 +270,22 @@ public enum Removal
 }
 
 /// <summary>
+/// A layer and the symbology stored against it.
+/// </summary>
+/// <remarks>
+/// <b>The geometry travels with it because the conversion needs it.</b> A paint
+/// property means different things on a fill and on a circle, so ADR-033's reader
+/// refuses a style authored for the wrong geometry — and it can only do that if
+/// whoever reads the layer also reads what shape it holds.
+/// </remarks>
+/// <param name="Name">The layer name.</param>
+/// <param name="ServiceName">The service holding it, for the URL a caller builds.</param>
+/// <param name="Geometry">What it holds, which decides what a paint property means.</param>
+/// <param name="Symbology">The canonical document, or null for the generated appearance.</param>
+public readonly record struct SymbolisedLayer(
+    string Name, string ServiceName, GeometryKind Geometry, string? Symbology);
+
+/// <summary>
 /// A service and the style stored against it.
 /// </summary>
 /// <param name="Name">Its name.</param>
@@ -441,6 +457,29 @@ public interface IAdminCatalog
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
+
+    /// <summary>Finds a layer and the symbology stored against it.</summary>
+    /// <param name="name">The layer name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The layer, or null.</returns>
+    Task<SymbolisedLayer?> FindLayerForSymbologyAsync(
+        string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores a canonical symbology document against a layer, or clears it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Normalised and validated before it gets here</b>, by
+    /// <c>SymbologyConversion.Read</c> — which is also where the losses are collected,
+    /// because the caller is the only one who can be told about them. This writes what
+    /// it is given, byte for byte, so that what comes back out is what went in.
+    /// </remarks>
+    /// <param name="name">The layer name.</param>
+    /// <param name="canonical">The document, or null for the generated appearance.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a layer was found and written.</returns>
+    Task<bool> SetSymbologyAsync(
+        string name, string? canonical, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores what a service is configured to offer — a ceiling, never a grant.

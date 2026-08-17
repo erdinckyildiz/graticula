@@ -32,7 +32,8 @@ public sealed class PublishedLayer
         string? folder = null,
         int? parentIndex = null,
         TimeSpan? cacheLifetime = null,
-        ServiceCostCeilings? cost = null)
+        ServiceCostCeilings? cost = null,
+        string? symbology = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -54,7 +55,20 @@ public sealed class PublishedLayer
         Folder = folder;
         ParentIndex = parentIndex;
         CacheLifetime = cacheLifetime;
+        Symbology = symbology;
     }
+
+    /// <summary>
+    /// This layer's canonical symbology document, or null for the generated one.
+    /// </summary>
+    /// <remarks>
+    /// <b>A MapLibre style, and the only authored artefact for appearance</b>
+    /// (ADR-033 §5a). Both protocol faces derive from it on read, which is what
+    /// stops them drifting apart: there is nothing to edit separately. Null is the
+    /// ordinary case and a real answer — §5b gives an unstyled layer a generated
+    /// appearance that is deterministic from its name.
+    /// </remarks>
+    public string? Symbology { get; }
 
     /// <summary>
     /// How long this layer's tiles stay fresh, or null for the server default.
