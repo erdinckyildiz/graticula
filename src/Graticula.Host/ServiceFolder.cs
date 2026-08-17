@@ -35,12 +35,42 @@ internal static class ServiceFolder
     /// <param name="path">The request path.</param>
     /// <returns>The folder, or null.</returns>
     /// <remarks>
-    /// <b>Hosted is the only folder that holds services</b>; Utilities holds the
-    /// system services, which are addressed by their own routes. When a second
-    /// service folder exists this stops being a boolean and becomes a lookup.
+    /// <para>
+    /// <b>A lookup now, and the comment that used to be here said so.</b> It read: *hosted is
+    /// the only folder that holds services … when a second service folder exists this stops
+    /// being a boolean and becomes a lookup.* That happened on 2026-08-17, when the owner
+    /// asked to publish registered layers into named folders — *"örneğin turkiye folderi"* —
+    /// while hosted data stays in <c>hosted</c>.
+    /// </para>
+    /// <para>
+    /// <b>Read from the path's shape rather than from a list of known folders.</b> The service
+    /// type is the fixed point: every one of these URLs ends
+    /// <c>…/{service}/FeatureServer/…</c>, so the segment before the type is the service and
+    /// anything between <c>/rest/services</c> and that is the folder. Comparing against known
+    /// names instead would need a catalogue read on the request path to route it — and would
+    /// answer 404 for a folder created a moment ago.
+    /// </para>
     /// </remarks>
-    public static string? FolderOf(PathString path) =>
-        InHostedFolder(path) ? FeatureServerMetadataWriter.HostedFolder : null;
+    public static string? FolderOf(PathString path)
+    {
+        string value = path.Value ?? string.Empty;
+
+        // /rest/services/{service}/FeatureServer      -> no folder
+        // /rest/services/{folder}/{service}/FeatureServer -> the folder
+        string[] segments = value.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        // rest, services, then either one or two names before the service type.
+        int type = Array.FindIndex(segments, IsServiceType);
+
+        return type >= 4 ? Uri.UnescapeDataString(segments[type - 2]) : null;
+    }
+
+    /// <summary>The segment that ends a service's address, whichever face it is.</summary>
+    private static bool IsServiceType(string segment) =>
+        segment.Equals("FeatureServer", StringComparison.OrdinalIgnoreCase)
+        || segment.Equals("VectorTileServer", StringComparison.OrdinalIgnoreCase)
+        || segment.Equals("GeometryServer", StringComparison.OrdinalIgnoreCase)
+        || segment.Equals("MapServer", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Sends the caller to the same service at its real URL.</summary>
     /// <param name="context">The request.</param>

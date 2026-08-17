@@ -56,6 +56,13 @@ public readonly record struct RegisteredDataSource(
 /// related layers become one service, as the owner asked for: <em>"a service is
 /// a combination of layers."</em>
 /// </param>
+/// <param name="Folder">
+/// The folder to publish into, or null for the default — <c>hosted</c> for the
+/// datastore and the root for a registered source, which is what happened for every
+/// publish before 2026-08-17. **A folder that does not exist is created**, at the owner's
+/// request, and the caller is told so: implicit creation turns a typo into a folder, and
+/// the only defence is saying which one was made.
+/// </param>
 public sealed record LayerPublication(
     string Name,
     Guid DataSourceId,
@@ -69,7 +76,8 @@ public sealed record LayerPublication(
     SharingScope Sharing,
     string? ServiceName = null,
     int? ParentLayerIndex = null,
-    int? CacheSeconds = null);
+    int? CacheSeconds = null,
+    string? Folder = null);
 
 /// <summary>Where a freshly created group layer lives.</summary>
 /// <param name="Id">Its catalogue identity.</param>
@@ -80,7 +88,17 @@ public readonly record struct GroupLayerAddress(Guid Id, int LayerIndex);
 /// <param name="Id">Its catalogue identity.</param>
 /// <param name="ServiceName">The service it landed in.</param>
 /// <param name="LayerIndex">Its number within that service — the URL segment.</param>
-public readonly record struct PublishedLayerAddress(Guid Id, string ServiceName, int LayerIndex);
+/// <param name="Folder">
+/// The folder it actually landed in, or null for the root. <b>Returned because it may not
+/// be the one that was asked for:</b> hosted data always goes to <c>hosted</c> whatever a
+/// request says (owner rule, 2026-08-17), and a caller told only the service name would
+/// build the wrong URL and read the 404 as a failed publish.
+/// </param>
+public readonly record struct PublishedLayerAddress(
+    Guid Id,
+    string ServiceName,
+    int LayerIndex,
+    string? Folder = null);
 
 /// <summary>A published layer, as the admin API sees it.</summary>
 /// <param name="Id">Its catalogue identity.</param>
@@ -111,6 +129,37 @@ public readonly record struct AdminLayer(
     bool ArcGisServable,
     ServiceStatus Status,
     bool Hosted);
+
+/// <summary>
+/// A folder in the services directory, and what is in it.
+/// </summary>
+/// <remarks>
+/// <b>A folder is a thing, not a string, since migration 18.</b> It was a text column on
+/// the service, so it existed only while something was in it — an empty folder could not
+/// be made and the last service leaving deleted it. The owner asked for both halves on
+/// 2026-08-17: publish into a named folder, and make one first if you want to. <c>hosted</c>
+/// is one of these rather than a rule beside them: *"hosted da bir folder."*
+/// </remarks>
+/// <param name="Name">Its name, in the case somebody typed.</param>
+/// <param name="Services">How many feature services are in it.</param>
+/// <param name="SystemServices">How many services with no layers — the geometry service.</param>
+/// <param name="Layers">How many layers, across those services.</param>
+/// <param name="Registered">
+/// Whether the register holds a row for it. False means it exists only because a service
+/// points at it, which the read path unions in deliberately — migration 18 adds no foreign
+/// key yet, and a folder vanishing from the directory because a row is missing would be
+/// worse than the inconsistency.
+/// </param>
+public readonly record struct AdminFolder(
+    string Name,
+    int Services,
+    int SystemServices,
+    int Layers,
+    bool Registered)
+{
+    /// <summary>Whether anything is in it, and therefore whether it may be removed.</summary>
+    public bool IsEmpty => Services == 0 && SystemServices == 0;
+}
 
 /// <summary>
 /// A feature service, and what it holds.
@@ -393,6 +442,41 @@ public interface IAdminCatalog
     Task<ServiceCapabilityLimits?> FindServiceCapabilitiesAsync(
         string name,
         string? folder,
+        CancellationToken cancellationToken);
+
+    /// <summary>Every folder, from the register and from what services point at.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The folders, ordered by name.</returns>
+    Task<IReadOnlyList<AdminFolder>> ListFoldersAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes a folder, so something can be published into it later.
+    /// </summary>
+    /// <remarks>
+    /// <b>Idempotent by name, case-insensitively</b>, because that is how every folder
+    /// lookup resolves and because a publish that creates its folder on the way must not
+    /// race a person creating the same one. The answer says whether this call made it.
+    /// </remarks>
+    /// <param name="name">What to call it.</param>
+    /// <param name="owner">Who made it, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when this call created it; false when it was already there.</returns>
+    Task<bool> CreateFolderAsync(string name, Guid? owner, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a folder, but only while nothing is in it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both tables count.</b> A folder holding only the geometry service looks empty to
+    /// a query over <c>service</c> alone, and deleting it would take the folder out from
+    /// under a URL that still answers. The same argument as a service that holds only a
+    /// group layer.
+    /// </remarks>
+    /// <param name="name">The folder.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened, and what is in the way if it was refused.</returns>
+    Task<(Removal Outcome, int Services, int SystemServices)> DeleteFolderAsync(
+        string name,
         CancellationToken cancellationToken);
 
     /// <summary>Every feature service, with what each one holds.</summary>

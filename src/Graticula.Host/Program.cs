@@ -606,6 +606,20 @@ public static class Program
                 context, catalog, system, FeatureServerMetadataWriter.HostedFolder, cancellation))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>Any folder's own directory.</b> Added 2026-08-17 with named folders: the two
+        // literal routes above covered the two folders that could exist, so browsing
+        // /rest/services/turkiye answered nothing at all while the root advertised it — a
+        // folder a client could see and not open. The literals stay because a literal segment
+        // beats a parameter in routing and both carry their own comment.
+        app.MapGet("/rest/services/{folder}", (
+            HttpContext context,
+            PostgresLayerCatalog catalog,
+            PostgresSystemServices system,
+            string folder,
+            CancellationToken cancellation) =>
+            CatalogueAsync(context, catalog, system, folder, cancellation))
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // Where the system services live. ArcGIS puts the geometry service in a
         // Utilities folder and every client that looks for one looks there.
         app.MapGet("/rest/services/Utilities", (
@@ -621,9 +635,12 @@ public static class Program
         // hosted layer asked for at the root is redirected rather than served,
         // so the separation is a fact about the server and not a convention
         // clients may ignore.
-        string hosted = FeatureServerMetadataWriter.HostedFolder;
-
-        foreach (string prefix in (string[])["/rest/services", $"/rest/services/{hosted}"])
+        // <b>Any folder, since 2026-08-17.</b> This was two literal prefixes — the root and
+        // `hosted` — so a service in any other folder had no route at all: the owner's
+        // `turkiye` folder would have answered 404 while the catalogue happily listed it.
+        // `{folder}` is a parameter, and a literal segment beats a parameter in routing, so
+        // the hosted and Utilities routes registered above still win where they apply.
+        foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
             // <b>{layerId}, not /0.</b> Every route in this server ended in a
             // literal zero until 2026-08-15, because one published layer was one
@@ -739,6 +756,98 @@ public static class Program
     /// service that answers 503 to every click.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Every folder the root advertises: the register, and whatever services name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A union, because the two can disagree and neither is a lie.</b> The register holds
+    /// folders that exist while empty — which is why it exists (migration 18) — and a
+    /// service's own <c>folder</c> is where that service actually answers. Migration 18 adds
+    /// no foreign key between them, so advertising only the register would hide a folder that
+    /// serves a URL, and advertising only what services say would lose the empty folder
+    /// somebody just made.
+    /// </para>
+    /// <para>
+    /// <b>Reserved names are added last and unconditionally.</b> <c>hosted</c> is where the
+    /// next datastore publish goes and <c>Utilities</c> is the geometry service's address; a
+    /// directory that stopped listing them because a register row was deleted would be a
+    /// directory that disagrees with its own URLs.
+    /// </para>
+    /// </remarks>
+    /// <summary>Whether the register holds this folder.</summary>
+    /// <remarks>
+    /// <b>Blind means yes.</b> If the platform store cannot be read, a folder whose services
+    /// are also unreadable would 404 — turning a store outage into *your folder does not
+    /// exist*, which is a worse answer than an empty directory (ADR-026).
+    /// </remarks>
+    private static async Task<bool> FolderExistsAsync(
+        PostgresLayerCatalog catalog, string folder, CancellationToken cancellation)
+    {
+        try
+        {
+            foreach (string named in await catalog.ListFolderNamesAsync(cancellation)
+                .ConfigureAwait(false))
+            {
+                if (named.Equals(folder, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Npgsql.NpgsqlException)
+        {
+            return true;
+        }
+    }
+
+    private static async Task<string[]> FoldersAsync(
+        PostgresLayerCatalog catalog,
+        PostgresSystemServices system,
+        IReadOnlyList<PublishedService> services,
+        CancellationToken cancellation)
+    {
+        SortedSet<string> names = new(StringComparer.OrdinalIgnoreCase)
+        {
+            FeatureServerMetadataWriter.HostedFolder,
+            "Utilities",
+        };
+
+        foreach (PublishedService service in services)
+        {
+            if (service.Folder is { Length: > 0 } named)
+            {
+                names.Add(named);
+            }
+        }
+
+        foreach (SystemService service in await system.ListAsync(cancellation).ConfigureAwait(false))
+        {
+            if (service.Folder is { Length: > 0 } named)
+            {
+                names.Add(named);
+            }
+        }
+
+        try
+        {
+            foreach (string named in await catalog.ListFolderNamesAsync(cancellation)
+                .ConfigureAwait(false))
+            {
+                names.Add(named);
+            }
+        }
+        catch (Npgsql.NpgsqlException)
+        {
+            // Blind, and the directory still answers — ADR-026. The folders above came from
+            // services this caller can already see, so the list is smaller rather than wrong.
+        }
+
+        return [.. names];
+    }
+
     private static async Task<IResult> CatalogueAsync(
         HttpContext context,
         PostgresLayerCatalog catalog,
@@ -753,23 +862,18 @@ public static class Program
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        // <b>A layer lives in exactly one folder</b>: hosted ones in "hosted",
-        // registered ones at the root. This was <c>folder is not null</c> until
-        // Utilities existed, which meant every folder that was not the root was
-        // the hosted folder — so /rest/services/Utilities listed all five hosted
-        // layers. Found by opening the URL. A second folder is all it took, and
-        // the reading was plausible right up to the moment there were two.
-        bool wantHosted = string.Equals(
-            folder, FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase);
-
-        bool folderHoldsServices = folder is null || wantHosted;
-
-        List<PublishedService> visible = !folderHoldsServices ? [] :
+        // <b>Any folder holds services now, and this is the second time this line has been
+        // wrong about that.</b> It began as `folder is not null`, which made every non-root
+        // folder the hosted one — so /rest/services/Utilities listed all five hosted layers.
+        // The fix named the two folders that could hold services, which was true until the
+        // owner asked for a third on 2026-08-17. So the comparison is now just the folder
+        // against the folder, with no list of which ones are allowed to have contents.
+        List<PublishedService> visible =
         [
             .. services.Where(service =>
                 string.Equals(
                     service.Folder ?? string.Empty,
-                    wantHosted ? FeatureServerMetadataWriter.HostedFolder : string.Empty,
+                    folder ?? string.Empty,
                     StringComparison.OrdinalIgnoreCase)
                 && (service.IsRunning || seesStopped)
                 && LayerAccess
@@ -782,8 +886,22 @@ public static class Program
         // visible to this caller. Hiding an empty folder would make its
         // emptiness depend on who is asking, and a client that caches the root
         // would then never look inside it again.
+        //
+        // <b>Read rather than typed, since 2026-08-17.</b> This was the literal
+        // list `["hosted", "Utilities"]`, so a service in any other folder was
+        // reachable at its URL and invisible to every client that browses the
+        // catalogue — the owner asked for a `turkiye` folder and it would not
+        // have appeared here. Migration 18 made folders a register; this reads
+        // it, unioned with what the services in hand actually say, so a folder
+        // cannot be advertised-but-absent or present-but-hidden.
+        //
+        // <b>The register is read through the same fallback the services are.</b>
+        // A folder list is not authorization-sensitive and must survive a
+        // platform-store outage (ADR-026): if the register cannot be read, the
+        // folders the visible services name are still the truth about where
+        // those services are.
         string[] folders = folder is null
-            ? [FeatureServerMetadataWriter.HostedFolder, "Utilities"]
+            ? await FoldersAsync(catalog, system, services, cancellation).ConfigureAwait(false)
             : [];
 
         // <b>System services are services.</b> Owner correction 2026-08-15: the
@@ -807,6 +925,32 @@ public static class Program
         // in and the tile path transforms per request (owner correction
         // 2026-08-15, Q-96). Filtering on 3857 here would hide a tile service
         // that works.
+        // <b>A folder that is not a folder answers 404, rather than an empty directory.</b>
+        // Before the register existed every folder name "existed" and listed nothing, so a
+        // typo looked like an empty folder and no client could tell the two apart. The
+        // register makes the difference knowable: one it holds lists — empty is a legitimate
+        // state for a folder somebody just made — and a name nothing points at is not a
+        // folder at all.
+        //
+        // <b>Not privilege-dependent, deliberately.</b> A registered folder lists for
+        // everybody and its contents are already filtered by sharing above. Making a
+        // folder's existence depend on who asks is what the comment below warns against.
+        if (folder is not null && visible.Count == 0 && systemServices.Count == 0
+            && !await FolderExistsAsync(catalog, folder, cancellation).ConfigureAwait(false))
+        {
+            return Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 404,
+                        message = $"No folder '{folder}'. A folder is created by publishing "
+                                + "into it, or through POST /admin/folders.",
+                    },
+                },
+                statusCode: 404);
+        }
+
         List<PublishedService> tileable =
         [
             .. visible.Where(s =>

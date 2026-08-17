@@ -144,7 +144,7 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Driven from <c>geometry_columns</c>, which is itself privilege-filtered —
+    /// Driven from the catalogue's own tables, filtered by <c>has_table_privilege</c> —
     /// so "no rows" already means "nothing you may read", not "nothing exists".
     /// That is why an empty result is reported as a hint about grants rather
     /// than as an empty database.
@@ -159,34 +159,67 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
     private static async Task<IReadOnlyList<SourceTable>> ListTablesAsync(
         NpgsqlConnection connection, CancellationToken cancellationToken)
     {
+        // <b>Read from the catalogue directly rather than through
+        // <c>geometry_columns</c>, and the reason is a measured failure.</b> That view is a
+        // PostGIS compatibility shim, and its definition scans **every constraint in the
+        // database** looking for pre-2.0 declarations like `CHECK (srid(geom) = 4326)`,
+        // pulling the number out with `split_part(..., ' = ', 2)::integer`. Any constraint
+        // whose text merely resembles that pattern poisons the whole view: on 2026-08-17 a
+        // third-party schema in the same database carried
+        // `CHECK ((st_srid(geometry) = srid))` — comparing against a *column* named `srid` —
+        // and every read of `geometry_columns` in that database failed with
+        // `22P02: invalid input syntax for type integer: "srid"`. Registering a data source
+        // and listing publishable tables both stopped working, in a database where nothing
+        // of ours was wrong.
+        //
+        // <b>That is the ordinary case for us, not an exotic one.</b> A registered source is
+        // somebody else's database: their constraints, their conventions, their other
+        // products. Depending on a view that any of those can break is depending on their
+        // discipline instead of on the catalogue.
+        //
+        // The typmod is where a modern PostGIS geometry keeps its SRID and type, which is
+        // exactly what the view reads for anything declared since 2.0. What is lost is a
+        // column declared as bare `geometry` whose SRID lives only in an old check
+        // constraint — and those are precisely the databases where the view breaks anyway.
+        // Such a column reports srid 0 and is filtered out below, which is the same answer
+        // the view gave when its parse failed: nothing.
         const string Sql = """
             select
-              g.f_table_schema,
-              g.f_table_name,
-              g.f_geometry_column,
-              g.srid,
-              nullif(g.type, 'GEOMETRY') as geometry_type,
+              n.nspname,
+              c.relname,
+              a.attname,
+              postgis_typmod_srid(a.atttypmod) as srid,
+              nullif(upper(postgis_typmod_type(a.atttypmod)), 'GEOMETRY') as geometry_type,
               (
                 -- A unique integer column, preferring a single-column primary
                 -- key. int8 is excluded: ADR-013 §2a wants an ArcGIS object id,
                 -- and JavaScript loses integer precision above 2^53.
-                select a.attname
+                select ai.attname
                 from pg_index i
-                join pg_attribute a
-                  on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
+                join pg_attribute ai
+                  on ai.attrelid = i.indrelid and ai.attnum = any (i.indkey)
                 where i.indrelid = c.oid
                   and i.indisunique
                   and i.indnkeyatts = 1
-                  and a.atttypid in ('int2'::regtype, 'int4'::regtype)
-                order by i.indisprimary desc, a.attnum
+                  and ai.atttypid in ('int2'::regtype, 'int4'::regtype)
+                order by i.indisprimary desc, ai.attnum
                 limit 1
               ) as object_id_column,
               pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE') as writable
-            from geometry_columns g
-            join pg_class c on c.relname = g.f_table_name
-            join pg_namespace n on n.oid = c.relnamespace and n.nspname = g.f_table_schema
-            where g.srid > 0
-            order by g.f_table_schema, g.f_table_name
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+            join pg_type t on t.oid = a.atttypid and t.typname = 'geometry'
+            where c.relkind in ('r', 'v', 'm', 'f', 'p')
+              and not pg_is_other_temp_schema(c.relnamespace)
+              and n.nspname not in ('pg_catalog', 'information_schema', 'topology')
+              -- <b>The same filter the view applied, and it is the reason this is not a
+              -- disclosure change.</b> A table this caller cannot select from is not
+              -- reported, so the list still shows what the credential may read and nothing
+              -- more.
+              and pg_catalog.has_table_privilege(c.oid, 'SELECT')
+              and postgis_typmod_srid(a.atttypmod) > 0
+            order by n.nspname, c.relname
             """;
 
         await using NpgsqlCommand command = new(Sql, connection);

@@ -45,7 +45,12 @@ internal sealed record PublishRequest(
     string? Sharing,
     string? ServiceName = null,
     int? ParentLayerId = null,
-    int? CacheSeconds = null);
+    int? CacheSeconds = null,
+    string? Folder = null);
+
+/// <summary>A folder to create in the services directory.</summary>
+/// <param name="Name">What to call it. One URL segment, matched without regard to case.</param>
+internal sealed record FolderRequest(string? Name);
 
 /// <summary>A group layer to create inside a service.</summary>
 /// <param name="Name">What to call it.</param>
@@ -171,6 +176,14 @@ internal static class AdminEndpoints
         // /admin/layers lists layers and /admin/services lists the system services,
         // which are a different table. So the ordinary residue of a day's work was
         // invisible, and the missing delete had nothing to be missing from.
+        // <b>Folders, added 2026-08-17 — owner request.</b> *"örneğin turkiye folderi"*, and
+        // then, from their reference's folder list: *"hosted da bir folder."* Both need a
+        // folder to be a thing you can list and make, rather than a string that exists only
+        // while something is in it.
+        app.MapGet("/admin/folders", ListFoldersAsync);
+        app.MapPost("/admin/folders", CreateFolderAsync);
+        app.MapDelete("/admin/folders/{name}", DeleteFolderAsync);
+
         app.MapGet("/admin/featureservices", ListServicesAsync);
         app.MapPost("/admin/featureservices", CreateServiceAsync);
         app.MapDelete("/admin/featureservices/{name}", DeleteServiceAsync);
@@ -255,6 +268,250 @@ internal static class AdminEndpoints
             ungoverned = routes.Count(r =>
                 !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Every folder, with what is in it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The root is in the list, as an entry with an empty name.</b> Their reference shows
+    /// *Site (root)* at the top of its folder list and the owner pointed at that screen; a
+    /// list of folders that omits the place half the services are is a list you cannot
+    /// navigate from. It carries the same counts as any other entry.
+    /// </remarks>
+    private static async Task ListFoldersAsync(
+        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IReadOnlyList<AdminFolder> folders =
+            await catalog.ListFoldersAsync(cancellation).ConfigureAwait(false);
+
+        IReadOnlyList<AdminService> services =
+            await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        int rootServices = services.Count(s => s.Folder is null);
+        int rootLayers = services.Where(s => s.Folder is null).Sum(s => s.Layers);
+
+        await Results.Json(new
+        {
+            root = new
+            {
+                name = string.Empty,
+                services = rootServices,
+                layers = rootLayers,
+
+                // The root cannot be created or removed, and saying so here means a console
+                // does not have to know it as a special case.
+                fixedFolder = true,
+            },
+
+            folders = folders.Select(f => new
+            {
+                f.Name,
+                f.Services,
+                f.SystemServices,
+                f.Layers,
+                empty = f.IsEmpty,
+
+                // <b>Registered means the folder exists in its own right.</b> False is a
+                // folder that only exists because a service points at it — real enough to
+                // serve a URL, and it will disappear when that service goes. Migration 18
+                // adds no foreign key, so this is reported rather than assumed away.
+                f.Registered,
+
+                // Reserved rather than special-cased in the console: `hosted` is the default
+                // home for datastore data and `Utilities` holds the geometry service, so
+                // removing either would take a folder out from under a URL that answers.
+                reserved = Reserved(f.Name),
+            }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Names a folder may not be given, and may not lose.</summary>
+    /// <remarks>
+    /// <c>hosted</c> is where the datastore publishes by default and <c>Utilities</c> is
+    /// where the geometry service lives. <c>System</c> is not used yet and is held back
+    /// because ArcGIS uses it, and a folder somebody creates today would collide with a
+    /// system folder tomorrow.
+    /// </remarks>
+    private static bool Reserved(string name) =>
+        name.Equals("hosted", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Utilities", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("System", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Makes a folder, so a publish can name it.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>admin:manageServer</c>, not a content privilege.</b> A folder holds no data and
+    /// is part of the address space this server serves — creating one is arranging the
+    /// server, not publishing content into it.
+    /// </remarks>
+    private static async Task CreateFolderAsync(
+        HttpContext context,
+        FolderRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string name = (request.Name ?? string.Empty).Trim();
+
+        if (!TryReadFolderName(name, out string? error))
+        {
+            await Refuse(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        bool created = await catalog
+            .CreateFolderAsync(name, current.Principal.Id, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "folder.create", name, Detail(new { created }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        // <b>200 rather than 201 when it was already there, and not a 409.</b> Creating a
+        // folder is arranging a namespace: asking for one that exists has already achieved
+        // what the caller wanted, and a conflict would make every publish-into-a-folder flow
+        // handle an error that means *fine*.
+        context.Response.StatusCode = created ? 201 : 200;
+
+        await Results.Json(new
+        {
+            name,
+            created,
+            url = $"/rest/services/{Uri.EscapeDataString(name)}",
+            note = created
+                ? "The folder exists and is empty. Publish into it by naming it, and it will "
+                  + "appear in the services directory."
+                : "That folder already existed, so nothing changed. Folder names are matched "
+                  + "without regard to case.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a folder, and refuses while anything is in it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Reserved folders are refused outright</b>, before the occupancy check, because an
+    /// empty <c>hosted</c> is still where the next datastore publish goes and an empty
+    /// <c>Utilities</c> is still the geometry service's address. The refusal says which,
+    /// rather than answering 404 for a folder the directory lists.
+    /// </remarks>
+    private static async Task DeleteFolderAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (Reserved(name))
+        {
+            await Refuse(context, 409,
+                $"'{name}' is a reserved folder. 'hosted' is where datastore layers are "
+                + "published by default, 'Utilities' holds the geometry service, and 'System' "
+                + "is held back for the same reason ArcGIS uses it.").ConfigureAwait(false);
+            return;
+        }
+
+        (Removal outcome, int services, int system) = await catalog
+            .DeleteFolderAsync(name, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "folder.delete", name,
+            Detail(new { outcome = outcome.ToString(), services, systemServices = system }),
+            succeeded: outcome == Removal.Removed, cancellation).ConfigureAwait(false);
+
+        if (outcome == Removal.Absent)
+        {
+            await Refuse(context, 404, $"No folder '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (outcome == Removal.Occupied)
+        {
+            await Refuse(context, 409,
+                $"'{name}' still holds {Count(services, "service")}"
+                + (system > 0 ? $" and {Count(system, "system service")}" : string.Empty)
+                + ". A folder is an address, so removing it would take those services' URLs "
+                + "with it — move or delete them first.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name,
+            removed = true,
+            note = "The folder was empty, so nothing published moved or was removed.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether a name can be a folder in a URL.
+    /// </summary>
+    /// <remarks>
+    /// <b>Checked here as well as by the database's constraint</b>, and the two say the same
+    /// thing on purpose: the constraint is what stops a value arriving by any other route,
+    /// and this is what lets the operator read why. A folder becomes a path segment, so a
+    /// slash or a percent in one produces a service nobody can address.
+    /// </remarks>
+    /// <summary>What cannot appear in one segment of a URL.</summary>
+    /// <remarks>
+    /// The same set migration 18's check constraint refuses, written out in both places on
+    /// purpose: the constraint stops a value arriving by another route, and this is what
+    /// lets the operator read why theirs was refused.
+    /// </remarks>
+    private static readonly System.Buffers.SearchValues<char> NotInAFolderName =
+        System.Buffers.SearchValues.Create(@"/\?#%");
+
+    private static bool TryReadFolderName(string name, out string? error)
+    {
+        error = null;
+
+        if (name.Length == 0)
+        {
+            error = "A folder needs a name.";
+            return false;
+        }
+
+        if (name.Length > 128)
+        {
+            error = "A folder name is at most 128 characters.";
+            return false;
+        }
+
+        if (name.AsSpan().IndexOfAny(NotInAFolderName) >= 0)
+        {
+            error = $"'{name}' cannot be a folder: a folder is one segment of a URL, so it may "
+                  + "not contain / \\ ? # or %.";
+            return false;
+        }
+
+        if (Reserved(name))
+        {
+            error = $"'{name}' already exists as a reserved folder — 'hosted' for datastore "
+                  + "layers, 'Utilities' for the geometry service, 'System' held back.";
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1501,6 +1758,18 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>A folder named here is created if it does not exist</b> — owner request — so it is
+        // checked with the same rule `POST /admin/folders` applies. A publish that invented an
+        // unaddressable folder would leave a service nobody can reach at a URL nobody can
+        // type, and the reserved names would be silently duplicated in a different case.
+        if (publication!.Folder is { Length: > 0 } named
+            && !named.Equals(FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase)
+            && !TryReadFolderName(named, out string? folderError))
+        {
+            await Refuse(context, 400, folderError!).ConfigureAwait(false);
+            return;
+        }
+
         // Publishing straight to public needs the privilege that puts data on
         // the internet, separately from the one that publishes at all.
         if (publication!.Sharing == SharingScope.Public
@@ -1542,6 +1811,15 @@ internal static class AdminEndpoints
                     // inside that service.
                     service = published.ServiceName,
                     layerId = published.LayerIndex,
+
+                    // <b>Where it actually is, which may not be where it was asked to go.</b>
+                    // Hosted data lands in `hosted` whatever the request said (owner rule
+                    // 2026-08-17), so a caller building a URL from the service name alone would
+                    // get a 404 and read it as a failed publish.
+                    folder = published.Folder,
+                    url = published.Folder is { Length: > 0 } inFolder
+                        ? $"/rest/services/{inFolder}/{published.ServiceName}/FeatureServer/{published.LayerIndex}"
+                        : $"/rest/services/{published.ServiceName}/FeatureServer/{published.LayerIndex}",
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
 
@@ -1949,7 +2227,8 @@ internal static class AdminEndpoints
             scope,
             string.IsNullOrWhiteSpace(request.ServiceName) ? null : request.ServiceName.Trim(),
             request.ParentLayerId,
-            request.CacheSeconds);
+            request.CacheSeconds,
+            string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim());
 
         return true;
     }

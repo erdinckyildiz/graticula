@@ -56,8 +56,10 @@ internal static class RelationshipEndpoints
         app.MapGet("/admin/relationships", ListAsync);
         app.MapDelete("/admin/relationships/{id:guid}", RemoveAsync);
 
-        foreach (string prefix in (string[])
-            ["/rest/services", $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}"])
+        // Root and any folder. `{folder}` is a parameter and a literal segment wins in
+        // routing, so the hosted-prefixed registrations elsewhere still take precedence —
+        // and a registered service in a named folder now has a route at all (2026-08-17).
+        foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
             app.MapGet(
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryRelatedRecords",

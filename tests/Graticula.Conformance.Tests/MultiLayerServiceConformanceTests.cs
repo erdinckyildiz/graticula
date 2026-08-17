@@ -338,7 +338,19 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
         // Build name -> (service, id) from the directory, the way a client must.
         Dictionary<string, (string Service, int Id)> placed = new(StringComparer.Ordinal);
 
-        foreach (string folder in new[] { "hosted", string.Empty })
+        // <b>The folders are read from the root, not listed here.</b> This was
+        // `{ "hosted", "" }` — the same two-folder assumption the server itself carried until
+        // 2026-08-17, when a registered layer could be published into a named folder. A test
+        // that knows the folders cannot catch a folder that is advertised and not browsable,
+        // and it fails the moment somebody creates one — which is how this was found.
+        List<string> folders = [string.Empty];
+
+        if ((await GetJsonAsync("/rest/services")).TryGetProperty("folders", out JsonElement named))
+        {
+            folders.AddRange(named.EnumerateArray().Select(f => f.GetString()!));
+        }
+
+        foreach (string folder in folders)
         {
             JsonElement directory = await GetJsonAsync($"/rest/services/{folder}");
 

@@ -136,14 +136,35 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // must not quietly reset it to whatever this request asked for — that
         // would be a privilege change disguised as a publish.
         const string Sql = """
-            with folder as (
-                select case when d.is_datastore then 'hosted' else null end as name
+            with chosen as (
+                -- <b>Hosted data is always in 'hosted'; a registered table may be put in a
+                -- folder.</b> Owner rule, 2026-08-17: *"turkiye klasoru sadece reference
+                -- registered olanlar için. hosted olanların tamamı hosted'a gidecek."* So the
+                -- requested folder is honoured for a registered source and ignored for the
+                -- datastore, rather than the folder being derived for both as it was until
+                -- today. A datastore publish that named a folder is told where it actually
+                -- landed — the caller asked for something this server will not do, and
+                -- answering 201 without saying so is the silent kind of refusal.
+                select case
+                         when d.is_datastore then 'hosted'
+                         else nullif(trim(@folder), '')
+                       end as name,
+                       d.is_datastore
                 from data_source d where d.id = @source
             ),
+            -- The register gains the folder a registered layer was published into, so the
+            -- directory lists it and it survives the last service leaving. Nothing to do for
+            -- 'hosted', which migration 18 seeded.
+            registered as (
+                insert into folder (name)
+                select c.name from chosen c where c.name is not null and not c.is_datastore
+                on conflict do nothing
+                returning name
+            ),
             existing as (
-                select s.id from service s, folder f
+                select s.id from service s, chosen c
                 where lower(s.name) = lower(@service)
-                  and coalesce(lower(s.folder), '') = coalesce(lower(f.name), '')
+                  and coalesce(lower(s.folder), '') = coalesce(lower(c.name), '')
             ),
             created as (
                 -- next_layer_index starts at 1 because this statement is about
@@ -151,8 +172,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 -- afterwards.
                 insert into service
                     (id, name, folder, kind, owner_principal_id, sharing, next_layer_index)
-                select gen_random_uuid(), @service, f.name, 'FeatureServer', @owner, @sharing, 1
-                from folder f
+                select gen_random_uuid(), @service, c.name, 'FeatureServer', @owner, @sharing, 1
+                from chosen c
                 where not exists (select 1 from existing)
                 returning id, 0 as layer_index
             ),
@@ -196,7 +217,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                @identity, @objectid, @srid, @type, false,
                @owner, @sharing, slot.id, slot.layer_index, @parent, @cache
             from slot
-            returning layer_index
+            -- <b>The folder comes back with the index</b>, because the caller may have asked
+            -- for one it did not get: a datastore publish naming 'turkiye' lands in 'hosted',
+            -- and the response has to be able to say so rather than leave them to discover it
+            -- from a 404 at the URL they expected.
+            returning layer_index, (select name from chosen)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -207,6 +232,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue(
             "cache", (object?)publication.CacheSeconds ?? DBNull.Value);
         command.Parameters.AddWithValue("source", publication.DataSourceId);
+        command.Parameters.AddWithValue(
+            "folder", (object?)publication.Folder?.Trim() ?? DBNull.Value);
         command.Parameters.AddWithValue("name", publication.Name);
         command.Parameters.AddWithValue("schema", publication.SchemaName);
         command.Parameters.AddWithValue("table", publication.TableName);
@@ -221,12 +248,24 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             Value = (object?)publication.ObjectIdColumn ?? DBNull.Value,
         });
 
-        object? index = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        int at = 0;
+        string? landed = null;
+
+        await using (NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                at = reader.GetInt32(0);
+                landed = reader.IsDBNull(1) ? null : reader.GetString(1);
+            }
+        }
 
         return new PublishedLayerAddress(
             id,
             publication.ServiceName ?? publication.Name,
-            index is int at ? at : 0);
+            at,
+            landed);
     }
 
     /// <inheritdoc/>
@@ -401,6 +440,146 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         }
 
         return layers;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A union, and the reason is in the type's own comment.</b> The register is the
+    /// source of truth for a folder's *existence*, and <c>service.folder</c> is still where
+    /// membership lives with no foreign key between them (migration 18, expand only). So a
+    /// folder that a service points at and the register does not hold is reported anyway,
+    /// marked as unregistered — the alternative is a folder that answers at its URL and is
+    /// absent from the list of folders, which is the fault this whole change is fixing.
+    /// </remarks>
+    public async Task<IReadOnlyList<AdminFolder>> ListFoldersAsync(
+        CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            with names as (
+                select name, true as registered from folder
+                union
+                select distinct folder, false from service
+                 where folder is not null and folder <> ''
+                union
+                select distinct folder, false from system_service
+                 where folder is not null and folder <> ''
+            ),
+            folded as (
+                select lower(name) as key,
+                       min(name) as name,
+                       bool_or(registered) as registered
+                  from names group by lower(name)
+            )
+            select f.name,
+                   (select count(*) from service s
+                     where lower(coalesce(s.folder, '')) = f.key),
+                   (select count(*) from system_service y
+                     where lower(coalesce(y.folder, '')) = f.key),
+                   (select count(*) from layer l
+                     join service s2 on s2.id = l.service_id
+                     where lower(coalesce(s2.folder, '')) = f.key),
+                   f.registered
+              from folded f
+             order by lower(f.name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<AdminFolder> folders = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            folders.Add(new AdminFolder(
+                reader.GetString(0),
+                (int)reader.GetInt64(1),
+                (int)reader.GetInt64(2),
+                (int)reader.GetInt64(3),
+                reader.GetBoolean(4)));
+        }
+
+        return folders;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> CreateFolderAsync(
+        string name, Guid? owner, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // The unique index is on lower(name), so this is what makes the call idempotent
+        // rather than a 23505 the caller has to interpret.
+        const string Sql = """
+            insert into folder (name, owner_principal_id)
+            values (@name, @owner)
+            on conflict do nothing
+            returning name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name.Trim());
+        command.Parameters.AddWithValue("owner", (object?)owner ?? DBNull.Value);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Emptiness is part of the statement</b>, for the same reason a service delete puts
+    /// it there: a check followed by a delete leaves a window in which something is
+    /// published into the folder between the two.
+    /// </remarks>
+    public async Task<(Removal Outcome, int Services, int SystemServices)> DeleteFolderAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Delete = """
+            delete from folder f
+             where lower(f.name) = lower(@name)
+               and not exists (
+                     select 1 from service s
+                      where lower(coalesce(s.folder, '')) = lower(f.name))
+               and not exists (
+                     select 1 from system_service y
+                      where lower(coalesce(y.folder, '')) = lower(f.name))
+            """;
+
+        await using NpgsqlCommand delete = _dataSource.CreateCommand(Delete);
+        delete.Parameters.AddWithValue("name", name);
+
+        if (await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            return (Removal.Removed, 0, 0);
+        }
+
+        const string Holds = """
+            select (select count(*) from service s
+                     where lower(coalesce(s.folder, '')) = lower(@name)),
+                   (select count(*) from system_service y
+                     where lower(coalesce(y.folder, '')) = lower(@name)),
+                   exists (select 1 from folder f where lower(f.name) = lower(@name))
+            """;
+
+        await using NpgsqlCommand holds = _dataSource.CreateCommand(Holds);
+        holds.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await holds.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        int services = (int)reader.GetInt64(0);
+        int system = (int)reader.GetInt64(1);
+        bool registered = reader.GetBoolean(2);
+
+        // Not in the register and nothing points at it: there is no such folder. Not in the
+        // register but something does point at it is *occupied*, not absent — the folder is
+        // real enough to serve a URL, and saying "no such folder" would be a lie the
+        // directory contradicts.
+        return (services + system == 0 && !registered ? Removal.Absent : Removal.Occupied,
+                services, system);
     }
 
     /// <inheritdoc/>

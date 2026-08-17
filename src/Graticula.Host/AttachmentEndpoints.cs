@@ -58,8 +58,10 @@ internal static class AttachmentEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        foreach (string prefix in (string[])
-            ["/rest/services", $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}"])
+        // Root and any folder. `{folder}` is a parameter and a literal segment wins in
+        // routing, so the hosted-prefixed registrations elsewhere still take precedence —
+        // and a registered service in a named folder now has a route at all (2026-08-17).
+        foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
             string layer = $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}";
 

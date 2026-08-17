@@ -261,6 +261,36 @@ public sealed class PostgresLayerCatalog
         return groups;
     }
 
+    /// <summary>
+    /// The folder register's names, for the directory's folder list.
+    /// </summary>
+    /// <remarks>
+    /// <b>On the serving catalogue rather than the admin one, and it is the smallest read in
+    /// this class.</b> The root directory is a public surface answered on every browse, so it
+    /// takes names and nothing else — no counts, no ownership, no join. The admin API's
+    /// richer listing is a different question asked by a different caller.
+    /// </remarks>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Folder names, in the case they were created with.</returns>
+    public async Task<IReadOnlyList<string>> ListFolderNamesAsync(
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command =
+            _dataSource.CreateCommand("select name from folder order by lower(name)");
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<string> names = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        return names;
+    }
+
     /// <summary>Every service, with its layers.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The services, ordered by name.</returns>

@@ -46,8 +46,10 @@ internal static class VectorTileEndpoints
         // hosted folder — but the root path is mapped too, and answers with the
         // redirect in TileableAsync rather than a 404. A client that built a URL
         // before the folder existed gets told where the service moved.
-        foreach (string prefix in (string[])
-            ["/rest/services", $"/rest/services/{Api.ArcGis.FeatureServerMetadataWriter.HostedFolder}"])
+        // Root and any folder. `{folder}` is a parameter and a literal segment wins in
+        // routing, so the hosted-prefixed registrations elsewhere still take precedence —
+        // and a registered service in a named folder now has a route at all (2026-08-17).
+        foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
             app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer", ServiceAsync)
                 .Governed(SharingGovernedExtensions.ByService);

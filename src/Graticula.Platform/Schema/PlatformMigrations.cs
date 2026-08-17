@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(17);
+    public static SchemaVersion ComponentSchemaVersion => new(18);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -52,7 +52,86 @@ public static class PlatformMigrations
         FolderCaseV15,
         ServiceCapabilitiesV16,
         ServiceCostCeilingsV17,
+        FolderRegisterV18,
     ]);
+
+    /// <summary>
+    /// A folder becomes a thing rather than a string on a service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner request 2026-08-17: publish into a folder, or make one.</b>
+    /// *"örneğin turkiye folderi. o zaman veri … /rest/services/turkiye/tr_il/featureserver
+    /// diye gidecek"* — and then, looking at their reference's folder list: *"hosted da bir
+    /// folder"*. Both halves need this table.
+    /// </para>
+    /// <para>
+    /// <b>Because an empty folder has to be able to exist.</b> Until now a folder was a
+    /// text column on <c>service</c>, so it existed exactly as long as something was in it:
+    /// deleting the last service in <c>turkiye</c> deleted the folder, and creating one
+    /// before publishing into it was impossible. That is the whole reason this is a table
+    /// and not a validation rule.
+    /// </para>
+    /// <para>
+    /// <b>And because the directory was lying by omission.</b> The root advertised
+    /// <c>["hosted", "Utilities"]</c> as two constants in the host, so a service in any
+    /// other folder was reachable at its URL and invisible to every client that browses the
+    /// catalogue. A folder register is what lets that list be read rather than typed.
+    /// </para>
+    /// <para>
+    /// <b>Case-insensitive on <c>lower(name)</c>, storing what the operator typed.</b>
+    /// Migration 15 fixed the service index to match folders case-insensitively, so
+    /// <c>Hosted</c> and <c>hosted</c> already had to be one folder; this keeps that true
+    /// while letting the directory show <c>Turkiye</c> if that is how it was written.
+    /// </para>
+    /// <para>
+    /// <b>Expand only, and deliberately no foreign key yet.</b> A key from
+    /// <c>service.folder</c> to here would need every existing folder value normalised to
+    /// one case first, which is a contract migration and a separate risk. So this seeds the
+    /// register from what exists and the read path unions the two — nothing can disappear
+    /// from the directory because a row is missing. The missing key is recorded as debt
+    /// rather than left as an assumption.
+    /// </para>
+    /// </remarks>
+    private static Migration FolderRegisterV18 => Migration.Expand(
+        new SchemaVersion(18),
+        "Folders become a register, so an empty one can exist and the directory can read them.",
+
+        """
+        create table folder (
+            name        text        not null,
+            created_at  timestamptz not null default now(),
+            owner_principal_id uuid,
+            constraint folder_name_is_addressable
+              check (name <> '' and name !~ '[/\\?#%]' and length(name) <= 128)
+        )
+        """,
+
+        // One folder per name regardless of case, matching how every service lookup
+        // resolves a folder since migration 15.
+        """
+        create unique index folder_name_unique on folder (lower(name))
+        """,
+
+        // Seeded from what is already in use, so the register starts complete: the two
+        // names the host had hard-coded, plus any folder a service or system service is
+        // already in. `on conflict do nothing` because 'Utilities' arrives from both.
+        """
+        insert into folder (name)
+        select distinct folder from service where folder is not null and folder <> ''
+        on conflict do nothing
+        """,
+
+        """
+        insert into folder (name)
+        select distinct folder from system_service where folder is not null and folder <> ''
+        on conflict do nothing
+        """,
+
+        """
+        insert into folder (name) values ('hosted')
+        on conflict do nothing
+        """);
 
     /// <summary>
     /// The initial schema: the stamp itself, registered data sources, and
