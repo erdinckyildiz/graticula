@@ -125,6 +125,14 @@
       running it, so signing in here cannot work — check whether an extension is
       blocking scripts on this page.</p></noscript>
     <p class="bad-inline" id="signinError" hidden></p>
+    <!--
+      Shown when the browser already holds a session cookie. ADR-023 §4c: the cookie
+      authenticates GET and HEAD and nothing else, on purpose, so a session arrived at
+      through the services directory's sign-in form can read this console and write nothing.
+      Without this sentence the reader is an administrator, named in the header, being shown
+      a sign-in form for no stated reason.
+    -->
+    <p class="hint" id="signinCookie" style="margin-top:14px" hidden></p>
     <p class="hint" style="margin-top:14px">Everything here is the admin API. Nothing this
       console does is anything <code>curl</code> could not — ADR-020 §2.</p>
   </form>

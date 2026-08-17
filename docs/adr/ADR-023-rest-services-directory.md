@@ -289,6 +289,24 @@ a deliberate design, not a `<form>` tag. `The_cookie_does_not_authenticate_a_pos
 holds the line, and was verified by removing the method check and watching it
 fail.
 
+**The prediction came true on 2026-08-17, and the write surface it warned about was the
+console.** The owner signed in through this directory's form, went to Server, pressed **Stop**,
+and was told *"this needs the `admin:manageServer` privilege and you are not signed in"* — on a
+page whose header named them as the administrator. The console's design was already the right
+one: it asks for a bearer token and keeps it in `sessionStorage`. What was wrong was one line of
+its boot, which gated on *am I authenticated* rather than *do I hold a token* — and with a cookie
+`/rest/whoami` answers `authenticated: true` with `admin:manageServer` in the list, so the whole
+surface painted and every mutation was refused.
+
+Recorded here rather than only in the console, because **the decision in §4c is not what needs
+changing.** The two obvious accommodations are both worse: minting a token from a cookie needs a
+`GET` that hands out credentials, which is the request this section exists to refuse; and letting
+the cookie authenticate a `POST` behind an antiforgery token gives up the property that there is
+no token to get wrong. What the episode shows is that a deliberate asymmetry has to be *visible
+to the surface that lives with it*. So the console now says it: a tokenless reader is shown the
+form with the reason, and the header says *read-only session* rather than naming a role they
+cannot exercise.
+
 **Two things broke on the way, both worth recording.** The sign-in form returned
 `415`: the endpoint bound its body from JSON, and a browser cannot post JSON from
 a form — so the page this ADR had just added could not sign anybody in. And the

@@ -2438,11 +2438,19 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>A click on a control inside a row is not a click on the row.</b> Both listings below
+  // make the whole row clickable, and each of them carries buttons and selects that do
+  // something else. This used to be an exception list per row — *unless it was Delete, unless
+  // it was the sharing select* — and the owner found what that costs the day a third control
+  // arrived: pressing **Stop** opened the service page instead of stopping it, because the
+  // list had not been extended. Asking what was clicked cannot go stale the same way.
+  const control = t.closest("button, select, input, textarea, a, label");
+
   // <b>A service row opens the service, and its layers are inside.</b> ADR-034 §5h: the
   // service is the unit on this screen, so selecting one goes to what it holds rather than
   // to a layer somebody guessed from a flat table.
   const service = t.closest("tr[data-service]");
-  if (service && !d.serviceDelete && !d.serviceShare) {
+  if (service && !control) {
     location.hash = `#/service/${encodeURIComponent(service.dataset.service)}`;
     return;
   }
@@ -2450,7 +2458,7 @@ async function handleClick(event) {
   // A content row in Studio: the layer's own page, which is where its appearance and its
   // sharing are.
   const pick = t.closest("tr[data-pick]");
-  if (pick && !d.show && !d.tiles) {
+  if (pick && !control) {
     location.hash = `#/layer/${encodeURIComponent(pick.dataset.pick)}`;
     return;
   }
@@ -2808,14 +2816,59 @@ $("signout").addEventListener("click", async event => {
   location.replace(location.pathname);
 });
 
+/**
+ * Boots the surface, or asks for a token.
+ *
+ * <b>The gate is "do I hold a token", not "am I authenticated", and the difference was a
+ * shipped defect.</b> Found 2026-08-17 by the owner, who pressed **Stop** as a signed-in
+ * administrator and was told *"this needs the 'admin:manageServer' privilege and you are not
+ * signed in"*.
+ *
+ * A session reaches this page in two forms. A bearer token, which this console asks for and
+ * keeps in `sessionStorage`; and a `gis-session` cookie, which the services directory's own
+ * sign-in form sets and which — deliberately, [ADR-023](../../../docs/adr/ADR-023-rest-services-directory.md)
+ * §4c — authenticates `GET` and `HEAD` **and nothing else**. That is a CSRF defence with no
+ * antiforgery token to get wrong, and it is worth more than the convenience it costs.
+ *
+ * The cost is what landed here. With a cookie and no token, `/rest/whoami` answers
+ * `authenticated: true` with `admin:manageServer` in the list, so the old check passed, the
+ * whole console painted, the header named the administrator — and every write answered 401
+ * with a message saying they were not signed in. **ADR-023 §4c predicted exactly this**: *"any
+ * future write surface in the browser needs a deliberate design, not a `<form>` tag."* This
+ * console is that write surface; the design was right and the boot check asked the wrong
+ * question.
+ *
+ * So a tokenless reader gets the form, and is told why rather than left to wonder why an
+ * administrator is being asked to sign in.
+ */
 async function start() {
   const me = await whoami();
-  if (!me.authenticated) {
+
+  if (!me.authenticated || !token) {
     $("signin").style.display = "";
     $("app").style.display = "none";
     $("tabs").style.display = "none";
+
+    // Otherwise this reads "checking…" for ever, which is a small lie of the same family as
+    // the one above: a line that says it is working on something it has stopped working on.
+    $("healthLine").textContent = "sign in to read the server's state";
+
+    const cookieOnly = $("signinCookie");
+    if (me.authenticated && !token) {
+      cookieOnly.innerHTML = `The browser is already signed in as <b>${h(me.name)}</b>, through `
+        + "the services directory. <b>That session can read and not write</b> — it is carried "
+        + "in a cookie, and a cookie authenticates <code>GET</code> only, so that a page on "
+        + "somebody else's site cannot make your browser change anything here. Signing in "
+        + "again gives this console a token of its own.";
+      cookieOnly.hidden = false;
+      $("who").innerHTML = `<b>${h(me.name)}</b> · read-only session`;
+    } else {
+      cookieOnly.hidden = true;
+    }
     return;
   }
+
+  $("signinCookie").hidden = true;
 
   $("signin").style.display = "none";
   $("app").style.display = "";
