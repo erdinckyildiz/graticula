@@ -109,7 +109,7 @@
       <b>Held to the same restraint as before.</b> One group opacity, strokes under 0.4, and it is
       `aria-hidden` and `pointer-events: none` — the first thing to go when the column collapses.
     -->
-    <svg id="railArt" viewBox="0 0 232 300" aria-hidden="true" focusable="false">
+    <svg id="railArt" viewBox="0 0 232 330" aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="plate4" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stop-color="#4ef0cd"/><stop offset=".6" stop-color="#18b8b4"/>
@@ -128,6 +128,27 @@
           <stop offset="1" stop-color="#5e34ba"/>
         </linearGradient>
 
+        <!--
+          <b>The markers come down out of the sky and fade as they fall.</b> Owner 2026-08-17:
+          *"çizgiler gökten silik insin."* They used to be a uniform stroke from a lit head to the
+          plates, which reads as five antennae; a stroke that is brightest at its head and gone by
+          the bottom reads as light arriving. One gradient, reused — the heads keep their own opacity.
+        -->
+        <!--
+          <b>`userSpaceOnUse`, and the default silently drew nothing.</b> A gradient defaults to
+          `objectBoundingBox` units, and the bounding box of a **vertical** path has zero width — the
+          SVG specification says an element whose bbox has a zero dimension is not rendered when it
+          is painted with such a gradient. So five perfectly correct lines were invisible twice, and
+          raising their opacity could not have helped: nothing was being painted at all. Measured in
+          user space instead, from the top of the box to just above the plates, which also means all
+          the markers share one fade rather than each fading over its own length.
+        -->
+        <linearGradient id="fall" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="168">
+          <stop offset="0" stop-color="#d6ecff" stop-opacity=".9"/>
+          <stop offset=".45" stop-color="#cfe6ff" stop-opacity=".45"/>
+          <stop offset="1" stop-color="#cfe6ff" stop-opacity=".05"/>
+        </linearGradient>
+
         <radialGradient id="railGlow">
           <stop offset="0" stop-color="#2ad3c4" stop-opacity=".26"/>
           <stop offset="1" stop-color="#2ad3c4" stop-opacity="0"/>
@@ -144,24 +165,20 @@
         <clipPath id="clip1"><use href="#plate" y="240"/></clipPath>
       </defs>
 
-      <ellipse cx="116" cy="240" rx="118" ry="74" fill="url(#railGlow)"/>
+      <ellipse cx="116" cy="232" rx="118" ry="78" fill="url(#railGlow)"/>
 
       <!--
         Markers: a thin line with a lit head, at irregular heights and positions. The reference has
         them and they do a job — a column with a stack at the bottom and nothing above is
         bottom-heavy — and irregular is the whole point, since evenly spaced ones are a lattice again.
       -->
-      <g stroke-width="1" opacity=".85">
-        <path d="M62 42v118" stroke="#7de8dc" stroke-opacity=".5"/>
-        <circle cx="62" cy="40" r="3" fill="#7de8dc" fill-opacity=".9"/>
-        <path d="M148 16v146" stroke="#a9b4ff" stroke-opacity=".45"/>
-        <circle cx="148" cy="14" r="3.4" fill="#a9b4ff" fill-opacity=".9"/>
-        <path d="M96 74v92" stroke="#7de8dc" stroke-opacity=".34"/>
-        <circle cx="96" cy="72" r="2.4" fill="#7de8dc" fill-opacity=".75"/>
-        <path d="M182 58v112" stroke="#c39cff" stroke-opacity=".34"/>
-        <circle cx="182" cy="56" r="2.4" fill="#c39cff" fill-opacity=".75"/>
-        <path d="M30 96v78" stroke="#a9b4ff" stroke-opacity=".26"/>
-        <circle cx="30" cy="94" r="2" fill="#a9b4ff" fill-opacity=".6"/>
+      <g stroke-width="1.1" stroke="url(#fall)">
+        <path d="M62 8v150"/><circle cx="62" cy="8" r="3" fill="#7de8dc" fill-opacity=".95" stroke="none"/>
+        <path d="M148 0v160"/><circle cx="148" cy="4" r="3.4" fill="#8ff0e4" fill-opacity=".95" stroke="none"/>
+        <path d="M96 22v130"/><circle cx="96" cy="22" r="2.4" fill="#a9b4ff" fill-opacity=".85" stroke="none"/>
+        <path d="M182 14v140"/><circle cx="182" cy="14" r="2.4" fill="#c39cff" fill-opacity=".8" stroke="none"/>
+        <path d="M30 34v118"/><circle cx="30" cy="34" r="2" fill="#a9b4ff" fill-opacity=".7" stroke="none"/>
+        <path d="M124 44v112"/><circle cx="124" cy="44" r="1.8" fill="#7de8dc" fill-opacity=".65" stroke="none"/>
       </g>
 
       <!--

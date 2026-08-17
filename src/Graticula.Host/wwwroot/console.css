@@ -225,21 +225,12 @@ a:hover { text-decoration: underline; }
 }
 
 /*
-  <b>The one decorative element, and it is a graticule.</b> The product is named after the net of
-  meridians and parallels (ADR-032), so the sidebar's texture is that net — drawn in CSS as two
-  repeating gradients at 3% opacity, no image, no asset. It sits behind the navigation and is
-  invisible until you look for it, which is the brief's *understated and must not interfere*.
+  <b>The graticule grid is gone, by owner instruction 2026-08-17: *"grid kalksın."*</b> It was here as
+  a reference to the product's own name — a graticule is the net of meridians and parallels
+  (ADR-032) — and it was competing with the illustration for the same job. The illustration carries
+  that reference better: each of its plates has a net drawn on it, in perspective, which is what a
+  graticule actually looks like on a surface. Two textures saying one thing is one texture too many.
 */
-#rail::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(to right, rgba(140, 200, 235, .07) 0 1px, transparent 1px 32px),
-    repeating-linear-gradient(to bottom, rgba(140, 200, 235, .07) 0 1px, transparent 1px 32px);
-  mask-image: linear-gradient(to bottom, transparent 42%, #000 92%);
-}
 
 /*
   <b>The decorative element, and it is the product's own subject.</b> The reference has an isometric
@@ -272,7 +263,7 @@ a:hover { text-decoration: underline; }
   than a choice.
 */
 #railArt {
-  position: absolute; left: 0; right: 0; bottom: 196px;
+  position: absolute; left: 0; right: 0; bottom: 236px;
   width: 100%; height: auto;
   pointer-events: none; opacity: .92; z-index: 0;
 }
@@ -380,10 +371,15 @@ a:hover { text-decoration: underline; }
 
 #shell.tight #tabs .count { display: none; }
 
+/*
+  <b>No rule above Collapse.</b> Owner 2026-08-17: *"collapse gridin içinde kaldığı için silik
+  duruyor."* The grid is gone in the same pass, and with it the reason this hairline existed — it was
+  separating the button from a texture. It is now the only line in a column that has none, which reads
+  as a leftover, and the whitespace above the button already separates it from the navigation.
+*/
 #railFoot {
   margin-top: auto;
-  padding: var(--gap-3) var(--gap-2);
-  border-top: 1px solid var(--nav-line);
+  padding: var(--gap-3) var(--gap-2) var(--gap-4);
   position: relative;
   z-index: 1;
 }
@@ -399,7 +395,7 @@ a:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: 11px;
   background: none; border: 0; cursor: pointer;
   padding: 10px 14px; border-radius: 7px;
-  color: #c3c8ec; font: 500 var(--t-small)/1 var(--sans);
+  color: #d3d7f4; font: 500 var(--t-body)/1 var(--sans);
 }
 #collapse .arrow { font-size: 15px; line-height: 1; opacity: .8; }
 #collapse:hover { background: rgba(255, 255, 255, .06); color: #fff; }
