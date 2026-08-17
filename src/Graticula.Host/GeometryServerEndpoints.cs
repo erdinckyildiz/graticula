@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
 using Graticula.Geometries;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
@@ -237,6 +238,27 @@ internal static class GeometryServerEndpoints
     /// the service exists, and a service made private stops answering strangers
     /// entirely — including about itself.
     /// </remarks>
+    /// <summary>Where the sharing filter leaves the service row for the handlers.</summary>
+    private const string ServiceItem = "graticula.geometry.service";
+
+    /// <summary>
+    /// This service's own bounds, or the engine's when it has none of its own.
+    /// </summary>
+    /// <remarks>
+    /// <b>Resolved here, once, rather than in each handler.</b> The stored value is null until an
+    /// administrator sets one — the three-way rule — so *what is in force* is a small piece of
+    /// arithmetic, and the one place it is done is the place the request path reads. The admin
+    /// endpoint that reports it does the same arithmetic and says so, which is the only way the
+    /// screen and the server can agree.
+    /// </remarks>
+    private static (TimeSpan? Deadline, long? Preflight) BoundsOf(HttpContext context) =>
+        context.Items.TryGetValue(ServiceItem, out object? held) && held is SystemService service
+            ? (service.DeadlineSeconds is { } seconds
+                    ? TimeSpan.FromSeconds(seconds)
+                    : null,
+               service.PreflightPairs)
+            : (null, null);
+
     private static readonly IResult Refusal = Results.Json(
         new
         {
@@ -253,12 +275,43 @@ internal static class GeometryServerEndpoints
         statusCode: StatusCodes.Status404NotFound);
 
     /// <summary>
-    /// Refuses the request unless this service's sharing admits the caller.
+    /// What a stopped service answers.
     /// </summary>
     /// <remarks>
-    /// <b>404, matching <see cref="Authorize.RefuseReadAsync"/>.</b> A private
+    /// <b>503 and not 404, and the difference is what an operator needs.</b> A stopped service
+    /// exists and has been turned off; *no such service* is a different fact, and a client's log
+    /// full of 404s sends somebody to check the URL. This is the same answer a stopped
+    /// FeatureServer gives, so one status means one thing across the surface.
+    /// </remarks>
+    private static readonly IResult Stopped = Results.Json(
+        new
+        {
+            error = new
+            {
+                code = 503,
+                message =
+                    "The geometry service is stopped. It exists and is shared as before; an "
+                    + "administrator turned it off and can turn it on again with "
+                    + "POST /admin/services/Geometry/start.",
+            },
+        },
+        statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    /// <summary>
+    /// Refuses the request unless this service's sharing admits the caller, and it is running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>404 for sharing, matching <see cref="Authorize.RefuseReadAsync"/>.</b> A private
     /// geometry service that answered 403 would confirm it exists; the whole
     /// point of making it private is that it does not answer strangers at all.
+    /// </para>
+    /// <para>
+    /// <b>Sharing is checked before status, and the order is deliberate.</b> Telling a caller
+    /// who may not see this service that it is *stopped* tells them it exists. So somebody
+    /// outside the audience gets the same 404 whether it is running or not, and only a caller
+    /// who is allowed to use it learns that it is off.
+    /// </para>
     /// </remarks>
     private static async ValueTask<object?> SharingFilter(
         EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)
@@ -286,6 +339,17 @@ internal static class GeometryServerEndpoints
 
         if (allowed)
         {
+            if (service is { Status: ServiceStatus.Stopped })
+            {
+                return Stopped;
+            }
+
+            // <b>Kept for the handler, because it has already been read.</b> Every operation needs
+            // this service's deadline and this filter runs before every operation, so a second
+            // catalogue read per request would be one nobody had to make. `Items` rather than a
+            // field: the filter is static and the value is per request.
+            context.Items[ServiceItem] = service;
+
             return await next(invocation).ConfigureAwait(false);
         }
 
@@ -336,8 +400,22 @@ internal static class GeometryServerEndpoints
     private static IResult Html(string page) => Results.Content(page, "text/html; charset=utf-8");
 
     /// <summary>The service document.</summary>
+    /// <remarks>
+    /// <b>The bounds are read off the pool, not off its constants.</b> Both became settings on
+    /// 2026-08-17, and a document that kept printing the compiled defaults would state a number
+    /// the server does not enforce — the same fault as a control showing a figure it did not
+    /// read, which cost two defects the same day. The pool exposes what it enforces for exactly
+    /// this.
+    /// </remarks>
     private static IResult Describe(HttpContext context)
     {
+        GeometryWorkerPool pool =
+            context.RequestServices.GetRequiredService<GeometryWorkerPool>();
+
+        // This service's own bounds where it has them, so the document states what a caller will
+        // actually be held to rather than what the configuration file says.
+        (TimeSpan? deadline, long? preflight) = BoundsOf(context);
+
         var document = new
         {
         currentVersion = FeatureServerMetadataWriter.CurrentVersion,
@@ -350,10 +428,10 @@ internal static class GeometryServerEndpoints
         supportedOperations = Supported.Concat(Engine).ToArray(),
         unsupportedOperations = Blocked.Keys,
         maximumVertices = MaximumVertices,
-        maximumCandidatePairs = GeometryWorkerPool.MaximumCandidatePairs,
-        deadlineSeconds = GeometryWorkerPool.Deadline.TotalSeconds,
+        maximumCandidatePairs = preflight ?? pool.EnforcedPreflightPairs,
+        deadlineSeconds = (deadline ?? pool.EnforcedDeadline).TotalSeconds,
         note = $"{string.Join(", ", Engine)} run in a separate worker process with a "
-             + $"{GeometryWorkerPool.Deadline.TotalSeconds:0}-second deadline and a "
+             + $"{(deadline ?? pool.EnforcedDeadline).TotalSeconds:0}-second deadline and a "
              + "1 GB heap ceiling. That, and nothing about the input, is the bound: measurement "
              + "(benchmarks/geometry-overlay) found a 6,408-vertex input costing 153 seconds and "
              + "16.7 GB where a real 72,919-vertex polygon cost 312 ms. maximumCandidatePairs is "
@@ -797,6 +875,14 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        // <b>This service's deadline, if an administrator set one.</b> Null leaves the engine's
+        // own bound in force, so an untouched deployment behaves exactly as before. Passed on the
+        // request rather than configured into the pool because the pool applies it per operation —
+        // which is why setting it needs no restart, and why the earlier claim that it did was
+        // wrong.
+        (TimeSpan? deadline, long? preflight) = BoundsOf(context);
+        request = request with { Deadline = deadline, PreflightPairs = preflight };
+
         EngineResult result = await engine
             .ComputeAsync(request, cancellation)
             .ConfigureAwait(false);
@@ -831,8 +917,16 @@ internal static class GeometryServerEndpoints
         {
             candidatePairs = result.CandidatePairs,
             milliseconds = result.Milliseconds,
-            candidatePairLimit = GeometryWorkerPool.MaximumCandidatePairs,
-            deadlineSeconds = GeometryWorkerPool.Deadline.TotalSeconds,
+            // From the engine when it is the pool, which it is in every configuration this
+            // server ships. Reported so a caller batching these can tell a cheap request from
+            // one that nearly hit the deadline — and reported as *enforced* rather than as the
+            // compiled default, since the deadline is a setting now.
+            candidatePairLimit = preflight
+                ?? (engine as GeometryWorkerPool)?.EnforcedPreflightPairs
+                ?? GeometryWorkerPool.MaximumCandidatePairs,
+            deadlineSeconds = (deadline
+                ?? (engine as GeometryWorkerPool)?.EnforcedDeadline
+                ?? GeometryWorkerPool.Deadline).TotalSeconds,
         };
 
         if (result.Scalar is double scalar)

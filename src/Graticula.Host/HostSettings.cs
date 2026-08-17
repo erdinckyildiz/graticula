@@ -41,6 +41,8 @@ internal sealed record HostSettings(
     long TileCacheLayerBudgetBytes,
     TimeSpan TileCacheLifetime,
     int OverlayWorkers,
+    TimeSpan OverlayDeadline,
+    long OverlayPreflightPairs,
     TimeSpan CatalogFallbackWindow,
     long MaximumResponseBytes,
     IReadOnlyList<string>? LegacyKeys = null)
@@ -154,6 +156,28 @@ internal sealed record HostSettings(
             // Q-97 exists to give an operator. Raising it raises the worst case
             // linearly, and that is the trade to state rather than to bury.
             Math.Max(1, keys.Value("OverlayWorkers", 2)),
+
+            // <b>The overlay deadline, a setting since 2026-08-17 and a constant before it.</b>
+            // The owner asked what the geometry service's timeout was — *"geometry server'in,
+            // startı stop'u, timeout'u vs si yok mu?"* — and there is one, ten seconds, compiled
+            // in. Their own earlier instruction is what makes a fixed one wrong: when they
+            // removed the rule refusing six operations for being *potentially* expensive, the
+            // instruction was **let them, and put a timeout on it.** A timeout the operator
+            // cannot move is half of that.
+            //
+            // <b>Ten stays the default on the measurement.</b> Every real case in
+            // benchmarks/geometry-overlay finished inside 350 ms and the smallest adversarial
+            // input that matters took 17 seconds, so ten leaves real work thirty times its
+            // measured cost and still refuses the attack.
+            TimeSpan.FromSeconds(Math.Max(1, keys.Value("OverlayDeadlineSeconds", 10))),
+
+            // <b>The pre-flight, zero meaning off, and zero is the default because it was
+            // measured leaky.</b> It under-predicted cost by fourteen times: it admits a comb
+            // that takes 884 ms and turns away nothing the deadline would not catch. Kept
+            // reachable because a deployment that would rather refuse a heavy request in 80 ms
+            // than spend the deadline on it can choose that — GeometryWorkerPool.PreflightAbove
+            // is the value it used to have.
+            Math.Max(0, (long)keys.Value("OverlayPreflightPairs", 0)),
 
             // <b>How long a remembered catalogue entry may be served while the
             // platform store is unreachable (Q-95).</b> Zero disables degraded

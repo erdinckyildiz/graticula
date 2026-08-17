@@ -120,6 +120,79 @@ timeout alone would not have been enough. It is implementable today only because
 Q-97 already built the other half: the work runs in a process with a hard heap
 limit, and that process dies instead of the machine. **Both bounds, or neither.**
 
+### The bounds are settings, and until 2026-08-17 they were constants
+
+The owner, asking what this service's controls are: *"geometry server'in, startı stop'u, timeout'u
+vs si yok mu?"* The timeout existed — ten seconds — and was **compiled in**. `GeometryWorkerPool`
+had taken a deadline and a pre-flight threshold as constructor arguments since it was written, with
+a comment saying an operator may still want the pre-flight; `Program.cs` passed neither. So the
+constants were the only values any deployment could have, and the comment described a choice
+nobody could make.
+
+**Their own instruction is what makes a fixed deadline wrong.** §2b records it: when they removed
+the rule refusing six operations for being *potentially* expensive, the instruction was *let them,
+and put a timeout on it.* A timeout the operator cannot move is half of that — it is still the
+server deciding, one level up.
+
+- `Graticula:OverlayDeadlineSeconds`, default **10**. The default is unchanged and the reason is
+  §2b's measurement rather than taste: every real case finished inside 350 ms and the smallest
+  adversarial input that matters took 17 seconds, so ten leaves real work thirty times its measured
+  cost and still refuses the attack. A deployment that would rather wait, or rather not, can say so.
+- `Graticula:OverlayPreflightPairs`, default **0** meaning off. Kept reachable rather than deleted
+  because a deployment that would rather refuse a heavy request in 80 ms than spend the deadline on
+  it can choose that; it is off by default because it was measured under-predicting fourteenfold.
+
+**The service document reports what is enforced, not what is compiled.** `EnforcedDeadline` and
+`EnforcedPreflightPairs` are read off the pool. Said as a decision because the alternative was one
+line shorter and would have made the document state a number the server does not use — the same
+fault as a control displaying a figure it did not read, which cost two separate defects on the same
+day this was written.
+
+**And both are writable through the admin API, after the owner rejected the deferral.** The first
+version of this made them configuration-file settings only, and recorded the API version as an open
+question on the grounds that changing a deadline live would mean rebuilding the worker pool under
+in-flight requests. The owner: *"iyi de neden yok. yani ben neden max timeout süresi
+tanımlayamıyorum?"* — fine, but why not; why can I not define a maximum timeout. **They were right
+and the stated reason was false.** The pool applies both bounds *per operation*, so only the number
+ever had to move; nothing is rebuilt and nothing is restarted. The deferral was caution about work
+nobody needed to do, and it is left recorded here rather than quietly replaced, because a reason
+that turns out not to exist is worth being able to see.
+
+- `GET`/`PUT /admin/services/{name}/limits`, under `admin:manageServer`. Stored on the service
+  (migration 20), **null meaning nobody has said** — the same three-way rule as a layer's cache TTL,
+  so an administrator gets the server's default back by clearing the field rather than by typing a
+  copy of it that stops tracking the setting.
+- The `GET` reports the stored value, the default, **and the effective value**, because those are
+  three different facts and a screen that cannot tell *set to ten* from *defaulting to ten* is the
+  fault this endpoint exists to remove.
+- Out-of-range is **refused rather than clamped**: a clamp would leave an administrator believing a
+  number the server is not using.
+- **Measured end to end.** The two-comb corpus at 200 teeth costs 130,324 candidate pairs and about
+  4.8 s. With the deadline set to 2 it is cut off at 2,021 ms and the refusal says *"ran longer than
+  2 seconds"*; with the pre-flight set to 100,000 it is refused in 31 ms naming the count it
+  measured; with the pre-flight at 200,000 the same work completes. Raising the deadline to 30 for
+  the 400-teeth case does not make it succeed — it dies on the **heap ceiling** instead, at
+  10.6 s, which is *both bounds, or neither* demonstrated rather than argued.
+
+**A defect this found in its own first version, recorded because it is the class this project keeps
+producing.** That first version put the deadline on the request and left the pre-flight reading the
+pool's field. So `PUT` stored a threshold, the service document advertised it, and the engine ignored
+it: a request measuring 130,324 pairs was computed against a stored threshold of 100,000. **A setting
+that is stored and reported and does nothing is worse than one that does not exist**, because a
+deployment believes it is protected. Found by measuring against a running server, not by reading the
+diff, and `RequestBoundsTests` is now the cheap test that would have caught it.
+
+**What is still not a setting, and why:**
+
+- **The 500,000-vertex cap.** §3's argument is that a cap is the right mechanism *here* because
+  every operation on this half is one pass over the coordinates, so input size bounds work exactly.
+  Nothing about it is a deployment preference — it is generous enough that no ordinary request
+  reaches it and its purpose is that a request cannot be unbounded.
+- **The 1 GB heap ceiling.** It is the other half of *both bounds, or neither* above. Total exposure
+  is `OverlayWorkers` times this ceiling, and `OverlayWorkers` is already a setting, so the
+  operator-facing number already exists. The 400-teeth measurement above is what makes leaving it
+  fixed safe: an administrator who raises the deadline has not removed the memory bound.
+
 ### Verified rather than asserted
 
 NetTopologySuite being mature is evidence about NetTopologySuite, not about the

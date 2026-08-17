@@ -161,7 +161,14 @@ public static class Program
         builder.Services.AddSingleton(services => new GeometryWorkerPool(
             GeometryWorkerPool.ExecutableBesideThisOne(),
             settings.OverlayWorkers,
-            services.GetRequiredService<ILoggerFactory>()));
+            services.GetRequiredService<ILoggerFactory>(),
+
+            // <b>Both bounds come from configuration now.</b> The pool has always taken them
+            // and this call has always omitted them, so the constants were the only values a
+            // deployment could have — which is what the owner's question about the timeout
+            // uncovered. The defaults are unchanged, so no existing deployment moves.
+            settings.OverlayDeadline,
+            settings.OverlayPreflightPairs));
 
         builder.Services.AddSingleton<IGeometryEngine>(services =>
             services.GetRequiredService<GeometryWorkerPool>());

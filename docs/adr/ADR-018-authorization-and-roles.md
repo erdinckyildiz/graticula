@@ -231,6 +231,37 @@ The correction:
   handlers each remembering a guard is five chances to forget, and forgetting is
   precisely how this gap started.
 
+**A second omission of the same shape, found 2026-08-17 and closed the same day.** The owner,
+looking at the geometry service's row in the console: *"geometry server'in, startı stop'u,
+timeout'u vs si yok mu?"* — hasn't it got a start, a stop, a timeout? **It had no status at all.**
+This section gave a system service the three sharing scopes and stopped there, so `system_service`
+carried sharing and nothing else, and *whether it answers* was a question with no place to be
+asked. It is the identical failure to the one above — a model built for one axis, and something
+arriving that needs two — which is why it is recorded here rather than as a separate decision.
+
+**And the console was already showing a status.** The row drew a `started` pill that was a literal
+in the markup: a client asserting a server fact nobody had asserted. That is the more instructive
+half. A missing field is visible to whoever looks for it; a *fabricated* one is invisible, because
+the screen looks complete.
+
+The correction, migration 19:
+
+- A system service carries a **started/stopped status**, the same two values a layer's service
+  carries, set by `POST /admin/services/{name}/{start,stop}` under `admin:manageServer`. Stopping
+  is an operational act about capacity, not a content act about audience — the same split §3b-ii
+  draws for layers.
+- **Sharing and status move independently**, asserted in both directions by test, because the
+  endpoint's own answer promises that *starting it restores exactly the audience it had* and that
+  sentence is only true if the two setters touch different columns.
+- A stopped service answers **503, and the sharing refusal stays 404.** Sharing is checked first:
+  telling a caller outside the audience that a service is *stopped* would confirm it exists, so
+  only somebody allowed to use it learns that it is off. Within the audience, 503 rather than 404
+  because *turned off* and *not there* are different facts and a client's log full of 404s sends
+  an operator to check the URL.
+- **Started is the seeded default**, since the service has answered since it shipped and a
+  migration that left it stopped would remove a working endpoint as a side effect of adding a
+  column.
+
 **What this does not fix.** Nothing structural prevents the next service without
 a layer from arriving with the same hole. The check that would — every mapped
 route under `/rest/services` is either governed by a layer's sharing or by a

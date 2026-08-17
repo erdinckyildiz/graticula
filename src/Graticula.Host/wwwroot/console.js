@@ -992,6 +992,23 @@ async function showService(qualified) {
   $("serviceFacts").textContent = "";
   $("serviceLayers").innerHTML = `<tr><td colspan="6" class="empty">reading the service…</td></tr>`;
 
+  // <b>A service with no layers is a different screen.</b> There is nothing to list and there are
+  // bounds to set, and asking the server which kind this is beats guessing from the shape of a
+  // document that 404s for the other kind. `/limits` exists only for a system service, so its
+  // answer is the question.
+  const limits = await loadServiceLimits(name);
+
+  if (limits) {
+    $("serviceFacts").textContent =
+      `${limits.kind} · no layers · ${limits.effectiveDeadlineSeconds}s per operation`;
+
+    $("serviceLayers").innerHTML =
+      `<tr><td colspan="6" class="empty">A ${h(limits.kind)} holds no layers — it computes on the
+         geometry a caller sends. What it will spend on one request is above; who may call it is
+         on the services list.</td></tr>`;
+    return;
+  }
+
   try {
     const doc = await api(
       `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer?f=json`);
@@ -1022,6 +1039,53 @@ async function showService(qualified) {
     $("serviceLayers").innerHTML =
       `<tr><td colspan="6" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
   }
+}
+
+/**
+ * The bounds of a service that has no layers, and the panel for changing them.
+ *
+ * <b>Shown only for a system service, and it reads before it draws.</b> A control that displays a
+ * figure it did not read is this repository's most repeated fault — the geometry service's own row
+ * carried a hard-coded `started` pill until the day this was written — so the panel stays hidden
+ * until the server has answered, and every field it fills comes from that answer.
+ *
+ * The three numbers are three different facts and the placeholder is how they stay distinguishable:
+ * an empty box with a placeholder of `10 (default)` says *nobody has set this and the server would
+ * use ten*, which is not what `10` in the box would say.
+ *
+ * @param {string} name the service's name within its folder
+ * @returns the limits document for a system service, or null for anything else
+ */
+async function loadServiceLimits(name) {
+  const panel = $("serviceLimits");
+  if (!panel) return;
+
+  panel.hidden = true;
+
+  let limits;
+  try {
+    limits = await api(`/admin/services/${encodeURIComponent(name)}/limits`);
+  } catch {
+    // A feature service has no such route, which is the ordinary case rather than a fault. Null
+    // is the answer to "is this a system service", which is what the caller asked.
+    return null;
+  }
+
+  $("limDeadline").value = limits.deadlineSeconds ?? "";
+  $("limDeadline").placeholder = `${limits.defaultDeadlineSeconds} (default)`;
+  $("limPreflight").value = limits.preflightPairs ?? "";
+  $("limPreflight").placeholder = `${num(limits.defaultPreflightPairs)} (default)`;
+
+  $("limNote").innerHTML =
+    `In force now: a <b>${h(limits.effectiveDeadlineSeconds)}-second</b> cut-off, `
+    + `${limits.effectivePreflightPairs
+        ? `a pre-flight above <b>${num(limits.effectivePreflightPairs)}</b> segment pairs`
+        : "<b>no</b> pre-flight"}, `
+    + `and a fixed ceiling of ${num(limits.maximumVertices)} vertices per request. `
+    + `A change applies to the next operation — nothing is restarted.`;
+
+  panel.hidden = false;
+  return limits;
 }
 
 /** Which folder the Server services screen is looking at: null is the root. */
@@ -1110,7 +1174,12 @@ async function loadServices() {
       name: y.name,
       folder: y.folder,
       kind: y.kind,
-      status: "started",
+
+      // <b>From the server, and until 2026-08-17 this was the literal `"started"`.</b> There was
+      // no status to read — `system_service` carried sharing and nothing else — so the row
+      // printed a pill nobody had asserted. The owner asked the question that found it: *"geometry
+      // server'in, startı stop'u, timeout'u vs si yok mu?"*
+      status: y.status,
       sharing: y.sharing,
       layers: 0,
       groups: 0,
@@ -1148,8 +1217,11 @@ async function loadServices() {
       // One layer and no groups: the drill-in would show a single row, so the row goes to it.
       const only = !r.system && r.layers === 1 && !r.groups && r.cover ? r.cover.name : "";
 
-      return `<tr${r.system ? "" : ` class="pick" data-service="${h(r.qualified)}"${
-        only ? ` data-only="${h(only)}"` : ""}`}>
+      // <b>A system row opens as well.</b> It used to be the one row on this screen that was
+      // not clickable, on the argument that there are no layers inside to list — true, and it
+      // also meant the geometry service's own bounds had nowhere to be edited from.
+      return `<tr class="pick" data-service="${h(r.qualified)}"${
+        only ? ` data-only="${h(only)}"` : ""}>
         <td>${r.cover
           ? `<canvas class="thumb" width="104" height="74"
                data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
@@ -1164,7 +1236,12 @@ async function loadServices() {
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
           : pill(r.sharing)}</td>
         <td class="val">${h(r.owner || "—")}</td>
-        <td class="acts" style="text-align:right">${r.system ? "" : `
+        <td class="acts" style="text-align:right">${r.system ? `
+          <button class="tiny" data-system-status="${h(r.name)}"
+            data-to="${stopped ? "start" : "stop"}"
+            title="${stopped ? "Answer this service's operations again"
+              : "Answer 503 for every operation on this service, without changing who may call it"}"
+            >${stopped ? "Start" : "Stop"}</button>` : `
           <button class="tiny" data-service-status="${h(r.cover ? r.cover.name : "")}"
             data-to="${stopped ? "start" : "stop"}"
             ${r.cover ? "" : "disabled"}
@@ -2620,6 +2697,43 @@ async function handleClick(event) {
       toast(`${d.serviceStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();   // which redraws the service list, since the status it shows moved
+    return;
+  }
+
+  // A service with no layers is started and stopped through its own route, because it is its
+  // own row in its own table — see SetSystemStatusAsync for why that is not the layer route.
+  if (t.id === "limSave" || t.id === "limClear") {
+    const clearing = t.id === "limClear";
+    const name = ($("serviceCrumb").querySelector("b")?.textContent || "").trim();
+    const number = id => {
+      const raw = ($(id)?.value ?? "").trim();
+      return raw === "" ? null : Number(raw);
+    };
+
+    t.disabled = true;
+    try {
+      const r = await api(`/admin/services/${encodeURIComponent(name)}/limits`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clearing
+          ? { deadlineSeconds: null, preflightPairs: null }
+          : { deadlineSeconds: number("limDeadline"), preflightPairs: number("limPreflight") }),
+      });
+      toast(r.note, true);
+    } catch (e) { toast(e.message); }
+    t.disabled = false;
+    await section("limits", () => loadServiceLimits(name));
+    return;
+  }
+
+  if (d.systemStatus) {
+    t.disabled = true;
+    try {
+      const r = await api(`/admin/services/${encodeURIComponent(d.systemStatus)}/${d.to}`,
+        { method: "POST" });
+      toast(`${d.systemStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+    await section("services", loadServices, "services");
     return;
   }
 

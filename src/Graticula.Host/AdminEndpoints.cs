@@ -108,6 +108,18 @@ internal sealed record ServiceCapabilitiesRequest(
 /// </param>
 internal sealed record CacheLifetimeRequest(int? Seconds);
 
+/// <summary>What one operation on a service with no layers may spend.</summary>
+/// <param name="DeadlineSeconds">
+/// The cut-off in seconds, or null for the configured default. <b>Null is a value here, not an
+/// omission</b> — it is how an administrator asks for the server's default back without typing a
+/// copy of it that stops tracking the setting.
+/// </param>
+/// <param name="PreflightPairs">
+/// The pre-flight threshold in candidate segment pairs, zero meaning none, or null for the
+/// configured default.
+/// </param>
+internal sealed record SystemLimitsRequest(int? DeadlineSeconds, long? PreflightPairs);
+
 /// <summary>
 /// The administrative surface (ADR-017).
 /// </summary>
@@ -166,6 +178,27 @@ internal static class AdminEndpoints
         // and was therefore governed by nothing.
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+
+        // <b>A system service can be stopped, since 2026-08-17.</b> The owner asked why the
+        // geometry service had no start and no stop, and the answer was that nothing had given
+        // it one — <c>system_service</c> carried sharing and nothing else. Two routes rather
+        // than a PUT with a body, matching the layer pair, so an operator learns one shape.
+        app.MapPost("/admin/services/{name}/start", (HttpContext c, string name,
+            PostgresSystemServices y, IAuditLog l, CancellationToken t) =>
+            SetSystemStatusAsync(c, name, ServiceStatus.Started, y, l, t));
+
+        app.MapPost("/admin/services/{name}/stop", (HttpContext c, string name,
+            PostgresSystemServices y, IAuditLog l, CancellationToken t) =>
+            SetSystemStatusAsync(c, name, ServiceStatus.Stopped, y, l, t));
+
+        // <b>The bounds, readable and writable.</b> The owner asked why they could not define the
+        // timeout — *"iyi de neden yok. yani ben neden max timeout süresi tanımlayamıyorum?"* —
+        // and the honest answer was that nobody had built it, not that it was hard. GET beside PUT
+        // because ADR-031 condition 3 asks that configuration be readable through the same API
+        // that writes it, and because a screen that cannot read the current value draws its
+        // controls from nothing (which shipped once already).
+        app.MapGet("/admin/services/{name}/limits", GetSystemLimitsAsync);
+        app.MapPut("/admin/services/{name}/limits", SetSystemLimitsAsync);
         // <b>GET as well as PUT, and its absence was a shipped fault.</b> A screen
         // for narrowing what a service offers has to show what it offers now, and
         // there was no route that could say — so the console asked, got 405, and drew
@@ -1119,6 +1152,7 @@ internal static class AdminEndpoints
                     s.Kind,
                     s.Folder,
                     sharing = PostgresSharing(s.Sharing),
+                    status = Wire(s.Status),
                 }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -2090,6 +2124,220 @@ internal static class AdminEndpoints
             name,
             from = before is { } was ? PostgresSharing(was.Sharing) : null,
             to = PostgresSharing(scope),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>What one operation on a service with no layers may spend.</summary>
+    /// <remarks>
+    /// <b>Reports the effective value and the default beside it.</b> An administrator looking at
+    /// this needs to know three things and they are three different facts: what is stored (null
+    /// means nobody has said), what the server would use if nothing were stored, and therefore what
+    /// is in force right now. Reporting only the last of those is how a screen ends up unable to
+    /// tell *set to ten* from *defaulting to ten*, which is the state the three-way rule exists to
+    /// keep visible.
+    /// </remarks>
+    private static async Task GetSystemLimitsAsync(
+        HttpContext context,
+        string name,
+        PostgresSystemServices services,
+        IGeometryEngine engine,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        SystemService? found = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+
+        if (found is not { } service)
+        {
+            await Refuse(context, 404, $"No system service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        GeometryWorkerPool? pool = engine as GeometryWorkerPool;
+
+        double defaultDeadline =
+            (pool?.EnforcedDeadline ?? GeometryWorkerPool.Deadline).TotalSeconds;
+
+        long defaultPreflight =
+            pool?.EnforcedPreflightPairs ?? GeometryWorkerPool.MaximumCandidatePairs;
+
+        await Results.Json(new
+        {
+            name = service.Name,
+            kind = service.Kind,
+
+            // What is stored: null means nobody has said.
+            deadlineSeconds = service.DeadlineSeconds,
+            preflightPairs = service.PreflightPairs,
+
+            // What the server would use if nothing were stored — from configuration, not from a
+            // constant, so this answer moves when Graticula:OverlayDeadlineSeconds does.
+            defaultDeadlineSeconds = defaultDeadline,
+            defaultPreflightPairs = defaultPreflight,
+
+            // And therefore what is in force, so a caller does not have to do the arithmetic and
+            // get it subtly different from the request path.
+            effectiveDeadlineSeconds = service.DeadlineSeconds ?? defaultDeadline,
+            effectivePreflightPairs = service.PreflightPairs ?? defaultPreflight,
+
+            // <b>Two bounds that are not settings, said here rather than left to be discovered
+            // by an administrator who assumed this endpoint covered everything.</b>
+            maximumVertices = GeometryServerEndpoints.MaximumVertices,
+            note = "maximumVertices is fixed: every operation on this surface is one pass over "
+                 + "the coordinates, so input size bounds the work exactly and a cap is the right "
+                 + "mechanism rather than a preference. The 1 GB worker heap ceiling is fixed for "
+                 + "the same reason — total exposure is OverlayWorkers times that ceiling, and "
+                 + "OverlayWorkers is a setting. ADR-022 §3.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Sets what one operation on a service with no layers may spend.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Null clears, which is not the same as omitting.</b> An administrator who wants the
+    /// server's default back says <c>null</c> and gets it, rather than looking the default up and
+    /// typing a copy that stops tracking it. The three-way rule, the same one a layer's cache TTL
+    /// follows.
+    /// </para>
+    /// <para>
+    /// <b>Refused rather than clamped.</b> A deadline of zero, or of a day, is a mistake worth
+    /// saying out loud: silently clamping it would leave an administrator believing a number the
+    /// server is not using, which is the exact fault this endpoint was written to remove.
+    /// </para>
+    /// </remarks>
+    private static async Task SetSystemLimitsAsync(
+        HttpContext context,
+        string name,
+        SystemLimitsRequest request,
+        PostgresSystemServices services,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.DeadlineSeconds is { } seconds && (seconds < 1 || seconds > 3600))
+        {
+            await Refuse(
+                context, 400,
+                $"A deadline of {seconds} seconds is outside 1..3600. Zero would refuse every "
+                + "request and an hour is longer than any client will wait — if the intent is no "
+                + "deadline at all, there is no such setting, because the deadline is what keeps "
+                + "an adversarial input from taking the host down (ADR-022 §2b).")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (request.PreflightPairs is { } pairs && pairs < 0)
+        {
+            await Refuse(
+                context, 400,
+                "A negative pre-flight threshold has no meaning. Zero is how the pre-flight is "
+                + "turned off, and null restores the server's default.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!await services
+            .SetBoundsAsync(name, request.DeadlineSeconds, request.PreflightPairs, cancellation)
+            .ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No system service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.limits", name,
+            Detail(new
+            {
+                deadlineSeconds = request.DeadlineSeconds,
+                preflightPairs = request.PreflightPairs,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            deadlineSeconds = request.DeadlineSeconds,
+            preflightPairs = request.PreflightPairs,
+            note = request.DeadlineSeconds is null
+                ? "Back to the configured default. It applies to the next operation — the deadline "
+                  + "is read per request, so nothing has to be restarted."
+                : $"Operations on this service are cut off after {request.DeadlineSeconds} "
+                  + "seconds, starting with the next one. Nothing is restarted: the deadline is "
+                  + "read per request.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Starts or stops a service that has no layers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added because it was missing and the console was pretending otherwise.</b> The owner,
+    /// 2026-08-17: *"geometry server'in, startı stop'u, timeout'u vs si yok mu?"* The row showed
+    /// a <c>started</c> pill that was a literal in the markup — the server had no status to
+    /// report, so the console reported one anyway.
+    /// </para>
+    /// <para>
+    /// <b>Separate from the layer route, and the reason is D-57.</b> That defect was a setter
+    /// addressed by one thing writing another's column. A system service is a different table
+    /// with no layers in it, so it gets its own setter over its own row rather than a shared
+    /// one that has to decide which table it meant.
+    /// </para>
+    /// <para>
+    /// <b>503 when stopped, not 404.</b> A stopped service exists and has been turned off, which
+    /// is a different fact from *no such service*, and an operator reading a client's logs needs
+    /// to be able to tell them apart. The sharing refusal stays 404, because there the
+    /// indistinguishability is the point.
+    /// </para>
+    /// </remarks>
+    private static async Task SetSystemStatusAsync(
+        HttpContext context,
+        string name,
+        ServiceStatus status,
+        PostgresSystemServices services,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        ServiceStatus? previous = await services
+            .SetStatusAsync(name, status, cancellation).ConfigureAwait(false);
+
+        if (previous is null)
+        {
+            await Refuse(context, 404, $"No system service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit,
+            status == ServiceStatus.Started ? "service.start" : "service.stop", name,
+            Detail(new { from = Wire(previous.Value), to = Wire(status) }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            from = Wire(previous.Value),
+            to = Wire(status),
+            note = status == ServiceStatus.Stopped
+                ? "Every operation on this service now answers 503. Its sharing is unchanged, so "
+                  + "starting it restores exactly the audience it had."
+                : "The service is answering again.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

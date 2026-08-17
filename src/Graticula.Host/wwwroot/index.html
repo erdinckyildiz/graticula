@@ -410,6 +410,30 @@
       <div class="crumbs" id="serviceCrumb"></div>
       <div class="right"><span class="val" id="serviceFacts"></span></div>
     </div>
+    <!--
+      <b>What one operation may spend, for a service that has no layers.</b> The owner, looking at
+      the geometry service's row: *"geometry server'in, startı stop'u, timeout'u vs si yok mu?"*,
+      and then, on being told the timeout was a configuration-file value: *"iyi de neden yok. yani
+      ben neden max timeout süresi tanımlayamıyorum?"* They were right — the deadline is applied per
+      operation, so nothing had to be restarted for a new value to take effect and the deferral was
+      caution about work nobody needed to do. Hidden for a service that holds layers, whose limits
+      live on each layer's own Limits page.
+    -->
+    <div class="panel" id="serviceLimits" hidden>
+      <h4>What one operation may spend</h4>
+      <p class="hint">Both fall back to the server's configured default when left empty — which is
+        not the same as typing the default in, because a typed copy stops tracking the setting.</p>
+      <div class="row">
+        <label for="limDeadline">Timeout, seconds</label>
+        <input id="limDeadline" type="number" min="1" max="3600" style="width:8em">
+        <label for="limPreflight">Pre-flight, segment pairs</label>
+        <input id="limPreflight" type="number" min="0" style="width:10em">
+        <button class="tiny" id="limSave">Save</button>
+        <button class="tiny" id="limClear">Use the default</button>
+      </div>
+      <p class="hint" id="limNote"></p>
+    </div>
+
     <div class="panel">
       <table>
         <thead><tr>

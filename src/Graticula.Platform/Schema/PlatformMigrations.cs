@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(18);
+    public static SchemaVersion ComponentSchemaVersion => new(20);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -53,7 +53,89 @@ public static class PlatformMigrations
         ServiceCapabilitiesV16,
         ServiceCostCeilingsV17,
         FolderRegisterV18,
+        SystemServiceStatusV19,
+        SystemServiceBoundsV20,
     ]);
+
+    /// <summary>
+    /// A system service can be stopped, like every other service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner, 2026-08-17, looking at the geometry service's row:</b> *"geometry server'in,
+    /// startı stop'u, timeout'u vs si yok mu?"* — hasn't the geometry server got a start, a stop,
+    /// a timeout and so on? It had none of the first two: <c>system_service</c> carried name,
+    /// kind, folder and sharing, and nothing else. **And the console was showing a
+    /// <c>started</c> pill anyway** — hard-coded in the row, a value the server never sent. That
+    /// is the same class as <see href="../../../docs/architecture-debt.md">D-26</see>'s
+    /// complaint: a control that displays a figure it did not read.
+    /// </para>
+    /// <para>
+    /// <b>Expand-only: a column with a default, no contract change.</b> A version-18 reader does
+    /// not select it and is unaffected, so <c>minimum_reader_version</c> does not move —
+    /// <see href="../../../docs/adr/ADR-016-packaging-deployment-upgrade.md">ADR-016</see>'s
+    /// rule.
+    /// </para>
+    /// <para>
+    /// <b>Started is the default and that is a decision.</b> The geometry service has answered
+    /// since it shipped; a migration that stopped it would take a working endpoint away from
+    /// every existing deployment as a side effect of adding a column.
+    /// </para>
+    /// </remarks>
+    private static Migration SystemServiceStatusV19 => Migration.Expand(
+        new SchemaVersion(19),
+        "Give a system service a started/stopped status, so it can be stopped like any other.",
+
+        "alter table system_service add column status text not null default 'started'",
+
+        """
+        alter table system_service add constraint system_service_status_known
+          check (status in ('started', 'stopped'))
+        """);
+
+    /// <summary>
+    /// A system service's own bounds, so an administrator can set them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner, on being told the overlay timeout was a configuration-file setting:</b> *"iyi
+    /// de neden yok. yani ben neden max timeout süresi tanımlayamıyorum?"* — fine, but why not;
+    /// why can I not define a maximum timeout? The reason given was that changing it live would
+    /// mean rebuilding the worker pool under in-flight requests. **That was wrong.** The pool
+    /// applies the deadline per operation, so only the number ever had to move, and the deferral
+    /// was caution about work nobody needed to do.
+    /// </para>
+    /// <para>
+    /// <b>Null means nobody has said, and the configured default answers.</b> The same three-way
+    /// rule as a layer's cache TTL (migration 13) and its stored style: absent, set, and set to
+    /// something meaning *none* are three different states, and collapsing the first two would
+    /// make a fresh install indistinguishable from one where an administrator chose the default
+    /// on purpose.
+    /// </para>
+    /// <para>
+    /// <b>On the service rather than in a settings table.</b> This is the geometry service's
+    /// timeout — it is the only consumer of the pool — so it belongs on the row somebody edits
+    /// when they mean *that service*. A server-wide settings table would put one service's bound
+    /// somewhere nothing else in it lives, and the next engine consumer would want its own value
+    /// anyway.
+    /// </para>
+    /// </remarks>
+    private static Migration SystemServiceBoundsV20 => Migration.Expand(
+        new SchemaVersion(20),
+        "Let a system service carry its own deadline and pre-flight threshold.",
+
+        "alter table system_service add column deadline_seconds integer",
+        "alter table system_service add column preflight_pairs bigint",
+
+        """
+        alter table system_service add constraint system_service_deadline_positive
+          check (deadline_seconds is null or deadline_seconds between 1 and 3600)
+        """,
+
+        """
+        alter table system_service add constraint system_service_preflight_not_negative
+          check (preflight_pairs is null or preflight_pairs >= 0)
+        """);
 
     /// <summary>
     /// A folder becomes a thing rather than a string on a service.

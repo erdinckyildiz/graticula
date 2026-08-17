@@ -70,6 +70,19 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
     private readonly TimeSpan _deadline;
     private readonly long _maximumCandidatePairs;
 
+    /// <summary>The deadline this pool enforces when a request names none.</summary>
+    /// <remarks>
+    /// <b>Exposed so the service document reports what is enforced rather than what is compiled
+    /// in.</b> Until 2026-08-17 the document printed <see cref="Deadline"/> — correct only while
+    /// nothing could change it, and the day the deadline became a setting it would have become a
+    /// document that states a number the server does not use. That is the same fault as a control
+    /// displaying a figure it did not read, and it was worth two of today's defects.
+    /// </remarks>
+    public TimeSpan EnforcedDeadline => _deadline;
+
+    /// <summary>The pre-flight threshold this pool enforces, zero meaning none.</summary>
+    public long EnforcedPreflightPairs => _maximumCandidatePairs;
+
     /// <summary>
     /// The pre-flight threshold, in candidate segment pairs.
     /// </summary>
@@ -209,6 +222,14 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(request.Left);
         ArgumentNullException.ThrowIfNull(request.Right);
 
+        // <b>The request's bound if it named one, otherwise this pool's.</b> Added 2026-08-17 so
+        // an administrator can set the timeout through the admin API: the deadline is applied per
+        // operation, so nothing about the pool has to be rebuilt for a new value to take effect —
+        // which is the answer to *"neden ben max timeout süresi tanımlayamıyorum?"* and the
+        // correction to the claim that live reconfiguration was needed for it.
+        TimeSpan deadline = request.Deadline ?? _deadline;
+        long preflight = request.PreflightPairs ?? _maximumCandidatePairs;
+
         if (!Available)
         {
             return new EngineResult(
@@ -224,7 +245,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
         // Waiting for a slot is bounded by the same deadline as the work: a
         // caller queued behind two long overlays should be told the server is
         // busy, not left holding a connection for a minute.
-        if (!await _slots.WaitAsync(_deadline, cancellationToken).ConfigureAwait(false))
+        if (!await _slots.WaitAsync(deadline, cancellationToken).ConfigureAwait(false))
         {
             return new EngineResult(
                 [],
@@ -242,7 +263,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
             worker = await RentAsync(cancellationToken).ConfigureAwait(false);
 
             return await worker
-                .ComputeAsync(request, _deadline, _maximumCandidatePairs, cancellationToken)
+                .ComputeAsync(request, deadline, preflight, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally

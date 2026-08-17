@@ -103,6 +103,48 @@ public readonly record struct EngineRequest(
     int Srid)
 {
     /// <summary>
+    /// How long this operation may run, or null for the engine's own bound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>On the request, because the bound is part of what was asked for.</b> The owner, on
+    /// being told the deadline was a configuration-file setting and not an API one: *"iyi de neden
+    /// yok. yani ben neden max timeout süresi tanımlayamıyorum?"* — fine, but why not; why can't I
+    /// define a maximum timeout? The answer given was that changing it would mean rebuilding the
+    /// worker pool under in-flight requests, and that was wrong: the pool applies the deadline
+    /// per operation, so only the number ever needed to move.
+    /// </para>
+    /// <para>
+    /// <b>Null rather than a default here, so there is one place the default lives.</b> An engine
+    /// that received zero could not tell *no answer* from *no time at all*, and a caller that had
+    /// to know the default in order to pass it would be a second copy of it.
+    /// </para>
+    /// <para>
+    /// It is on the request rather than on the engine because a deadline is a property of a
+    /// request in exactly the way a spatial reference is: two callers may legitimately want
+    /// different ones from the same engine, and an administrator setting one per service is that
+    /// case.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? Deadline { get; init; }
+
+    /// <summary>
+    /// A pre-flight threshold in candidate segment pairs — zero meaning none — or null for the
+    /// engine's own.
+    /// </summary>
+    /// <remarks>
+    /// <b>Here because the alternative shipped for ten minutes and was caught by measurement.</b>
+    /// The first version of the settable bounds added <see cref="Deadline"/> to this record and
+    /// left the pre-flight to the engine's field — so <c>PUT /admin/services/Geometry/limits</c>
+    /// stored a threshold, the service document reported it, and the engine ignored it. A request
+    /// with 130,324 candidate pairs succeeded against a stored threshold of 100,000. That is the
+    /// same fault as a control displaying a figure it did not read, one layer down: a setting that
+    /// is *stored and reported and does nothing* is worse than one that does not exist, because a
+    /// deployment believes it is protected.
+    /// </remarks>
+    public long? PreflightPairs { get; init; }
+
+    /// <summary>
     /// The distance for <see cref="EngineOperation.Buffer"/> and
     /// <see cref="EngineOperation.Offset"/>, in the units of the reference.
     /// </summary>
