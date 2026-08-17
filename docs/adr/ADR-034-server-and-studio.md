@@ -238,8 +238,11 @@ the unit, a service is a footnote, and a service with no layers is a separate sp
 the selected folder**, one row each, with a search box over them and a publish action above.
 Layers are not on that screen at all: a service is the unit, and you open one to see what is
 inside it. Derived from ArcGIS Server Manager's *Manage Services*, which the owner supplied a
-screenshot of; the structure is what transfers, not the pixels — no thumbnails, no instance
-counts, because we have no instance pool (ADR-031 §2a).
+screenshot of; the structure is what transfers, not the pixels — no instance counts, because we
+have no instance pool (ADR-031 §2a). *This sentence also said "no thumbnails", written before
+the owner asked for them the same day; §5i is what replaced that half and it is kept visible
+rather than edited away, because the reason given was that we have no renderer, and that turned
+out to be an argument against copying their thumbnail rather than against having a picture.*
 
 So Server's main screen becomes:
 
@@ -263,6 +266,61 @@ table, source and owner. It answered *where is this layer* in one screen, which 
 plus a drill-in does not. The replacement for that question is search across services — the
 reference has a search box over the same list for the same reason — and until it exists this is
 a regression in one specific task, recorded rather than glossed over.
+
+### 5i. Each row carries a picture and the actions that change it
+
+The owner, on the same screenshot: *"this looks fancier"*, and then
+*"bir de thumbnailler var. girmeden görebiliyoruz."* — there are thumbnails too, you can see it
+without going in. Both are about the row rather than the screen, and they are two different
+requests.
+
+**The action strip is the plain half.** Their row carries share, start, stop and delete; ours
+carried delete alone, and start/stop lived on the layer editor's General page — two screens away
+from the status the list displays. So the list gains **Start/Stop** beside Delete. This is also
+where a defect surfaced: stopping a service did nothing at all, and had not since migration 11
+([D-57](../architecture-debt.md)). A control being far from the state it changes is part of why
+that survived — nobody stopped a service while looking at a list of statuses.
+
+**The picture is the half that cannot be copied, and the reason is architectural.** Theirs is a
+rendered map image, because their server renders maps. Ours cannot: [ADR-004](ADR-004-rendering-engine.md)
+is `DEFERRED` and [v1-scope](../v1-scope.md) puts WMS, MapServer, ImageServer and OGC Maps out of
+scope, so **no path in this server turns geometry into pixels.** Two wrong answers were available:
+
+- **A stock icon per geometry type** — a point/line/polygon glyph, the way their geoprocessing
+  services get a toolbox picture. It is decoration: it says what the layer document's
+  `geometryType` field already says, in a form you cannot read a number off. §6's rule against
+  decoration that carries no signal rules it out.
+- **Build a renderer for it.** A thumbnail is not a reason to un-defer ADR-004, and §82's
+  question — *what concrete problem does this solve* — is answered better by the cheap version.
+
+**So the browser draws it, from one query.** Up to 800 features of the service's first layer, at
+`maxAllowableOffset` matched to the width of the box, `geometryPrecision=4`, painted with 2D
+canvas calls. No SDK, no tiles, no renderer, and it works for a **registered** table as well as a
+hosted one — which a tile-based preview could not, since tiles are hosted-only (Q-67). Verified
+against both: `turkiye/tr_ref` is a registered layer and previews.
+
+Three things about it are recorded because they are compromises rather than features:
+
+- **It is a sample, and it says so.** 800 of `tr_yol`'s 46,041 features is 1.7%, and a dense line
+  layer therefore looks sparser than it is. `exceededTransferLimit` from the same answer tells the
+  hover text to say *of more*, so the picture never claims to be the layer.
+  [D-58](../architecture-debt.md) carries what that costs.
+- **Two hundred was tried first and was measured to be wrong.** The sample was never the problem —
+  200 features of `tr_il` already spanned 75% of the layer's extent — the *density* was: two
+  hundred two-vertex segments on an 80-pixel canvas reads as *this layer is nearly empty*. 800
+  spans 96% at 115 KB and 34 ms; 2,000 costs 290 KB and 114 ms for no better picture.
+- **The listing gained a field for it, and that field is the fix to a subtler bug.** A row needs
+  one of its service's layers — to draw, and to address the status route, which is layer-scoped
+  (see D-57). The console originally found one by walking the services directory, and **a stopped
+  service answers 503 to that walk** — so the row for the one service somebody most wants to start
+  was the row that could offer no Start button. `GET /admin/featureservices` now reports a `cover`:
+  the lowest-numbered layer, present whether or not the service runs. Two tests, one of them
+  asserting after a stop, because before a stop the broken version passed too.
+
+The row therefore reads: preview, name over kind and what it holds, status, sharing, owner, and
+the strip. The layer and group counts moved under the name and their own column was dropped —
+they were in two places at once, and a table column is the wrong place for a fact that is
+sometimes *"3 layers, 1 group"*.
 
 ## 6. Consequences
 

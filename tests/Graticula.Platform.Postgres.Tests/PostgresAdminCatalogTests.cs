@@ -777,4 +777,172 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(1, pair.Groups);
         Assert.False(pair.IsEmpty);
     }
+
+    /// <summary>
+    /// Stopping a service is read by the path that serves it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The test that was missing, and the defect it would have caught shipped.</b> Until
+    /// 2026-08-17 <c>SetStatusAsync</c> wrote <c>layer.status</c> while every read took
+    /// <c>service.status</c> — so <c>POST /admin/layers/{name}/stop</c> answered 200 saying
+    /// *"Requests for this service now answer 503"*, wrote a column nothing reads, and the
+    /// layer went on serving. Measured against a live server before the fix: the layer document
+    /// answered 200 and a count query returned rows, while one admin listing said *stopped* and
+    /// another said *started* about the same service.
+    /// </para>
+    /// <para>
+    /// <b>So this asserts through the serving catalogue rather than through the setter's own
+    /// answer.</b> The setter reported the transition correctly the whole time it was writing
+    /// the wrong column — its return value was never the problem, and a test that checked it
+    /// would have passed. What matters is what the request path sees.
+    /// </para>
+    /// <para>
+    /// It is the same defect as <c>l.sharing</c>, which was found and repaired on 2026-08-15;
+    /// the status setter is one method away in the same file and was not looked at. Two facts
+    /// moved onto the service in migration 11 and one setter followed.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Stopping_a_layer_is_what_the_serving_catalogue_reads()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "stoppable"), owner, CancellationToken.None);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService before =
+            (await catalog.FindServiceAsync(null, "stoppable", CancellationToken.None))!;
+
+        Assert.True(before.IsRunning);
+
+        ServiceStatus? previous = await admin
+            .SetStatusAsync("stoppable", ServiceStatus.Stopped, CancellationToken.None);
+
+        Assert.Equal(ServiceStatus.Started, previous);
+
+        PublishedService after =
+            (await catalog.FindServiceAsync(null, "stoppable", CancellationToken.None))!;
+
+        Assert.False(
+            after.IsRunning,
+            "The serving catalogue still reports this service as running, so every request for "
+            + "it will be answered. That is the shape of the defect found on 2026-08-17: the "
+            + "setter wrote layer.status and every reader takes service.status.");
+
+        // And back, because a stop that cannot be undone is a different fault.
+        Assert.Equal(
+            ServiceStatus.Stopped,
+            await admin.SetStatusAsync("stoppable", ServiceStatus.Started, CancellationToken.None));
+
+        Assert.True(
+            (await catalog.FindServiceAsync(null, "stoppable", CancellationToken.None))!.IsRunning);
+    }
+
+    /// <summary>
+    /// The administrative listing agrees with the serving catalogue about status and sharing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two listings disagreeing about one service is what made the first defect visible.</b>
+    /// <c>/admin/layers</c> read the layer's dead copies of sharing and status while
+    /// <c>/admin/featureservices</c> and the request path read the service's, so the console
+    /// showed *stopped* on one screen and *started* on another. Asserted as an invariant between
+    /// the two readers rather than against a literal, because the fault is disagreement.
+    /// </remarks>
+    [Fact]
+    public async Task The_admin_listing_and_the_serving_catalogue_agree()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "agreeable"), owner, CancellationToken.None);
+
+        await admin.SetStatusAsync("agreeable", ServiceStatus.Stopped, CancellationToken.None);
+        await admin.SetSharingAsync("agreeable", SharingScope.Public, CancellationToken.None);
+
+        AdminLayer listed = (await admin.ListLayersAsync(CancellationToken.None))
+            .Single(l => l.Name == "agreeable");
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService served =
+            (await catalog.FindServiceAsync(null, "agreeable", CancellationToken.None))!;
+
+        Assert.Equal(served.Status, listed.Status);
+        Assert.Equal(served.Sharing, listed.Sharing);
+    }
+
+    /// <summary>
+    /// The service listing names one of its layers, and keeps naming it after a stop.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Surviving a stop is the whole reason this field exists.</b> Two things about a
+    /// service need one of its members — a preview has to be drawn from a layer's data, and
+    /// the status route is addressed by a layer name — and the console found one by walking
+    /// the services directory. A stopped service answers 503 to that walk, so the row for the
+    /// one service somebody most wants to start was the row with no layer to name and
+    /// therefore no Start button.
+    /// </para>
+    /// <para>
+    /// Asserted after stopping rather than only before, because before is the easy half and
+    /// the directory walk passed it too.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_listing_names_a_member_whether_or_not_the_service_runs()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "first", service: "covered"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "second", service: "covered"), owner, CancellationToken.None);
+
+        AdminService running = (await admin.ListServicesAsync(CancellationToken.None))
+            .Single(s => s.Name == "covered");
+
+        Assert.Equal(2, running.Layers);
+
+        // The lowest-numbered layer, which is the first one published here. Ordered rather
+        // than assumed, so a service whose layer 0 was unpublished still names a member.
+        Assert.Equal(new AdminServiceCover("first", 0), running.Cover);
+
+        await admin.SetStatusAsync("first", ServiceStatus.Stopped, CancellationToken.None);
+
+        AdminService stopped = (await admin.ListServicesAsync(CancellationToken.None))
+            .Single(s => s.Name == "covered");
+
+        Assert.Equal(ServiceStatus.Stopped, stopped.Status);
+
+        Assert.Equal(
+            new AdminServiceCover("first", 0),
+            stopped.Cover);
+    }
+
+    /// <summary>
+    /// A service holding nothing names no member, rather than naming a missing one.
+    /// </summary>
+    /// <remarks>
+    /// An empty service is the ordinary residue of unpublishing the last layer
+    /// (<see href="../../../docs/architecture-debt.md">D-54</see>), so this is the common
+    /// case rather than the edge one, and a caller that assumed a cover would break on it.
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_service_names_no_member()
+    {
+        (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
+
+        await admin.CreateServiceAsync(
+            "hollow", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        AdminService hollow = (await admin.ListServicesAsync(CancellationToken.None))
+            .Single(s => s.Name == "hollow");
+
+        Assert.True(hollow.IsEmpty);
+        Assert.Null(hollow.Cover);
+    }
 }

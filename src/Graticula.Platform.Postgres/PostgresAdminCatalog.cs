@@ -408,13 +408,19 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// <inheritdoc/>
     public async Task<IReadOnlyList<AdminLayer>> ListLayersAsync(CancellationToken cancellationToken)
     {
+        // <b>Sharing and status from the service, not from the layer.</b> Migration 11 moved
+        // both onto the container and this listing kept reading the layer's copies, so it
+        // reported a sharing scope and a status that nothing enforces — and disagreed with
+        // /admin/featureservices about the same service. Found 2026-08-17 by stopping a layer
+        // and watching it keep serving.
         const string Sql = """
-            select l.id, l.name, d.name, l.schema_name, l.table_name, l.sharing,
-                   l.owner_principal_id, p.name, l.object_id_column, l.status,
+            select l.id, l.name, d.name, l.schema_name, l.table_name, s.sharing,
+                   s.owner_principal_id, p.name, l.object_id_column, s.status,
                    d.is_datastore
             from layer l
             join data_source d on d.id = l.data_source_id
-            left join principal p on p.id = l.owner_principal_id
+            join service s on s.id = l.service_id
+            left join principal p on p.id = s.owner_principal_id
             order by l.name
             """;
 
@@ -591,10 +597,18 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     public async Task<IReadOnlyList<AdminService>> ListServicesAsync(
         CancellationToken cancellationToken)
     {
+        // The cover is the lowest-numbered layer, which is layer 0 for everything published
+        // here and the first surviving one after a delete. Ordered rather than assumed: index
+        // 0 is not reserved, and a service whose first layer was unpublished still has a
+        // member to draw and to address.
         const string Sql = """
             select s.id, s.name, s.folder, s.kind, s.sharing, s.status, s.description, p.name,
                    (select count(*) from layer l where l.service_id = s.id),
-                   (select count(*) from group_layer g where g.service_id = s.id)
+                   (select count(*) from group_layer g where g.service_id = s.id),
+                   (select l.name from layer l
+                     where l.service_id = s.id order by l.layer_index limit 1),
+                   (select l.layer_index from layer l
+                     where l.service_id = s.id order by l.layer_index limit 1)
             from service s
             left join principal p on p.id = s.owner_principal_id
             order by coalesce(s.folder, ''), lower(s.name)
@@ -618,7 +632,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(6) ? null : reader.GetString(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 (int)reader.GetInt64(8),
-                (int)reader.GetInt64(9)));
+                (int)reader.GetInt64(9),
+                reader.IsDBNull(10)
+                    ? null
+                    : new AdminServiceCover(reader.GetString(10), reader.GetInt32(11))));
         }
 
         return services;
@@ -1045,6 +1062,27 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Writes the <em>service's</em> status, and until 2026-08-17 it wrote the layer's —
+    /// which meant stopping a service did nothing at all.</b> Migration 11 moved status and
+    /// sharing onto the service, and the read path was moved with it: the serving catalogue
+    /// takes <c>s.status</c> and its comment says why. This setter was left behind, so
+    /// <c>POST /admin/layers/{name}/stop</c> answered 200 with *"Requests for this service now
+    /// answer 503"*, wrote a column nothing reads, and the layer kept serving.
+    /// </para>
+    /// <para>
+    /// <b>Measured, not inferred:</b> after stopping <c>tr_kara</c> the layer document answered
+    /// 200 and a count query returned 2 rows, while <c>/admin/layers</c> said *stopped* and
+    /// <c>/admin/featureservices</c> said *started* about the same service.
+    /// </para>
+    /// <para>
+    /// <b>It is the sharing defect a second time, one method away.</b> The same mistake on
+    /// <c>l.sharing</c> was found and repaired on 2026-08-15 — the paragraph below is its
+    /// record — and the status setter beside it was not looked at. Two facts moved in one
+    /// migration; one setter was fixed.
+    /// </para>
+    /// </remarks>
     public async Task<ServiceStatus?> SetStatusAsync(
         string layerName, ServiceStatus status, CancellationToken cancellationToken)
     {
@@ -1054,10 +1092,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // audit record can say what changed rather than only what it is now —
         // which anybody can read. `returning` alone would yield the new value.
         const string Sql = """
-            with before as (select name, status from layer where name = @name)
-            update layer set status = @status
+            with before as (
+                select s.id, s.status
+                  from service s join layer l on l.service_id = s.id
+                 where l.name = @name
+            )
+            update service set status = @status
             from before
-            where layer.name = before.name
+            where service.id = before.id
             returning before.status
             """;
 

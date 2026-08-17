@@ -311,3 +311,14 @@
 
 #serverMain { min-width: 0; }
 tbody tr[data-service] { cursor: pointer; }
+
+/*
+  The preview box. ArcGIS Server Manager shows a rendered map image here; we have no renderer
+  (ADR-004 is DEFERRED), so this is a canvas the browser fills from one query — see preview.js
+  for why that is an indication rather than a thumbnail.
+*/
+.thumb { display: block; width: 104px; height: 74px; border: 1px solid var(--rule);
+         border-radius: 3px; background: var(--surface-2); }
+.thumb.empty { position: relative; }
+.thumb.empty::after { content: "—"; position: absolute; inset: 0; display: grid;
+                      place-items: center; color: var(--faint); font-size: 12px; }

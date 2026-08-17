@@ -22,6 +22,11 @@ const SCOPES = ["private", "organization", "public"];
 // reads it. The first entry is used only when a document arrives without `drawingInfo` —
 // an older server, or a layer whose document could not be read.
 const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
+
+// The colour a preview is drawn in before its layer document has been read. The document
+// carries the server's own `drawingInfo`, and `drawPreview` reads it on the way — this is only
+// what the canvas starts with.
+const GENERATED_FALLBACK = PALETTE[0];
 const TILE_COLOUR = "#8fb8cc";
 const shown = new Map();     // layer name -> { colour, layer }
 let esri = null;             // the SDK modules, loaded once
@@ -55,7 +60,17 @@ async function api(path, options = {}) {
     // The server's own message. Every refusal in this product is written to say
     // what to do about it, and replacing that with "request failed" throws away
     // the only useful part.
-    throw new Error((body && body.error && body.error.message) || `${response.status} ${path}`);
+    const failure = new Error(
+      (body && body.error && body.error.message) || `${response.status} ${path}`);
+
+    // <b>And the status beside it, because a caller sometimes needs the code rather than the
+    // prose.</b> The preview drawer wants to say *stopped* for a 503 and *no preview* for
+    // anything else, and its first version got there by running a regular expression over
+    // the message — which found nothing, because the message is the server's sentence and
+    // carries no digits. A caller reading English to recover a number it was already sent is
+    // a mistake with one fix.
+    failure.status = response.status;
+    throw failure;
   }
   return body;
 }
@@ -1082,6 +1097,19 @@ async function loadServices() {
       empty: s.empty,
       description: s.description,
       system: false,
+
+      // <b>From the listing, rather than worked out here.</b> Both the preview and the status
+      // button need one of the service's layers, and the console used to find one by walking
+      // the services directory — which cannot see a stopped service at all, since a stopped
+      // service answers 503 to the walk. So the row for the one service you most want to
+      // start was the row that could not offer a Start button. `cover` is the fix, added to
+      // /admin/featureservices for this.
+      cover: s.cover
+        ? {
+            name: s.cover.name,
+            url: `/rest/services/${s.qualified}/FeatureServer/${s.cover.layerIndex}`,
+          }
+        : null,
     })),
 
     // A service with no layers behind it, carrying its own sharing scope — ADR-018 §3b-i. It
@@ -1098,6 +1126,7 @@ async function loadServices() {
       owner: null,
       empty: false,
       description: null,
+      cover: null,   // it has no layers by definition — ADR-018 §3b-i
       system: true,
     })),
   ];
@@ -1114,7 +1143,7 @@ async function loadServices() {
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="8" class="empty">${rows.length === 0
+    ? `<tr><td colspan="6" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : `Nothing in ${h(where)} matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
     : shown_.map(r => {
@@ -1123,29 +1152,60 @@ async function loadServices() {
         r.groups ? `${r.groups} group${r.groups === 1 ? "" : "s"}` : "",
       ].filter(Boolean).join(", ");
 
+      const stopped = r.status === "stopped";
+
       return `<tr${r.system ? "" : ` class="pick" data-service="${h(r.qualified)}"`}>
-        <td class="name">${h(r.name)}${r.description
-          ? `<br><span class="val" style="font-weight:400">${h(r.description)}</span>` : ""}</td>
-        <td class="val">${h(r.kind)}</td>
+        <td>${r.cover
+          ? `<canvas class="thumb" width="104" height="74"
+               data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
+          : `<div class="thumb empty"></div>`}</td>
+        <td class="name">${h(r.name)}
+          <div class="val" style="font-weight:400">${h(r.kind)}${r.description
+            ? ` · ${h(r.description)}` : ""}</div>
+          ${r.system ? "" : `<div class="val" style="font-weight:400">${held || "empty"}</div>`}</td>
         <td>${pill(r.status)}</td>
         <td>${r.system
           ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
           : pill(r.sharing)}</td>
-        <td class="num">${r.system ? "—" : num(r.layers)}</td>
-        <td class="num">${r.system ? "—" : num(r.groups)}</td>
         <td class="val">${h(r.owner || "—")}</td>
-        <td style="text-align:right">${r.system ? "" : `<button class="tiny danger"
-          data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
-          ${r.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
-            service delete never removes what is in it."`}>Delete</button>`}</td>
+        <td class="acts" style="text-align:right">${r.system ? "" : `
+          <button class="tiny" data-service-status="${h(r.cover ? r.cover.name : "")}"
+            data-to="${stopped ? "start" : "stop"}"
+            ${r.cover ? "" : "disabled"}
+            title="${stopped ? "Serve this again"
+              : "Answer 503 for this service, without changing who may see it"}"
+            >${stopped ? "Start" : "Stop"}</button>
+          <button class="tiny danger" data-service-delete="${h(r.name)}"
+            data-folder="${h(r.folder || "")}"
+            ${r.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
+              service delete never removes what is in it."`}>Delete</button>`}</td>
       </tr>`;
     }).join("");
 
   // What opening a service does, said once rather than per row.
   $("serviceNote").innerHTML = shown_.some(r => !r.system)
-    ? "Select a service to see its layers and set what it offers."
+    ? "Select a service to see its layers and set what it offers. A preview samples the "
+      + "service's first layer; hover it for how much."
     : "";
+
+  paintPreviews();
+}
+
+/**
+ * Fills every preview canvas on screen, in reading order.
+ *
+ * <b>One at a time on purpose.</b> Forty rows is forty queries, and firing them together is a
+ * load test of our own server dressed up as a screen — the argument the anonymous view's
+ * batching already makes. Sequential also means the pictures appear in the order somebody reads
+ * them.
+ */
+async function paintPreviews() {
+  for (const canvas of document.querySelectorAll("canvas[data-preview]")) {
+    if (canvas.dataset.drawn) continue;
+    canvas.dataset.drawn = "1";
+    await drawPreview(canvas, canvas.dataset.preview, canvas.dataset.colour);
+  }
 }
 
 // --------------------------------------------------------------------- drawer
@@ -1272,7 +1332,10 @@ function showLayer(name, page, pending = null) {
       <div class="row">
         ${pill(l.status)}${pill(l.sharing)}${pill(l.hosted ? "hosted" : "registered")}
         <span style="flex:1"></span>
-        <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}">
+        <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}"
+          title="${stopped ? "Serve this service again"
+            : "Stops the service this layer is in — status belongs to the service, so a "
+              + "sibling layer stops with it"}">
           ${stopped ? "Start" : "Stop"}</button>
         <button data-show="${h(name)}" class="${isShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
           ${isShown ? "Hide on map" : "Show on map"}</button>
@@ -2514,6 +2577,21 @@ async function handleClick(event) {
   // <b>Empty only, and the button is already disabled otherwise</b> — this is the
   // second guard rather than the first, because a disabled button is a hint and the
   // server's refusal is the rule.
+  // <b>Start and stop on the list itself</b>, which is where their reference puts it and where
+  // ours needed it: until 2026-08-17 stopping a service did nothing at all (D-57), and the only
+  // button for it was two screens away from the status it changes.
+  if (d.serviceStatus) {
+    t.disabled = true;
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.serviceStatus)}/${d.to}`,
+        { method: "POST" });
+      if (r.to === "stopped") hide(d.serviceStatus);
+      toast(`${d.serviceStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+    await loadLayers();   // which redraws the service list, since the status it shows moved
+    return;
+  }
+
   if (d.serviceDelete) {
     if (!confirm(`Delete the service "${d.serviceDelete}"? It holds no layers, so nothing `
         + `published goes with it.`)) return;

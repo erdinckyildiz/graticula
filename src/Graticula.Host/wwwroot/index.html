@@ -165,8 +165,8 @@
         <div class="panel">
           <table>
             <thead><tr>
-              <th>Service</th><th>Kind</th><th>Status</th><th>Sharing</th>
-              <th class="num">Layers</th><th class="num">Groups</th><th>Owner</th><th></th>
+              <th style="width:1%"></th>
+              <th>Service</th><th>Status</th><th>Sharing</th><th>Owner</th><th></th>
             </tr></thead>
             <tbody id="services"></tbody>
           </table>
@@ -445,6 +445,11 @@
 
 <div id="toast"></div>
 
+<!--
+  The preview drawer, in its own file for the same reason console.js is: the policy on
+  these pages is `script-src 'self'` with no `'unsafe-inline'` (D-44).
+-->
+<script src="preview.js" defer></script>
 <script src="ground.js" defer></script>
 <script src="console.js" defer></script>
 </body>

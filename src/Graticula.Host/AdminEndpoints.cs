@@ -677,6 +677,14 @@ internal static class AdminEndpoints
                 // Said rather than left to be derived from two numbers, because it is
                 // the only question this listing is asked: may I remove this one?
                 empty = s.IsEmpty,
+
+                // One member, for a caller that has to draw the service or change its
+                // status — see AdminServiceCover. Null for an empty service, and a client
+                // must handle that: an empty service is the ordinary residue of
+                // unpublishing the last layer.
+                cover = s.Cover is { } cover
+                    ? new { name = cover.Name, layerIndex = cover.LayerIndex }
+                    : null,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -2080,10 +2088,22 @@ internal static class AdminEndpoints
     /// Starts or stops a service (ADR-020 §3).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b><c>admin:manageServer</c>, not the publisher privilege.</b> Publishing
     /// is a content act; stopping a running service is an operational one that
     /// affects every consumer of it, including people the publisher has never
     /// met.
+    /// </para>
+    /// <para>
+    /// <b>The path names a layer and the effect is the service's</b>, which is worth saying
+    /// out loud because getting it wrong shipped. Status moved onto the service in migration
+    /// 11 — a container is started or stopped, not a member — but this route was already
+    /// layer-scoped and stayed. Until 2026-08-17 the setter behind it wrote <c>layer.status</c>
+    /// to match the path, and every reader took <c>service.status</c>, so a stop answered 200
+    /// and changed nothing at all
+    /// (<see href="../../docs/architecture-debt.md">D-57</see>). Stopping any member stops
+    /// the service; the note in the answer says *service* for that reason.
+    /// </para>
     /// </remarks>
     private static async Task SetStatusAsync(
         HttpContext context,

@@ -162,6 +162,19 @@ public readonly record struct AdminFolder(
 }
 
 /// <summary>
+/// A feature layer inside a service, named and numbered.
+/// </summary>
+/// <remarks>
+/// Deliberately not an <see cref="AdminLayer"/>: this answers "which layer, and at what URL
+/// segment", and carrying the whole layer would invite a caller to read sharing or status off
+/// it — both of which belong to the service now (migration 11), and reading them from a layer
+/// is the mistake D-57 was.
+/// </remarks>
+/// <param name="Name">Its service name, which is what the status endpoints take.</param>
+/// <param name="LayerIndex">Its number within the service — the last URL segment.</param>
+public readonly record struct AdminServiceCover(string Name, int LayerIndex);
+
+/// <summary>
 /// A feature service, and what it holds.
 /// </summary>
 /// <remarks>
@@ -183,6 +196,16 @@ public readonly record struct AdminFolder(
 /// <param name="OwnerName">Who owns it, or null when the principal is gone.</param>
 /// <param name="Layers">How many feature layers it holds.</param>
 /// <param name="Groups">How many group layers it holds.</param>
+/// <param name="Cover">
+/// One of its feature layers — the lowest-numbered — or null when it holds none.
+/// <b>Two things need a member rather than a container.</b> A picture of a service has to be
+/// drawn from a layer's data, because a service holds no geometry of its own; and status is
+/// still addressed by layer name, which is the residue of the layer-scoped API that
+/// <see href="../../../docs/architecture-debt.md">D-57</see> came out of. Reported here so a
+/// caller with the listing can do both without walking the services directory to find out
+/// what is inside — which is what the console did, and which cannot see a stopped service at
+/// all, since a stopped service answers 503 to the walk.
+/// </param>
 public readonly record struct AdminService(
     Guid Id,
     string Name,
@@ -193,7 +216,8 @@ public readonly record struct AdminService(
     string? Description,
     string? OwnerName,
     int Layers,
-    int Groups)
+    int Groups,
+    AdminServiceCover? Cover = null)
 {
     /// <summary>Its address in the directory: <c>folder/name</c>, or just the name.</summary>
     public string Qualified => Folder is null ? Name : $"{Folder}/{Name}";
