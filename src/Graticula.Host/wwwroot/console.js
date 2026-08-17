@@ -363,6 +363,12 @@ window.addEventListener("hashchange", route);
 
 /** Draws the header's surface switch and the surface's own tab strip. */
 function drawSurfaces(surface) {
+  // <b>The surface on the root element, so the stylesheet can colour the environment.</b> Owner
+  // 2026-08-18: Studio's sidebar should not be Server's. One attribute rather than a class toggled
+  // per element — the router already knows which surface this is, and every rule that depends on it
+  // can then say so in the stylesheet instead of in JavaScript.
+  document.documentElement.dataset.surface = surface;
+
   const both = allowed();
 
   $("surfaces").hidden = both.length < 2;

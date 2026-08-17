@@ -289,6 +289,57 @@ a:hover { text-decoration: underline; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
 }
 
+/*
+  <b>Studio's column is violet, and the reason is that the switch already said so.</b> Owner
+  2026-08-18: Server keeps its indigo, Studio gets something else, colour my choice. The choice is
+  not free — the environment switch has been teal for Server and violet for Studio since it was
+  built, so a violet column makes the hue say the same thing in two places instead of two things in
+  two places. A reader who learns one gets the other for nothing.
+
+  <b>Same construction, same brightness band, different hue.</b> `#281748` sits within a few points
+  of `#171b49` for lightness and about 50 degrees away in hue: the two read as one product at two
+  stations rather than as two applications. Every derived token is re-mixed at the new hue, for the
+  reason the last change was — a line mixed from indigo against a violet base is what makes a
+  palette look almost-right.
+
+  <b>The illustration does not change.</b> Its plates run teal to violet in both surfaces, because it
+  is the product's subject and not the environment's badge.
+*/
+:root[data-surface="studio"] {
+  --nav-base: #281748;
+  --nav-deep: #1c0f36;
+  --nav-line: #3d2668;
+  --nav-ink: #f1ecfb;
+  --nav-muted: #b3a4d8;
+  --nav-faint: #8474b4;
+  --nav-on: #33205c;
+}
+
+:root[data-surface="studio"] #rail {
+  background:
+    radial-gradient(920px 420px at -12% -6%, rgba(146, 92, 226, .40), transparent 62%),
+    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .12), transparent 68%),
+    linear-gradient(178deg, #301c57 0%, var(--nav-base) 46%, #1f1139 100%);
+}
+
+/*
+  The selected section keeps its shape and changes its light: orchid where Server is cyan, so the two
+  columns differ by the same amount their switch halves do.
+*/
+:root[data-surface="studio"] #tabs a[data-tab] { color: #c6bbe4; }
+:root[data-surface="studio"] #tabs .ico { color: #a394cf; }
+:root[data-surface="studio"] #tabs a[data-tab]:hover .ico { color: #ded4f7; }
+:root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] {
+  background: linear-gradient(96deg, rgba(180, 145, 255, .22), rgba(120, 90, 210, .24));
+  box-shadow: inset 3px 0 0 #b491ff, var(--lift);
+}
+:root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] .ico { color: #c9adff; }
+:root[data-surface="studio"] #brand .mark {
+  background: linear-gradient(148deg, #c9adff, #8a5fe0 55%, #5b3fc4);
+}
+:root[data-surface="studio"] #collapse { color: #d9d1f2; }
+
+
 #brand h1 {
   margin: 0;
   font-size: 17px;

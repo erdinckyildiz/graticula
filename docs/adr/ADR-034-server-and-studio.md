@@ -372,6 +372,15 @@ sometimes *"3 layers, 1 group"*.
 ## 6. Consequences
 
 - **ADR-020 is amended.** Its §5e table of surfaces becomes Server's; Studio is new.
+- **The two environments differ by hue, in two places that agree.** Owner decision 2026-08-18:
+  Studio's navigation column is not Server's colour. Server is indigo `#171b49` and Studio is violet
+  `#281748` — within a few points of each other for lightness and about 50° apart in hue, so they
+  read as one product at two stations rather than as two applications. **The choice was not free:**
+  the environment switch has been teal for Server and violet for Studio since §5a, so a violet column
+  makes the hue say the same thing in both places instead of two things in two places, and a reader
+  who learns one gets the other for nothing. The surface is written to the root element by the router
+  and every rule that depends on it says so in the stylesheet. **The sidebar illustration does not
+  change**, because it is the product's subject and not the environment's badge.
 - **The console's URLs change**, and bookmarks to `#/services` and `#/layer/…` break. Said out
   loud because ADR-020 §5c took *frozen URLs* from the reference as a rule, and this breaks it
   once, deliberately, before there is anybody to break it for. The old roots redirect.
