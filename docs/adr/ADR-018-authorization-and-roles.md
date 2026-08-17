@@ -150,6 +150,48 @@ privileges. They are not needed to make reading work, and adding them here would
 be adopting a subsystem to complete a table. Deferred, and the scope column
 takes a string so adding `group` later is a value rather than a migration.
 
+### 3b-ii. Who may change what — the split the owner likes, without the split that causes it
+
+*Added 2026-08-17, after the owner described the ArcGIS Enterprise arrangement they
+want: on the Server side an administrator may start, stop, delete and tune a service —
+protocols and limits — and nothing else; on the Portal side the owner of the published
+item decides who may read it.*
+
+**That separation is worth having and it is not a separation of stores.** In ArcGIS it
+looks like one because the two halves live in two products, and the seam is visible in a
+way the owner called *saçma*: deleting a service in Server leaves its Portal item behind,
+pointing at nothing. That is not a design choice anybody made. It is what two catalogues
+of the same fact produce when one is edited.
+
+**We do not inherit it, and this is the clearest dividend of
+[ADR-019](ADR-019-portal-server-split.md) so far.** A service and its item are one row
+here. There is no second record to strand, so *delete leaves a dangling item* is not a bug
+we can have — and the fusion that made the datastore mandatory and looked like a cost
+(§4's spent isolation) is what buys it.
+
+**So what carries over is the audience separation, expressed as privileges on one
+object:**
+
+| Act | Who | Where it already lives |
+|---|---|---|
+| Start, stop | Administrator | ADR-020 §3, `admin:manageServer` |
+| Protocols, limits, timeout | Administrator | [ADR-031](ADR-031-service-capability-configuration.md), `admin:manageServer` |
+| Delete the service | Administrator **or its owner** | `content:create` owns it; ADR-018 §4's administrative privileges |
+| Who may read it | Its **owner** | §3b's sharing scope, on the item |
+
+**The rule that makes it coherent: tuning is not access.** An administrator may make a
+service serve less and may not make it visible to more people; an owner may change who
+reads it and may not change what it costs the server. Neither can do the other's job,
+which is why ADR-031 made configuration a ceiling that only narrows and kept sharing out
+of it (§2b) — the same wall, seen from the other side.
+
+**Groups are still absent and are now a named question.** The owner wants a private layer
+shareable with a group; [Q-112](../open-questions.md) records the decision with ArcGIS's
+semantics confirmed from Esri's documentation rather than assumed, including two
+constraints worth knowing before copying: the update capability is fixed when a group is
+created and cannot be changed afterwards, and *update* excludes deleting, re-sharing and
+changing ownership even inside a group that grants it.
+
 ### 3b-i. A service that is not a layer is still a service
 
 **Added 2026-08-15, after the project owner said: *"geometry server is also a
