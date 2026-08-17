@@ -648,6 +648,54 @@ be asked for per layer, where the response says the source table was not touched
 Deleting a group does not reparent its children, because that would move them in every
 saved web map that points at them.
 
+## 5f. The console is redesigned to an owner-supplied target — 2026-08-17
+
+The owner supplied two screenshots and a written brief: the working Server screen, and a target
+visual language. *"Rebuild the Server frontend so that it closely follows the visual language of
+Screenshot 2 while preserving the functionality of the existing application. This is not just a
+color/theme change."*
+
+**What it is: a navy navigation column, a bright workspace, and one token layer under both.** The
+stylesheet is ordered tokens → shell → components, which is the part that matters more than the
+colours. The sheet it replaced was a flat list that had grown a section at a time — four places
+setting a panel's padding, two palettes' worth of greens — and **both of that day's UI defects were
+shapes rebuilt because finding the existing one was harder than writing another** (D-46 instances 8
+and 10). Tokens plus a short component list is the cheapest defence against the next one.
+
+**Nothing behind the frontend moved**, and that was the brief's own first constraint. Same routes,
+same calls, same folder behaviour, same start/stop, same privileges, same Server/Studio gate. The
+router changed in one respect: it fills two slots instead of one, because navigation moved into a
+column and an action button is not a navigation item.
+
+**Where the implementation departs from the reference, each time for the same reason.** The brief
+said *"Do not fabricate backend data"*, and three of the reference's components would have required
+it:
+
+- **Server resources shows figures, not percentages, and no sparklines.** `/admin/health` reports
+  process CPU time, managed heap bytes, tile-cache size, uptime and core count. CPU *is* a real
+  ratio — process time over wall-clock times cores — and is drawn as one. Heap and tiles have no
+  quota to be a share of, so they are the numbers they are. A sparkline claims a history this server
+  does not keep.
+- **Service health has two states, not three.** `service.status` is `started` or `stopped` by a check
+  constraint. An *Error* row would name a state this server cannot be in; the reference has one
+  because its services can fail to start and ours cannot. The widget also hides itself in a folder
+  with no feature services rather than showing zeroes.
+- **No grid toggle, no notification bell, no avatar menu.** There is no grid view, there are no
+  notifications and there are no per-user settings. Refresh and Collapse are in because both are
+  real: one re-reads the two listings, the other sets a class and remembers it.
+
+**And one place where the reference improved the information design rather than the appearance.**
+Its rows carry a single verb with everything else behind an overflow. Ours had Stop and Delete side
+by side, so the destructive action had the same weight as the routine one; Delete moved into the
+menu, where its refusal — *it holds 3 layers, unpublish them first* — has room to be a sentence
+instead of a tooltip. Badges are now only for the two things that are states, and each carries a dot
+so a state is never colour alone.
+
+**Both surfaces share the shell**, which the brief asked for in as many words: *"The Server and
+Studio interfaces should ultimately feel like two parts of the same Graticula product."* The switch
+tells them apart by hue — teal for Server, violet for Studio — so *which environment am I in* does
+not depend on noticing which button is darker.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

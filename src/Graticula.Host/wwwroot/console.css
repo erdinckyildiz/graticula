@@ -1,410 +1,820 @@
 /*
-  The console's stylesheet, extracted from index.html 2026-08-17 when the layer
-  editor became its own page. Two pages sharing one <style> block by copy is two
-  palettes that drift; a file cannot drift from itself.
+  Graticula's console stylesheet: one token layer, then components built out of it.
+
+  <b>Redesigned 2026-08-17 to an owner-supplied visual target</b> — a navy sidebar, a bright
+  workspace, teal as the working accent and one blue used only for *public*. The brief was explicit
+  that this is not a repaint: *"Do NOT make every element use the same font weight, color, border
+  treatment, or visual importance."* So the file is ordered tokens → shell → components, and a
+  component that needs a new colour takes one from the token block rather than inventing a hex.
+
+  <b>What it replaced, and why the replacement is structural.</b> The old sheet was one flat list
+  of selectors that had grown a section at a time; it had four places setting a panel's padding and
+  two palettes' worth of greens. Both of today's UI defects (D-46 instances 8 and 10) were shapes
+  rebuilt because finding the existing one was harder than writing another. Tokens plus a short
+  component list is the cheapest defence against the next one.
+
+  <b>What is deliberately not here.</b> No gradient as a surface, no shadow above 8 px of blur, no
+  rounded corner above 8 px, and no badge for anything that is not a state. Those are the four
+  things that turn an operations console into a template, and the brief named them.
+*/
+
+/* ---------------------------------------------------------------------- tokens */
+
+:root {
+  /*
+    <b>Two families of surface, because there are two environments.</b> The sidebar is navy and
+    everything it holds is light-on-dark; the workspace is near-white and everything in it is
+    dark-on-light. Keeping them as separate token sets is what stops a component drifting into the
+    wrong one — a "muted text" that works on both would be washed out on one of them.
+  */
+  --nav-base: #111c30;
+  --nav-deep: #0c1526;
+  --nav-line: #1e2c46;
+  --nav-ink: #e8eef7;
+  --nav-muted: #8fa3c0;
+  --nav-faint: #64789a;
+  --nav-on: #17263f;
+
+  --paper: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f4f8;
+  --surface-3: #e7ecf3;
+  --ink: #101826;
+  --muted: #566275;
+  --faint: #8b96a7;
+  --rule: #e3e8ef;
+  --rule-strong: #cfd7e3;
+
+  /*
+    <b>One working accent and one that means something.</b> Teal is *the product doing something* —
+    primary buttons, the active section, focus. Blue appears in exactly one place, the `public`
+    sharing state, because that is the one fact on these screens worth a second hue. Violet is the
+    third and rarest: it marks the Studio side of the switch, so the two environments are told apart
+    by hue and not only by which one is filled in.
+  */
+  --accent: #0d7d70;
+  --accent-hot: #12a293;
+  --accent-soft: #e3f2f0;
+  --accent-line: #b8ded8;
+
+  --blue: #2f56c8;
+  --blue-soft: #eaefff;
+  --blue-line: #c3cff5;
+
+  --violet: #6a4bc0;
+  --violet-soft: #f0ebfb;
+
+  /* Status: hue *and* lightness differ, so a state is never carried by colour alone. */
+  --ok: #1c7d4d;
+  --ok-soft: #e6f4ec;
+  --ok-line: #b6ddc6;
+  --warn: #8a5a08;
+  --warn-soft: #fdf2e0;
+  --warn-line: #e8d3a8;
+  --alert: #a5342a;
+  --alert-soft: #fceceb;
+  --alert-line: #edc4c0;
+
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /*
+    <b>Five sizes and three weights, and that is the hierarchy.</b> The brief asked for strong
+    typographic hierarchy and warned against identical typography for every information level. A
+    service name is 15/600; its type and counts are 12.5/400 muted; a section label is 11/600
+    uppercase and faint. Nothing else is allowed a size.
+  */
+  --t-page: 26px;
+  --t-head: 16px;
+  --t-body: 14px;
+  --t-small: 12.5px;
+  --t-label: 11px;
+
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 22px;
+  --gap-6: 32px;
+
+  --round: 5px;
+  --round-lg: 8px;
+
+  /*
+    <b>Two shadows, both nearly invisible.</b> Depth here comes from the border and the surface,
+    not from a glow; the brief's list of things to avoid has "excessive shadows" on it and this is
+    what the restraint looks like as a number.
+  */
+  --lift: 0 1px 2px rgba(16, 24, 38, .05);
+  --lift-2: 0 4px 12px -6px rgba(16, 24, 38, .18);
+
+  accent-color: var(--accent);
+}
+
+* { box-sizing: border-box; }
+
+/*
+  <b>`hidden` has to win, and it did not.</b> The browser's rule for the attribute is
+  `[hidden] { display: none }` at user-agent weight, which any author rule with a `display` beats —
+  so `#surfaces { display: flex }` kept the Server/Studio switch on screen for a reader allowed only
+  one surface, although the router had set `hidden` on it. Found 2026-08-17 the first time a
+  publisher account existed to look with; it had been false the whole time. Written as a class
+  rather than `#surfaces[hidden]` because the next element given both would fail the same way and
+  nobody would connect the two (D-46 instance 9).
+*/
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: var(--t-body)/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/*
+  A visible focus ring, on one rule rather than per control. Keyboard reachability is not a feature
+  to remember per element.
+*/
+:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: 2px; border-radius: 3px; }
+
+/* ----------------------------------------------------------------------- shell */
+
+/*
+  <b>Sidebar, then everything else.</b> Navigation is a column and the work is a column, which is
+  the reference's arrangement and the reason it survives a narrow window: at 980 px the sidebar
+  becomes a strip of icons rather than wrapping into the content.
+*/
+#shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+#shell.tight { grid-template-columns: 64px 1fr; }
+
+#rail {
+  background: var(--nav-base);
+  border-right: 1px solid var(--nav-line);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/*
+  <b>The one decorative element, and it is a graticule.</b> The product is named after the net of
+  meridians and parallels (ADR-032), so the sidebar's texture is that net — drawn in CSS as two
+  repeating gradients at 3% opacity, no image, no asset. It sits behind the navigation and is
+  invisible until you look for it, which is the brief's *understated and must not interfere*.
+*/
+#rail::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to right, rgba(120, 190, 220, .05) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(to bottom, rgba(120, 190, 220, .05) 0 1px, transparent 1px 34px);
+  mask-image: linear-gradient(to bottom, transparent 55%, #000 100%);
+}
+
+#brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-3);
+  padding: 18px var(--gap-4) 20px;
+  position: relative;
+  z-index: 1;
+}
+
+#brand .mark {
+  width: 26px; height: 26px; flex: none;
+  border-radius: 6px;
+  background: linear-gradient(150deg, var(--accent-hot), #0b6f8f);
+  display: grid; place-items: center;
+  color: #fff; font-size: 13px; font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+
+#brand h1 {
+  margin: 0;
+  font-size: var(--t-head);
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--nav-ink);
+  white-space: nowrap;
+}
+
+#shell.tight #brand h1 { display: none; }
+
+/*
+  <b>The section list, which is the tab strip moved into the sidebar.</b> Same links, same router,
+  same `aria-current` — the element kept its id so nothing in the router changed. A section is a
+  row with a left edge, not a pill: the edge shows selection without adding a shape, which is what
+  the brief meant by obvious selection without excessive borders.
+*/
+#tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--gap-2) var(--gap-2) var(--gap-4);
+  position: relative;
+  z-index: 1;
+}
+
+#tabs a[data-tab] {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: var(--round);
+  border-left: 3px solid transparent;
+  color: var(--nav-muted);
+  font-size: var(--t-body);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+#tabs a[data-tab]:hover { background: var(--nav-on); color: var(--nav-ink); text-decoration: none; }
+
+#tabs a[data-tab][aria-current="page"] {
+  background: var(--nav-on);
+  border-left-color: var(--accent-hot);
+  color: #fff;
+  font-weight: 500;
+}
+
+/* The glyph, drawn from a token so a section cannot arrive without one. */
+#tabs .ico { width: 18px; flex: none; text-align: center; font-size: 15px; opacity: .9; }
+#tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
+               font-weight: inherit; color: inherit; margin: 0; }
+#collapse .label { font-size: var(--t-small); letter-spacing: 0; text-transform: none;
+                   font-weight: inherit; color: inherit; margin: 0; }
+#shell.tight #tabs .label { display: none; }
+#shell.tight #tabs a[data-tab] { justify-content: center; padding: 10px 0; gap: 0; }
+
+#tabs .count {
+  margin-left: auto;
+  font: 500 var(--t-small)/1 var(--mono);
+  color: var(--nav-faint);
+}
+
+#shell.tight #tabs .count { display: none; }
+
+#railFoot {
+  margin-top: auto;
+  padding: var(--gap-3) var(--gap-2);
+  border-top: 1px solid var(--nav-line);
+  position: relative;
+  z-index: 1;
+}
+
+#collapse {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: 0; cursor: pointer;
+  padding: 8px 12px; border-radius: var(--round);
+  color: var(--nav-faint); font: var(--t-small) var(--sans);
+}
+#collapse:hover { background: var(--nav-on); color: var(--nav-ink); }
+#shell.tight #collapse .label { display: none; }
+#shell.tight #collapse { justify-content: center; }
+
+#main { min-width: 0; display: flex; flex-direction: column; }
+
+/* --------------------------------------------------------------------- top bar */
+
+header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+  padding: 0 var(--gap-5);
+  height: 58px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; z-index: 900;
+}
+
+header .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-3); }
+
+/*
+  <b>The environment switch, and its two halves are told apart by hue.</b> ADR-034: an
+  administrator moves between Server and Studio constantly, and the switch is only in the document
+  for somebody who may be in both. Filled is where you are; teal is Server and violet is Studio, so
+  the answer to *which one am I in* does not depend on noticing which button is darker.
+*/
+#surfaces { display: flex; gap: 3px; padding: 3px; background: var(--surface-2);
+            border-radius: var(--round); border: 1px solid var(--rule); }
+#surfaces a {
+  padding: 5px 14px; border-radius: 3px; font-size: var(--t-small); font-weight: 500;
+  color: var(--muted); text-decoration: none;
+}
+#surfaces a:hover { color: var(--ink); text-decoration: none; }
+#surfaces a[data-surface="server"][aria-current] { background: var(--accent); color: #fff; }
+#surfaces a[data-surface="studio"][aria-current] { background: var(--violet); color: #fff; }
+
+#healthDot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+#healthDot.ok { background: var(--ok); }
+#healthDot.degraded { background: var(--warn); }
+#healthDot.unusable { background: var(--alert); }
+#healthLine { font-size: var(--t-small); color: var(--muted); }
+
+#who { font-size: var(--t-small); color: var(--muted); text-align: right; line-height: 1.35; }
+#who b { display: block; color: var(--ink); font-size: var(--t-body); font-weight: 600; }
+
+/* --------------------------------------------------------------------- content */
+
+.wrap { padding: var(--gap-5); max-width: 1560px; }
+
+/*
+  <b>A page says what it is.</b> The brief asked for a strong heading and a secondary line, and the
+  pair is worth more than it looks: this console has eight screens that were previously
+  distinguishable only by which table was on them.
+*/
+.pagehead { display: flex; align-items: flex-start; gap: var(--gap-4); margin-bottom: var(--gap-5); }
+.pagehead h2 {
+  margin: 0; font-size: var(--t-page); font-weight: 600; letter-spacing: -.02em; line-height: 1.15;
+}
+.pagehead p { margin: 3px 0 0; color: var(--muted); font-size: var(--t-body); }
+.pagehead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
+
+.lede { color: var(--muted); max-width: 88ch; margin: 0 0 var(--gap-4); }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--round-lg);
+  box-shadow: var(--lift);
+  margin-bottom: var(--gap-4);
+}
+
+.panel > table { margin: 0; }
+
+.pad { padding: var(--gap-4) var(--gap-5); }
+
+/*
+  A section label: the smallest, faintest thing on the page, and the reason a panel does not need a
+  heavier heading to be legible.
 */
 /*
-    The palette is unchanged and deliberately so. Muted greens against warm
-    paper, one accent, and three status colours that differ in hue *and*
-    lightness so a status is never carried by colour alone.
-  */
-  :root {
-    --paper: #f5f8f6; --surface: #fff; --surface-2: #eff4f1; --surface-3: #e6ede9;
-    --ink: #0f1e1b; --muted: #576a66; --faint: #7d8f8b; --rule: #d7e0dc;
-    --accent: #0b6157; --accent-soft: #e2efeb;
-    --ok: #2f7a55; --stop: #92620d; --alert: #a63a2b;
-    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  /* One accent, and the form controls use it too rather than the browser's blue. */
-  :root { accent-color: var(--accent); }
-  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
-
-  /*
-    <b>`hidden` has to win, and it did not.</b> The browser's own rule for the attribute is
-    `[hidden] { display: none }` at user-agent weight, which **any** author rule with a `display`
-    beats — so `#surfaces { display: flex }` kept the Server/Studio switch on screen for a reader
-    who is only allowed one surface, although `drawSurfaces` had set `hidden` on it. Found
-    2026-08-17 the first time a publisher account existed to look with, and it had been false the
-    whole time: the claim that the switch hides was read out of the code, which is exactly what
-    ADR-034 condition 1 warned about.
-    <b>Written as a class rather than as `#surfaces[hidden]`</b>, because the next element given a
-    `display` and a `hidden` would have the same bug and nobody would connect the two — this
-    stylesheet already has several (D-46).
-  */
-  [hidden] { display: none !important; }
-  a { color: var(--accent); }
-
-  /* ---------------------------------------------------------------- chrome */
-
-  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-           padding: 0 22px; height: 52px; background: var(--surface);
-           border-bottom: 1px solid var(--rule); }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
-  .dot.bad { background: var(--alert); }
-  .dot.unknown { background: var(--faint); }
-  #healthLine { font-size: 13px; color: var(--muted); }
-  header .right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-  #who { font-size: 13px; color: var(--muted); }
-  #who b { color: var(--ink); font-weight: 600; }
-
-  /*
-    Addressed as #tabs, not as `nav`. The layer editor's left column is a <nav> too,
-    and while these rules were unscoped it inherited a horizontal flex row with a
-    bottom border — six settings links laid out sideways across the foot of their own
-    column. An element selector for one instance of an element is a rule waiting for
-    the second instance.
-  */
-  #tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 22px;
-          background: var(--surface); border-bottom: 1px solid var(--rule); }
-  /* The tabs are anchors: each surface has an address, so Back works. */
-  #tabs a[data-tab] { display: block; text-decoration: none; border-bottom: 2px solid transparent;
-                      font-size: 13.5px; color: var(--muted); padding: 11px 13px 9px; }
-  #tabs a[data-tab]:hover { color: var(--ink); }
-  #tabs a[data-tab][aria-current="page"] { color: var(--ink); font-weight: 600;
-                                           border-bottom-color: var(--accent); }
-  #tabs .right { margin-left: auto; padding: 8px 0; }
-  #tabs .count { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 5px; }
-
-  .wrap { max-width: 1320px; margin: 0 auto; padding: 20px 22px 60px; }
-  .view { display: none; }
-  .view.on { display: block; }
-
-  /* ------------------------------------------------------------- structure */
-
-  h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.01em; }
-  .lede { margin: 0 0 14px; font-size: 13px; color: var(--muted); max-width: 68ch; }
-  .panel { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
-           overflow: hidden; }
-  .panel.pad { padding: 16px 18px; }
-  .panel + .panel, .panel + h2 { margin-top: 18px; }
-  h2 + .panel { margin-top: 0; }
-  .cols { display: grid; gap: 18px; }
-  .cols.two { grid-template-columns: 1fr 1fr; align-items: start; }
-  @media (max-width: 940px) { .cols.two { grid-template-columns: 1fr; } }
-  .stack { display: flex; flex-direction: column; gap: 18px; }
-
-  /* ---------------------------------------------------------------- tables */
-
-  table { border-collapse: collapse; width: 100%; font-size: 14px; }
-  /*
-    Labels are in the text face, not mono. Mono is for values a person may need
-    to copy or compare character by character — a table name, an id, an SRID —
-    and using it for headings too was the one thing a slop scan found here that
-    was actually a shortcut rather than a false positive.
-  */
-  th { text-align: left; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
-       color: var(--faint); font-weight: 600; padding: 9px 13px;
-       background: var(--surface-2); border-bottom: 1px solid var(--rule); white-space: nowrap; }
-  td { padding: 9px 13px; border-top: 1px solid var(--rule); vertical-align: middle; }
-  tbody tr:first-child td { border-top: 0; }
-  tbody tr.pick { cursor: pointer; }
-  tbody tr.pick:hover { background: var(--surface-2); }
-  tbody tr.sel { background: var(--accent-soft); }
-  tbody tr.sel td { border-top-color: #cfe1db; }
-  td.num { text-align: right; font-family: var(--mono); font-size: 13px; }
-  .empty { padding: 26px 18px; color: var(--muted); font-size: 13.5px; }
-  td.acts { white-space: nowrap; }
-  td.acts button { margin-left: 4px; }
-  td.acts button:first-of-type { margin-left: 0; }
-
-  .toolbar { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
-  .toolbar input[type=search] { flex: 0 1 340px; }
-  th button.sort { appearance: none; background: none; border: 0; padding: 0; margin: 0;
-                   font: inherit; color: inherit; letter-spacing: inherit;
-                   text-transform: inherit; cursor: pointer; }
-  th button.sort:hover { color: var(--ink); }
-  th[aria-sort="ascending"] button.sort::after { content: " \2191"; }
-  th[aria-sort="descending"] button.sort::after { content: " \2193"; }
-  th[aria-sort]:not([aria-sort="none"]) button.sort { color: var(--ink); }
-  .val { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
-  .name { font-weight: 600; }
-  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
-            margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0,0,0,.3); }
-
-  /* ----------------------------------------------------------------- pills */
-
-  .pill { font-size: 11.5px; letter-spacing: .02em; padding: 2px 7px; border-radius: 2px;
-          border: 1px solid; display: inline-block; white-space: nowrap; font-weight: 600; }
-  .p-started { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
-  .p-stopped { color: var(--stop); border-color: #ddc79a; background: #fbf4e6; }
-  .p-public { color: var(--accent); border-color: #a8ccc4; background: var(--accent-soft); }
-  .p-organization { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
-  .p-private { color: var(--faint); border-color: var(--rule); background: var(--surface); }
-  .p-hosted { color: #0f6d5f; border-color: #a8ccc4; background: var(--accent-soft); }
-  .p-registered { color: var(--muted); border-color: var(--rule); background: var(--surface-2); }
-  .p-usable { color: var(--ok); border-color: #a9cdb8; background: #eef7f1; }
-  .p-degraded, .p-unusable { color: var(--alert); border-color: #dcb1a9; background: #fbefec; }
-
-  /* --------------------------------------------------------------- controls */
-
-  button, select, input, textarea { font: inherit; }
-  button { font-size: 13px; padding: 5px 11px; border-radius: 3px;
-           border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
-           cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.on, button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  button.on:hover, button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
-  button.ghost { background: transparent; border-style: dashed; color: var(--muted); }
-  button.danger:hover:not(:disabled) { border-color: var(--alert); color: var(--alert); }
-  button.tiny { font-size: 12px; padding: 3px 8px; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-  select, input[type=text], input[type=password], input[type=number], input[type=file], textarea {
-    padding: 5px 8px; border: 1px solid var(--rule); border-radius: 3px;
-    background: var(--surface); color: var(--ink); font-size: 13.5px; }
-  textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.45; width: 100%; }
-  label.field { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px;
-                letter-spacing: .03em; text-transform: uppercase; color: var(--faint);
-                font-weight: 600; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
-  /*
-    <b>A hint on a settings page gets the page's column.</b> Under a full-width panel a 56ch hint
-    wrapped into a four-line ribbon with two thirds of the panel empty beside it, which reads as a
-    broken layout rather than as a reading measure. The page sets the column (see #servicePages);
-    the hint fills it, so the prose and the controls it explains line up.
-  */
-  .page .hint { max-width: 100%; }
-  .hint { font-size: 12.5px; color: var(--muted); max-width: 56ch; margin: 0 0 12px; }
-  .hint:last-child { margin-bottom: 0; }
-  code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
-         padding: 1px 4px; border-radius: 2px; }
-
-  /* ------------------------------------------------------------------- map */
-
-  #mapPanel { display: none; margin-bottom: 18px; }
-  #mapPanel.on { display: block; }
-  #view { height: 420px; }
-  #legend { padding: 8px 13px; border-top: 1px solid var(--rule); font-size: 13px;
-            display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--muted); }
-  #view:empty::after { content: "The map library has not loaded."; display: block;
-                       padding: 30px 13px; color: var(--muted); font-size: 13.5px; }
-  #basemapBar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-                padding: 8px 13px; border-top: 1px solid var(--rule);
-                background: var(--surface-2); font-size: 13px; }
-  #basemapBar .lbl { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
-                     color: var(--faint); font-weight: 600; }
-  #basemapBar input { flex: 1 1 300px; font-size: 12.5px; font-family: var(--mono); }
-  #basemapBar .val { flex: 0 1 auto; }
-
-  /*
-    <b>One dialog, for a value that exists once.</b> The drawer below is for a form you fill and
-    dismiss; this is for a secret you read and lose. `::backdrop` is the element's own, so there is
-    no scrim div to keep in sync with anything.
-  */
-  #issued { border: 1px solid var(--rule); border-radius: 6px; padding: 20px 22px;
-            max-width: 560px; background: var(--surface); color: var(--ink);
-            box-shadow: 0 24px 60px -30px rgba(0,0,0,.5); }
-  #issued::backdrop { background: rgba(20, 32, 30, .38); }
-  #issued h4 { margin: 0 0 14px; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
-               color: var(--faint); font-weight: 600; padding-bottom: 8px;
-               border-bottom: 1px solid var(--rule); }
-  #issuedValue { width: 22ch; font-family: var(--mono); font-size: 15px; letter-spacing: .04em;
-                 text-align: center; }
-
-  /* ----------------------------------------------------------------- drawer */
-
-  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 620px; max-width: 96vw;
-            background: var(--surface); border-left: 1px solid var(--rule); z-index: 1500;
-            transform: translateX(100%); transition: transform .16s ease-out;
-            display: flex; flex-direction: column;
-            box-shadow: -18px 0 40px -28px rgba(0,0,0,.45); }
-  #drawer.on { transform: none; }
-  #drawer header { height: auto; padding: 14px 18px; align-items: flex-start; gap: 10px; }
-  #drawer header h2 { font-size: 15px; }
-  #drawerBody { overflow-y: auto; padding: 0; flex: 1; }
-
-  .group { border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 16px; }
-  .group:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
-  .group h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
-              color: var(--faint); font-weight: 600; }
-  dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0;
-             font-size: 13px; }
-  dl.facts dt { color: var(--muted); }
-  dl.facts dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
-  /*
-    A value and the reason for it in one cell: the value keeps the monospace face this list is
-    built for, and the sentence beside it does not — a reason set in mono reads as output rather
-    than as an explanation.
-  */
-  dl.facts dd .mono { font-family: var(--mono); font-weight: 600; color: var(--ink); }
-  dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: normal;
-                     color: var(--muted); }
-
-  /* -------------------------------------------------------------- metrics */
-
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-  .metric { padding: 13px 16px; border-left: 1px solid var(--rule); }
-  .metric:first-child { border-left: 0; }
-  .metric dt { font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase;
-               color: var(--faint); font-weight: 600; }
-  .metric dd { margin: 3px 0 0; font-family: var(--mono); font-size: 19px; letter-spacing: -.02em; }
-  .metric dd small { font-family: var(--sans); font-size: 12px; color: var(--muted);
-                     letter-spacing: 0; margin-left: 3px; }
-  @media (max-width: 700px) { .metric { border-left: 0; border-top: 1px solid var(--rule); }
-                              .metric:first-child { border-top: 0; } }
-
-  /* ---------------------------------------------------------------- toast */
-
-  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 480px; z-index: 2000;
-           background: var(--surface); border: 1px solid var(--rule); border-left-width: 3px;
-           border-radius: 3px; padding: 11px 14px; font-size: 13.5px; display: none;
-           box-shadow: 0 12px 30px -16px rgba(0,0,0,.5); }
-  #toast.on { display: block; }
-  #toast.bad { border-left-color: var(--alert); }
-  #toast.good { border-left-color: var(--ok); }
-
-  /* --------------------------------------------------------------- sign in */
-
-  /*
-    <b>Two panels, one set of rules.</b> The forced password change is the same shape as signing in
-    — a narrow centred card of labelled fields — and its first version got none of this because the
-    selectors named `#signin`. It rendered as labels and boxes side by side, spilling out of the
-    card. That is D-46 again and in the same file as instance 8: reuse the shape, do not rebuild it.
-    Listed rather than given a class because these two are the only full-page forms in the console,
-    and inventing `.card-form` for two would be the abstraction §82 asks about.
-  */
-  #signin, #mustchange { max-width: 360px; margin: 88px auto; }
-  #signin .panel, #mustchange .panel { padding: 22px; }
-  #signin label, #mustchange label { display: block; font-size: 13px; color: var(--muted);
-                                     margin: 12px 0 4px; }
-  #signin input, #signin button,
-  #mustchange input, #mustchange button { width: 100%; }
-  #signin button, #mustchange button { margin-top: 18px; }
-  .bad-inline { margin: 12px 0 0; padding: 9px 11px; font-size: 13px;
-                color: var(--alert); background: #fbefec; border: 1px solid #dcb1a9;
-                border-radius: 3px; }
-
-/* ------------------------------------------------- the layer editor, as a view */
-/*
-  Full content width with its own left column, after ArcGIS Server Manager. It is a
-  view rather than a drawer because the owner's reading was right: a settings page
-  inside a slide-over inside a console is nested twice and reads as clutter.
+  <b>`.label` is a section label and nothing else, and naming it that was a mistake for one build.</b>
+  The sidebar's rows carry a `.label` span for their text, so this rule shouted every section name —
+  SERVICES, DATA SOURCES, COLLAPSE — in 11-pixel uppercase. A class named after a generic English
+  word will collide; the fix is the scope, because renaming one of the two would leave the next
+  `.label` to collide again.
 */
-#editHead { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; min-height: 30px; }
-#editHead .crumbs { font-size: 13.5px; color: var(--muted); min-width: 0; }
-#editHead .crumbs a { color: var(--accent); text-decoration: none; }
-#editHead .crumbs a:hover { text-decoration: underline; }
+h4, div.label, .widget > .label, .rail-head {
+  margin: 0 0 var(--gap-3);
+  font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint);
+}
+.page h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule); }
+.page h4 + h4, .page > * + h4 { margin-top: var(--gap-6); }
+
+.hint { font-size: var(--t-small); color: var(--muted); margin: 0 0 var(--gap-3); max-width: 78ch; }
+.hint:last-child { margin-bottom: 0; }
+.page .hint { max-width: 100%; }
+
+.val { font-family: var(--mono); font-size: var(--t-small); color: var(--muted); }
+.name { font-weight: 600; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+
+code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
+       padding: 1px 5px; border-radius: 3px; color: var(--muted); }
+
+.bad-inline { color: var(--alert); font-size: var(--t-small); }
+
+.row { display: flex; gap: var(--gap-2); flex-wrap: wrap; align-items: flex-end;
+       margin-bottom: var(--gap-3); }
+
+/* ---------------------------------------------------------------------- tables */
+
+table { width: 100%; border-collapse: collapse; font-size: var(--t-body); }
+
+th {
+  text-align: left;
+  padding: 10px var(--gap-4);
+  font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+th:first-child { border-top-left-radius: var(--round-lg); }
+th:last-child { border-top-right-radius: var(--round-lg); }
+
+td { padding: 12px var(--gap-4); border-bottom: 1px solid var(--rule); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+
+/*
+  <b>The row is clickable and says so once, on hover.</b> Not a cursor change plus a colour plus an
+  arrow: one signal. The click itself asks *what was clicked* rather than carrying a list of
+  exceptions, which is how a Stop button once opened a service page (D-46).
+*/
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--surface-2); }
+
+td.acts { white-space: nowrap; text-align: right; }
+td.acts > * + * { margin-left: var(--gap-1); }
+
+.empty { color: var(--muted); font-size: var(--t-small); padding: var(--gap-5) var(--gap-4); }
+
+/* --------------------------------------------------------------------- buttons */
+
+button, .btn {
+  font: 500 var(--t-small) var(--sans);
+  padding: 7px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--round);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+button:hover { background: var(--surface-2); }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { background: var(--surface); }
+
+button.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  padding: 8px 16px; box-shadow: var(--lift);
+}
+button.primary:hover { background: #0a6a5f; }
+
+button.tiny { padding: 5px 10px; font-size: 12px; }
+button.ghost { border-color: transparent; background: none; color: var(--muted); }
+button.ghost:hover { background: var(--surface-2); color: var(--ink); }
+
+/*
+  <b>Destructive actions do not compete.</b> The brief: *"Delete should NOT compete visually with
+  normal actions."* So `danger` is not a red button — it is an ordinary one whose text turns red on
+  hover, and it lives in the overflow menu where the row is concerned.
+*/
+button.danger { color: var(--alert); }
+button.danger:hover { background: var(--alert-soft); border-color: var(--alert-line); }
+
+/*
+  The overflow menu: `<details>` rather than a script-driven popover, because the element already
+  does the open/close state and the Escape key, and a menu is not worth a state machine.
+*/
+.menu { position: relative; display: inline-block; }
+.menu > summary {
+  list-style: none; cursor: pointer;
+  padding: 5px 9px; border: 1px solid transparent; border-radius: var(--round);
+  color: var(--muted); font-size: 15px; line-height: 1;
+}
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary:hover { background: var(--surface-2); color: var(--ink); }
+.menu[open] > summary { background: var(--surface-2); border-color: var(--rule); }
+.menu .sheet {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 800;
+  min-width: 210px; padding: var(--gap-1);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round);
+  box-shadow: var(--lift-2);
+  text-align: left;
+}
+.menu .sheet button {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: 8px 10px; border-radius: 3px; font-weight: 400;
+}
+.menu .sheet button:hover { background: var(--surface-2); }
+.menu .sheet .note { padding: 6px 10px 8px; color: var(--faint); font-size: 11.5px; }
+
+/* -------------------------------------------------------------------- controls */
+
+input, select, textarea {
+  font: var(--t-small) var(--sans);
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--round);
+  background: var(--surface);
+  color: var(--ink);
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { font-family: var(--mono); width: 100%; line-height: 1.45; }
+select { padding-right: 6px; }
+
+label.field {
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: var(--t-label); letter-spacing: .05em; text-transform: uppercase;
+  color: var(--faint); font-weight: 600;
+}
+
+/* A number reads as a sentence, with the unit outside the box. */
+.setting { display: flex; align-items: center; gap: var(--gap-3); padding: 7px 0; max-width: 620px; }
+.setting .q { flex: 1; font-size: var(--t-body); }
+.setting input, .setting select { width: 116px; text-align: right; font-family: var(--mono); }
+.setting .u { width: 68px; color: var(--muted); font-size: var(--t-small); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px var(--gap-5); max-width: 580px; }
+.grid2 label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0;
+               font-size: var(--t-body); }
+.grid2 label.off { color: var(--faint); }
+
+.toolbar {
+  display: flex; align-items: center; gap: var(--gap-3);
+  padding: var(--gap-3) var(--gap-4);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--round-lg);
+  margin-bottom: var(--gap-4);
+  box-shadow: var(--lift);
+}
+.toolbar input[type=search], .toolbar input[type=text] { flex: 0 1 360px; }
+.toolbar .val { white-space: nowrap; }
+
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--gap-4); margin: 0;
+           font-size: var(--t-small); }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+dl.facts dd .mono { font-weight: 600; color: var(--ink); }
+dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: normal;
+                   color: var(--muted); }
+
+.group { border-top: 1px solid var(--rule); padding-top: var(--gap-4); margin-top: var(--gap-4); }
+.group:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+
+/* ---------------------------------------------------------------------- states */
+
+/*
+  <b>A badge is for a state, and for nothing else.</b> The brief: *"Do not turn every piece of
+  metadata into a badge."* Two things on these screens are states — whether a service answers, and
+  who may read it — so two families of badge exist and a count or a name never gets one. The dot
+  carries the same information as the colour, so a state is not colour alone.
+*/
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 500;
+  padding: 3px 9px 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+                flex: none; opacity: .8; }
+
+.pill.p-started, .pill.p-ok, .pill.p-usable, .pill.p-active {
+  background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok);
+}
+.pill.p-stopped, .pill.p-degraded, .pill.p-disabled {
+  background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn);
+}
+.pill.p-unusable, .pill.p-delete { background: var(--alert-soft); border-color: var(--alert-line);
+                                   color: var(--alert); }
+
+.pill.p-public { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
+.pill.p-organization { background: var(--violet-soft); border-color: #d9cdf3; color: var(--violet); }
+.pill.p-private { background: var(--surface-3); border-color: var(--rule-strong);
+                  color: var(--muted); }
+
+/* Not a state: hosted/registered is a fact about where the data lives, so no dot and no colour. */
+.pill.p-hosted, .pill.p-registered { background: var(--surface-2); color: var(--muted); }
+.pill.p-hosted::before, .pill.p-registered::before { display: none; }
+
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+          margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0, 0, 0, .3); }
+
+/* ------------------------------------------------------- Server's own furniture */
+
+/*
+  <b>Folders, operational widgets, and the service list, in two columns.</b> The left column is
+  *where am I and how is it* and the right is *what is here*. The brief asked for clear separation
+  between navigation, operational information and service data, and this is that separation as a
+  grid rather than as more borders.
+*/
+#serverGrid { display: grid; grid-template-columns: 264px 1fr; gap: var(--gap-4);
+              align-items: start; }
+@media (max-width: 1080px) { #serverGrid { grid-template-columns: 1fr; } }
+
+#folderRail { background: var(--surface); border: 1px solid var(--rule);
+              border-radius: var(--round-lg); overflow: hidden; box-shadow: var(--lift);
+              margin-bottom: var(--gap-4); }
+
+.rail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--gap-3) var(--gap-3) var(--gap-3) var(--gap-4);
+  border-bottom: 1px solid var(--rule);
+  margin: 0;
+}
+
+.rail-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px var(--gap-4);
+  border-left: 3px solid transparent;
+  color: var(--ink); font-size: var(--t-body); text-decoration: none;
+}
+.rail-item:hover { background: var(--surface-2); text-decoration: none; }
+.rail-item.on { background: var(--accent-soft); border-left-color: var(--accent);
+                font-weight: 500; }
+.rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-count { margin-left: auto; font: var(--t-small)/1 var(--mono); color: var(--faint); }
+.rail-item.on .rail-count { color: var(--accent); }
+
+/*
+  <b>An operational widget, and it reports what the server actually measures.</b> The brief asked
+  for Service health and Server resources. Health is real — the listing carries every service's
+  status. Resources are real too, but not as the reference's CPU/Memory/Disk percentages: this
+  server reports process CPU time, managed heap bytes and tile-cache size, and there is no disk
+  quota to be a percentage of. So the widget shows the figures it has with their units, and there
+  are no sparklines, because a sparkline claims a history nothing here keeps.
+*/
+.widget { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+          box-shadow: var(--lift); padding: var(--gap-4); margin-bottom: var(--gap-4); }
+.widget > .label { margin-bottom: var(--gap-3); }
+
+.tally { display: flex; align-items: baseline; gap: var(--gap-2); margin-bottom: var(--gap-3); }
+.tally b { font-size: 26px; font-weight: 600; letter-spacing: -.02em; line-height: 1; }
+.tally span { font-size: var(--t-small); color: var(--muted); }
+
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-3);
+       margin-bottom: var(--gap-3); }
+.bar i { display: block; height: 100%; }
+.bar i.ok { background: var(--ok); }
+.bar i.warn { background: var(--warn); }
+
+.legendrow { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--t-small);
+             padding: 3px 0; }
+.legendrow .key { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.legendrow .key::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+                          background: var(--faint); }
+.legendrow.ok .key::before { background: var(--ok); }
+.legendrow.warn .key::before { background: var(--warn); }
+.legendrow b { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.legendrow em { font-style: normal; color: var(--faint); width: 44px; text-align: right;
+                font-variant-numeric: tabular-nums; }
+
+.meter { display: grid; grid-template-columns: 68px 1fr auto; align-items: center;
+         gap: var(--gap-3); padding: 5px 0; font-size: var(--t-small); }
+.meter .k { color: var(--muted); }
+.meter .t { font-family: var(--mono); color: var(--ink); text-align: right;
+            font-variant-numeric: tabular-nums; }
+.meter .track { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.meter .track i { display: block; height: 100%; background: var(--accent); }
+
+/*
+  The preview box. ArcGIS Server Manager shows a rendered map image here; we have no renderer
+  (ADR-004 is DEFERRED), so this is a canvas the browser fills from one query — see preview.js for
+  why that is an indication rather than a thumbnail. The border is the lightest one available,
+  because the picture is the thing and its frame is not.
+*/
+.thumb { display: block; width: 104px; height: 74px; border: 1px solid var(--rule);
+         border-radius: var(--round); background: var(--surface-2); }
+.thumb.empty { position: relative; }
+.thumb.empty::after { content: "—"; position: absolute; inset: 0; display: grid;
+                      place-items: center; color: var(--faint); font-size: 12px; }
+
+/* Two lines under a service name: what it is, and what it holds. Deliberately not badges. */
+.rowmeta { display: block; font-size: var(--t-small); color: var(--muted); font-weight: 400;
+           margin-top: 2px; }
+.rowmeta .sep { color: var(--rule-strong); margin: 0 6px; }
+
+/* --------------------------------------------------------------------- the map */
+
+#mapPanel { display: none; margin-bottom: var(--gap-4); }
+#mapPanel.on { display: block; }
+#view { height: 460px; background: var(--surface-2); border-radius: var(--round-lg);
+        overflow: hidden; }
+#view:empty::after { content: "the map loads when a layer is shown"; display: grid;
+                     place-items: center; height: 100%; color: var(--faint);
+                     font-size: var(--t-small); }
+#legend { display: flex; flex-wrap: wrap; gap: var(--gap-3); padding: var(--gap-3) 0 0;
+          font-size: var(--t-small); color: var(--muted); }
+#basemapBar { display: flex; align-items: center; gap: var(--gap-2); padding: 0 0 var(--gap-3); }
+#basemapBar .lbl { font-size: var(--t-label); letter-spacing: .05em; text-transform: uppercase;
+                   color: var(--faint); font-weight: 600; }
+#basemapBar .val { color: var(--muted); }
+
+/* ------------------------------------------------------------- the layer editor */
+
+#editHead { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
+#editHead .crumbs { font-size: var(--t-body); color: var(--muted); }
+#editHead .crumbs a { color: var(--muted); }
+#editHead .crumbs a:hover { color: var(--accent); }
 #editHead .crumbs b { color: var(--ink); font-weight: 600; }
-#editHead .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-#editDirty { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
-             font-weight: 600; color: var(--stop); border: 1px solid #ddc79a;
-             background: #fbf4e6; border-radius: 2px; padding: 2px 7px; }
-#editCancel { font-size: 13px; color: var(--muted); text-decoration: none; }
-#editCancel:hover { color: var(--ink); text-decoration: underline; }
+#editHead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-3); }
+
+#editDirty { font-size: 11.5px; font-weight: 600; color: var(--warn);
+             border: 1px solid var(--warn-line); background: var(--warn-soft);
+             border-radius: 3px; padding: 2px 8px; }
+#editCancel { font-size: var(--t-small); color: var(--muted); }
 
 /*
-  A floor under the frame, so moving between a long page and a short one does not
-  resize the panel and shift the left column out from under the pointer.
+  A floor under the frame, so moving between a long page and a short one does not resize the panel
+  and shift the left column out from under the pointer.
 */
-#edit { display: grid; grid-template-columns: 190px 1fr; align-items: stretch;
-        min-height: 420px; }
-#editNav { border-right: 1px solid var(--rule); background: var(--surface-2); padding: 10px 0; }
-#editNav a { display: block; text-decoration: none; color: var(--ink); font-size: 13.5px;
-             padding: 8px 16px; border-left: 3px solid transparent; }
-#editNav a:hover { background: var(--surface-3); }
-#editNav a[aria-current] { background: var(--accent); color: #fff; font-weight: 500; }
+#edit { display: grid; grid-template-columns: 196px 1fr; align-items: stretch; min-height: 440px;
+        background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+        box-shadow: var(--lift); overflow: hidden; }
+#editNav { border-right: 1px solid var(--rule); background: var(--surface-2); padding: var(--gap-2) 0; }
+#editNav a { display: block; padding: 9px var(--gap-4); border-left: 3px solid transparent;
+             color: var(--ink); font-size: var(--t-body); }
+#editNav a:hover { background: var(--surface-3); text-decoration: none; }
+#editNav a[aria-current] { background: var(--surface); border-left-color: var(--accent);
+                           font-weight: 500; }
 
 /*
   <b>The way to the other surface's pages for the same layer.</b> ADR-034 §5c promises that each
   surface links to the other's, so the split never means a dead end — a publisher hunting for
-  Sharing in Server would otherwise find four pages and no clue. Set apart above a rule, because
-  it leaves this environment and a link that does that should not look like a sibling.
+  Sharing in Server would otherwise find four pages and no clue. Set apart above a rule, because it
+  leaves this environment and a link that does that should not look like a sibling.
 */
-#editNav a.crossing { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--rule);
-                      color: var(--muted); font-size: 13px; }
+#editNav a.crossing { margin-top: 10px; padding-top: var(--gap-3);
+                      border-top: 1px solid var(--rule); color: var(--muted);
+                      font-size: var(--t-small); }
 #editNav a.crossing:hover { color: var(--ink); }
-#editNav a.crossing .in { display: block; font-size: 11.5px; color: var(--faint); }
-/*
-  <b>Two pages, one rule.</b> A service with no layers has a settings page too, and giving
-  it its own padding is how two screens that should look identical start not to — D-46's
-  shape, applied to a stylesheet rather than to a behaviour.
-*/
-#editPages, #servicePages { padding: 18px 22px 28px; min-width: 0; }
+#editNav a.crossing .in { display: block; font-size: 11px; color: var(--faint); }
 
 /*
-  <b>One column, because a settings page is a column.</b> The layer editor's pages are not bounded
-  — they hold an endpoint list and a wall of field pills that want the width — but this page is
-  four numbers and three sentences, and letting those run to 1,200 px put the prose in one part of
-  the panel and the boxes in another. The reference's own pooling page is a column of about this
-  width, which is not a coincidence: it is what a labelled row reads as.
+  <b>Two pages, one rule.</b> A service with no layers has a settings page too, and giving it its
+  own padding is how two screens that should look identical start not to.
+*/
+#editPages, #servicePages { padding: var(--gap-5); min-width: 0; }
+
+/*
+  <b>One column, because a settings page is a column.</b> The layer editor's pages are not bounded —
+  they hold an endpoint list and a wall of field pills that want the width — but this page is four
+  numbers and three sentences, and letting those run the full width put the prose in one part of the
+  panel and the boxes in another.
 */
 #servicePages { max-width: 780px; }
 
-/* One page shows at a time; all six are in the document, so moving is a class. */
+/*
+  <b>One screen at a time, and both of these were missing for one build of the redesign.</b> All
+  eight views are in the document and the router moves a class; dropping `.view` while rewriting the
+  stylesheet stacked every screen into one page — the same symptom D-44 produced when a
+  Content-Security-Policy blocked the whole sheet, and the same misreading: it looks like a layout
+  bug rather than a missing rule.
+*/
+.view { display: none; }
+.view.on { display: block; }
+
 .page { display: none; }
 .page.on { display: block; }
-.page h4 { margin: 0 0 12px; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
-           color: var(--faint); font-weight: 600; padding-bottom: 8px;
-           border-bottom: 1px solid var(--rule); }
-.page h4 + h4, .page > * + h4 { margin-top: 26px; }
-
-/* Capabilities: names in two columns and nothing else. */
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; max-width: 560px; }
-.grid2 label { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
-.grid2 label.off { color: var(--faint); }
-
-/* A number reads as a sentence, with the unit outside the box. */
-.setting { display: flex; align-items: center; gap: 12px; padding: 6px 0; max-width: 620px; }
-.setting .q { flex: 1; font-size: 14px; }
-.setting input { width: 110px; text-align: right; font-family: var(--mono); font-size: 13px; }
-.setting .u { width: 66px; color: var(--muted); font-size: 13px; }
 
 /*
   The summary of what is in force, as a footer to the page rather than a fourth row of the list
-  above it. Without the rule it read as one more fixed fact, which is the opposite of what it is:
-  everything in it can be changed by the boxes.
+  above it: everything in it can be changed by the boxes, which is the opposite of the fixed facts.
 */
-#limNote { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--rule); }
+#limNote { margin-top: var(--gap-4); padding-top: var(--gap-3); border-top: 1px solid var(--rule); }
 
-/* ------------------------------------------- the two surfaces, and the folder rail */
-/*
-  ADR-034. The header names which surface you are in and switches between them; the switch is
-  only in the document for a reader who may be in both.
-*/
-#surfaces { display: flex; gap: 2px; margin-left: 4px; }
-#surfaces a { text-decoration: none; font-size: 12.5px; color: var(--muted);
-              padding: 3px 10px; border: 1px solid var(--rule); border-radius: 3px; }
-#surfaces a:hover { color: var(--ink); }
-#surfaces a[aria-current] { background: var(--accent); border-color: var(--accent); color: #fff;
-                            font-weight: 600; }
+/* -------------------------------------------------------------- dialog & drawer */
 
 /*
-  Folders on the left, the selected folder's services on the right — ADR-034 §5h, after the
-  owner's objection to three stacked tables. The rail is narrow on purpose: it is navigation,
-  and the width belongs to the list.
+  <b>One dialog, for a value that exists once.</b> The drawer below is for a form you fill and
+  dismiss; this is for a secret you read and lose. `::backdrop` is the element's own, so there is no
+  scrim div to keep in sync with anything.
 */
-#serverGrid { display: grid; grid-template-columns: 210px 1fr; gap: 18px; align-items: start; }
-@media (max-width: 900px) { #serverGrid { grid-template-columns: 1fr; } }
+#issued { border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-5);
+          max-width: 560px; background: var(--surface); color: var(--ink);
+          box-shadow: 0 24px 60px -30px rgba(16, 24, 38, .5); }
+#issued::backdrop { background: rgba(16, 24, 38, .42); }
+#issued h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule); }
+#issuedValue { width: 22ch; font-family: var(--mono); font-size: 15px; letter-spacing: .04em;
+               text-align: center; }
 
-#folderRail { border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
-              overflow: hidden; }
-.rail-head { display: flex; align-items: center; justify-content: space-between;
-             padding: 8px 10px 8px 12px; background: var(--surface-2);
-             border-bottom: 1px solid var(--rule); font-size: 11.5px; font-weight: 600;
-             letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
-.rail-item { display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-             padding: 7px 12px; text-decoration: none; color: var(--ink); font-size: 13.5px;
-             border-left: 3px solid transparent; }
-.rail-item:hover { background: var(--surface-2); }
-.rail-item.on { background: var(--accent-soft); border-left-color: var(--accent);
-                font-weight: 600; }
-.rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-count { font-family: var(--mono); font-size: 11.5px; color: var(--faint); flex: none; }
+#drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 620px; max-width: 96vw;
+  background: var(--surface); border-left: 1px solid var(--rule); z-index: 1500;
+  transform: translateX(100%); transition: transform .16s ease-out;
+  display: flex; flex-direction: column;
+  box-shadow: -18px 0 44px -30px rgba(16, 24, 38, .45);
+}
+#drawer.on { transform: none; }
+#drawer header { height: auto; padding: var(--gap-4) var(--gap-5); align-items: flex-start;
+                 gap: var(--gap-3); position: static; }
+#drawer header h2 { margin: 0; font-size: var(--t-head); font-weight: 600; }
+#drawerBody { overflow-y: auto; padding: var(--gap-5); flex: 1; }
 
-#serverMain { min-width: 0; }
-tbody tr[data-service] { cursor: pointer; }
+/* ---------------------------------------------------------------------- toast */
+
+#toast {
+  position: fixed; right: var(--gap-5); bottom: var(--gap-5); max-width: 480px; z-index: 2000;
+  background: var(--ink); color: #fff; font-size: var(--t-small);
+  padding: 11px var(--gap-4); border-radius: var(--round);
+  box-shadow: 0 18px 40px -22px rgba(16, 24, 38, .6);
+  opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity .14s, transform .14s;
+}
+#toast.on { opacity: 1; transform: none; }
+#toast.bad { background: var(--alert); }
+#toast.good { background: var(--ok); }
+
+/* ------------------------------------------------------------- the two card forms */
 
 /*
-  The preview box. ArcGIS Server Manager shows a rendered map image here; we have no renderer
-  (ADR-004 is DEFERRED), so this is a canvas the browser fills from one query — see preview.js
-  for why that is an indication rather than a thumbnail.
+  <b>Two panels, one set of rules.</b> The forced password change is the same shape as signing in —
+  a narrow centred card of labelled fields — and its first version got none of this because the
+  selectors named `#signin`. It rendered as labels and boxes side by side, spilling out of the card
+  (D-46 again, in the same file as instance 8).
 */
-.thumb { display: block; width: 104px; height: 74px; border: 1px solid var(--rule);
-         border-radius: 3px; background: var(--surface-2); }
-.thumb.empty { position: relative; }
-.thumb.empty::after { content: "—"; position: absolute; inset: 0; display: grid;
-                      place-items: center; color: var(--faint); font-size: 12px; }
+#signin, #mustchange { max-width: 380px; margin: 72px auto; }
+#signin .panel, #mustchange .panel { padding: var(--gap-5); }
+#signin h2, #mustchange h2 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
+#signin label, #mustchange label { display: block; font-size: var(--t-small); color: var(--muted);
+                                   margin: var(--gap-3) 0 var(--gap-1); }
+#signin input, #signin button,
+#mustchange input, #mustchange button { width: 100%; }
+#signin button, #mustchange button { margin-top: var(--gap-4); }

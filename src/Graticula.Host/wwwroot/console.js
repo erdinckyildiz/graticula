@@ -127,6 +127,12 @@ const SURFACES = {
     title: "Server",
     needs: "admin:manageServer",
     home: "services",
+
+    // <b>Server's action is a service, Studio's is a layer.</b> `POST /admin/featureservices`
+    // creates an empty container, which is the thing an operator makes here — publishing data into
+    // it is Studio's act. The drawer holds the form either way; only the label and the id differ.
+    action: { id: "newService", label: "New service" },
+
     tabs: [
       ["services", "Services"],
 
@@ -145,7 +151,6 @@ const SURFACES = {
 
       ["operations", "Operations"],
     ],
-    action: null,
   },
   studio: {
     title: "Studio",
@@ -315,16 +320,46 @@ function drawSurfaces(surface) {
 
   const config = SURFACES[surface];
 
-  $("tabs").innerHTML =
-    config.tabs.map(([name, label]) =>
-      `<a href="#/${name}" data-tab="${name}">${h(label)}${
-        name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
-        name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("")
-    + (config.action
-      ? `<span class="right"><button class="primary" id="${config.action.id}">${
-          h(config.action.label)}</button></span>`
-      : "");
+  // <b>Sections in the sidebar, the surface's action on the page.</b> They used to share the tab
+  // strip, so the strip carried both navigation and a verb — and when navigation moved into a
+  // column, the button would have been a nav item that is not one. The router fills two slots
+  // instead, which is the only change the redesign made to this function.
+  $("tabs").innerHTML = config.tabs.map(([name, label]) =>
+    `<a href="#/${name}" data-tab="${name}">
+       <span class="ico" aria-hidden="true">${SECTION_GLYPH[name] ?? "·"}</span>
+       <span class="label">${h(label)}</span>${
+       name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
+       name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("");
+
+  // <b>The action goes to whichever page head is on screen.</b> Each surface's home screen has a
+  // slot; naming them apart and asking for both is what keeps the router from having to know which
+  // view is visible.
+  const markup = config.action
+    ? `<button class="primary" id="${config.action.id}">${h(config.action.label)}</button>`
+    : "";
+
+  for (const id of ["pageAction", "pageActionContent"]) {
+    const slot = $(id);
+    if (slot) slot.innerHTML = markup;
+  }
 }
+
+/**
+ * One glyph per section, so a sidebar row is scannable when the column is narrow.
+ *
+ * <b>Characters, not icons.</b> An icon font is a request and a licence; an inline SVG set is four
+ * hundred bytes of path data per glyph in a file that is read by people. These are geometric
+ * Unicode shapes at one opacity — they carry no meaning the label does not, which is why they can be
+ * this plain, and they are the only thing that survives collapsing the sidebar.
+ */
+const SECTION_GLYPH = {
+  services: "◈",
+  sources: "▤",
+  members: "◍",
+  operations: "◎",
+  content: "◈",
+  anonymous: "◌",
+};
 
 /**
  * Goes where the map is, if we are not already there.
@@ -1253,6 +1288,107 @@ function describeRole() {
       + `by a privilege, so a viewer reads plenty and can change nothing (ADR-018 §2).`;
 }
 
+/**
+ * The two operational widgets beside the folder rail.
+ *
+ * <b>Both report what this server actually measures, which is not what the reference shows.</b> The
+ * brief asked for *Service health* and *Server resources* and said plainly: do not fabricate backend
+ * data. So:
+ *
+ * - **Health is counted from the rows already on screen.** No request, no new endpoint, and it
+ *   cannot disagree with the table beside it. It has two states and not three: `service.status` is
+ *   `started` or `stopped` by a check constraint, so an *Error* row would be a state this server
+ *   cannot be in — the reference has one because its services can fail to start, and ours cannot.
+ * - **Resources come from `/admin/health`**, which reports process CPU time, managed heap bytes,
+ *   tile-cache size and uptime. Two of the reference's three are percentages of a quota; this server
+ *   has no memory limit and no disk quota, so those are shown as the figures they are. CPU *is* a
+ *   ratio and is shown as one: process CPU time over wall-clock times cores, since start.
+ *
+ * <b>And no sparklines.</b> The reference draws three, and a sparkline claims a history — nothing
+ * here keeps one, so drawing a wiggle from a single sample would be the most literal possible
+ * version of inventing data.
+ */
+function drawHealthWidget(rows) {
+  const widget = $("healthWidget");
+  if (!widget) return;
+
+  const real = rows.filter(r => !r.system);
+  const started = real.filter(r => r.status !== "stopped").length;
+  const stopped = real.length - started;
+
+  if (real.length === 0) {
+    widget.hidden = true;
+    return;
+  }
+
+  $("hwTotal").textContent = num(real.length);
+
+  const share = n => `${Math.round((n / real.length) * 100)}%`;
+
+  $("hwBar").innerHTML =
+    `<i class="ok" style="width:${(started / real.length) * 100}%"></i>`
+    + `<i class="warn" style="width:${(stopped / real.length) * 100}%"></i>`;
+
+  $("hwRows").innerHTML =
+    `<div class="legendrow ok"><span class="key">Started</span><b>${num(started)}</b>`
+    + `<em>${share(started)}</em></div>`
+    + `<div class="legendrow warn"><span class="key">Stopped</span><b>${num(stopped)}</b>`
+    + `<em>${share(stopped)}</em></div>`;
+
+  widget.hidden = false;
+}
+
+/**
+ * What the process is spending, from `/admin/health`.
+ *
+ * <b>Read here rather than shared with the health line in the top bar</b>, because that line reports
+ * the *platform store* and this reports the *process*, and the two answer different questions —
+ * merging them is how a screen ends up saying the server is fine because the database is.
+ */
+async function drawResourceWidget() {
+  const widget = $("resourceWidget");
+  if (!widget || !may("admin:manageServer")) return;
+
+  let health;
+  try {
+    health = await api("/admin/health");
+  } catch {
+    widget.hidden = true;
+    return;
+  }
+
+  const runtime = health.runtime;
+  if (!runtime) { widget.hidden = true; return; }
+
+  // Process CPU time over wall-clock times cores: a real ratio, and the only one available.
+  const busy = runtime.uptimeMilliseconds > 0
+    ? runtime.cpuMilliseconds / (runtime.uptimeMilliseconds * (runtime.cores || 1))
+    : 0;
+
+  const meter = (key, text, fraction) =>
+    `<div class="meter"><span class="k">${h(key)}</span>`
+    + (fraction === null
+        ? `<span></span>`
+        : `<span class="track"><i style="width:${Math.min(100, fraction * 100)}%"></i></span>`)
+    + `<span class="t">${h(text)}</span></div>`;
+
+  $("rwRows").innerHTML =
+    meter("CPU", `${(busy * 100).toFixed(1)}%`, busy)
+    + meter("Heap", bytesPlain(runtime.heapBytes), null)
+    + meter("Tiles", `${(health.tileCache?.megabytes ?? 0).toFixed(1)} MB`, null)
+    + meter("Uptime", duration(runtime.uptimeMilliseconds).replace(/<[^>]+>/g, ""), null);
+
+  $("rwNote").innerHTML =
+    `CPU is process time since start over ${num(runtime.cores)} cores. Heap and tiles are figures `
+    + `rather than percentages: this server has no memory limit and no disk quota for them to be a `
+    + `share of.`;
+
+  widget.hidden = false;
+}
+
+/** Bytes as a plain string, for a widget that has no room for markup. */
+const bytesPlain = value => bytes(value).replace(/<[^>]+>/g, " ").trim();
+
 /** Which folder the Server services screen is looking at: null is the root. */
 let selectedFolder = null;
 
@@ -1385,23 +1521,40 @@ async function loadServices() {
       // <b>A system row opens as well.</b> It used to be the one row on this screen that was
       // not clickable, on the argument that there are no layers inside to list — true, and it
       // also meant the geometry service's own bounds had nowhere to be edited from.
+      // <b>The name is the strongest thing in the row and its metadata is not.</b> Owner brief:
+      // *"Service names should be one of the strongest elements in each row. Secondary metadata
+      // should have lower visual emphasis. Do not turn every piece of metadata into a badge."* So
+      // the kind and the counts are one line of small muted text with a thin separator, and the
+      // only badges in the row are the two states.
+      // <b>One verb in the row, everything else behind the overflow.</b> Owner brief: *"Keep the
+      // Stop action available but visually secondary. Destructive actions such as Delete should NOT
+      // compete visually with normal actions. Put less frequently used actions inside an overflow
+      // menu where appropriate."* Start/Stop is the thing an operator does here, so it stays; Delete
+      // moves into the menu, where its refusal — a service that still holds layers cannot be
+      // removed — has room to be a sentence instead of a tooltip.
       return `<tr class="pick" data-service="${h(r.qualified)}"${
         only ? ` data-only="${h(only)}"` : ""}>
         <td>${r.cover
           ? `<canvas class="thumb" width="104" height="74"
                data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
           : `<div class="thumb empty"></div>`}</td>
-        <td class="name">${h(r.name)}
-          <div class="val" style="font-weight:400">${h(r.kind)}${r.description
-            ? ` · ${h(r.description)}` : ""}</div>
-          ${r.system ? "" : `<div class="val" style="font-weight:400">${held || "empty"}</div>`}</td>
+
+        <td>
+          <span class="name">${h(r.name)}</span>
+          <span class="rowmeta">${h(r.kind)}${r.description
+            ? `<span class="sep">·</span>${h(r.description)}` : ""}${r.system
+            ? ""
+            : `<span class="sep">·</span>${held || "empty"}`}</span>
+        </td>
+
         <td>${pill(r.status)}</td>
         <td>${r.system
           ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
           : pill(r.sharing)}</td>
         <td class="val">${h(r.owner || "—")}</td>
-        <td class="acts" style="text-align:right">${r.system ? `
+
+        <td class="acts">${r.system ? `
           <button class="tiny" data-system-status="${h(r.name)}"
             data-to="${stopped ? "start" : "stop"}"
             title="${stopped ? "Answer this service's operations again"
@@ -1413,10 +1566,18 @@ async function loadServices() {
             title="${stopped ? "Serve this again"
               : "Answer 503 for this service, without changing who may see it"}"
             >${stopped ? "Start" : "Stop"}</button>
-          <button class="tiny danger" data-service-delete="${h(r.name)}"
-            data-folder="${h(r.folder || "")}"
-            ${r.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
-              service delete never removes what is in it."`}>Delete</button>`}</td>
+
+          <details class="menu">
+            <summary title="More" aria-label="More actions">⋯</summary>
+            <div class="sheet">
+              <button data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
+                class="danger" ${r.empty ? "" : "disabled"}>Delete this service</button>
+              ${r.empty
+                ? `<div class="note">It holds nothing, so nothing is unpublished by removing it.</div>`
+                : `<div class="note">It holds ${h(held)}. Unpublish them first — a service delete
+                     never removes what is in it.</div>`}
+            </div>
+          </details>`}</td>
       </tr>`;
     }).join("");
 
@@ -1425,6 +1586,9 @@ async function loadServices() {
     ? "Select a service to see its layers and set what it offers. A preview samples the "
       + "service's first layer; hover it for how much."
     : "";
+
+  drawHealthWidget(rows);
+  section("resources", drawResourceWidget);
 
   paintPreviews();
 }
@@ -1633,6 +1797,9 @@ function showLayer(name, page, pending = null) {
           <span class="in">in ${h(SURFACES[elsewhere].title)}</span></a>`
       : "");
 
+      // The server's own cache of this table's shape (D-17), not the publisher's business. It sat
+      // under Maintenance beside Delete layer until the editor was split by surface, which is when
+      // the two turned out to be different kinds of act.
   $("editPages").innerHTML = `
     <section class="page" id="page-general">
       <h4>State</h4>
@@ -1650,11 +1817,6 @@ function showLayer(name, page, pending = null) {
           ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
                ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
           : ""}
-        <!--
-          The server's own cache of this table's shape (D-17), not the publisher's business. It sat
-          under Maintenance beside Delete layer until the editor was split by surface, which is when
-          the two turned out to be different kinds of act.
-        -->
         <button data-refresh="${h(name)}">Forget remembered shape</button>
       </div>
 
@@ -1744,14 +1906,12 @@ function showLayer(name, page, pending = null) {
         Save — ADR-031 §2b. They take effect at once and are never cached, because an
         operator revoking access has to be able to trust that it happened.</p>
 
-      <!--
-        <b>Unpublishing stays with the publisher; forgetting the remembered shape does not.</b>
-        They were one Maintenance block, and splitting the editor by surface separated what they
-        are: deleting a layer is a decision about content — it purges tiles and forgets a shape,
-        and the person who published it is the person who unpublishes it. Forgetting the remembered
-        table shape (D-17) is a cache the *server* keeps; it moved to General in Server, which is
-        where the other operational buttons are.
-      -->
+      // <b>Unpublishing stays with the publisher; forgetting the remembered shape does not.</b>
+      // They were one Maintenance block, and splitting the editor by surface separated what they
+      // are: deleting a layer is a decision about content — it purges tiles and forgets a shape,
+      // and the person who published it is the person who unpublishes it. Forgetting the remembered
+      // table shape (D-17) is a cache the *server* keeps; it moved to General in Server, which is
+      // where the other operational buttons are.
       <h4>Unpublish</h4>
       <div class="row">
         <button class="danger" data-delete="${h(name)}">Delete layer</button>
@@ -2205,6 +2365,12 @@ function openNewLayer() {
       </form>
     </div>
 
+      // Empty, required, and not prefilled — which is a decision from the
+      // register rather than a UI preference. Q-57: identity for a registered
+      // table is "declared, not inferred", and the administrator nominates the
+      // column. Filling this from the probe would make the server's inference
+      // look like the operator's choice, and this is the column that decides
+      // which row an edit lands on.
     <div class="group">
       <h3>Publish a registered table</h3>
       <p class="hint">For data that already lives in a PostGIS database this server can reach.
@@ -2235,14 +2401,6 @@ function openNewLayer() {
             <input type="text" id="rService" list="serviceNames" placeholder="a service of its own">
           </label>
         </div>
-        <!--
-          Empty, required, and not prefilled — which is a decision from the
-          register rather than a UI preference. Q-57: identity for a registered
-          table is "declared, not inferred", and the administrator nominates the
-          column. Filling this from the probe would make the server's inference
-          look like the operator's choice, and this is the column that decides
-          which row an edit lands on.
-        -->
         <p class="hint">Which column identifies a feature for the life of the layer. It is your
           nomination, not something read from the table (Q-57): we will not synthesise one, because
           a row number is not stable and a side mapping table would drift on the owner's first
@@ -2278,6 +2436,9 @@ function openNewLayer() {
         <button type="submit">Create empty service</button>
       </form>
 
+      // The groups a service already has, listed here and removable here. The place
+      // something is made is the place to unmake it: there is no other screen a group
+      // belongs to, since a group holds no data and has no settings of its own.
       <form id="grpForm" autocomplete="off" style="margin-top:16px">
         <div class="row">
           <label class="field" style="flex:2 1 220px">Group inside
@@ -2287,11 +2448,6 @@ function openNewLayer() {
             <input type="number" id="gParent" min="0" placeholder="top level"></label>
         </div>
         <button type="submit">Create group layer</button>
-        <!--
-          The groups a service already has, listed here and removable here. The place
-          something is made is the place to unmake it: there is no other screen a group
-          belongs to, since a group holds no data and has no settings of its own.
-        -->
         <div id="gExisting" class="val" style="margin-top:10px"></div>
       </form>
     </div>
@@ -2685,10 +2841,34 @@ async function handleClick(event) {
   // Navigation is links now — the tab strip, the editor's left column, the
   // breadcrumb and Cancel — so it needs no branch here. The browser follows the
   // href, the hash changes, and route() paints. That is also what makes Back work.
-  if (t.id === "newLayer") { openNewLayer(); return; }
+  // <b>One drawer for both surfaces' actions.</b> It already covers a layer, a service and a group
+  // inside one — the form was general before the button was — so Server's *New service* and
+  // Studio's *New layer* open the same thing and each names the part its reader came for. Two
+  // drawers would be two copies of a publish form, which is D-46's whole subject.
+  if (t.id === "newLayer" || t.id === "newService") { openNewLayer(); return; }
 
   // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject
   // rather than a field on something else (ADR-034 §5h).
+  // <b>Refresh re-reads, and that is all it does.</b> It exists because a console showing a
+  // catalogue somebody else can change needs a way to ask again without losing the screen you are
+  // on — which a browser reload does.
+  if (t.id === "serviceRefresh") {
+    t.disabled = true;
+    await section("folders", loadFolders);
+    await section("services", loadServices, "services");
+    t.disabled = false;
+    return;
+  }
+
+  // <b>The sidebar narrows to its glyphs, and the choice is remembered.</b> `localStorage`, not
+  // `sessionStorage`: this is a preference about the shape of the tool, not a fact about the
+  // session, and somebody who wants the width back wants it back tomorrow too.
+  if (t.id === "collapse" || t.closest?.("#collapse")) {
+    const tight = $("shell").classList.toggle("tight");
+    try { localStorage.setItem("gis-rail", tight ? "tight" : "wide"); } catch { /* private mode */ }
+    return;
+  }
+
   if (t.id === "newFolder") {
     const name = prompt("A folder to publish into. It becomes part of the URL: "
       + "/rest/services/<folder>/<service>/FeatureServer");
@@ -3199,8 +3379,11 @@ async function whoami() {
   // <b>The gate's input.</b> ADR-034 §5b: Server needs `admin:manageServer`, and the router
   // reads it from here rather than probing an endpoint to see whether it is refused.
   privileges = new Set(me.privileges || []);
+  // Two lines rather than one sentence with separators: `#who b` is a block, so a leading "·" on
+  // the second line was left dangling under the name. The name is the identity and the rest is what
+  // it can do, which is the hierarchy this pair should read as anyway.
   $("who").innerHTML = me.authenticated
-    ? `<b>${h(me.name)}</b> · ${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
+    ? `<b>${h(me.name)}</b>${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
     : "anonymous";
   return me;
 }
@@ -3341,6 +3524,16 @@ $("signout").addEventListener("click", async event => {
  * So a tokenless reader gets the form, and is told why rather than left to wonder why an
  * administrator is being asked to sign in.
  */
+/**
+ * Puts the sidebar back the width it was left at.
+ *
+ * <b>Before the first paint rather than after `whoami`</b>, so the column does not visibly jump
+ * from wide to narrow while the session is being read.
+ */
+try {
+  if (localStorage.getItem("gis-rail") === "tight") $("shell").classList.add("tight");
+} catch { /* private mode: the default width is a fine answer */ }
+
 async function start() {
   const me = await whoami();
 

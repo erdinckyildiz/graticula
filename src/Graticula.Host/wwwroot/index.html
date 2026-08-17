@@ -61,35 +61,76 @@
   and moves between them constantly, so moving costs one click; a publisher never sees that
   Server exists, which is the point of the split rather than a courtesy.
 -->
-<header>
-  <h1>Graticula</h1>
-  <!--
-    The hrefs are set by the router, because a surface is a path now (`/server/`, `/studio/`)
-    and the screen it lands on is that surface's home. Written here without one so the switch is
-    inert until the router has read who is looking.
-  -->
-  <nav id="surfaces" hidden>
-    <a data-surface="server">Server</a>
-    <a data-surface="studio">Studio</a>
-  </nav>
-  <span class="dot unknown" id="healthDot"></span>
-  <span id="healthLine">checking…</span>
-  <span class="right">
-    <span id="who"></span>
-    <button id="signout" style="display:none">Sign out</button>
-  </span>
-</header>
-
 <!--
-  Links, not buttons, and that is the router showing through. Each surface has an
-  address, so the browser's Back and forward, middle-click and copy-link all work
-  without this console implementing any of them.
+  <b>The shell: a navigation column and a work column.</b> Redesigned 2026-08-17 to an
+  owner-supplied target. What changed is where navigation lives — it was a horizontal tab strip
+  under the header and is now a sidebar — and **nothing about how it works changed**: the same
+  `#tabs` element, filled by the same router from the same `SURFACES` table, with the same
+  `aria-current`. A surface is still a path and a screen is still the hash (ADR-034 §5a).
 
-  Rendered from JavaScript since ADR-034: the strip belongs to whichever surface is
-  open, and a tab the reader's privileges cannot reach must not be in the document at
-  all — not hidden, not refused on click. One place decides that, and it is the router.
+  <b>Both surfaces get this shell.</b> The brief: *"The Server and Studio interfaces should
+  ultimately feel like two parts of the same Graticula product."* One shell, one token set, and the
+  only thing that differs is which sections the router puts in the sidebar and which colour the
+  environment switch fills in.
 -->
-<nav id="tabs" style="display:none"></nav>
+<div id="shell">
+  <aside id="rail">
+    <div id="brand">
+      <!--
+        The mark is two letters and a gradient, not an image: a 26-pixel square that needs no asset,
+        no request and no licence. A graticule is a net of lines, so the sidebar's own texture
+        (`#rail::after`) carries the cartographic reference and the mark stays plain.
+      -->
+      <span class="mark">Gr</span>
+      <h1>Graticula</h1>
+    </div>
+
+    <!--
+      Links, not buttons, and that is the router showing through. Each surface has an address, so
+      Back, forward, middle-click and copy-link all work without this console implementing any of
+      them. Rendered from JavaScript since ADR-034: the list belongs to whichever surface is open,
+      and a section the reader's privileges cannot reach is not in the document at all — not hidden,
+      not refused on click.
+    -->
+    <nav id="tabs"></nav>
+
+    <div id="railFoot">
+      <!--
+        <b>Collapsing is real, which is why it is here.</b> It sets a class and remembers the choice.
+        The brief warned against controls implying functionality that does not exist, so the
+        reference's notification bell and avatar menu are not reproduced — there are no notifications
+        and no per-user settings to hang on them.
+      -->
+      <button id="collapse" title="Narrow the sidebar">
+        <span aria-hidden="true">&lsaquo;</span><span class="label">Collapse</span>
+      </button>
+    </div>
+  </aside>
+
+  <div id="main">
+    <!--
+      The top bar is shared by both surfaces (ADR-034 §5a) and names which one you are in. The
+      switch appears only for a reader who may be in both — an administrator is also a publisher and
+      moves between them constantly, so moving costs one click; a publisher never sees that Server
+      exists, which is the point of the split rather than a courtesy.
+    -->
+    <header>
+      <!--
+        The hrefs are set by the router, because a surface is a path (`/server/`, `/studio/`) and the
+        screen it lands on is that surface's home. Written here without one so the switch is inert
+        until the router has read who is looking.
+      -->
+      <nav id="surfaces" hidden>
+        <a data-surface="server">Server</a>
+        <a data-surface="studio">Studio</a>
+      </nav>
+      <span class="dot unknown" id="healthDot"></span>
+      <span id="healthLine">checking&hellip;</span>
+      <span class="right">
+        <span id="who"></span>
+        <button id="signout" style="display:none">Sign out</button>
+      </span>
+    </header>
 
 <div id="signin" class="wrap">
   <!--
@@ -180,26 +221,81 @@
     counts, because there is no instance pool (ADR-031 §2a).
   -->
   <section class="view on" id="view-services">
+    <!--
+      <b>A page says what it is.</b> Owner brief 2026-08-17: a strong heading and a secondary line.
+      It earns its space here — this console had eight screens distinguishable only by which table
+      was on them.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Services</h2>
+        <p>Manage and monitor your GIS services.</p>
+      </div>
+      <!--
+        Where the surface's own action lands. Studio's *New layer* and Server's *New service* are the
+        same slot filled by the router from `SURFACES[surface].action`, which is why no button is
+        written here.
+      -->
+      <div class="right" id="pageAction"></div>
+    </div>
+
     <div id="serverGrid">
-      <aside id="folderRail">
-        <div class="rail-head">
-          <span>Folders</span>
-          <button class="tiny" id="newFolder" title="Make a folder to publish into">＋</button>
+      <div>
+        <!--
+          <b>Folders on the left, and the rail is navigation.</b> ADR-034 §5h, after the owner's
+          objection to three stacked tables. Narrow on purpose: the width belongs to the list.
+        -->
+        <div id="folderRail">
+          <div class="rail-head">
+            Folders
+            <button class="tiny ghost" id="newFolder" title="Make a folder to publish into">+</button>
+          </div>
+          <div id="folders"></div>
         </div>
-        <div id="folders"></div>
-      </aside>
+
+        <!--
+          <b>Operational widgets, and they report what this server measures.</b> The brief asked for
+          Service health and Server resources, and said plainly: *"Do not fabricate backend data."*
+          So health is counted from the listing already on screen, and resources come from
+          `/admin/health`, which reports process CPU time, managed heap and tile-cache size. The
+          reference's CPU/Memory/Disk percentages are **not** reproduced — there is no quota for two
+          of those to be a share of — and there are no sparklines, because a sparkline claims a
+          history nothing here keeps.
+        -->
+        <div class="widget" id="healthWidget" hidden>
+          <div class="label">Service health</div>
+          <div class="tally"><b id="hwTotal">&mdash;</b><span>services in this folder</span></div>
+          <div class="bar" id="hwBar"></div>
+          <div id="hwRows"></div>
+        </div>
+
+        <div class="widget" id="resourceWidget" hidden>
+          <div class="label">Server resources</div>
+          <div id="rwRows"></div>
+          <p class="hint" style="margin:12px 0 0" id="rwNote"></p>
+        </div>
+      </div>
 
       <div id="serverMain">
         <div class="toolbar">
-          <input type="search" id="serviceFilter" autocomplete="off" spellcheck="false"
-            placeholder="Filter services in this folder">
+          <input type="search" id="serviceFilter" placeholder="Filter services in this folder&hellip;"
+                 autocomplete="off">
           <span class="val" id="serviceCount"></span>
+          <span style="flex:1"></span>
+          <!--
+            Refresh is real — it re-runs the two listings this screen draws. A grid view is not
+            offered, because there is no grid view: the brief said not to introduce controls that
+            imply functionality which does not exist.
+          -->
+          <button class="tiny ghost" id="serviceRefresh" title="Read the listings again">&#8635;</button>
         </div>
+
         <div class="panel">
           <table>
             <thead><tr>
               <th style="width:1%"></th>
-              <th>Service</th><th>Status</th><th>Sharing</th><th>Owner</th><th></th>
+              <th>Service</th><th>Status</th><th>Sharing</th><th>Owner</th>
+              <th style="text-align:right">Actions</th>
             </tr></thead>
             <tbody id="services"></tbody>
           </table>
@@ -219,6 +315,19 @@
     watching a server does not need a map on the way (§5d).
   -->
   <section class="view" id="view-content">
+    <!--
+      Every screen names itself the same way, which is the brief's *same Graticula
+      product* applied below the shell: a page whose only identifier is which table is
+      on it is a page somebody arrives at and has to deduce.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>My content</h2>
+        <p>What you own, and what other people have shared with you.</p>
+      </div>
+      <div class="right"><div id="pageActionContent"></div></div>
+    </div>
+
     <div class="panel" id="mapPanel">
       <div id="view"></div>
       <div id="legend"></div>
@@ -248,9 +357,14 @@
       </div>
     </div>
 
-    <h2>My content</h2>
-    <p class="lede">What you own. <b>Map</b> draws one; the address beside it is what any ArcGIS
-      client would use.</p>
+    <!--
+      The section label, not a second page heading: the page names itself once at the top now, and
+      this table is one of two on it — *mine* and *shared with you* — so what it needs is a label
+      that tells them apart.
+    -->
+    <div class="label">What you own</div>
+    <p class="hint"><b>Map</b> draws one; the address beside it is what any ArcGIS client would
+      use.</p>
     <div class="panel">
       <table>
         <thead><tr>
@@ -261,7 +375,7 @@
       </table>
     </div>
 
-    <h2>Shared with you</h2>
+    <div class="label">Shared with you</div>
     <p class="lede">Visible to you and owned by somebody else — so you can draw it and not
       restyle it. The last column says why you can see it.</p>
     <div class="panel">
@@ -277,10 +391,18 @@
 
   <!-- ------------------------------------------------------------- sources -->
   <section class="view" id="view-sources">
-    <h2>Data sources</h2>
-    <p class="lede">Where layers read from. Probe one to see whether the credential still
-      works and what it can publish — the answer is read from the database now, not
-      remembered from when it was registered.</p>
+    <!--
+      Every screen names itself the same way, which is the brief's *same Graticula
+      product* applied below the shell: a page whose only identifier is which table is
+      on it is a page somebody arrives at and has to deduce.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Data sources</h2>
+        <p>Where layers read from. Only an administrator registers one — ADR-018, and the reason is that a source is a credential for somebody else's database.</p>
+      </div>
+    </div>
+
     <div class="panel">
       <table>
         <thead><tr><th>Name</th><th>Kind</th><th class="num">Layers</th><th>Id</th><th></th></tr></thead>
@@ -289,7 +411,7 @@
     </div>
     <div id="probe"></div>
 
-    <h2>Register a source</h2>
+    <div class="label">Register a source</div>
     <p class="lede">A PostGIS connection string. Test it first: the test connects and reports
       what it found without storing anything.</p>
     <!-- A form, so Enter tests the connection instead of doing nothing. -->
@@ -309,12 +431,24 @@
 
   <!-- ---------------------------------------------------------- operations -->
   <section class="view" id="view-operations">
+    <!--
+      Every screen names itself the same way, which is the brief's *same Graticula
+      product* applied below the shell: a page whose only identifier is which table is
+      on it is a page somebody arrives at and has to deduce.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Operations</h2>
+        <p>The store, the runtime, the caches, and which routes are governed.</p>
+      </div>
+    </div>
+
     <div class="toolbar">
       <button id="opsRefresh">Read again</button>
       <span class="val" id="opsWhen"></span>
     </div>
 
-    <h2>Platform store</h2>
+    <div class="label">Platform store</div>
     <!--
       This paragraph said "if this is unreachable the server refuses queries rather
       than serving a stale catalogue" until 2026-08-16, and that stopped being true
@@ -329,19 +463,19 @@
       being down.</p>
     <div class="panel"><dl class="metrics" id="storeMetrics"></dl></div>
 
-    <h2>Runtime</h2>
+    <div class="label">Runtime</div>
     <p class="lede">This process, now. GC pause as a share of wall-clock is the number the
       performance gate found decisive — it stays invisible at concurrency 1 and it is what
       sets the ceiling.</p>
     <div class="panel"><dl class="metrics" id="runtimeMetrics"></dl></div>
 
-    <h2>Caches</h2>
+    <div class="label">Caches</div>
     <p class="lede">Tiles held on disk, and table shapes remembered from the data source.
       Sharing and started/stopped are deliberately never cached.</p>
     <div class="panel"><dl class="metrics" id="cacheMetrics"></dl></div>
     <p class="hint" id="cacheNotes" style="margin-top:10px"></p>
 
-    <h2>Route governance</h2>
+    <div class="label">Route governance</div>
     <p class="lede">Every route this server answers, and what decides who may reach it.
       <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
       this is where that claim is checked rather than asserted.</p>
@@ -372,7 +506,8 @@
     is that mistake, made by me, against my own server.
   -->
   <section class="view" id="view-anonymous">
-    <h2>Anonymous view</h2>
+    <div class="pagehead"><div><h2>Anonymous view</h2>
+      <p>What a caller with no credential actually sees of your content.</p></div></div>
     <!--
       <b>In Studio, not Server</b> — the owner, 2026-08-17: *"no anonymous view for server."*
       ADR-034 §6 had already half-said it: this answers *what does a stranger see of this
@@ -441,6 +576,18 @@
     lesson from the same day.
   -->
   <section class="view" id="view-members">
+    <!--
+      Every screen names itself the same way, which is the brief's *same Graticula
+      product* applied below the shell: a page whose only identifier is which table is
+      on it is a page somebody arrives at and has to deduce.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Members</h2>
+        <p>Who has an account, and what each of them may do.</p>
+      </div>
+    </div>
+
     <div class="toolbar">
       <span class="val" id="memberCount"></span>
       <span style="flex:1"></span>
@@ -591,7 +738,14 @@
   </section>
 </main>
 
+  </div>
+</div>
+
 <!-- ------------------------------------------------------------------ drawer -->
+<!--
+  <b>Outside the shell on purpose.</b> It is `position: fixed` and covers both columns, so nesting
+  it inside the work column would make it a child of something it is not bounded by.
+-->
 <!--
   One thing lives here now: Create. A short form you fill and dismiss belongs over
   the page; a service's settings belong on one.
