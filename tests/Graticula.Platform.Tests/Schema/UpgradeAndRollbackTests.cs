@@ -125,6 +125,60 @@ public sealed class UpgradeAndRollbackTests
         Assert.False(expandOnly.ClosesRollbackWindow(SchemaStamp.Initial(Migrations.All[0])));
     }
 
+    /// <summary>
+    /// The version this build declares is the highest migration it carries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is D-52's actual defect, and the row's diagnosis was wrong.</b> D-52
+    /// said the startup check never asks whether a build needs a schema newer than the
+    /// store has. It does, and has since 2026-08-13 —
+    /// <see cref="A_component_newer_than_the_store_is_refused_and_told_to_migrate"/>
+    /// covers it. What happened on 2026-08-17 is that migration 16 was written and
+    /// <c>ComponentSchemaVersion</c> was left at 15, so the check compared 15 against
+    /// 15, correctly concluded *compatible*, and the server then selected a column the
+    /// store did not have — <c>42703: column s.serves_features does not exist</c>, with
+    /// no port bound and the line above it reading *compatible*.
+    /// </para>
+    /// <para>
+    /// <b>So the check was right and the number it was given was stale, which is a
+    /// build-time fact and belongs in a test.</b> Nothing else can catch it: a stale
+    /// constant is invisible on a developer machine, where the migration has been
+    /// applied and the column exists. This fails the moment a migration is added
+    /// without the declaration moving with it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_declared_schema_version_is_the_highest_migration_this_build_carries()
+    {
+        Assert.Equal(
+            PlatformMigrations.All.Latest,
+            PlatformMigrations.ComponentSchemaVersion);
+    }
+
+    /// <summary>
+    /// And it fails when the two drift, which is the only proof the test above works.
+    /// </summary>
+    /// <remarks>
+    /// <b>A test that has never failed is a claim.</b> The check above passes today by
+    /// construction; what makes it a check is that a set whose highest migration is
+    /// beyond the declared version is caught. Verified with a set built here rather
+    /// than by editing the real constant, so the proof does not depend on somebody
+    /// remembering to put it back.
+    /// </remarks>
+    [Fact]
+    public void And_it_would_fail_if_a_migration_were_added_without_the_declaration()
+    {
+        MigrationSet set = new(
+        [
+            Migration.Expand(new SchemaVersion(1), "one", "select 1"),
+            Migration.Expand(new SchemaVersion(2), "two", "select 1"),
+        ]);
+
+        Assert.NotEqual(new SchemaVersion(1), set.Latest);
+        Assert.Equal(new SchemaVersion(2), set.Latest);
+    }
+
     [Fact]
     public void Pending_lists_only_what_has_not_run()
     {

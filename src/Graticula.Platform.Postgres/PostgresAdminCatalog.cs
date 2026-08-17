@@ -809,6 +809,40 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> SweepEmptyServicesAsync(
+        CancellationToken cancellationToken)
+    {
+        // <b>One statement, and it returns what it did.</b> Selecting the empty ones and
+        // then deleting them by name is two round trips with a gap in the middle, and a
+        // layer published into one of them during that gap would be unpublished by a
+        // sweep that had already decided. `delete ... returning` cannot be raced.
+        //
+        // <b>`group_layer` counts as holding something.</b> A service with no feature
+        // layers and a group layer is not empty — the group is a container the operator
+        // made, and it is exactly the sort of thing this must not take away.
+        const string Sql = """
+            delete from service s
+             where not exists (select 1 from layer l where l.service_id = s.id)
+               and not exists (select 1 from group_layer g where g.service_id = s.id)
+            returning coalesce(nullif(s.folder, '') || '/', '') || s.name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+
+        List<string> removed = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            removed.Add(reader.GetString(0));
+        }
+
+        return removed;
+    }
+
+    /// <inheritdoc/>
     public async Task<SymbolisedLayer?> FindLayerForSymbologyAsync(
         string name, CancellationToken cancellationToken)
     {

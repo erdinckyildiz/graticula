@@ -458,6 +458,38 @@ public interface IAdminCatalog
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Removes every service that holds nothing, and reports which.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-54's cheaper half, and the half that needs no new fact.</b> Publishing a
+    /// layer creates the service that holds it, and unpublishing the last layer leaves
+    /// that service behind — so an estate accumulates empty containers advertised in
+    /// the directory as feature services with no layers. The row rejected automatic
+    /// removal for a good reason: a service created by a publish and one created
+    /// deliberately by <c>POST /admin/featureservices</c> are the same row, and nothing
+    /// records which, so deleting on unpublish would either take away a container
+    /// somebody made on purpose or need a column that exists to support a convenience.
+    /// </para>
+    /// <para>
+    /// <b>An operator-initiated sweep guesses about neither.</b> It says what it will
+    /// remove, the operator decides, and a container somebody meant to keep is kept by
+    /// not pressing the button. That is why the names come back rather than a count.
+    /// </para>
+    /// <para>
+    /// <b>The geometry service cannot be swept, and not because this remembers to
+    /// exclude it.</b> It holds no layers by design, so a sweep that counted layers
+    /// would be exactly wrong about it — but it lives in <c>system_service</c>, a
+    /// different table, and this deletes from <c>service</c>. The safety is structural
+    /// rather than a condition somebody has to keep writing, which is the difference
+    /// between a rule and a habit.
+    /// </para>
+    /// </remarks>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The qualified names of the services removed, in order.</returns>
+    Task<IReadOnlyList<string>> SweepEmptyServicesAsync(CancellationToken cancellationToken);
+
     /// <summary>Finds a layer and the symbology stored against it.</summary>
     /// <param name="name">The layer name.</param>
     /// <param name="cancellationToken">Cancellation.</param>

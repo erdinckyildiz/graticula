@@ -1269,6 +1269,32 @@ function serviceSettingsMarkup() {
 }
 
 /**
+ * The services that hold nothing, listed before anything is removed.
+ *
+ * <b>The Remove button is disabled until this has run and found something</b>, which is
+ * the whole safety of the pair: an operator cannot sweep an estate they have not looked
+ * at, and pressing Remove on an empty list would be a destructive verb that does nothing
+ * — the shape that teaches people the button is harmless.
+ */
+async function loadEmptyServices() {
+  const r = await api("/admin/featureservices/empty");
+  const rows = r.empty || [];
+
+  $("emptyRows").innerHTML = rows.length === 0
+    ? `<tr><td colspan="3" class="empty">${h(r.note)}</td></tr>`
+    : rows.map(e => `<tr>
+        <td><span class="name">${h(e.name)}</span></td>
+        <td class="val">${h(e.folder || "Site (root)")}</td>
+        <td>${pill(e.sharing)}</td>
+      </tr>`).join("");
+
+  $("emptySweep").disabled = rows.length === 0;
+  $("emptyWhen").textContent = rows.length === 0
+    ? "nothing to remove"
+    : `${num(rows.length)} to remove`;
+}
+
+/**
  * Reads a layer's symbology and draws all three of its faces.
  *
  * <b>The canonical document, the derived `drawingInfo`, and what the derivation cost.</b>
@@ -3428,6 +3454,39 @@ async function handleClick(event) {
         $("styleDoc").value = JSON.stringify(r, null, 1);
       }
     } catch (e) { toast(e.message); }
+    return;
+  }
+
+  if (t.id === "emptyRead") {
+    t.disabled = true;
+    await section("the empty services", loadEmptyServices, "emptyRows");
+    t.disabled = false;
+    return;
+  }
+
+  if (t.id === "emptySweep") {
+    const count = document.querySelectorAll("#emptyRows tr .name").length;
+
+    if (!confirm(`Remove ${count} empty service${count === 1 ? "" : "s"}? Nothing is `
+      + `unpublished — a service holding a layer or a group is never swept — but a `
+      + `container somebody made on purpose looks the same as one a publish left behind.`)) {
+      return;
+    }
+
+    t.disabled = true;
+
+    try {
+      const r = await api("/admin/featureservices/sweep", { method: "POST" });
+
+      // <b>Named in the toast, because the risk of this button is which.</b> A message
+      // saying *4 removed* leaves an operator unable to answer what they just did.
+      toast(r.count === 0 ? r.note : `Removed: ${r.removed.join(", ")}.`, true);
+
+      await section("the empty services", loadEmptyServices, "emptyRows");
+      await loadLayers();
+    } catch (e) { toast(e.message); }
+
+    t.disabled = false;
     return;
   }
 

@@ -597,6 +597,70 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// The sweep removes the empty containers and nothing that holds anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-54's fix, and the assertion that matters is the second one.</b> Removing
+    /// two empty services is easy; the risk of a sweep is that it takes away something
+    /// somebody wanted, so this asserts that a service holding a layer survives and a
+    /// service holding only a <em>group</em> survives too. The second is the one a
+    /// naive query gets wrong: a group layer is a container the operator made, in a
+    /// different table from the feature layers, so counting layers alone calls that
+    /// service empty.
+    /// </para>
+    /// <para>
+    /// <b>And it returns names rather than a count</b>, because the operator has to be
+    /// able to answer *which* afterwards — this is the operation whose whole risk is
+    /// that the answer matters.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task The_sweep_removes_empty_services_and_keeps_everything_that_holds_something()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.CreateServiceAsync(
+            "leftover_a", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.CreateServiceAsync(
+            "leftover_b", "shelf", null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "occupant", service: "holds_a_layer"), owner,
+            CancellationToken.None);
+
+        // A service whose only content is a group layer. Empty by a layer count and not
+        // empty in any sense that matters.
+        await admin.CreateServiceAsync(
+            "holds_a_group", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(
+            null, "holds_a_group", "a group", null, CancellationToken.None);
+
+        IReadOnlyList<string> removed =
+            await admin.SweepEmptyServicesAsync(CancellationToken.None);
+
+        Assert.Equal(2, removed.Count);
+        Assert.Contains("leftover_a", removed);
+        Assert.Contains("shelf/leftover_b", removed);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        Assert.NotNull(
+            await catalog.FindServiceAsync(null, "holds_a_layer", CancellationToken.None));
+
+        Assert.NotNull(
+            await catalog.FindServiceAsync(null, "holds_a_group", CancellationToken.None));
+
+        Assert.Null(await catalog.FindServiceAsync(null, "leftover_a", CancellationToken.None));
+
+        // A second sweep finds nothing, which is what makes it safe to press twice.
+        Assert.Empty(await admin.SweepEmptyServicesAsync(CancellationToken.None));
+    }
+
+    /// <summary>
     /// An empty service can be removed; one holding a layer cannot.
     /// </summary>
     /// <remarks>

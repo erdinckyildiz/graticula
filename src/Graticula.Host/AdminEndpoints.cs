@@ -275,6 +275,12 @@ internal static class AdminEndpoints
         app.MapGet("/admin/featureservices", ListServicesAsync);
         app.MapPost("/admin/featureservices", CreateServiceAsync);
         app.MapDelete("/admin/featureservices/{name}", DeleteServiceAsync);
+
+        // D-54: the empty containers a publish-and-unpublish cycle leaves behind. A
+        // sweep an operator asks for, because nothing records which services were
+        // created deliberately.
+        app.MapGet("/admin/featureservices/empty", ListEmptyServicesAsync);
+        app.MapPost("/admin/featureservices/sweep", SweepEmptyServicesAsync);
         app.MapPost("/admin/services/{name}/groups", CreateGroupLayerAsync);
         app.MapDelete("/admin/services/{name}/groups/{index:int}", DeleteGroupLayerAsync);
 
@@ -801,6 +807,98 @@ internal static class AdminEndpoints
     /// remove the container but not the thing inside it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Which services hold nothing, so an operator can see before deciding.
+    /// </summary>
+    /// <remarks>
+    /// <b>A read before a write, and it is what makes the sweep safe to offer.</b>
+    /// D-54 refused automatic removal because a service created by a publish and one
+    /// created on purpose are the same row. Naming them first moves the judgement to
+    /// the person who knows: a container they meant to keep is kept by not pressing
+    /// the button.
+    /// </remarks>
+    private static async Task ListEmptyServicesAsync(
+        HttpContext context,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // <b>`AdminService.IsEmpty` already exists, and using it is the point.</b> It
+        // was added when empty services first became visible (D-48), and a second
+        // definition of *empty* written here is how two answers to one question start
+        // disagreeing — which is D-46's whole subject.
+        IReadOnlyList<AdminService> services =
+            await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        var empty = services
+            .Where(s => s.IsEmpty)
+            .Select(s => new
+            {
+                name = s.Name,
+                folder = s.Folder,
+                qualified = s.Qualified,
+                sharing = s.Sharing.ToString().ToLowerInvariant(),
+                kind = s.Kind,
+            })
+            .ToArray();
+
+        await Results.Json(new
+        {
+            empty,
+            count = empty.Length,
+            note = empty.Length == 0
+                ? "Every service holds something."
+                : "These hold no layers and no groups. Publishing a layer creates the service "
+                    + "that holds it and unpublishing the last one leaves the container, so this "
+                    + "is usually the residue of that. Nothing records which services were "
+                    + "created deliberately, which is why removing them is a decision rather "
+                    + "than a cleanup that happens by itself.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Removes every service that holds nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Audited by name, not by count.</b> Removing four services and recording *4*
+    /// leaves nobody able to answer *which*, and this is the operation whose whole risk
+    /// is that it took away something somebody wanted — so the names go in the record.
+    /// </remarks>
+    private static async Task SweepEmptyServicesAsync(
+        HttpContext context,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IReadOnlyList<string> removed =
+            await catalog.SweepEmptyServicesAsync(cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "service.sweep", $"{removed.Count} service(s)",
+            Detail(new { removed }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            removed,
+            count = removed.Count,
+            note = removed.Count == 0
+                ? "Nothing to remove: every service holds something."
+                : "Removed. Nothing was unpublished — a service holding a layer or a group is "
+                    + "never swept, which is also why the geometry service is untouched.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task DeleteServiceAsync(
         HttpContext context,
         string name,

@@ -615,6 +615,31 @@
     <div class="panel"><dl class="metrics" id="cacheMetrics"></dl></div>
     <p class="hint" id="cacheNotes" style="margin-top:10px"></p>
 
+    <!--
+      <b>D-54: the containers a publish-and-unpublish cycle leaves behind.</b> On
+      Operations rather than on Services, because it is maintenance on the estate rather
+      than an act on one service — and because it reads before it writes. Nothing records
+      which services were created deliberately, so the names are listed and the operator
+      decides; a container somebody meant to keep is kept by not pressing the button.
+    -->
+    <div class="label">Empty services</div>
+    <p class="lede">Publishing a layer creates the service that holds it, and unpublishing
+      the last one leaves the container — so an estate accumulates services with nothing in
+      them, each advertised in the directory as a FeatureServer with no layers.
+      <b>Nothing records which were made on purpose</b>, which is why this is a list and a
+      button rather than something that happens by itself.</p>
+    <div class="toolbar">
+      <button id="emptyRead">Look for them</button>
+      <button id="emptySweep" class="danger" disabled>Remove them</button>
+      <span class="val" id="emptyWhen"></span>
+    </div>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Service</th><th>Folder</th><th>Sharing</th></tr></thead>
+        <tbody id="emptyRows"><tr><td colspan="3" class="empty">Not read yet.</td></tr></tbody>
+      </table>
+    </div>
+
     <div class="label">Route governance</div>
     <p class="lede">Every route this server answers, and what decides who may reach it.
       <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
