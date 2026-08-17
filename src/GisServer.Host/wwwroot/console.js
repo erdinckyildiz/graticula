@@ -16,6 +16,8 @@ const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem("gis-token") || null;
 
 // One colour per shown layer, so the legend means something.
+const SCOPES = ["private", "organization", "public"];
+
 const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
 const TILE_COLOUR = "#8fb8cc";
 const shown = new Map();     // layer name -> { colour, layer }
@@ -727,121 +729,184 @@ async function loadSystemServices() {
 
 function closeDrawer() {
   selected = null;
+  editing = null;
+
+  // The Save bar belongs to an editing session, so it goes with it. Leaving it
+  // visible over the New-layer drawer would offer to save something that is not
+  // open.
+  $("editBar").style.display = "none";
+
   $("drawer").classList.remove("on");
   $("drawer").setAttribute("aria-hidden", "true");
   for (const row of document.querySelectorAll("tr.sel")) row.classList.remove("sel");
 }
 
+/**
+ * The layer editor: a left column of short settings pages, one Save.
+ *
+ * <b>The structure is taken from ArcGIS Server Manager, on the owner's reference,
+ * and not from taste.</b> Three visual concepts were built and thrown away first;
+ * what was wrong with them was the information architecture, not the palette. What
+ * their screen does that ours did not:
+ *
+ * · <b>Settings are paginated, not stacked.</b> General, Capabilities, Pooling,
+ *   Caching — each page short enough to read without scrolling. Ours was eight
+ *   sections in one column.
+ * · <b>A breadcrumb names the object being edited</b> — theirs reads
+ *   `Editing: Site (root) > EGDB > _06Z_Wind_Gust_Day_3`, so you always know what
+ *   Save will change.
+ * · <b>One Save and one Cancel for the session</b>, always visible, rather than a
+ *   button beside every control.
+ * · <b>Capabilities are names in a grid</b>, seventeen visible at once, with no
+ *   prose. A greyed, checked box states a fact — *Mapping (always enabled)* — which
+ *   is the same device we need for tiles on a registered layer.
+ * · <b>Numbers read as sentences with the unit outside the box</b>: *The maximum
+ *   time a client can use a service: [600] seconds*.
+ * · <b>Help is a link.</b> Not a paragraph under each control.
+ *
+ * Their pages do not map one-to-one onto ours and are not forced to: we have no
+ * instance pool, so *Pooling* becomes *Limits*, which is where ADR-031's ceilings
+ * and Q-113's live.
+ */
+const EDIT_PAGES = ["general", "capabilities", "limits", "caching", "sharing", "endpoints"];
+
+/** What the editor holds while it is open. Saved as a whole, or cancelled. */
+let editing = null;
+
 function openLayer(name) {
   const l = layerNamed(name);
   selected = name;
+  editing = { name, dirty: false };
 
+  const stopped = l.status === "stopped";
   const isShown = shown.has(name);
   const tilesShown = shown.has(tileKey(name));
-  const stopped = l.status === "stopped";
 
   $("drawerTitle").textContent = name;
   $("drawerSub").textContent = `${l.hosted ? "hosted" : "registered"} · ${l.dataSource || ""}`;
 
   $("drawerBody").innerHTML = `
-    <div class="group">
-      <div class="row" style="margin-bottom:0">
-        <button data-show="${h(name)}" class="${isShown ? "on" : ""}"
-          ${stopped ? "disabled title='A stopped service answers 503, so there is nothing to draw.'" : ""}>
-          ${isShown ? "Hide on map" : "Show on map"}</button>
-        ${l.hosted
-          ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}
-               title="Draw this as vector tiles, through Esri's VectorTileLayer.">
-               ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
-          : `<button disabled title="Tiles come only from hosted data — data this server owns as
-               system of record (Q-67). This layer is registered, so it has a FeatureServer and no
-               VectorTileServer.">No tiles</button>`}
-        <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}">
-          ${stopped ? "Start" : "Stop"}</button>
+    <div id="edit">
+      <nav id="editNav">
+        ${EDIT_PAGES.map((p, i) =>
+          `<button data-page="${p}"${i === 0 ? ' aria-current="page"' : ""}>${
+            p[0].toUpperCase() + p.slice(1)}</button>`).join("")}
+      </nav>
+
+      <div id="editPages">
+        <section class="page on" id="page-general">
+          <h4>State</h4>
+          <div class="row" style="margin-bottom:12px">
+            <button data-show="${h(name)}" class="${isShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
+              ${isShown ? "Hide on map" : "Show on map"}</button>
+            ${l.hosted
+              ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
+                   ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
+              : ""}
+            <button data-toggle="${h(name)}" data-to="${stopped ? "start" : "stop"}">
+              ${stopped ? "Start" : "Stop"}</button>
+          </div>
+
+          <h4>Contents</h4>
+          <div id="contents" class="val">reading the layer document…</div>
+
+          <h4>Identity</h4>
+          <dl class="facts">
+            <dt>Source table</dt><dd>${h(l.table)}</dd>
+            <dt>Data source</dt><dd>${h(l.dataSource || "")}</dd>
+            <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
+            <dt>Layer id</dt><dd>${h(l.id || "—")}</dd>
+          </dl>
+        </section>
+
+        <section class="page" id="page-capabilities">
+          <h4>Select and configure capabilities</h4>
+          <div class="grid2">
+            <label><input type="checkbox" id="capFeatures"> Feature access</label>
+            <label class="${l.hosted ? "" : "off"}">
+              <input type="checkbox" id="capTiles" ${l.hosted ? "" : "disabled"}> Vector tiles</label>
+          </div>
+
+          <h4>Operations allowed</h4>
+          <div class="grid2" id="ops">
+            ${["Query", "Create", "Update", "Delete", "Extract"].map(o =>
+              `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
+          </div>
+
+          <h4>URLs</h4>
+          <dl class="facts" id="endpointsShort"><dt>—</dt><dd>resolving…</dd></dl>
+        </section>
+
+        <section class="page" id="page-limits">
+          <h4>Specify response limits</h4>
+          <div class="setting"><span class="q">The most rows one response may carry:</span>
+            <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
+          <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
+            <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
+          <div class="setting"><span class="q">The most one response body may reach:</span>
+            <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
+
+          <h4>Specify request limits</h4>
+          <div class="setting"><span class="q">The most one request body may carry:</span>
+            <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
+          <div class="setting"><span class="q">The most edits one call may apply:</span>
+            <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
+          <div class="setting"><span class="q">The longest one statement may run:</span>
+            <input type="number" id="capTimeout" min="1" placeholder="source default"><span class="u">ms</span></div>
+        </section>
+
+        <section class="page" id="page-caching">
+          <h4>Tile cache</h4>
+          ${l.hosted ? `
+          <div class="setting"><span class="q">How long a tile stays fresh:</span>
+            <input type="number" id="ttl" min="0" step="1" placeholder="server default"><span class="u">seconds</span></div>
+          <div class="row" style="margin-top:8px">
+            <button data-cache="${h(name)}">Set</button>
+            <button data-cache="${h(name)}" data-clear="1" class="ghost">Use default</button>
+          </div>`
+          : `<p class="hint">Tiles come only from hosted data, so this layer has no tile cache.</p>`}
+
+          <h4>Style</h4>
+          <div class="row">
+            <button data-style="${h(name)}">Fetch current</button>
+            <button data-style-del="${h(name)}" class="ghost">Back to generated</button>
+            <button class="primary" data-style-put="${h(name)}">Store</button>
+          </div>
+          <textarea id="styleDoc" rows="7" spellcheck="false"
+            placeholder="A MapLibre style document. Fetch first."></textarea>
+        </section>
+
+        <section class="page" id="page-sharing">
+          <h4>Who may read it</h4>
+          <div class="row">
+            <select data-share="${h(name)}">
+              ${SCOPES.map(v =>
+                `<option value="${v}"${v === l.sharing ? " selected" : ""}>${v}</option>`).join("")}
+            </select>
+          </div>
+
+          <h4>Maintenance</h4>
+          <div class="row">
+            <button data-refresh="${h(name)}">Forget remembered shape</button>
+            <button class="danger" data-delete="${h(name)}">Delete layer</button>
+          </div>
+        </section>
+
+        <section class="page" id="page-endpoints">
+          <h4>Addresses</h4>
+          <dl class="facts" id="endpoints"><dt>—</dt><dd>resolving…</dd></dl>
+        </section>
       </div>
-    </div>
-
-    <div class="group">
-      <h3>Contents</h3>
-      <div id="contents" class="val">reading the layer document…</div>
-      <p class="hint" style="margin-top:8px">Read from the service's own layer document, which is
-        what any ArcGIS client reads — so this is the server's answer rather than the
-        catalogue's, and a disagreement between them is worth knowing about.</p>
-    </div>
-
-    <div class="group">
-      <h3>Identity</h3>
-      <dl class="facts">
-        <dt>Source table</dt><dd>${h(l.table)}</dd>
-        <dt>Data source</dt><dd>${h(l.dataSource || "")}</dd>
-        <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
-        <dt>Layer id</dt><dd>${h(l.id || "—")}</dd>
-        <dt>ArcGIS servable</dt><dd>${l.arcGisServable ? "yes" : "no — the table has no object id"}</dd>
-      </dl>
-    </div>
-
-    <div class="group">
-      <h3>Sharing</h3>
-      <div class="row" style="margin-bottom:6px">
-        <select data-share="${h(name)}">
-          ${["private", "organization", "public"].map(v =>
-            `<option value="${v}"${v === l.sharing ? " selected" : ""}>${v}</option>`).join("")}
-        </select>
-      </div>
-      <p class="hint">Who may read it. Separate from started/stopped, which is whether it runs
-        at all — ADR-020 §3.</p>
-    </div>
-
-    ${l.hosted ? `
-    <div class="group">
-      <h3>Tile cache lifetime</h3>
-      <div class="row" style="margin-bottom:6px">
-        <label class="field">Seconds<input type="number" id="ttl" min="0" step="1"
-          style="width:110px" placeholder="server default"></label>
-        <button data-cache="${h(name)}">Set</button>
-        <button data-cache="${h(name)}" data-clear="1" class="ghost">Use default</button>
-      </div>
-      <p class="hint">Set by whoever knows how volatile the data is. <code>0</code> means never
-        served from cache and <code>no-store</code> downstream. Changing this purges nothing:
-        new freshness does not make an existing tile wrong.
-        <b>The box starts empty because the layer listing does not carry the current value</b> —
-        so this sets it and cannot show it, which is a gap in the API rather than in this
-        screen (ADR-020 §2).</p>
-    </div>` : ""}
-
-    <div class="group">
-      <h3>Style</h3>
-      <div class="row" style="margin-bottom:6px">
-        <button data-style="${h(name)}">Fetch current</button>
-        <button data-style-del="${h(name)}" class="ghost">Back to generated</button>
-      </div>
-      <textarea id="styleDoc" rows="8" spellcheck="false"
-        placeholder="A MapLibre style document. Fetch first to see what is served now."></textarea>
-      <div class="row" style="margin:8px 0 0">
-        <button class="primary" data-style-put="${h(name)}">Store style</button>
-      </div>
-    </div>
-
-    <div class="group">
-      <h3>Endpoints</h3>
-      <dl class="facts" id="endpoints"><dt>—</dt><dd>resolving…</dd></dl>
-    </div>
-
-    <div class="group">
-      <h3>Maintenance</h3>
-      <div class="row" style="margin-bottom:6px">
-        <button data-refresh="${h(name)}">Forget remembered shape</button>
-        <button class="danger" data-delete="${h(name)}">Delete layer</button>
-      </div>
-      <p class="hint">The shape of a table is remembered for a while (D-17); refresh forgets it
-        now, which is what you want after altering the table at the source. Deleting removes the
-        publication${l.hosted ? " and, because this layer is hosted, its table" : ", and leaves the customer's table alone"}.</p>
     </div>`;
 
   const ttl = $("ttl");
   if (ttl && l.cacheSeconds != null) ttl.value = l.cacheSeconds;
 
+  $("editBar").style.display = "flex";
+  $("editCrumb").textContent = `Editing: ${l.hosted ? "hosted" : "registered"} › ${name}`;
+
   describeContents(name, l);
+  section("service settings", () => loadServiceCapabilities(name));
 
   for (const row of document.querySelectorAll("tr.sel")) row.classList.remove("sel");
   const row = document.querySelector(`tr[data-pick="${CSS.escape(name)}"]`);
@@ -849,6 +914,96 @@ function openLayer(name) {
 
   $("drawer").classList.add("on");
   $("drawer").setAttribute("aria-hidden", "false");
+}
+
+/** Shows one settings page. */
+function openEditPage(page) {
+  for (const b of document.querySelectorAll("#editNav button")) {
+    if (b.dataset.page === page) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  }
+
+  for (const s of document.querySelectorAll(".page")) {
+    s.classList.toggle("on", s.id === `page-${page}`);
+  }
+}
+
+/**
+ * Reads what the service is configured to offer, into the pages.
+ *
+ * <b>Read, never assumed.</b> The old cache box started empty and explained in a
+ * paragraph that it could not show the current value. A control that displays a
+ * figure it did not read is a control that lies the moment somebody changes it in
+ * another window.
+ */
+async function loadServiceCapabilities(name) {
+  const place = (await resolvePlaces()).get(name);
+  if (!place) return;
+
+  const { folder, name: service } = splitService(place.service);
+  const c = await api(`/admin/services/${encodeURIComponent(service)}/capabilities`
+    + `?folder=${encodeURIComponent(folder || "")}`) || {};
+
+  const set = (id, v) => { const el = $(id); if (el && v != null) el.value = v; };
+
+  if ($("capFeatures")) $("capFeatures").checked = c.servesFeatures !== false;
+  if ($("capTiles") && !$("capTiles").disabled) $("capTiles").checked = c.servesTiles !== false;
+
+  // An unset ceiling is every operation the caller's privileges allow, so the boxes
+  // start ticked and unticking one is the narrowing.
+  const allowed = c.capabilities ?? null;
+  for (const box of document.querySelectorAll("#ops input[data-op]")) {
+    box.checked = allowed === null || allowed.includes(box.dataset.op);
+  }
+
+  set("capMaxRows", c.maxRecordCount);
+  set("capDefRows", c.defaultRecordCount);
+  set("capOutBytes", c.maxResponseBytes);
+  set("capInBytes", c.maxRequestBytes);
+  set("capEdits", c.maxEditsPerTransaction);
+  set("capTimeout", c.statementTimeoutMs);
+}
+
+/** Saves every settings page at once, which is what one Save means. */
+async function saveEditing() {
+  if (!editing) return;
+
+  const place = (await resolvePlaces()).get(editing.name);
+  if (!place) { toast(`${editing.name} is not in the services directory.`); return; }
+
+  const { folder, name: service } = splitService(place.service);
+  const num = id => {
+    const raw = ($(id)?.value ?? "").trim();
+    return raw === "" ? null : Number(raw);
+  };
+
+  const ops = [...document.querySelectorAll("#ops input[data-op]")];
+  const ticked = ops.filter(b => b.checked).map(b => b.dataset.op);
+
+  const saved = await api(`/admin/services/${encodeURIComponent(service)}/capabilities`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      folder,
+      servesFeatures: $("capFeatures").checked ? null : false,
+      servesTiles: $("capTiles").disabled ? null : ($("capTiles").checked ? null : false),
+
+      // All ticked means unset — the caller's privileges decide — rather than a
+      // ceiling that happens to list everything. The two behave alike today and
+      // diverge the moment a capability is added.
+      capabilities: ticked.length === ops.length ? null : ticked,
+
+      maxRecordCount: num("capMaxRows"),
+      defaultRecordCount: num("capDefRows"),
+      maxResponseBytes: num("capOutBytes"),
+      maxRequestBytes: num("capInBytes"),
+      maxEditsPerTransaction: num("capEdits"),
+      statementTimeoutMilliseconds: num("capTimeout"),
+    }),
+  });
+
+  toast(saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved`, true);
+  editing.dirty = false;
 }
 
 /**
@@ -1583,6 +1738,15 @@ async function handleClick(event) {
   if (t.closest("nav") && d.tab) { openTab(d.tab); return; }
   if (t.id === "newLayer") { openNewLayer(); return; }
   if (t.id === "drawerClose") { closeDrawer(); return; }
+  if (t.dataset.page) { openEditPage(t.dataset.page); return; }
+  if (t.id === "editCancel") { closeDrawer(); return; }
+
+  if (t.id === "editSave") {
+    t.disabled = true;
+    await section("settings", saveEditing);
+    t.disabled = false;
+    return;
+  }
 
   if (t.id === "basemapSet" || t.id === "basemapClear") {
     const url = t.id === "basemapClear" ? "" : $("basemapInput").value.trim();
