@@ -776,6 +776,49 @@ kept the increase and the picture did not**: 104×70 in a ~101-pixel row, so nam
 folder panel are a tenth larger as asked while the row is much nearer the reference's density. Said
 out loud here because the alternative is silently picking one and calling it done.
 
+### 5i. Five details the owner named, and one left undecided — 2026-08-17
+
+Item-by-item feedback on the polish pass, each of which turned out to be about a *distinction* rather
+than about appearance.
+
+**The sidebar's base is now the owner's own number.** *"Soldaki menünün renkleri daha şık. oradaki
+ana renk `#171b49`, bizdeki `#111d34`."* The two are within a few points for brightness — the
+difference is hue: ours sat at 210° (a blue-grey slate) and theirs at 234° (an indigo). Slate reads as
+*chrome*; indigo reads as a product that decided on a colour. **The derived tokens moved with it
+rather than being kept**, because a line and a hover surface mixed from slate against an indigo base
+is exactly what makes a palette look almost-right.
+
+**The layer stack holds a map.** *"Katmanlardaki şu geçişler daha güzel. içinde de harita var gibi.
+bizde içi boş dikdörtgenler var."* Both halves fair, and the second is the one that matters: a hollow
+outline says *box*; a filled surface with a graticule and a scatter of nodes says *layer*. Four plates
+now, each with a gradient fill, a grid drawn on it, nodes, and a rim light — rotated once as a group,
+so the grid inside each plate is skewed with it and reads as a map in perspective. Teal on top and
+violet at the bottom, which is the reference's order and not arbitrary: down the stack is further
+away, and a violet top plate makes the stack read as sinking rather than as layers seen from above.
+
+**Sharing carries a glyph.** *"Sharing'deki icon mantığı güzel."* It is: a globe and a padlock are
+read before a word is. Inline SVG rather than an icon font or emoji — emoji are colour glyphs that
+ignore `currentColor`, which is fatal for a set whose job is to inherit the hue that already
+distinguishes the three scopes. **The glyph replaces the dot rather than joining it**, because a badge
+carrying both is two signals for one fact.
+
+**Two greens, for the reason there are two teals.** *"Service health'taki donut'ın renkleri, alttaki
+lejant renkleri güzel."* Ours were dark because one token was doing two jobs: text on a pale badge,
+where it must be dark enough to read, and an arc or a dot, where dark reads as muddy. `--ok` stays the
+text colour and `--ok-dot` is the indicator. **The ring still shows no amber or red at nine-of-nine
+started**, although the reference does with the same data — those arcs are decoration, and the whole
+point of an arc is that its length is the count.
+
+**The verb carries its shape**, and the folder rail distinguishes the root from a folder — a house
+against a folder, which is a real distinction: the root is where a service lives when nobody put it
+anywhere, and giving it the same icon as `turkiye` would say it is one folder among four.
+
+**Left alone: whether Server and Studio should look like two buttons.** *"Server ve studio ayrı
+butonlar gibi, hangisi daha güzel bilemedim."* Unchanged, deliberately — the current form is a
+segmented control where the filled half is where you are and the hue says which environment that is
+(teal for Server, violet for Studio). Two independent buttons would read as two actions, and one of
+them is not an action, it is where you already are. Recorded as undecided rather than quietly settled.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

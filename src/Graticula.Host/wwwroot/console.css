@@ -27,13 +27,23 @@
     dark-on-light. Keeping them as separate token sets is what stops a component drifting into the
     wrong one — a "muted text" that works on both would be washed out on one of them.
   */
-  --nav-base: #111c30;
-  --nav-deep: #0c1526;
-  --nav-line: #1e2c46;
-  --nav-ink: #e8eef7;
-  --nav-muted: #8fa3c0;
-  --nav-faint: #64789a;
-  --nav-on: #17263f;
+  /*
+    <b>The base is the owner's own number.</b> 2026-08-17: *"soldaki menünün renkleri daha şık. oradaki
+    ana renk #171b49, bizdeki #111d34."* They are right about why, and the reason is the hue rather
+    than the lightness — the two are within a few points of each other for brightness, but ours sat at
+    210° (a blue-grey slate) and theirs at 234° (an indigo). Slate reads as *chrome*; indigo reads as
+    *a product decided on a colour*.
+    <b>The derived tokens moved with it rather than being kept.</b> A line and a hover surface mixed
+    from slate against an indigo base is what makes a palette look almost-right — so `--nav-line`,
+    `--nav-on` and the two greys are re-derived at the new hue.
+  */
+  --nav-base: #171b49;
+  --nav-deep: #101336;
+  --nav-line: #272c66;
+  --nav-ink: #eceefb;
+  --nav-muted: #9ea4d2;
+  --nav-faint: #6e75ad;
+  --nav-on: #1e2359;
 
   --paper: #f6f8fa;
   --surface: #ffffff;
@@ -77,7 +87,19 @@
   --indigo: #2a3f7a;
   --indigo-glow: #3b52a8;
 
-  /* Status: hue *and* lightness differ, so a state is never carried by colour alone. */
+  /*
+    Status: hue *and* lightness differ, so a state is never carried by colour alone.
+
+    <b>Two greens, for the reason there are two teals.</b> Owner 2026-08-17: *"service health'taki
+    donut'ın renkleri, alttaki lejant renkleri güzel"* — theirs are brighter than ours were, and the
+    reason ours were dark is that the same token was doing two jobs: text on a pale badge, where it
+    must be dark enough to read, and a dot or an arc, where dark reads as muddy. So `--ok` stays the
+    text colour and `--ok-dot` is the indicator, and the same for the other two.
+  */
+  --ok-dot: #21b56a;
+  --warn-dot: #e0a020;
+  --alert-dot: #e0503f;
+
   --ok: #1c7d4d;
   --ok-soft: #e6f4ec;
   --ok-line: #b6ddc6;
@@ -190,9 +212,9 @@ a:hover { text-decoration: underline; }
 */
 #rail {
   background:
-    radial-gradient(920px 420px at -12% -6%, rgba(59, 82, 168, .55), transparent 62%),
-    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .13), transparent 68%),
-    linear-gradient(178deg, #12203a 0%, var(--nav-base) 44%, #0c1425 100%);
+    radial-gradient(920px 420px at -12% -6%, rgba(88, 96, 214, .42), transparent 62%),
+    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .14), transparent 68%),
+    linear-gradient(178deg, #1c2058 0%, var(--nav-base) 46%, #12153a 100%);
   border-right: 1px solid var(--nav-line);
   display: flex;
   flex-direction: column;
@@ -239,36 +261,88 @@ a:hover { text-decoration: underline; }
   radial-gradient repeated on a 22-pixel pitch — the same idea as the graticule higher up, at a
   different scale, so the two read as one texture rather than two decorations.
 */
+/*
+  <b>A stack of map surfaces, not a stack of empty rectangles.</b> Owner 2026-08-17: *"katmanlardaki
+  şu geçişler daha güzel. içinde de harita var gibi. bizde içi boş dikdörtgenler var."* — the
+  reference's layers have nicer gradients and look like there is a map inside them; ours are hollow
+  rectangles. Both halves are fair, and the second is the one that matters: a hollow outline says
+  *box*, and a surface with a graticule and a few nodes on it says *layer*.
+
+  <b>Four things per layer, all CSS, no asset.</b> A filled gradient rather than a border; a graticule
+  drawn on it; a scatter of nodes; and a rim light on the top edge so the plates read as stacked
+  rather than as concentric. The whole group is rotated once, so the grid inside each plate is
+  skewed with it — which is what makes it read as a map in perspective instead of as a texture.
+
+  <b>And beams above it</b>, because the reference has them and they do a job: a column with a stack
+  at the bottom and nothing above is bottom-heavy. Thin vertical gradients fading downward, with the
+  dot field, are enough — no animation, because a sidebar that moves is a sidebar you look at instead
+  of navigating with.
+*/
 #railArt {
-  position: absolute; left: 0; right: 0; bottom: 126px; height: 190px;
-  pointer-events: none; opacity: .78; z-index: 0;
+  position: absolute; left: 0; right: 0; bottom: 118px; height: 230px;
+  pointer-events: none; opacity: .9; z-index: 0;
 }
 
+/* The atmosphere: a survey-dot field, and light falling into the stack. */
+/*
+  <b>The dot field and the light falling into the stack.</b> The first version masked both away — a
+  radial mask centred on the plates cut the beams off at their brightest end, which is the half that
+  makes them read as light rather than as three stray lines. The mask is now a vertical fade, so the
+  beams start at full strength above the stack and the dots thin out into the navy.
+*/
 #railArt::before {
-  content: ""; position: absolute; inset: -26px -10px 10px;
-  background-image: radial-gradient(rgba(150, 210, 240, .30) 1px, transparent 1.4px);
-  background-size: 22px 22px;
-  mask-image: radial-gradient(closest-side at 50% 62%, #000 8%, transparent 84%);
+  content: ""; position: absolute; inset: -96px -12px 46px;
+  background-image:
+    linear-gradient(to bottom, rgba(120, 235, 225, .55), transparent 78%),
+    linear-gradient(to bottom, rgba(160, 175, 255, .42), transparent 70%),
+    linear-gradient(to bottom, rgba(120, 235, 225, .32), transparent 62%),
+    linear-gradient(to bottom, rgba(180, 150, 255, .30), transparent 56%),
+    radial-gradient(rgba(172, 180, 245, .34) 1px, transparent 1.4px);
+  background-size: 1px 188px, 1px 150px, 1px 118px, 1px 96px, 23px 23px;
+  background-position: 31% 0, 58% 0, 74% 0, 44% 0, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
+  mask-image: linear-gradient(to bottom, #000 0 62%, rgba(0, 0, 0, .35) 82%, transparent 100%);
 }
 
+/* The glow the stack sits in. */
 #railArt::after {
-  content: ""; position: absolute; left: 50%; bottom: 8px;
-  width: 260px; height: 150px; margin-left: -130px;
-  background: radial-gradient(closest-side, rgba(42, 211, 196, .20), transparent 72%),
-              radial-gradient(closest-side at 62% 44%, rgba(122, 92, 220, .18), transparent 76%);
-  filter: blur(2px);
+  content: ""; position: absolute; left: 50%; bottom: 6px;
+  width: 270px; height: 160px; margin-left: -135px;
+  background: radial-gradient(closest-side, rgba(42, 211, 196, .22), transparent 72%),
+              radial-gradient(closest-side at 62% 42%, rgba(122, 92, 220, .20), transparent 76%);
+  filter: blur(3px);
 }
 
 #railArt i {
-  position: absolute; left: 50%; width: 128px; height: 64px; margin-left: -64px;
-  border-radius: 9px;
-  transform: rotateX(58deg) rotateZ(45deg);
-  border: 1px solid rgba(200, 236, 250, .30);
-  box-shadow: 0 10px 22px -14px rgba(0, 0, 0, .6);
+  position: absolute; left: 50%; width: 126px; height: 126px; margin-left: -63px;
+  border-radius: 12px;
+  transform: rotateX(60deg) rotateZ(45deg) scale(.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28),
+              0 12px 24px -16px rgba(0, 0, 0, .75);
+  /*
+    Three layers inside each plate: the graticule, the nodes, and the fill. Ordered so the fill is
+    underneath — a grid over a gradient reads as drawn on it, a gradient over a grid hides it.
+  */
+  background-image:
+    repeating-linear-gradient(to right, rgba(255, 255, 255, .20) 0 1px, transparent 1px 21px),
+    repeating-linear-gradient(to bottom, rgba(255, 255, 255, .20) 0 1px, transparent 1px 21px),
+    radial-gradient(rgba(255, 255, 255, .55) 1.4px, transparent 1.8px),
+    var(--plate);
+  background-size: 21px 21px, 21px 21px, 42px 42px, auto;
+  background-position: 0 0, 0 0, 8px 12px, 0 0;
 }
-#railArt i:nth-child(1) { bottom: 6px;  background: linear-gradient(140deg, rgba(42,211,196,.60), rgba(15,179,186,.24)); }
-#railArt i:nth-child(2) { bottom: 36px; background: linear-gradient(140deg, rgba(59,120,220,.58), rgba(42,63,122,.24)); }
-#railArt i:nth-child(3) { bottom: 66px; background: linear-gradient(140deg, rgba(122,92,220,.58), rgba(58,44,120,.24)); }
+
+/*
+  <b>Teal on top, violet at the bottom, which is the reference's order and not an arbitrary one.</b>
+  The first version had it upside down. Down the stack is *further from the viewer*, and the cool
+  bright plate belongs where the eye lands; a violet top plate makes the stack read as sinking rather
+  than as layers seen from above. It is also the order a legend uses.
+*/
+#railArt i:nth-child(1) { bottom: -14px; --plate: linear-gradient(142deg, #8a63e8, #6f45d0 58%, #5a34b4); }
+#railArt i:nth-child(2) { bottom: 12px;  --plate: linear-gradient(142deg, #4f7ce8, #4a58cc 58%, #4340b4); }
+#railArt i:nth-child(3) { bottom: 38px;  --plate: linear-gradient(142deg, #2ecfd2, #2f7fd0 60%, #2a5cb8); }
+#railArt i:nth-child(4) { bottom: 64px;  --plate: linear-gradient(142deg, #3ce8c6, #16b0b0 62%, #0f86a2); }
+
 #shell.tight #railArt { display: none; }
 
 #brand {
@@ -323,7 +397,7 @@ a:hover { text-decoration: underline; }
   gap: 13px;
   padding: 12px 15px;
   border-radius: 7px;
-  color: #b6c6de;
+  color: #bcc1e8;
   font-size: var(--t-body);
   text-decoration: none;
   white-space: nowrap;
@@ -344,7 +418,7 @@ a:hover { text-decoration: underline; }
   at a heavier weight.
 */
 #tabs a[data-tab][aria-current="page"] {
-  background: linear-gradient(96deg, rgba(42, 211, 196, .17), rgba(59, 82, 168, .22));
+  background: linear-gradient(96deg, rgba(42, 211, 196, .18), rgba(96, 104, 220, .24));
   box-shadow: inset 3px 0 0 var(--cyan), var(--lift);
   color: #fff;
   font-weight: 600;
@@ -355,9 +429,9 @@ a:hover { text-decoration: underline; }
   The glyph, from a token so a section cannot arrive without one. Brighter than the label on purpose
   — the owner asked for icon contrast, and an icon at the same weight as its text is decoration.
 */
-#tabs .ico { width: 21px; flex: none; text-align: center; font-size: 17px; color: #8ea6c8;
+#tabs .ico { width: 21px; flex: none; text-align: center; font-size: 17px; color: #949bd4;
              opacity: 1; }
-#tabs a[data-tab]:hover .ico { color: #cfe0f4; }
+#tabs a[data-tab]:hover .ico { color: #d6d9f7; }
 #tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
                font-weight: inherit; color: inherit; margin: 0; }
 #collapse .label { font-size: var(--t-small); letter-spacing: 0; text-transform: none;
@@ -759,6 +833,21 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
                 flex: none; opacity: .8; }
 
+/*
+  <b>A sharing scope gets a glyph instead of a dot.</b> Owner 2026-08-17: *"sharing'deki icon mantığı
+  güzel."* It is — *public* and *private* are the two facts on this screen somebody scans for, and a
+  globe and a padlock are read before a word is. The dot is suppressed where an icon replaces it, so
+  a badge never carries both; and the icon inherits `currentColor`, so the three scopes keep the
+  hue that already told them apart.
+*/
+.pill.withicon::before { display: none; }
+.pill svg { width: 12px; height: 12px; flex: none; }
+.pill svg * { vector-effect: non-scaling-stroke; }
+
+/* The same treatment on a button: a verb reads faster with its shape beside it. */
+button .ico { font-size: 9px; margin-right: 7px; opacity: .75; vertical-align: 1px; }
+button:hover .ico { opacity: 1; }
+
 .pill.p-started, .pill.p-ok, .pill.p-usable, .pill.p-active {
   background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok);
 }
@@ -816,6 +905,14 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
   border-left-color: var(--accent);
   font-weight: 600;
 }
+/*
+  <b>The rail's icons, and the root is not a folder.</b> Owner 2026-08-17: *"folders ekranının
+  simgeleri güzel."* The reference draws a house for the site root and a folder for the rest, which
+  is a real distinction rather than decoration: the root is *where a service lives when nobody put
+  it anywhere*, and giving it the same icon as `turkiye` would say it is one folder among four.
+*/
+.rail-item svg { width: 15px; height: 15px; flex: none; color: var(--faint); }
+.rail-item.on svg { color: var(--accent); }
 .rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { margin-left: auto; font: var(--t-small)/1 var(--mono); color: var(--faint); }
 .rail-item.on .rail-count { color: var(--accent); }
@@ -861,8 +958,16 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 .donut {
   width: 84px; height: 84px; flex: none; border-radius: 50%;
   position: relative;
-  background: conic-gradient(var(--ok) 0turn var(--started), var(--warn) var(--started) 1turn);
+  background: conic-gradient(var(--ok-dot) 0turn var(--started),
+                             var(--warn-dot) var(--started) 1turn);
 }
+
+/*
+  <b>The reference draws a sliver of amber and red at nine-of-nine started, and this does not.</b>
+  Its data is 9/0/0 too, so those arcs are decoration — a ring that shows a fault where there is
+  none is the same lie as a sparkline with no history behind it, and the whole point of the arc is
+  that its length is the count.
+*/
 .donut::after {
   content: ""; position: absolute; inset: 11px; border-radius: 50%;
   background: var(--surface);
@@ -884,9 +989,9 @@ dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: norma
 .legendrow .key { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .legendrow .key::before { content: ""; width: 8px; height: 8px; border-radius: 50%;
                           background: var(--faint); }
-.legendrow.ok .key::before { background: var(--ok); }
-.legendrow.warn .key::before { background: var(--warn); }
-.legendrow.alert .key::before { background: var(--alert); }
+.legendrow.ok .key::before { background: var(--ok-dot); }
+.legendrow.warn .key::before { background: var(--warn-dot); }
+.legendrow.alert .key::before { background: var(--alert-dot); }
 .legendrow b { margin-left: auto; font: 600 var(--t-body)/1 var(--mono); color: var(--ink);
                font-variant-numeric: tabular-nums; }
 .legendrow em { font-style: normal; color: var(--faint); width: 42px; text-align: right;

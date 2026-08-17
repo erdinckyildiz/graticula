@@ -82,7 +82,62 @@ function h(value) {
   return String(value ?? "").replace(/[&<>"']/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-const pill = value => `<span class="pill p-${h(String(value).toLowerCase())}">${h(value)}</span>`;
+/**
+ * A small monochrome glyph, by name.
+ *
+ * <b>Inline SVG, not an icon font and not emoji.</b> A font is a request and a licence; emoji are
+ * colour glyphs that ignore `currentColor` and render differently on every platform, which is fatal
+ * for a set whose whole job is to inherit the hue that already distinguishes three sharing scopes.
+ * These are four paths at 16 units, stroked in `currentColor`.
+ *
+ * <b>Named after what they mean, not what they look like.</b> `public` rather than `globe`, so
+ * changing the picture later is one line here instead of a search for every caller that asked for a
+ * globe.
+ */
+const ICONS = {
+  // A globe: who may read it is *anyone*, and that is the one fact people scan this column for.
+  public: '<circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c3 3.4 3 9 0 12.4'
+        + 'c-3-3.4-3-9 0-12.4"/>',
+
+  // An organisation: two figures, because the scope is *the people here* rather than a building.
+  organization: '<circle cx="5.6" cy="6" r="2.1"/><circle cx="11" cy="6.6" r="1.7"/>'
+              + '<path d="M1.9 13c.3-2.2 1.8-3.4 3.7-3.4S9 10.8 9.3 13"/>'
+              + '<path d="M10.3 9.9c1.6.1 2.7 1.1 3 3.1"/>',
+
+  // A padlock, closed: the only scope where the answer is *nobody but its owner and an administrator*.
+  private: '<rect x="3.4" y="7.2" width="9.2" height="6.6" rx="1.4"/>'
+         + '<path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8"/>',
+
+  // A house for the site root, a folder for the rest — see the rail's own comment for why that is a
+  // distinction rather than decoration.
+  root: '<path d="M2.2 7.4 8 2.6l5.8 4.8"/><path d="M3.8 8.6v4.8h8.4V8.6"/>',
+  folder: '<path d="M1.9 4.6h4l1.4 1.7h6.8v7.1H1.9z"/>',
+};
+
+/**
+ * One glyph, as markup.
+ *
+ * `stroke` and no `fill`, because every path above is drawn as an outline — a filled globe at twelve
+ * pixels is a dot.
+ */
+const icon = name => ICONS[name]
+  ? `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
+  : "";
+
+/**
+ * A state badge, with a glyph where the state has one.
+ *
+ * <b>The glyph replaces the dot rather than joining it.</b> Owner 2026-08-17: *"sharing'deki icon
+ * mantığı güzel."* A badge carrying both would be two signals for one fact, which is the thing the
+ * badge rule exists to prevent — so `.withicon` suppresses the dot.
+ */
+const pill = value => {
+  const key = String(value).toLowerCase();
+  const glyph = icon(key);
+
+  return `<span class="pill p-${h(key)}${glyph ? " withicon" : ""}">${glyph}${h(value)}</span>`;
+};
 
 const nf = new Intl.NumberFormat();
 const num = value => nf.format(value ?? 0);
@@ -1524,6 +1579,7 @@ async function loadFolders() {
     const here = (selectedFolder ?? "") === (name ?? "");
     return `<a href="#/services${name ? "/" + encodeURIComponent(name) : ""}"
       class="rail-item${here ? " on" : ""}"${here ? ' aria-current="page"' : ""}>
+      ${icon(name ? "folder" : "root")}
       <span class="rail-name">${h(label)}${extra}</span>
       <span class="rail-count">${counts}</span></a>`;
   };
@@ -1673,13 +1729,13 @@ async function loadServices() {
             data-to="${stopped ? "start" : "stop"}"
             title="${stopped ? "Answer this service's operations again"
               : "Answer 503 for every operation on this service, without changing who may call it"}"
-            >${stopped ? "Start" : "Stop"}</button>` : `
+            ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>` : `
           <button class="tiny" data-service-status="${h(r.cover ? r.cover.name : "")}"
             data-to="${stopped ? "start" : "stop"}"
             ${r.cover ? "" : "disabled"}
             title="${stopped ? "Serve this again"
               : "Answer 503 for this service, without changing who may see it"}"
-            >${stopped ? "Start" : "Stop"}</button>
+            ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>
 
           <details class="menu">
             <summary title="More" aria-label="More actions">⋯</summary>
