@@ -404,6 +404,179 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Counted in the query rather than by reading the rows.</b> A service holding
+    /// three thousand layers is a legitimate shape and the console only wants the
+    /// number; two correlated subqueries answer it without carrying the layers back.
+    /// </remarks>
+    public async Task<IReadOnlyList<AdminService>> ListServicesAsync(
+        CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            select s.id, s.name, s.folder, s.kind, s.sharing, s.status, s.description, p.name,
+                   (select count(*) from layer l where l.service_id = s.id),
+                   (select count(*) from group_layer g where g.service_id = s.id)
+            from service s
+            left join principal p on p.id = s.owner_principal_id
+            order by coalesce(s.folder, ''), lower(s.name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<AdminService> services = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            services.Add(new AdminService(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetString(3),
+                Parse(reader.GetString(4)),
+                ParseStatus(reader.GetString(5)),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                (int)reader.GetInt64(8),
+                (int)reader.GetInt64(9)));
+        }
+
+        return services;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>One statement, and the emptiness is part of the <c>where</c>.</b> Checking
+    /// first and deleting second would leave a window in which a layer is published
+    /// into the service between the two — and the delete would then take it along,
+    /// because <c>layer.service_id</c> cascades. Making the condition part of the delete
+    /// hands that race to the database instead of losing it here.
+    /// </para>
+    /// <para>
+    /// The counts come from a second read, taken only when nothing was deleted, so the
+    /// refusal can say what is in the way. Reading them afterwards is sound: whatever
+    /// they are now, they were not zero at the moment that mattered.
+    /// </para>
+    /// </remarks>
+    public async Task<(Removal Outcome, int Layers, int Groups)> DeleteServiceAsync(
+        string name,
+        string? folder,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Delete = """
+            delete from service s
+             where lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
+               and not exists (select 1 from layer l where l.service_id = s.id)
+               and not exists (select 1 from group_layer g where g.service_id = s.id)
+            """;
+
+        await using NpgsqlCommand delete = _dataSource.CreateCommand(Delete);
+        delete.Parameters.AddWithValue("name", name);
+        delete.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        if (await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            return (Removal.Removed, 0, 0);
+        }
+
+        const string Holds = """
+            select (select count(*) from layer l where l.service_id = s.id),
+                   (select count(*) from group_layer g where g.service_id = s.id)
+              from service s
+             where lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand holds = _dataSource.CreateCommand(Holds);
+        holds.Parameters.AddWithValue("name", name);
+        holds.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        await using NpgsqlDataReader reader =
+            await holds.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return (Removal.Absent, 0, 0);
+        }
+
+        return (Removal.Occupied, (int)reader.GetInt64(0), (int)reader.GetInt64(1));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The same shape, and the children are counted from both tables.</b> A group may
+    /// hold feature layers and other groups, and migration 12's foreign keys mean the
+    /// database would refuse this anyway — but it would refuse with a constraint name,
+    /// and an operator reading <c>layer_parent_is_a_group</c> learns nothing about which
+    /// layers to move.
+    /// </remarks>
+    public async Task<(Removal Outcome, int Children)> DeleteGroupLayerAsync(
+        string name,
+        string? folder,
+        int index,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Delete = """
+            delete from group_layer g
+             using service s
+             where g.service_id = s.id
+               and g.layer_index = @index
+               and lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
+               and not exists (
+                     select 1 from layer l
+                      where l.service_id = s.id and l.parent_layer_index = g.layer_index)
+               and not exists (
+                     select 1 from group_layer c
+                      where c.service_id = s.id and c.parent_layer_index = g.layer_index)
+            """;
+
+        await using NpgsqlCommand delete = _dataSource.CreateCommand(Delete);
+        delete.Parameters.AddWithValue("name", name);
+        delete.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        delete.Parameters.AddWithValue("index", index);
+
+        if (await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            return (Removal.Removed, 0);
+        }
+
+        const string Holds = """
+            select (select count(*) from layer l
+                     where l.service_id = s.id and l.parent_layer_index = g.layer_index)
+                 + (select count(*) from group_layer c
+                     where c.service_id = s.id and c.parent_layer_index = g.layer_index)
+              from group_layer g
+              join service s on s.id = g.service_id
+             where g.layer_index = @index
+               and lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand holds = _dataSource.CreateCommand(Holds);
+        holds.Parameters.AddWithValue("name", name);
+        holds.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        holds.Parameters.AddWithValue("index", index);
+
+        await using NpgsqlDataReader reader =
+            await holds.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return (Removal.Absent, 0);
+        }
+
+        return (Removal.Occupied, (int)reader.GetInt64(0));
+    }
+
+    /// <inheritdoc/>
     public async Task<StyledService?> FindServiceForStyleAsync(
         string name, CancellationToken cancellationToken)
     {

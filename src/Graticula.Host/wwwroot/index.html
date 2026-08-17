@@ -179,6 +179,28 @@
       </table>
     </div>
 
+    <!--
+      Added 2026-08-17 with D-48's repair, and the listing mattered as much as the
+      delete. A service is created implicitly by publishing and left behind by
+      unpublishing the last layer, and no screen here could see one: the layer table
+      lists layers, and System services below is a different table holding the geometry
+      service. So the ordinary residue of a day's work was invisible, and the missing
+      delete had nothing to be missing from.
+    -->
+    <h2>Services</h2>
+    <p class="lede">Every feature service and what it holds. A service is a container:
+      deleting one removes the container and never its contents, so it is refused while it
+      still holds a layer or a group — the count is here so you can see which.</p>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Service</th><th>Status</th><th>Sharing</th>
+          <th class="num">Layers</th><th class="num">Groups</th><th>Owner</th><th></th>
+        </tr></thead>
+        <tbody id="services"></tbody>
+      </table>
+    </div>
+
     <h2>System services</h2>
     <p class="lede">Services with no layer behind them. They carry their own sharing scope
       because a service nobody can reach is not governed by the layers it does not have —

@@ -164,8 +164,18 @@ internal static class AdminEndpoints
 
         // Group layers. Owner request 2026-08-15: "enable group layers also."
         app.MapGet("/admin/routes", ListRoutesAsync);
+
+        // <b>Listing and deleting a feature service, added 2026-08-17 — D-48.</b> A
+        // service could be created and never removed, and worse, never seen: publishing
+        // creates one implicitly and unpublishing the last layer leaves it behind, while
+        // /admin/layers lists layers and /admin/services lists the system services,
+        // which are a different table. So the ordinary residue of a day's work was
+        // invisible, and the missing delete had nothing to be missing from.
+        app.MapGet("/admin/featureservices", ListServicesAsync);
         app.MapPost("/admin/featureservices", CreateServiceAsync);
+        app.MapDelete("/admin/featureservices/{name}", DeleteServiceAsync);
         app.MapPost("/admin/services/{name}/groups", CreateGroupLayerAsync);
+        app.MapDelete("/admin/services/{name}/groups/{index:int}", DeleteGroupLayerAsync);
 
         // <b>The style, which is the one thing about a map this server cannot
         // guess.</b> ADR-028. GET is here rather than only on the public
@@ -246,6 +256,201 @@ internal static class AdminEndpoints
                 !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Every feature service, and what each one holds.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Administrative, and it enumerates regardless of sharing</b> — the same
+    /// reasoning as the layer listing. What the services *directory* shows is filtered
+    /// by what the caller may read; this is the estate, including the private and the
+    /// stopped, which is what an administrator has to be able to see.
+    /// </para>
+    /// <para>
+    /// <b>The counts are the reason it exists.</b> A service holding nothing is the one
+    /// an operator wants to remove, and until this route there was no way to find one.
+    /// </para>
+    /// </remarks>
+    private static async Task ListServicesAsync(
+        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IReadOnlyList<AdminService> services =
+            await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            services = services.Select(s => new
+            {
+                s.Name,
+                s.Folder,
+                qualified = s.Qualified,
+                s.Kind,
+                sharing = PostgresSharing(s.Sharing),
+                status = Wire(s.Status),
+                s.Description,
+                owner = s.OwnerName,
+                s.Layers,
+                s.Groups,
+
+                // Said rather than left to be derived from two numbers, because it is
+                // the only question this listing is asked: may I remove this one?
+                empty = s.IsEmpty,
+            }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a service, and refuses while it still holds anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>409 rather than a cascade</b>, and the refusal names what is in the way. A
+    /// cascade would unpublish layers as a side effect of a call about their container,
+    /// and unpublishing is not a bookkeeping change: it purges tiles and forgets a
+    /// remembered shape. Somebody who wants that should ask for it per layer, where the
+    /// response tells them the source table was not touched.
+    /// </para>
+    /// <para>
+    /// <b>404 and 409 are kept apart.</b> Absent means the name may be wrong; occupied
+    /// means the name is right and the order of operations is not. Answering the first
+    /// for the second sends an operator looking for a service that is in front of them.
+    /// </para>
+    /// <para>
+    /// <b><c>admin:manageAllContent</c>, the same as unpublishing a layer.</b> It is a
+    /// content-destroying act on somebody's published estate, not server administration
+    /// — and holding the two to one privilege is what stops a role from being able to
+    /// remove the container but not the thing inside it.
+    /// </para>
+    /// </remarks>
+    private static async Task DeleteServiceAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        (Removal outcome, int layers, int groups) = await catalog
+            .DeleteServiceAsync(name, at, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "service.delete", name,
+            Detail(new { folder = at, outcome = outcome.ToString(), layers, groups }),
+            succeeded: outcome == Removal.Removed, cancellation).ConfigureAwait(false);
+
+        if (outcome == Removal.Absent)
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (outcome == Removal.Occupied)
+        {
+            await Refuse(context, 409,
+                $"'{name}' still holds {Count(layers, "layer")} and {Count(groups, "group layer")}. "
+                + "Deleting a service does not delete what is in it — unpublish the layers first, "
+                + "which also purges their tiles and tells you the source tables were not touched.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name,
+            folder = at,
+            removed = true,
+
+            // What a service is, said at the moment it stops existing: it held no data
+            // of its own, so nothing of anybody's went with it.
+            note = "The service held no layers, so nothing was published through it and no data "
+                 + "was removed with it.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a group layer, and refuses while anything is nested under it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Children are not reparented.</b> Moving a layer to the root as a side effect
+    /// of removing the group above it changes where a saved web map finds it — silently,
+    /// and for everybody who has one. The refusal counts the children so the operator
+    /// can move them deliberately, and the index is never reused afterwards, which is
+    /// the same promise the layer indices already make.
+    /// </remarks>
+    private static async Task DeleteGroupLayerAsync(
+        HttpContext context,
+        string name,
+        int index,
+        string? folder,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        (Removal outcome, int children) = await catalog
+            .DeleteGroupLayerAsync(name, at, index, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "group.delete", $"{name}/{index}",
+            Detail(new { folder = at, index, outcome = outcome.ToString(), children }),
+            succeeded: outcome == Removal.Removed, cancellation).ConfigureAwait(false);
+
+        if (outcome == Removal.Absent)
+        {
+            await Refuse(context, 404,
+                $"No group layer {index} in '{name}'"
+                + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (outcome == Removal.Occupied)
+        {
+            await Refuse(context, 409,
+                $"Group layer {index} still has {Count(children, "child")}. Move them to another "
+                + "group or to the top of the service first — they are not reparented for you, "
+                + "because that would move them in every saved map that points at them.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            service = name,
+            folder = at,
+            index,
+            removed = true,
+            note = $"Group layer {index} is gone. Its number is not reused, so a saved map that "
+                 + "pointed at it gets a 404 rather than somebody else's layer.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Counts a thing in words, because "1 layers" reads as a bug.</summary>
+    private static string Count(int howMany, string what) =>
+        howMany == 1 ? $"1 {what}" : $"{howMany} {what}s";
 
     /// <summary>
     /// Creates an empty service, ready for groups and layers.

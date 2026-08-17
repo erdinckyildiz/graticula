@@ -710,6 +710,11 @@ async function loadLayers() {
   $("cServices").textContent = layers.length;
   drawLayers();
 
+  // The service list moves whenever the layer list does: publishing creates a service
+  // and unpublishing the last layer empties one, and an emptied service that still shows
+  // "1 layer" would offer a Delete that refuses.
+  section("services", loadServices, "services");
+
   if (!editing) return;
 
   // The layer being edited stopped existing — deleted here, or by somebody else.
@@ -784,6 +789,43 @@ function drawLayers() {
           <td class="val">${h(l.owner || "")}</td>
         </tr>`;
       }).join("");
+}
+
+/**
+ * Every feature service, with what it holds and whether it can go.
+ *
+ * <b>Delete is offered only where it would work, and disabled with the reason where it
+ * would not.</b> ADR-020 §5h's rule about not offering a capability the API lacks has a
+ * twin: do not offer one the API will refuse. A disabled button carrying *2 layers, 1
+ * group* answers the question before it is asked; an enabled one that returns 409 makes
+ * the operator discover the rule by tripping over it.
+ */
+async function loadServices() {
+  const { services } = await api("/admin/featureservices");
+
+  $("services").innerHTML = (services || []).length === 0
+    ? `<tr><td colspan="7" class="empty">None. Publishing a layer creates one.</td></tr>`
+    : services.map(s => {
+      const held = [
+        s.layers ? `${s.layers} layer${s.layers === 1 ? "" : "s"}` : "",
+        s.groups ? `${s.groups} group${s.groups === 1 ? "" : "s"}` : "",
+      ].filter(Boolean).join(", ");
+
+      return `<tr>
+        <td class="name">${h(s.qualified)}${s.description
+          ? `<br><span class="val" style="font-weight:400">${h(s.description)}</span>` : ""}</td>
+        <td>${pill(s.status)}</td>
+        <td>${pill(s.sharing)}</td>
+        <td class="num">${num(s.layers)}</td>
+        <td class="num">${num(s.groups)}</td>
+        <td class="val">${h(s.owner || "—")}</td>
+        <td style="text-align:right">
+          <button class="tiny danger" data-service-delete="${h(s.name)}"
+            data-folder="${h(s.folder || "")}"
+            ${s.empty ? "" : `disabled title="It holds ${h(held)}. Unpublish them first — a
+              service delete never removes what is in it."`}>Delete</button>
+        </td></tr>`;
+    }).join("");
 }
 
 async function loadSystemServices() {
@@ -1071,6 +1113,54 @@ function showLayer(name, page, pending = null) {
 
   showView("view-layer", "services");
   window.scrollTo(0, 0);
+}
+
+/**
+ * Lists a service's group layers, from the document any client would read.
+ *
+ * <b>No new endpoint, and that is ADR-020 §2 rather than laziness.</b> The service
+ * document already carries the tree — a group is a layer of type `Group Layer` with its
+ * children in `subLayerIds` — so asking for it here is the same request the map makes.
+ * A second admin route returning the same facts would be a second place for them to
+ * disagree.
+ */
+async function showServiceGroups(qualified) {
+  const box = $("gExisting");
+  if (!box) return;
+
+  const service = (qualified || "").trim();
+  if (!service) { box.innerHTML = ""; return; }
+
+  box.textContent = "reading the service…";
+
+  try {
+    const doc = await api(`/rest/services/${service.split("/").map(encodeURIComponent).join("/")}`
+      + `/FeatureServer?f=json`);
+
+    const groups = (doc.layers || []).filter(l => l.type === "Group Layer");
+
+    box.innerHTML = groups.length === 0
+      ? `<span>No group layers in ${h(service)} yet.</span>`
+      : `<div>Groups in ${h(service)}:</div>` + groups.map(g => {
+        const children = (g.subLayerIds || []).length;
+        return `<div class="row" style="margin:6px 0 0;align-items:center">
+          <span class="pill p-registered">${g.id}</span>
+          <span style="font-family:var(--sans);font-size:13.5px">${h(g.name)}</span>
+          <span>${children
+            ? `${children} child${children === 1 ? "" : "ren"}`
+            : "empty"}</span>
+          <button class="tiny danger" data-group-delete="${h(service)}#${g.id}"
+            data-group-name="${h(g.name)}"
+            ${children ? `disabled title="Move its ${children} child${
+              children === 1 ? "" : "ren"} out first — they are not reparented for you,
+              because that would move them in every saved map."` : ""}>Delete</button>
+        </div>`;
+      }).join("");
+  } catch (e) {
+    // A stopped service answers 503 here, which is expected rather than a fault, so the
+    // reason is shown in place rather than as an error.
+    box.innerHTML = `<span style="color:var(--stop)">${h(e.message || String(e))}</span>`;
+  }
 }
 
 /** Shows one settings page, and marks it in the left column. */
@@ -1509,6 +1599,12 @@ function openNewLayer() {
             <input type="number" id="gParent" min="0" placeholder="top level"></label>
         </div>
         <button type="submit">Create group layer</button>
+        <!--
+          The groups a service already has, listed here and removable here. The place
+          something is made is the place to unmake it: there is no other screen a group
+          belongs to, since a group holds no data and has no settings of its own.
+        -->
+        <div id="gExisting" class="val" style="margin-top:10px"></div>
       </form>
     </div>
 
@@ -1519,6 +1615,7 @@ function openNewLayer() {
   $("regForm").addEventListener("submit", publishRegistered);
   $("svcForm").addEventListener("submit", createService);
   $("grpForm").addEventListener("submit", createGroupLayer);
+  $("gService").addEventListener("change", event => showServiceGroups(event.target.value));
   $("rSource").addEventListener("change", loadRegisteredTables);
   $("rTable").addEventListener("change", showChosenTable);
   $("dAdd").addEventListener("click", () => addFieldRow());
@@ -1774,6 +1871,11 @@ async function createGroupLayer(event) {
   ]);
 
   places = null;
+
+  // The list under the form is the record of what this service now holds, so it moves
+  // with the thing it lists rather than on the next drawer opening.
+  await section("groups", () => showServiceGroups($("gService").value));
+  await section("services", loadServices, "services");
 }
 
 function reportCreated(title, lines) {
@@ -2085,6 +2187,35 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>Empty only, and the button is already disabled otherwise</b> — this is the
+  // second guard rather than the first, because a disabled button is a hint and the
+  // server's refusal is the rule.
+  if (d.serviceDelete) {
+    if (!confirm(`Delete the service "${d.serviceDelete}"? It holds no layers, so nothing `
+        + `published goes with it.`)) return;
+    try {
+      const r = await api(`/admin/featureservices/${encodeURIComponent(d.serviceDelete)}`
+        + `?folder=${encodeURIComponent(d.folder || "")}`, { method: "DELETE" });
+      toast(`${d.serviceDelete}: ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+    await section("services", loadServices, "services");
+    return;
+  }
+
+  if (d.groupDelete) {
+    const [service, index] = d.groupDelete.split("#");
+    if (!confirm(`Delete group layer ${index} ("${d.groupName}") from ${service}?`)) return;
+    try {
+      const { folder, name } = splitService(service);
+      const r = await api(`/admin/services/${encodeURIComponent(name)}/groups/${index}`
+        + `?folder=${encodeURIComponent(folder || "")}`, { method: "DELETE" });
+      toast(r.note, true);
+    } catch (e) { toast(e.message); }
+    await section("groups", () => showServiceGroups($("gService").value));
+    await section("services", loadServices, "services");
+    return;
+  }
+
   if (d.probe) {
     t.disabled = true;
     try { renderProbe(d.probeName, await api(`/admin/datasources/${d.probe}/capability`)); }
@@ -2296,6 +2427,7 @@ async function start() {
   await Promise.all([
     section("health", refreshHealth),
     section("layers", loadLayers, "layers"),
+    section("services", loadServices, "services"),
     section("system services", loadSystemServices, "systemServices"),
     section("data sources", loadSources, "sources"),
   ]);

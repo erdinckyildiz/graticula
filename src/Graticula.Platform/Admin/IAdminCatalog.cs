@@ -113,6 +113,69 @@ public readonly record struct AdminLayer(
     bool Hosted);
 
 /// <summary>
+/// A feature service, and what it holds.
+/// </summary>
+/// <remarks>
+/// <b>The counts are the point.</b> A service is a container, and until 2026-08-17
+/// nothing could see an empty one: publishing creates a service implicitly,
+/// unpublishing the last layer leaves it behind, and no listing anywhere reported it —
+/// <c>/admin/layers</c> lists layers and <c>/admin/services</c> lists the system
+/// services, which are a different table. So the ordinary residue of a day's work was
+/// invisible, which is half of why <see href="../../../docs/architecture-debt.md">D-48</see>
+/// went unnoticed: the missing delete had nothing to be missing from.
+/// </remarks>
+/// <param name="Id">Its catalogue identity.</param>
+/// <param name="Name">Its name within its folder.</param>
+/// <param name="Folder">Its folder, or null for the root.</param>
+/// <param name="Kind">What it serves — <c>FeatureServer</c> for everything created here.</param>
+/// <param name="Sharing">Who may read it.</param>
+/// <param name="Status">Started or stopped.</param>
+/// <param name="Description">What it is for, or null.</param>
+/// <param name="OwnerName">Who owns it, or null when the principal is gone.</param>
+/// <param name="Layers">How many feature layers it holds.</param>
+/// <param name="Groups">How many group layers it holds.</param>
+public readonly record struct AdminService(
+    Guid Id,
+    string Name,
+    string? Folder,
+    string Kind,
+    SharingScope Sharing,
+    ServiceStatus Status,
+    string? Description,
+    string? OwnerName,
+    int Layers,
+    int Groups)
+{
+    /// <summary>Its address in the directory: <c>folder/name</c>, or just the name.</summary>
+    public string Qualified => Folder is null ? Name : $"{Folder}/{Name}";
+
+    /// <summary>Whether it holds nothing, and may therefore be removed.</summary>
+    public bool IsEmpty => Layers == 0 && Groups == 0;
+}
+
+/// <summary>
+/// What happened, or did not, when something was asked to be deleted.
+/// </summary>
+/// <remarks>
+/// <b>Three outcomes rather than a bool, because two of them are refusals with
+/// different answers.</b> Absent is a 404 and the caller may have the wrong name;
+/// occupied is a 409 and the caller has to empty it first. Collapsing them would tell
+/// an operator their service does not exist when it does, which sends them looking in
+/// the wrong place.
+/// </remarks>
+public enum Removal
+{
+    /// <summary>There is no such service, group, or folder.</summary>
+    Absent,
+
+    /// <summary>It still holds something, and deleting it would take that with it.</summary>
+    Occupied,
+
+    /// <summary>Gone.</summary>
+    Removed,
+}
+
+/// <summary>
 /// A service and the style stored against it.
 /// </summary>
 /// <param name="Name">Its name.</param>
@@ -330,6 +393,58 @@ public interface IAdminCatalog
     Task<ServiceCapabilityLimits?> FindServiceCapabilitiesAsync(
         string name,
         string? folder,
+        CancellationToken cancellationToken);
+
+    /// <summary>Every feature service, with what each one holds.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The services, ordered by folder then name.</returns>
+    Task<IReadOnlyList<AdminService>> ListServicesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a service, but only while it is empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Refused while it holds layers or groups, rather than cascading.</b> A cascade
+    /// here would unpublish layers as a side effect of a call about their container —
+    /// and unpublishing has consequences of its own: it purges tiles and forgets a
+    /// remembered shape. An operator who wants that should ask for it per layer, where
+    /// the response tells them the table was not touched.
+    /// </para>
+    /// <para>
+    /// The common case is the empty one, and it is why this exists: publishing creates
+    /// a service implicitly and unpublishing the last layer leaves it behind, so a
+    /// working estate accumulates empty services that nothing could remove
+    /// (<see href="../../../docs/architecture-debt.md">D-48</see>).
+    /// </para>
+    /// </remarks>
+    /// <param name="name">The service name within its folder.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened, and what it still holds if it was refused.</returns>
+    Task<(Removal Outcome, int Layers, int Groups)> DeleteServiceAsync(
+        string name,
+        string? folder,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a group layer, but only while nothing is nested under it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Children are not reparented, and that is the same argument as above.</b>
+    /// Moving a layer to the root as a side effect of deleting the group above it
+    /// changes where a saved web map finds it, silently. The refusal names how many
+    /// children there are so the operator can move them deliberately.
+    /// </remarks>
+    /// <param name="name">The service name.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="index">The group's layer index — the number in the URL.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened, and how many children if it was refused.</returns>
+    Task<(Removal Outcome, int Children)> DeleteGroupLayerAsync(
+        string name,
+        string? folder,
+        int index,
         CancellationToken cancellationToken);
 
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>

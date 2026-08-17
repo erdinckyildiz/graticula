@@ -539,12 +539,18 @@ it survived is a gap this ADR should state plainly:** there is no in-process hos
 harness in `tests/`, so no test exercises an admin endpoint's mapping from request
 to domain record. Every layer below is covered.
 
-**What the surface deliberately does not claim.** A service and a group can be
-created here and cannot be removed — there is no delete for either on the admin
-API ([D-48](../architecture-debt.md)), and unpublishing a layer leaves the service
-it created behind. The copy does not offer a delete it cannot perform, which is
-§2's rule about the console adding no capability the API lacks, applied to an
-absence rather than a feature.
+**What the surface deliberately did not claim, and no longer has to.** This
+paragraph used to say a service and a group can be created here and not removed —
+[D-48](../architecture-debt.md) — and that the copy would not offer a delete it could
+not perform. **Both deletes exist as of 2026-08-17**, and building them found the half
+D-48 had not stated: an empty service appeared in *no listing anywhere*. The layer table
+lists layers; §5e's *System services* is a different table holding the geometry service.
+So the residue of publishing and unpublishing was invisible, and the missing delete had
+nothing to be missing from. §5j has the shape.
+
+One claim is still withheld, and it is now [D-54](../architecture-debt.md): unpublishing
+the last layer leaves the service behind. A publish-created service and a
+deliberately-created one are the same row, so removing it automatically would guess.
 
 ### 5i. The layer's settings became a page, 2026-08-17
 
@@ -602,6 +608,35 @@ Every rule was served and none applied. It did not look like a refused request: 
 `.view { display: none }` all five screens stacked into one document, which reads as a
 layout bug. D-46 instance (7), and the fix is a test that enumerates whatever a console
 page references rather than naming the kinds somebody thought of.
+
+### 5j. Services became visible, and removable, 2026-08-17
+
+The console could create a service and a group and could not see or remove either. The
+missing listing was the worse half: **a service is created implicitly by publishing**, so
+the first thing an operator does creates one, and unpublishing the last layer leaves it —
+advertised in the services directory as a FeatureServer with no layers, and reachable
+only through SQL against the platform store.
+
+- **A Services panel**, from `GET /admin/featureservices`: every service with its status,
+  sharing, owner, and **what it holds**. The counts are the screen's whole reason: the
+  question asked of this list is *which of these can go*.
+- **Delete is offered only where it would work.** A service holding anything shows the
+  button disabled, titled with what is in the way — *It holds 3 layers, 1 group.* §5h's
+  rule was *do not offer a capability the API lacks*; this is its twin, *do not offer one
+  the API will refuse*, and it turns a 409 the operator would have to trip over into a
+  sentence they can read first.
+- **A group is unmade where it is made.** The Create drawer's group form now lists the
+  chosen service's groups with a delete each, disabled while a group has children. There
+  is no other screen a group could belong to: it holds no data and has no settings of its
+  own. The list is read from the **service document** — the same one the map reads, where
+  a group is a layer of type `Group Layer` with its children in `subLayerIds` — rather
+  than from a second admin route that could disagree with it.
+
+**Nothing is cascaded, and the refusals say why.** Deleting a service does not unpublish
+its layers, because unpublishing purges tiles and forgets a remembered shape and should
+be asked for per layer, where the response says the source table was not touched.
+Deleting a group does not reparent its children, because that would move them in every
+saved web map that points at them.
 
 ## 6. Consequences
 

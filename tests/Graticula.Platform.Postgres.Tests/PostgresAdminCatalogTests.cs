@@ -595,4 +595,186 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.NotNull(root);
         Assert.True(root!.IsUnset);
     }
+
+    /// <summary>
+    /// An empty service can be removed; one holding a layer cannot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-48, and the empty case is the one that matters.</b> Publishing creates a
+    /// service implicitly and unpublishing the last layer leaves it behind, so an estate
+    /// accumulates empty services. Nothing could remove them, and nothing could even list
+    /// them.
+    /// </para>
+    /// <para>
+    /// The occupied case asserts the count comes back, not merely that the delete
+    /// refused: the refusal exists to tell an operator what is in the way, and a refusal
+    /// that says only *no* leaves them guessing which layer to unpublish.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_service_is_removed_and_an_occupied_one_is_refused()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.CreateServiceAsync(
+            "empty", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "occupant", service: "busy"), owner, CancellationToken.None);
+
+        (Removal outcome, int layers, int groups) = await admin
+            .DeleteServiceAsync("busy", null, CancellationToken.None);
+
+        Assert.Equal(Removal.Occupied, outcome);
+        Assert.Equal(1, layers);
+        Assert.Equal(0, groups);
+
+        // And the layer is still there: a refused delete must not have removed half of
+        // what it refused to remove.
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+        Assert.NotNull(await catalog.FindServiceAsync(null, "busy", CancellationToken.None));
+
+        Assert.Equal(
+            (Removal.Removed, 0, 0),
+            await admin.DeleteServiceAsync("empty", null, CancellationToken.None));
+
+        Assert.Null(await catalog.FindServiceAsync(null, "empty", CancellationToken.None));
+    }
+
+    /// <summary>
+    /// A service that holds only a group layer is still occupied.
+    /// </summary>
+    /// <remarks>
+    /// <b>The half nobody thinks of.</b> A group is not a layer and carries no data, so
+    /// "empty" could plausibly mean *no feature layers* — and then deleting the service
+    /// would take a structure somebody built with it. Both tables count.
+    /// </remarks>
+    [Fact]
+    public async Task A_service_holding_only_a_group_is_not_empty()
+    {
+        (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
+
+        await admin.CreateServiceAsync(
+            "structured", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(
+            null, "structured", "Utilities", null, CancellationToken.None);
+
+        (Removal outcome, int layers, int groups) = await admin
+            .DeleteServiceAsync("structured", null, CancellationToken.None);
+
+        Assert.Equal(Removal.Occupied, outcome);
+        Assert.Equal(0, layers);
+        Assert.Equal(1, groups);
+    }
+
+    /// <summary>
+    /// Absent and occupied are different answers.
+    /// </summary>
+    /// <remarks>
+    /// A caller acts differently on each: absent means the name may be wrong, occupied
+    /// means the name is right and the order of operations is not. Collapsing them tells
+    /// an operator their service does not exist while they are looking at it.
+    /// </remarks>
+    [Fact]
+    public async Task A_service_that_does_not_exist_is_absent_rather_than_occupied()
+    {
+        (PostgresAdminCatalog admin, _, _) = await ReadyAsync();
+
+        Assert.Equal(
+            (Removal.Absent, 0, 0),
+            await admin.DeleteServiceAsync("nosuch", null, CancellationToken.None));
+
+        // And a folder is part of the address: the same name elsewhere is not this one.
+        Assert.Equal(
+            (Removal.Absent, 0, 0),
+            await admin.DeleteServiceAsync("nosuch", "somewhere", CancellationToken.None));
+    }
+
+    /// <summary>
+    /// A group with a layer under it is refused; an empty group goes.
+    /// </summary>
+    /// <remarks>
+    /// <b>The children are not reparented, and the count is what makes that workable.</b>
+    /// Moving a layer to the top of the service as a side effect would move it in every
+    /// saved map that points at it. So the refusal says how many there are, the operator
+    /// moves them, and the delete then succeeds — which is the sequence this asserts.
+    /// </remarks>
+    [Fact]
+    public async Task A_group_is_refused_while_it_has_children_and_removed_once_it_has_none()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        // The service first: a group belongs to one, and CreateGroupLayerAsync answers
+        // null rather than inventing a container.
+        await admin.CreateServiceAsync(
+            "tree", null, null, SharingScope.Private, owner, CancellationToken.None);
+
+        GroupLayerAddress group = (await admin.CreateGroupLayerAsync(
+            null, "tree", "Roads", null, CancellationToken.None))
+            ?? throw new InvalidOperationException("the group was not created");
+
+        await admin.PublishLayerAsync(
+            Publication(source, "child", service: "tree") with
+            {
+                ParentLayerIndex = group.LayerIndex,
+            },
+            owner,
+            CancellationToken.None);
+
+        (Removal occupied, int children) = await admin
+            .DeleteGroupLayerAsync("tree", null, group.LayerIndex, CancellationToken.None);
+
+        Assert.Equal(Removal.Occupied, occupied);
+        Assert.Equal(1, children);
+
+        Assert.True(await admin.UnpublishLayerAsync("child", CancellationToken.None));
+
+        Assert.Equal(
+            (Removal.Removed, 0),
+            await admin.DeleteGroupLayerAsync("tree", null, group.LayerIndex, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The listing reports what each service holds, and finds the empty ones.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the half of D-48 that was not a missing delete.</b> An empty service
+    /// appeared in no listing anywhere — <c>/admin/layers</c> lists layers, and the
+    /// system-services table is a different table — so the residue of publishing and
+    /// unpublishing was invisible.
+    /// </remarks>
+    [Fact]
+    public async Task The_service_listing_counts_layers_and_groups()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.CreateServiceAsync(
+            "hollow", null, "nothing in it", SharingScope.Public, owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "one", service: "pair"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "two", service: "pair"), owner, CancellationToken.None);
+
+        await admin.CreateGroupLayerAsync(null, "pair", "Group", null, CancellationToken.None);
+
+        IReadOnlyList<AdminService> services =
+            await admin.ListServicesAsync(CancellationToken.None);
+
+        AdminService hollow = services.Single(s => s.Name == "hollow");
+        Assert.Equal(0, hollow.Layers);
+        Assert.Equal(0, hollow.Groups);
+        Assert.True(hollow.IsEmpty);
+        Assert.Equal(SharingScope.Public, hollow.Sharing);
+        Assert.Equal("nothing in it", hollow.Description);
+        Assert.Equal("publisher", hollow.OwnerName);
+
+        AdminService pair = services.Single(s => s.Name == "pair");
+        Assert.Equal(2, pair.Layers);
+        Assert.Equal(1, pair.Groups);
+        Assert.False(pair.IsEmpty);
+    }
 }
