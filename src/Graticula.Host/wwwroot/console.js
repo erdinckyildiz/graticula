@@ -1152,25 +1152,24 @@ async function showService(qualified) {
       `${layers.length} layer${layers.length === 1 ? "" : "s"} · max ${num(doc.maxRecordCount)} rows`
       + ` · ${doc.capabilities || "no capabilities"}`;
 
+    // <b>The list is what is inside, and nothing to press.</b> Owner 2026-08-17, pointing at a
+    // *Settings* link on every row: *"yahu böyle bir ayar yok. tüm servisin ayarları var, o
+    // kadar."* Right, and the link was the claim itself: a per-layer entry point on a service's
+    // page says each layer is configurable, which is exactly what D-61 is about. This was the last
+    // place the console still said so.
     $("serviceLayers").innerHTML = layers.length === 0
-      ? `<tr><td colspan="6" class="empty">This service holds no layers yet. Publish one into it
+      ? `<tr><td colspan="5" class="empty">This service holds no layers yet. Publish one into it
            by naming it in the publish form.</td></tr>`
-      : layers.map(l => {
-        const group = l.type === "Group Layer";
-        return `<tr>
+      : layers.map(l => `<tr>
           <td class="num">${l.id}</td>
           <td class="name">${h(l.name)}</td>
           <td class="val">${h(l.type)}</td>
           <td class="val">${h((l.geometryType || "").replace("esriGeometry", "") || "—")}</td>
           <td class="val">${l.parentLayerId >= 0 ? `group ${l.parentLayerId}` : "top level"}</td>
-          <td style="text-align:right">${group
-            ? `<span class="val">a group, not a layer</span>`
-            : `<a href="#/layer/${encodeURIComponent(l.name)}" class="tiny">Settings</a>`}</td>
-        </tr>`;
-      }).join("");
+        </tr>`).join("");
   } catch (e) {
     $("serviceLayers").innerHTML =
-      `<tr><td colspan="6" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
+      `<tr><td colspan="5" class="empty" style="color:var(--stop)">${h(e.message || e)}</td></tr>`;
   }
 }
 
