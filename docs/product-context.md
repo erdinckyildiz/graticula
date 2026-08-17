@@ -72,7 +72,7 @@ still the invoice rather than persuasion.
 
 ## What this product is, in one sentence
 
-**gis-server is ArcGIS Portal, ArcGIS Server and ArcGIS Data Store fused into a
+**Graticula is ArcGIS Portal, ArcGIS Server and ArcGIS Data Store fused into a
 single deployable**, decided in [ADR-019](adr/ADR-019-portal-server-split.md).
 
 Calling it *a GIS server* understated it and made several decisions look
@@ -276,7 +276,11 @@ deployments are actually being displaced, and it materially changes the work.
   the migration goal, *registering existing data* now looks more likely — an
   organisation displacing GeoServer already has its data somewhere. Still needs
   confirmation; it significantly changes the publishing architecture (§38).
-- `TBD` **Product name.** Working title `gis-server`.
+- ~~`TBD` **Product name.** Working title `graticula`.~~ **Answered 2026-08-17:
+  Graticula** — [ADR-032](adr/ADR-032-the-product-is-named-graticula.md). The
+  requirement that decided it was the owner's second sentence rather than their first:
+  a Turkish name was accepted and then withdrawn, because *"bu uygulama sadece
+  türkiyede kullanılmayacak"*.
 
 ## Rendering posture — `SUPERSEDED BY ACCUMULATION`, 2026-08-13
 
@@ -492,7 +496,7 @@ that the datastore ships as a managed appliance we install, configure, back up
 and upgrade — the ask is *run our container*, not *employ a PostgreSQL DBA*.
 
 What it restores: [CLAUDE.md](../CLAUDE.md) §6 has stated the baseline
-deployment target as `gis-server → PostgreSQL/PostGIS` since the project began.
+deployment target as `graticula → PostgreSQL/PostGIS` since the project began.
 The architecture now agrees with it for the first time.
 
 ### The original decision, kept on the record

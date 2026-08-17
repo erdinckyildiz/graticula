@@ -1,9 +1,13 @@
-# gis-server
+# Graticula
 
 An enterprise GIS application server, designed from first principles and given
 away. Apache-2.0.
 
-**Working title.** Final product name: TBD.
+A *graticule* is the net of meridians and parallels drawn on a map — the grid every
+question about a place is eventually expressed on. `Graticula` is the Medieval Latin
+word English borrowed it from. Named 2026-08-17
+([ADR-032](docs/adr/ADR-032-the-product-is-named-graticula.md)), replacing the working
+title `gis-server`.
 
 ---
 

@@ -203,6 +203,92 @@ def remembered_numbers():
     return problems
 
 
+def the_former_product_name():
+    """`gis-server` used as a live name rather than as history.
+
+    **ADR-032 condition 4.** The product was named Graticula on 2026-08-17, replacing
+    the working title. A rename is only finished when nothing keeps saying the old
+    name, and 26 documents carried it -- so this is checked rather than remembered,
+    exactly like the tally check above.
+
+    **What is deliberately allowed**, because a repository that cannot record its own
+    history is worse than one with a stale name:
+
+    · A sentence that says the name is former -- the words *working title*, *renamed*,
+      *was called*, *formerly*, *until 2026-08-17* near the mention.
+    · Identifiers. `GisServer.Host`, `gis-server.sln` and the `gisserver` schema are
+      code and deployment names, and ADR-032 5 keeps them out of this on purpose: the
+      first is a separate mechanical commit and the second is not renamed at all.
+    · This file, and the ADR that decided the rename.
+
+    So the pattern is the hyphenated product name in prose, and the escape is to say
+    what it was.
+    """
+    allowed = {
+        os.path.join("docs", "adr", "ADR-032-the-product-is-named-graticula.md"),
+
+        # <b>The owner's brief, and it is an input rather than our prose.</b> It is
+        # dated, it is what the project was asked to build, and a repository that
+        # rewrites its own brief to match a later decision loses the ability to show
+        # what was asked for. ADR-032 is where the name changed; this is where the
+        # request came from.
+        "MASTER_GIS_PLATFORM_PROMPT.md",
+    }
+
+    excuses = (
+        "working title", "former", "formerly", "renamed", "was called", "used to be",
+        "until 2026-08-17", "replaced by graticula", "no longer",
+    )
+
+    problems = []
+
+    for folder, _, names in os.walk(conditions.ROOT):
+        if any(part in folder for part in (".git", "bin", "obj", "node_modules", ".vs")):
+            continue
+
+        for name in sorted(names):
+            if not name.endswith((".md", ".html")):
+                continue
+
+            path = os.path.join(folder, name)
+            relative = os.path.relpath(path, conditions.ROOT)
+
+            if relative in allowed or relative.startswith("REFERENCES"):
+                continue
+
+            try:
+                text = io.open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+
+            # Not preceded by a letter: `arcgis-server` and every Esri URL containing
+            # it are not this product, and they were five of the first run's thirty hits.
+            for match in re.finditer(r"(?<![A-Za-z])gis-server", text, re.IGNORECASE):
+                # Whitespace flattened first: the initial run flagged README's own
+                # sentence because its excuse fell across a line break, which is where
+                # prose puts it about half the time.
+                near = text[max(0, match.start() - 200):match.end() + 200].lower()
+                window = " ".join(near.split())
+
+                # An identifier rather than the product name: the solution file, a
+                # path, a container or image name.
+                tail = text[match.end():match.end() + 8].lower()
+                if tail.startswith((".sln", "/", "-host", ".csproj")):
+                    continue
+
+                if any(excuse in window for excuse in excuses):
+                    continue
+
+                line = text[:match.start()].count(chr(10)) + 1
+                problems.append(
+                    f"{relative}:{line} says gis-server as a live name. The product is "
+                    "Graticula (ADR-032). Either use the new name, or say the old one is "
+                    "the former working title -- history is allowed, a stale name is not."
+                )
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -230,7 +316,8 @@ def main() -> int:
     # because both calls found the same thing -- and it meant a run could fix one
     # class of problem and discover the next one on the following run. Somebody
     # repairing registers deserves the whole list at once.
-    problems = duplicate_debt_ids() + broken_links() + remembered_numbers()
+    problems = (duplicate_debt_ids() + broken_links() + remembered_numbers()
+                + the_former_product_name())
 
     if problems:
         for line in problems:

@@ -93,7 +93,7 @@ rather than executing it.
 ## 3. Counterarguments to the preferred option
 
 **The strongest one: in the baseline deployment this buys almost nothing.**
-`CLAUDE.md` §6's baseline is `gis-server → PostgreSQL/PostGIS`, one database, and
+`CLAUDE.md` §6's baseline is `graticula → PostgreSQL/PostGIS`, one database, and
 [Q-69](../open-questions.md) made the datastore mandatory. In that shape the
 platform store and the hosted data are the same instance: when it goes, the data
 goes with it, and there is nothing to serve. **Measured, not assumed** — pausing

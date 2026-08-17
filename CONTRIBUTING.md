@@ -2,7 +2,7 @@
 
 ## Before anything else: what this project promises you
 
-**Nothing, and that is deliberate.** gis-server is given away under Apache-2.0.
+**Nothing, and that is deliberate.** Graticula is given away under Apache-2.0.
 It is not a product with a support contract, it has never been released, and it
 is maintained by one person. A contribution policy that implied otherwise would
 be the first inaccurate document in a repository whose whole method is not
@@ -79,7 +79,7 @@ file is the paperwork.
 - **A GPL or AGPL dependency.** Apache-2.0 outbound cannot carry it.
 - **Technology with no stated problem.** Kubernetes, Kafka, Redis, service mesh,
   event sourcing, CQRS and microservice decomposition are all on the challenge
-  list by name (`CLAUDE.md` §6). The baseline deployment is `gis-server →
+  list by name (`CLAUDE.md` §6). The baseline deployment is `graticula →
   PostgreSQL/PostGIS`, and everything beyond it must be justified and optional.
 - **Scope.** v1 is [`docs/v1-scope.md`](docs/v1-scope.md) and it is
   authoritative. Things left out were left out on purpose, with the reasoning

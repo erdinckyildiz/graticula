@@ -1,6 +1,11 @@
 # Project Rules
 
-Working title: **gis-server** (final product name: TBD)
+Named **Graticula** by owner decision 2026-08-17 —
+[ADR-032](docs/adr/ADR-032-the-product-is-named-graticula.md). A *graticule* is the net
+of meridians and parallels on a map, and `Graticula` is the Medieval Latin word English
+borrowed it from. It replaces the working title `gis-server`, which survives only where
+a document is recording its own history — and in identifiers and the default schema
+name, deliberately, for the reasons ADR-032 §5 gives.
 
 This repository designs a next-generation enterprise GIS application server from
 first principles. The governing specification is
@@ -153,7 +158,7 @@ service mesh, event sourcing, CQRS and microservice decomposition are all
 explicitly on the challenge list. The baseline deployment target is:
 
 ```text
-gis-server  →  PostgreSQL/PostGIS
+graticula  →  PostgreSQL/PostGIS
 ```
 
 Everything beyond that must be justified by evidence, and must remain optional.

@@ -47,8 +47,8 @@ COPY --from=build /app ./
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
 VOLUME ["/var/lib/gis-server"]
-ENV GisServer__StatePath=/var/lib/gis-server \
-    GisServer__Listen=0.0.0.0 \
+ENV Graticula__StatePath=/var/lib/gis-server \
+    Graticula__Listen=0.0.0.0 \
     DOTNET_gcServer=1
 
 EXPOSE 8443

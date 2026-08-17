@@ -70,7 +70,7 @@ def git(*args):
 TEXT = {
     "en": {
         "title": "Control Room",
-        "eyebrow": "gis-server \u00b7 Phase 1 \u2014 Implementation",
+        "eyebrow": "Graticula \u00b7 Phase 1 \u2014 Implementation",
         "lede": (
             "Everything below is read out of the repository at build time \u2014 the ADR headers, "
             "<code>open-questions.md</code>, <code>architecture-debt.md</code>, "
@@ -159,7 +159,7 @@ TEXT = {
     },
     "tr": {
         "title": "Kontrol Odası",
-        "eyebrow": "gis-server \u00b7 Faz 1 \u2014 Uygulama",
+        "eyebrow": "Graticula \u00b7 Faz 1 \u2014 Uygulama",
         "lede": (
             "Buradaki her \u015fey depodan okunuyor: ADR ba\u015fl\u0131klar\u0131, "
             "<code>open-questions.md</code>, <code>architecture-debt.md</code>, "
@@ -865,7 +865,7 @@ def build():
     parts.append('</ol></section>')
 
     parts.append(
-        f'<footer><p>gis-server · Apache-2.0 · {esc(ui("footer"))} '
+        f'<footer><p>Graticula · Apache-2.0 · {esc(ui("footer"))} '
         f'<code>tools/status-page.py</code></p></footer>')
     parts.append('</main>')
 

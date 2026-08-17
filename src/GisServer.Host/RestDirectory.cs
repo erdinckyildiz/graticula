@@ -552,7 +552,7 @@ internal static class RestDirectory
         // Two dollars, so a single brace is CSS and a doubled one interpolates.
         // The alternative is escaping every brace in the stylesheet.
         return $$"""
-            <title>GIS Server REST Services Directory</title>
+            <title>Graticula REST Services Directory</title>
             <style>
               body { font: 13px/1.55 "Segoe UI", system-ui, sans-serif; margin: 0; color: #1a1a1a;
                      background: #fff; }
@@ -605,7 +605,7 @@ internal static class RestDirectory
                 table.grid tbody tr:nth-child(even) { background: #181d22; }
               }
             </style>
-            <div class="top">GIS Server REST Services Directory<span class="who">{{Who(path)}}</span></div>
+            <div class="top">Graticula REST Services Directory<span class="who">{{Who(path)}}</span></div>
             <div class="bar">{{crumbs}}</div>
             <div class="fmt"><a href="{{H(json)}}">JSON</a></div>
             <main>{{body}}{{(close ? "</main>" : string.Empty)}}

@@ -2,7 +2,7 @@
 
 ## What this project is, before you rely on it
 
-**gis-server has never been released and has never been deployed by anybody but
+**Graticula has never been released and has never been deployed by anybody but
 its author.** There is no published image, no versioned release, and no
 deployment in production anywhere (`architecture-debt.md`, D-19). If you are
 reading this because you are evaluating whether to run it, the answer today is
@@ -23,7 +23,7 @@ Use GitHub's private vulnerability reporting on this repository — the
 that only the maintainers can see, and it is the preferred route because nothing
 about it depends on an inbox being watched.
 
-If that is unavailable to you, email **erdincyildiz@gmail.com** with `gis-server
+If that is unavailable to you, email **erdincyildiz@gmail.com** with `graticula
 security` in the subject.
 
 Please include what you need to include for the report to be actionable: the

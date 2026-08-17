@@ -99,7 +99,7 @@ architecture rather than at the edge, and centre-of-architecture dependencies
 are the hardest to reverse (§10).
 
 **P4 — DuckDB as the basis for a PostgreSQL-free deployment profile.** The
-`./gis-server` story: no database to install, for the developer profile (§53)
+`./graticula` story: no database to install, for the developer profile (§53)
 and air-gapped installs. Attractive, but it depends on P2 and P3 working and on
 the metadata problem in §5, which is not solved by DuckDB. Do not promise it
 before it is measured.
@@ -163,7 +163,7 @@ embeds DuckDB, then:
   API writes and multiple workers read. That is exactly the shape DuckDB is not
   built for.
 
-So P3 (`./gis-server` with no PostgreSQL) probably needs a different answer for
+So P3 (`./graticula` with no PostgreSQL) probably needs a different answer for
 metadata than for data — SQLite or files for metadata, DuckDB for data scans.
 Which is more moving parts than the slogan suggests, and worth being honest
 about early.

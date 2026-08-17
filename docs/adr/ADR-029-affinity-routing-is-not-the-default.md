@@ -187,7 +187,7 @@ design and becomes a change that must earn its way in.**
   contention behaviour is specified. It is one of the five feedback mechanisms
   F2 warned about, and with affinity gone it is the only one left that could
   oscillate.
-- **Redis is not adopted.** The baseline stays `gis-server →
+- **Redis is not adopted.** The baseline stays `graticula →
   PostgreSQL/PostGIS`. It fails §82's test today: single node, tile cache on disk
   and working, no job system, sessions in PostgreSQL, nothing measured slow.
 - **A-003 and A-014 are downgraded from load-bearing to informational.** Neither

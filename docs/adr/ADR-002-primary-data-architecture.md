@@ -21,7 +21,7 @@ makes clustering expensive.
 
 Inputs that constrain this decision:
 
-- **Baseline deployment is `gis-server → PostgreSQL/PostGIS`** (§2).
+- **Baseline deployment is `graticula → PostgreSQL/PostGIS`** (§2).
 - **Primary user is the GIS administrator**, so the administrative API is
   first-class and configuration changes happen **at runtime**
   ([product-context.md](../product-context.md)).
@@ -75,7 +75,7 @@ by allowing both to be the same PostgreSQL *instance* in the baseline.
 
 ### Alternative D — Embedded store (SQLite) single-node, database when clustered
 
-**For.** Removes PostgreSQL as an install prerequisite. Supports `./gis-server`.
+**For.** Removes PostgreSQL as an install prerequisite. Supports `./graticula`.
 
 **Against.** Two stores means two schema migration paths, two backup stories, two
 sets of bugs, and a class of defects that only appears in one deployment shape.
@@ -189,7 +189,7 @@ sources. The multi-dialect problem is now entirely a *query and write* problem,
 which is [ADR-008](ADR-008-query-engine.md)'s, and no longer a storage problem.
 
 **Alignment worth noting.** [CLAUDE.md](../../CLAUDE.md) §6 has stated the
-baseline deployment target as `gis-server → PostgreSQL/PostGIS` since the
+baseline deployment target as `graticula → PostgreSQL/PostGIS` since the
 project began. This is the first point at which the architecture agrees with it.
 
 ---

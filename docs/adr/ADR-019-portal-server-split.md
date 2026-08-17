@@ -54,7 +54,7 @@ huge ones.*
 
 ## 3. Decision — one deployable, and we should say what it is
 
-**gis-server is Portal, Server and Data Store fused into a single deployable.**
+**Graticula is Portal, Server and Data Store fused into a single deployable.**
 
 That sentence is the decision, and stating it resolves several choices that
 otherwise look inconsistent with calling ourselves a *server*:

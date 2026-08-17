@@ -179,6 +179,16 @@ internal static partial class Log
     public static partial void FailedMidResponse(ILogger logger, System.Exception exception);
 
     [LoggerMessage(
+        EventId = 1014,
+        Level = LogLevel.Warning,
+        Message = "Configured under the former product name: {Keys}. The product is Graticula "
+                + "since 2026-08-17 (ADR-032) and the same settings are read as Graticula__*. "
+                + "The old names still work and this is not an error — but they are a "
+                + "compatibility path, and one nobody is told about is one nobody stops relying "
+                + "on.")]
+    public static partial void ConfiguredUnderTheFormerName(ILogger logger, string keys);
+
+    [LoggerMessage(
         EventId = 1005,
         Level = LogLevel.Information,
         Message = "Listening on {Scheme}://{Address}:{Port}")]

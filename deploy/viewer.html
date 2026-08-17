@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gis-server viewer</title>
+<title>Graticula viewer</title>
 
 <!--
   A throwaway client, and the point is that it is not ours.
 
   esri-leaflet is Esri's own open-source client for ArcGIS feature services. It
-  is pointed at gis-server with no adapter and no configuration beyond the URL:
+  is pointed at Graticula with no adapter and no configuration beyond the URL:
   it fetches /rest/services/{layer}/FeatureServer/0, reads the field list, the
   object-id field and the extent, then issues its own query. If it draws, the
   compatibility claim is true for a real client rather than for our own curl
@@ -63,7 +63,7 @@
 <body>
 
 <header>
-  <h1>gis-server — seen by esri-leaflet</h1>
+  <h1>Graticula — seen by esri-leaflet</h1>
   <p>Esri's own client, pointed at <code id="url"></code>. Nothing here is ours except the URL.</p>
 </header>
 

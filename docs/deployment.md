@@ -56,13 +56,24 @@ without either:
 
 | | |
 |---|---|
-| `GisServer__PlatformStore` | The connection string, including `SearchPath=gisserver` |
-| `GisServer__SecretKey` | Base64 of **exactly 32 bytes** — the AES-256 key that seals data source credentials (ADR-002 §4.7). Generate one with `head -c 32 /dev/urandom \| base64`, keep it, and understand that losing it means every stored data source credential is unreadable |
+| `Graticula__PlatformStore` | The connection string, including `SearchPath=gisserver` |
+| `Graticula__SecretKey` | Base64 of **exactly 32 bytes** — the AES-256 key that seals data source credentials (ADR-002 §4.7). Generate one with `head -c 32 /dev/urandom \| base64`, keep it, and understand that losing it means every stored data source credential is unreadable |
 
-Optional: `GisServer__Port` (8443), `GisServer__Listen` (0.0.0.0),
-`GisServer__HostName`, `GisServer__CertificatePath` and
-`GisServer__CertificatePassword`, `GisServer__StatePath`,
-`GisServer__TileCachePath`.
+Optional: `Graticula__Port` (8443), `Graticula__Listen` (0.0.0.0),
+`Graticula__HostName`, `Graticula__CertificatePath` and
+`Graticula__CertificatePassword`, `Graticula__StatePath`,
+`Graticula__TileCachePath`.
+
+**The former `GisServer__*` names still work**, and a server started on them warns once
+at startup naming the keys to move — ADR-032 §5. This is not politeness: `SecretKey`
+decrypts every stored data-source credential, so a rename that silently stopped reading
+it would take a working server and leave it unable to open its own catalogue, reporting a
+*missing* setting rather than a *renamed* one.
+
+**The schema is still called `gisserver`, and that is deliberate.** A schema name is a
+deployment's choice rather than the product's identity; renaming it would mean a data
+migration on every existing installation in exchange for nothing an operator can see.
+Name yours whatever you like — the connection string is the only place it appears.
 
 **4. Migrate, explicitly.**
 
@@ -168,7 +179,7 @@ across them.
 
 **If you cannot put a proxy in front**, the options are to accept the
 duplication — bounded, and each node warms independently — or to point every
-node's `GisServer:TileCachePath` at shared storage. Shared storage has not been
+node's `Graticula:TileCachePath` at shared storage. Shared storage has not been
 tested and the cache was not written for concurrent writers from several hosts;
 treat it as unsupported until somebody measures it.
 

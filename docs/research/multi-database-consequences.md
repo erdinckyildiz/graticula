@@ -81,7 +81,7 @@ is written**:
 
 | Store | Role | Argument |
 |---|---|---|
-| **SQLite** | Default for developer and single-node small | Zero install, ships with the binary, makes `./gis-server` real, backup is a file copy. WAL mode handles many readers with one writer, which matches an administrator-paced write rate. |
+| **SQLite** | Default for developer and single-node small | Zero install, ships with the binary, makes `./graticula` real, backup is a file copy. WAL mode handles many readers with one writer, which matches an administrator-paced write rate. |
 | **PostgreSQL** | Default for PostGIS shops and multi-node | Already present when the data is PostGIS. |
 | **SQL Server** | Enterprise, especially ArcGIS migrations | Removes the adoption barrier for the exact organisations we target. |
 | **Oracle** | Enterprise, especially ArcGIS migrations | Same. |

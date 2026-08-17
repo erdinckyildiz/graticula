@@ -152,7 +152,7 @@ geoprocessing paths. It is simply no longer a throughput argument.
 
 ### 3.1 The single-binary story is weaker than it looks — for everyone
 
-`./gis-server` (§2) is attractive, and C7 is weighted for it. But **GDAL is a
+`./graticula` (§2) is attractive, and C7 is weighted for it. But **GDAL is a
 native library in every candidate language**, so any build that includes
 file-based vector providers is not a lone static binary regardless of what we
 choose.
@@ -282,7 +282,7 @@ Reasoning, stated so it can be attacked:
 ### The tension, recorded rather than resolved
 
 The owner's stated requirement (fix defects in-house, geometry debuggable in our
-own debugger) points at **.NET or Java**. The deployment model (`./gis-server`,
+own debugger) points at **.NET or Java**. The deployment model (`./graticula`,
 air-gapped, small footprint, fast worker startup) points at **Go or Rust**.
 
 Vector-first weakened the first pull by taking geometry off the hot path. Q-28

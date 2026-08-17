@@ -49,7 +49,7 @@ public static class Program
             Console.WriteLine(Convert.ToBase64String(SecretProtector.GenerateKey()));
             Console.Error.WriteLine();
             Console.Error.WriteLine(
-                "That is a 32-byte AES-256 key, base64. Set it as GisServer__SecretKey. It seals "
+                "That is a 32-byte AES-256 key, base64. Set it as Graticula__SecretKey. It seals "
                 + "every registered data source credential (ADR-002 §4.7), so a lost key means "
                 + "every registration must be re-entered, and a leaked one means every credential "
                 + "is readable from a database backup. Keep it where you keep secrets.");
@@ -217,6 +217,14 @@ public static class Program
             // Every startup, not once. ADR-014 §2a: a quiet option is one that
             // ends up in production.
             Log.ServingPlainHttp(logger);
+        }
+
+        // Every startup, for the same reason: the rename kept reading the old keys so
+        // that no existing deployment had to be reconfigured to start (ADR-032 §5), and
+        // the only way that stays temporary is if it says so each time.
+        if (settings.LegacyKeys is { Count: > 0 } legacy)
+        {
+            Log.ConfiguredUnderTheFormerName(logger, string.Join(", ", legacy));
         }
 
         if (!await HandshakeAsync(app.Services, logger).ConfigureAwait(false))

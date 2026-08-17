@@ -1,4 +1,4 @@
-# gis-server, from nothing to a served layer.
+# Graticula, from nothing to a served layer.
 #
 # See README.md for the four commands. This file is the whole deployment: one
 # server against one PostGIS, which is CLAUDE.md §6's baseline target and
@@ -37,7 +37,7 @@ services:
       datastore:
         condition: service_healthy
     environment:
-      GisServer__PlatformStore: >-
+      Graticula__PlatformStore: >-
         Host=datastore;Port=5432;Database=gis;Username=gis;
         Password=${GIS_DATASTORE_PASSWORD:-gis};Search Path=gisserver,public
 
@@ -53,9 +53,9 @@ services:
       # made the command that produces the value impossible to run. Found by
       # trying it. The server refuses to start without it and says so clearly,
       # which is the better place for the error anyway.
-      GisServer__SecretKey: ${GIS_SECRET_KEY:-}
+      Graticula__SecretKey: ${GIS_SECRET_KEY:-}
 
-      GisServer__HostName: ${GIS_HOSTNAME:-localhost}
+      Graticula__HostName: ${GIS_HOSTNAME:-localhost}
     ports:
       - "${GIS_PORT:-8443}:8443"
     volumes:

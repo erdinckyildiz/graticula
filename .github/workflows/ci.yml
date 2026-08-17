@@ -201,8 +201,8 @@ jobs:
 
       - name: migrate
         env:
-          GisServer__PlatformStore: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver"
-          GisServer__SecretKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          Graticula__PlatformStore: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver"
+          Graticula__SecretKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         run: |
           src/GisServer.Host/bin/Release/net9.0/GisServer.Host migrate --apply
 
@@ -218,9 +218,9 @@ jobs:
       # credential in the repository.
       - name: start the server
         run: |
-          GisServer__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
-          GisServer__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
-          GisServer__Port=8443 \
+          Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
+          Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
+          Graticula__Port=8443 \
             nohup src/GisServer.Host/bin/Release/net9.0/GisServer.Host \
               > server.log 2>&1 &
           echo "started, waiting for the setup token"
