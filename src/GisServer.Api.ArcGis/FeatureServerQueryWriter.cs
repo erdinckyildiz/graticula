@@ -31,10 +31,28 @@ public sealed class FeatureServerQueryWriter
 {
     private readonly LayerDefinition _layer;
 
+    /// <summary>
+    /// The most bytes a response body may reach before it is truncated, or 0 for
+    /// no ceiling.
+    /// </summary>
+    /// <remarks>
+    /// <b>A ceiling on the body, not on the row count</b> — Q-113. Zero means unset
+    /// and is the behaviour of every build before this one, which is what makes the
+    /// change additive.
+    /// </remarks>
+    private readonly long _maximumBytes;
+
     /// <summary>Creates a writer for one layer.</summary>
-    public FeatureServerQueryWriter(LayerDefinition layer)
+    /// <param name="layer">The layer being written.</param>
+    /// <param name="maximumBytes">
+    /// The most bytes the body may reach before truncation, or 0 for no ceiling.
+    /// Truncation is reported as <c>exceededTransferLimit</c> — see the loop in
+    /// <see cref="WriteAsync"/> for why that rather than an error.
+    /// </param>
+    public FeatureServerQueryWriter(LayerDefinition layer, long maximumBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(layer);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
 
         if (!layer.IsArcGisServable)
         {
@@ -49,6 +67,7 @@ public sealed class FeatureServerQueryWriter
         }
 
         _layer = layer;
+        _maximumBytes = maximumBytes;
     }
 
     /// <summary>
@@ -169,10 +188,37 @@ public sealed class FeatureServerQueryWriter
         writer.WriteStartArray("features");
 
         int written = 0;
+
+        // <b>The response has a size ceiling, and it is in bytes because bytes are
+        // what the ceiling is for.</b> Q-113: `query.Limit` bounds rows and nothing
+        // bounded their width, so a caller asking for every field of every feature
+        // with full-precision geometry stayed inside every limit we had and could
+        // still return hundreds of megabytes. A row is not a unit of cost — one
+        // polygon can outweigh ten thousand points.
+        //
+        // <b>And it is reported in the protocol's own vocabulary rather than as a
+        // new one.</b> ArcGIS clients already page on `exceededTransferLimit`; a
+        // response truncated by size sets the same flag a response truncated by
+        // row count sets, so every client that handles paging today handles this
+        // with no change. An error would have been a new contract, and a silent
+        // truncation would be the worst of the three.
+        bool truncatedBySize = false;
+
         for (bool more = hasFirst; more; more = await features.MoveNextAsync().ConfigureAwait(false))
         {
             WriteFeature(writer, features.Current, schema, objectIdIndex);
             written++;
+
+            // Checked after writing rather than before, so at least one feature is
+            // always returned: a ceiling small enough to refuse the first feature
+            // would produce an empty page with `exceededTransferLimit` true, which
+            // is a paging loop that never advances.
+            if (_maximumBytes > 0 && written > 0
+                && writer.BytesCommitted + writer.BytesPending >= _maximumBytes)
+            {
+                truncatedBySize = true;
+                break;
+            }
         }
 
         writer.WriteEndArray();
@@ -181,7 +227,7 @@ public sealed class FeatureServerQueryWriter
         // than from a count means we never have to buffer to find out — and a
         // full page is the only honest signal we have without asking the
         // database a second question.
-        writer.WriteBoolean("exceededTransferLimit", written >= query.Limit);
+        writer.WriteBoolean("exceededTransferLimit", truncatedBySize || written >= query.Limit);
         writer.WriteEndObject();
 
         await writer.FlushAsync(cancellationToken).ConfigureAwait(false);

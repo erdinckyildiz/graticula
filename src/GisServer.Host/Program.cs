@@ -61,6 +61,14 @@ public static class Program
         HostSettings settings = HostSettings.Read(builder.Configuration);
         ConfigureKestrel(builder, settings);
 
+        // <b>Registered so a handler can be given it rather than reaching for
+        // configuration again.</b> Added with Q-113's response ceiling: the query
+        // handler needs one number from here, and re-reading `IConfiguration` inside
+        // a request would mean two places that could disagree about what the setting
+        // is — which is the shape of every stale-value fault in this repository's
+        // register.
+        builder.Services.AddSingleton(settings);
+
         builder.Services.AddSingleton(_ => new SecretProtector(
             settings.SecretKeyVersion, Convert.FromBase64String(settings.SecretKeyBase64)));
 
@@ -1951,6 +1959,7 @@ public static class Program
         ServiceContexts contexts,
         IAuditLog audit,
         ILoggerFactory loggerFactory,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         // <b>D-30: the clock starts before the catalogue read, not after.</b>
@@ -2098,7 +2107,12 @@ public static class Program
             return;
         }
 
-        FeatureServerQueryWriter writer = new(layer.Definition);
+        // <b>The body's size ceiling (Q-113).</b> Passed in rather than read here,
+        // because the writer is the only place that knows how many bytes it has
+        // committed — and a ceiling enforced anywhere else would have to buffer the
+        // response to measure it, which is the allocation A-037 measured as the
+        // binding constraint.
+        FeatureServerQueryWriter writer = new(layer.Definition, settings.MaximumResponseBytes);
 
         context.Response.ContentType = "application/json; charset=utf-8";
 

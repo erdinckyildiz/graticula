@@ -40,7 +40,8 @@ internal sealed record HostSettings(
     long TileCacheLayerBudgetBytes,
     TimeSpan TileCacheLifetime,
     int OverlayWorkers,
-    TimeSpan CatalogFallbackWindow)
+    TimeSpan CatalogFallbackWindow,
+    long MaximumResponseBytes)
 {
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
@@ -158,7 +159,23 @@ internal sealed record HostSettings(
             // rather than only from a code change.
             TimeSpan.FromMinutes(configuration.GetValue(
                 "GisServer:CatalogFallbackMinutes",
-                defaultValue: (int)CatalogFallback.DefaultWindow.TotalMinutes)));
+                defaultValue: (int)CatalogFallback.DefaultWindow.TotalMinutes)),
+
+            // <b>A ceiling on a response body, in bytes, because bytes are what a
+            // ceiling is for (Q-113).</b> `resultRecordCount` bounds rows and
+            // nothing bounded their width: every field of every feature at full
+            // precision stays inside every limit this server had and can still be
+            // hundreds of megabytes. A row is not a unit of cost — one polygon can
+            // outweigh ten thousand points.
+            //
+            // <b>64 MiB, and the number is a judgement rather than a
+            // measurement.</b> Large enough that no ordinary page reaches it, small
+            // enough to bound one request's memory and one client's bandwidth.
+            // **Zero disables it**, which is the behaviour of every build before
+            // this one, so a deployment that would rather stream without a limit
+            // can say so.
+            Math.Max(0, configuration.GetValue<long>(
+                "GisServer:MaximumResponseBytes", defaultValue: 64L * 1024 * 1024)));
     }
 
     private static string Require(IConfiguration configuration, string key, string what) =>
