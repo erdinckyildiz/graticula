@@ -9,6 +9,16 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+
+> **Amended 2026-08-17 by [ADR-033](ADR-033-symbology.md).** This decision's substance
+> stands: a style is a validated MapLibre document, checked on write, because no server
+> can guess cartography. What moved is the **unit and the audience** — the canonical
+> document is now stored **per layer** and both protocol faces derive from it, including
+> an ArcGIS `drawingInfo` this ADR could not produce. The per-service style described
+> below survives as an **override**, for the ordering and filtering across layers that a
+> per-layer document cannot express. Read §2A here before proposing a bespoke symbology
+> model: it is the argument that later killed one.
+
 ---
 
 ## 1. Context

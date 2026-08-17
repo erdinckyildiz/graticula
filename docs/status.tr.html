@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>fb4a4d5</code> · 2026-08-17 12:35</p>
+<p class="stamp">Şu commit’ten üretildi: <code>4e9036f</code> · 2026-08-17 13:35</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">32</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
-<div class="kpi warn"><div class="kpi-v">35/114</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">75 canlı · 4 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
+<div class="kpi warn"><div class="kpi-v">35/118</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">79 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">açık soru</div><div class="kpi-n">61 yanıtlandı · 5 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">40</div><div class="kpi-l">açık borç</div><div class="kpi-n">12 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">3 kapı</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">119 madde</span></div><p><b>75 ADR conditions</b> outstanding across 26 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">123 madde</span></div><p><b>79 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -138,6 +138,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-033 · Symbology: one canonical document </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
@@ -207,6 +208,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">031</td><td>A service&#x27;s capabilities are configured, and configuration only ever restricts</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
 <tr><td class="id">032</td><td>The product is named Graticula</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
+<tr><td class="id">033</td><td>Symbology: one canonical document per layer, and both protocol faces derive from it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the canonical model · MEDIUM for the derivation&#x27;s fidelity</td><td class="num">0/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -406,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">5</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>4e9036f</code><time>2026-08-17</time><span>ADR-032: the names and the repository move are deferred, not met</span></li>
 <li><code>fb4a4d5</code><time>2026-08-17</time><span>D-43: today&#x27;s two occurrences narrow it to the build, not the parallelism</span></li>
 <li><code>0ec4762</code><time>2026-08-17</time><span>a service and a group can be removed, and â€” the bigger half â€” they can be seen</span></li>
 <li><code>d0cdbe9</code><time>2026-08-17</time><span>the Turkish status page had an English heading</span></li>
@@ -419,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7e3ab5d</code><time>2026-08-17</time><span>a response body has a ceiling now, in bytes, and it speaks the protocol&#x27;s own word for it</span></li>
 <li><code>79e81fd</code><time>2026-08-17</time><span>the ArcGIS group semantics, confirmed â€” and the separation worth carrying without the split that causes its worst bug</span></li>
 <li><code>2e18791</code><time>2026-08-17</time><span>the screen ADR-031 was asked for exists at /operate/services/{name}/settings, and it agrees where it counts</span></li>
-<li><code>ab12f79</code><time>2026-08-17</time><span>both layers print the same route, and the document that would have corrected it lists every layer twice</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
