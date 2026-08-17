@@ -130,7 +130,6 @@ const SURFACES = {
     tabs: [
       ["services", "Services"],
       ["operations", "Operations"],
-      ["anonymous", "Anonymous view"],
     ],
     action: null,
   },
@@ -141,6 +140,14 @@ const SURFACES = {
     tabs: [
       ["content", "My content"],
       ["sources", "Data sources"],
+
+      // <b>*"no anonymous view for server"* — the owner, 2026-08-17.</b> ADR-034 §6 had
+      // already half-said this: the screen answers *what does a stranger see of this layer*,
+      // which is a question about content and its sharing, not about a running server. It
+      // stayed in Server because that is where it was written and where the listing it read
+      // lived. Now it reads the content listing, which is Studio's, so it is where it belongs
+      // rather than where it started.
+      ["anonymous", "Anonymous view"],
     ],
     action: { id: "newLayer", label: "New layer" },
   },
@@ -159,8 +166,8 @@ const SCREEN_SURFACE = {
   service: "server",
   layer: "server",
   operations: "server",
-  anonymous: "server",
   content: "studio",
+  anonymous: "studio",
   sources: "studio",
 };
 
@@ -590,7 +597,7 @@ async function resetBasemap() {
       if (tiles) await showTiles(name);
       else {
         const doc = await api(
-          `${(await layerUrl(name)).replace(location.origin, "")}?f=json`);
+          `${layerUrl(name).replace(location.origin, "")}?f=json`);
         await show(name, doc);
       }
     } catch (e) { toast(`${name}: ${e.message || e}`); }
@@ -664,60 +671,50 @@ function serviceRoot(layer) {
 }
 
 /**
- * Where a layer actually lives: which service holds it, and at which index.
+ * Where a layer lives: its service, its folder and its number.
  *
- * <b>This exists because the admin listing does not say, and assuming cost us a
- * bug.</b> `/admin/layers` returns a layer's name, table, status and sharing —
- * not the service it belongs to and not its layer id. Every URL in this console
- * was built as `/rest/services/{folder}/{layerName}/FeatureServer/0`, which is
- * right only when a layer is alone in a service named after it.
+ * <b>Read from a listing, which is the fix to a mechanism that could not see a stopped
+ * service.</b> Until 2026-08-17 this walked the services directory — `/rest/services`, then
+ * every service document — to map a layer name to a path, because neither `/admin/layers` nor
+ * `/content/layers` said where a layer was. **A stopped service answers 503 to that walk**, so
+ * it fell out of the map, and everything built on the map lost it: its settings page drew from
+ * nothing, `Save` refused with *"not in the services directory"*, and the service list could
+ * not offer it a Start button.
  *
- * A multi-layer service breaks that completely. `look_EarlyAlert` is one
- * FeatureServer holding sites at 0, routes at 1, a group at 2 and reports at 3 —
- * so asking for `/rest/services/hosted/look_EarlyAlert_routes/FeatureServer/0`
- * asks for a service that does not exist. The server answers its deliberate
- * *"no layer is visible to you… deliberately the same for absent and forbidden"*
- * 404, and it reads as a permission problem to an administrator who has every
- * privilege there is. That is the right answer to the wrong question.
- *
- * So the mapping is read from the services directory — the same public documents
- * an ArcGIS client walks — and cached until the catalogue changes. Group layers
- * are skipped: they hold no features and have no table behind them.
- *
- * The proper fix is upstream: the listing should carry the service and the index.
- * Recorded as a gap in the API rather than papered over here — ADR-020 §2.
+ * The proper fix was already recorded as a gap in the API rather than a bug here — ADR-020 §2,
+ * *the listing should carry the service and the index* — and it is now what both listings do.
+ * So this is a lookup over data already on screen: no requests, no cache to invalidate, and a
+ * stopped layer is as findable as a running one.
  */
-let places = null;
-
-async function resolvePlaces() {
-  if (places) return places;
-
-  const found = new Map();
-
-  for (const folder of ["hosted", ""]) {
-    let directory;
-    try {
-      directory = await api(`/rest/services${folder ? "/" + folder : ""}?f=json`);
-    } catch { continue; }
-
-    for (const service of directory.services || []) {
-      if (service.type !== "FeatureServer") continue;
-
-      try {
-        const doc = await api(`/rest/services/${service.name}/FeatureServer?f=json`);
-        for (const layer of doc.layers || []) {
-          if (layer.type === "Group Layer") continue;
-          found.set(layer.name, { service: service.name, id: layer.id });
-        }
-      } catch {
-        // A stopped service answers 503 and one shared away from us answers 404.
-        // Both mean "not addressable right now", which is not an error here.
-      }
-    }
+function placeOf(name) {
+  // Studio's reader has no administrative listing, so `/content/layers` answers there. Server's
+  // has both; `known` is preferred because it covers every layer rather than only this
+  // reader's own.
+  const listed = known.find(l => l.name === name);
+  if (listed) {
+    return {
+      service: listed.folder ? `${listed.folder}/${listed.service}` : listed.service,
+      bare: listed.service,
+      folder: listed.folder || null,
+      id: listed.layerIndex,
+      url: listed.url,
+    };
   }
 
-  places = found;
-  return places;
+  const own = content.get(name);
+  if (!own) return null;
+
+  // `/content/layers` gives the address rather than the parts, because that is what a
+  // publisher's row needs. Splitting it back is safe: it was built from the same three fields.
+  const cut = own.url.replace("/rest/services/", "").split("/FeatureServer/");
+  const path = splitService(cut[0]);
+  return {
+    service: cut[0],
+    bare: path.name,
+    folder: path.folder || null,
+    id: Number(cut[1] ?? 0),
+    url: own.url,
+  };
 }
 
 /**
@@ -727,16 +724,11 @@ async function resolvePlaces() {
  * layer that is stopped — and therefore absent from the directory — still gets a
  * URL to try instead of no answer at all.
  */
-async function layerUrl(name) {
-  // <b>The content listing first, because it came with the address.</b> Studio's reader may
-  // have no administrative privilege at all, and `resolvePlaces` walks the services directory
-  // to answer a question `/content/layers` already answered in the row being drawn.
-  const entry = content.get(name);
-  if (entry) return `${location.origin}${entry.url}`;
-
-  const place = (await resolvePlaces()).get(name);
-  if (place) return `${location.origin}/rest/services/${place.service}/FeatureServer/${place.id}`;
-  return `${serviceRoot(layerNamed(name))}/FeatureServer/0`;
+function layerUrl(name) {
+  const place = placeOf(name);
+  return place
+    ? `${location.origin}${place.url}`
+    : `${serviceRoot(layerNamed(name))}/FeatureServer/0`;
 }
 
 const tileKey = name => `${name} · tiles`;
@@ -755,7 +747,7 @@ async function showTiles(name) {
   // The tile service belongs to the service, not to the layer, so a member of a
   // multi-layer service draws all of its siblings' tiles too. That is what the
   // server offers and the legend says which layer asked for it.
-  const place = (await resolvePlaces()).get(name);
+  const place = placeOf(name);
   const root = place
     ? `${location.origin}/rest/services/${place.service}`
     : serviceRoot(layerNamed(name));
@@ -830,7 +822,7 @@ async function show(name, doc) {
   const colour = serverColour(doc);
 
   const layer = new FeatureLayer({
-    url: await layerUrl(name),
+    url: layerUrl(name),
     title: name,
     outFields: ["*"],
     popupTemplate: { title: name, content: "{*}" },
@@ -893,7 +885,6 @@ function hide(name) {
 async function loadLayers() {
   const { layers } = await api("/admin/layers");
   known = layers;
-  places = null;   // a start, stop, publish or delete moves what the directory holds
 
   // The service list moves whenever the layer list does: publishing creates a service
   // and unpublishing the last layer empties one, and an emptied service that still shows
@@ -1154,7 +1145,11 @@ async function loadServices() {
 
       const stopped = r.status === "stopped";
 
-      return `<tr${r.system ? "" : ` class="pick" data-service="${h(r.qualified)}"`}>
+      // One layer and no groups: the drill-in would show a single row, so the row goes to it.
+      const only = !r.system && r.layers === 1 && !r.groups && r.cover ? r.cover.name : "";
+
+      return `<tr${r.system ? "" : ` class="pick" data-service="${h(r.qualified)}"${
+        only ? ` data-only="${h(only)}"` : ""}`}>
         <td>${r.cover
           ? `<canvas class="thumb" width="104" height="74"
                data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
@@ -1319,8 +1314,31 @@ function showLayer(name, page, pending = null) {
 
   // The breadcrumb is a link, not a label: it is also how you get back, and their
   // reference reads the same way — Site (root) › folder › service.
-  $("editCrumb").innerHTML = `<a href="#/services">Services</a> › ${
-    h(l.hosted ? "hosted" : "registered")} › <b>${h(name)}</b>`;
+  // <b>The trail back, and it matters more since a one-layer service opens this page
+  // directly.</b> It used to read *Services › hosted › name*, where the middle word was
+  // `hosted` or `registered` — a fact about the data, printed where the reader expects a place.
+  // Now every step is where the layer is and every step is a link: the folder goes to the
+  // folder, and the service goes to its layer list where there is one worth seeing.
+  const at = placeOf(name);
+  const trail = [`<a href="#/services">Services</a>`];
+
+  if (at) {
+    trail.push(`<a href="#/services${at.folder ? "/" + encodeURIComponent(at.folder) : ""}">${
+      h(at.folder || "Site (root)")}</a>`);
+
+    // Only when the service holds something else. For a service of one layer this page *is*
+    // the service, and a link to a single-row table is the step the owner asked us to drop.
+    const siblings = known.filter(k => k.service === at.bare
+      && (k.folder || null) === at.folder).length;
+
+    if (siblings > 1) {
+      trail.push(`<a href="#/service/${encodeURIComponent(at.service)}">${h(at.bare)}</a>`);
+    }
+  } else {
+    trail.push(h(l.hosted ? "hosted" : "registered"));
+  }
+
+  $("editCrumb").innerHTML = `${trail.join(" › ")} › <b>${h(name)}</b>`;
 
   $("editNav").innerHTML = EDIT_PAGES.map(p =>
     `<a href="#/layer/${encodeURIComponent(name)}/${p}">${
@@ -1550,10 +1568,10 @@ function showEditPage(page) {
  * another window.
  */
 async function loadServiceCapabilities(name) {
-  const place = (await resolvePlaces()).get(name);
+  const place = placeOf(name);
   if (!place) return;
 
-  const { folder, name: service } = splitService(place.service);
+  const { folder, bare: service } = place;
   const c = await api(`/admin/services/${encodeURIComponent(service)}/capabilities`
     + `?folder=${encodeURIComponent(folder || "")}`) || {};
 
@@ -1581,10 +1599,10 @@ async function loadServiceCapabilities(name) {
 async function saveEditing() {
   if (!editing) return;
 
-  const place = (await resolvePlaces()).get(editing.name);
-  if (!place) { toast(`${editing.name} is not in the services directory.`); return; }
+  const place = placeOf(editing.name);
+  if (!place) { toast(`${editing.name} is not in any listing this console can read.`); return; }
 
-  const { folder, name: service } = splitService(place.service);
+  const { folder, bare: service } = place;
   const num = id => {
     const raw = ($(id)?.value ?? "").trim();
     return raw === "" ? null : Number(raw);
@@ -1639,11 +1657,11 @@ async function describeContents(name, layer) {
   const box = $("contents");
   if (!box) return;
 
-  const place = (await resolvePlaces()).get(name);
+  const place = placeOf(name);
   if (editing?.name === name) fillEndpoints(name, layer, place);
 
   try {
-    const doc = await api(`${(await layerUrl(name)).replace(location.origin, "")}?f=json`);
+    const doc = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
     if (editing?.name !== name) return;   // the reader moved on while this was in flight
 
     const fields = (doc.fields || []);
@@ -2021,16 +2039,18 @@ async function fillConnectionChoices() {
 /**
  * Service names for both the publish target and the group's parent.
  *
- * Read from the services directory rather than from a listing, because the
- * directory is the document that says what exists and at which path — the same
- * reason `resolvePlaces` reads it.
+ * <b>From the administrative listing, not the services directory.</b> It used to read the
+ * directory on the argument that the directory is the document saying what exists at which
+ * path — true, and it also hides every stopped service, so the one thing you could not publish
+ * into was a service somebody had stopped while working on it.
  */
 async function fillServiceChoices() {
   const list = $("serviceNames");
   if (!list) return;
 
-  const paths = [...new Set([...(await resolvePlaces()).values()].map(p => p.service))];
-  list.innerHTML = paths.sort().map(p => `<option value="${h(p)}"></option>`).join("");
+  const { services = [] } = await api("/admin/featureservices");
+  const paths = [...new Set(services.map(v => v.qualified))].sort();
+  list.innerHTML = paths.map(v => `<option value="${h(v)}"></option>`).join("");
 }
 
 /**
@@ -2175,7 +2195,6 @@ async function publishRegistered(event) {
     created.note ? `<span class="val">${h(created.note)}</span>` : "",
   ]);
 
-  places = null;                       // the directory changed
   await section("layers", loadLayers, "layers");
   await section("service names", fillServiceChoices);
 }
@@ -2205,7 +2224,6 @@ async function createService(event) {
   // group to it is the sequence the note just described.
   $("gService").value = folder ? `${folder}/${created.name}` : created.name;
 
-  places = null;
   await section("service names", fillServiceChoices);
 }
 
@@ -2235,8 +2253,6 @@ async function createGroupLayer(event) {
     `<span class="val">Publish a layer into this service and name ${created.layerId} as the
      parent to put it inside this group.</span>`,
   ]);
-
-  places = null;
 
   // The list under the form is the record of what this service now holds, so it moves
   // with the thing it lists rather than on the next drawer opening.
@@ -2446,12 +2462,19 @@ async function handleClick(event) {
   // list had not been extended. Asking what was clicked cannot go stale the same way.
   const control = t.closest("button, select, input, textarea, a, label");
 
-  // <b>A service row opens the service, and its layers are inside.</b> ADR-034 §5h: the
-  // service is the unit on this screen, so selecting one goes to what it holds rather than
-  // to a layer somebody guessed from a flat table.
+  // <b>A service row opens the service — unless there is nothing to choose inside it.</b>
+  // ADR-034 §5h made the service the unit on this screen, and the drill-in is what shows what
+  // it holds. For a service with one layer and no groups that page is a single-row table whose
+  // only control is a *Settings* link, which the owner put plainly: *"this is a really
+  // meaningless page tbh. we shall go to settings directly."* So a one-member service goes
+  // straight to its layer, and the drill-in stays for the services where the list is a real
+  // choice. `data-only` carries the member's name, from the same `cover` the preview uses.
   const service = t.closest("tr[data-service]");
   if (service && !control) {
-    location.hash = `#/service/${encodeURIComponent(service.dataset.service)}`;
+    const only = service.dataset.only;
+    location.hash = only
+      ? `#/layer/${encodeURIComponent(only)}/general`
+      : `#/service/${encodeURIComponent(service.dataset.service)}`;
     return;
   }
 
@@ -2970,17 +2993,31 @@ const codeCell = r =>
  * Probes every catalogued layer as an anonymous client and reports the two
  * mismatches that matter.
  *
- * <b>The mapping is resolved with your session and the probe is made without
- * it</b>, and that split is the design: you cannot ask what a stranger sees at
- * a URL you were unable to find. Group layers are skipped for the same reason
- * `resolvePlaces` skips them — they hold no features, so a count query against
- * one is not a question about sharing.
+ * <b>Your content, not the catalogue</b>, since it moved to Studio. It used to read
+ * `/admin/layers` — every layer on the server — which needed `admin:viewAllContent` and made
+ * this an operator's report. The question it answers is a publisher's: *is this layer of mine
+ * visible to somebody with no credential, and did I mean that?* So it now walks the same
+ * `/content/layers` rows the content screen draws, which for an administrator is still
+ * everything they own and everything shared with them.
+ *
+ * <b>The address comes from the listing and the probe is made without your session</b>, and
+ * that split is the design: you cannot ask what a stranger sees at a URL you were unable to
+ * find. Group layers never appear because they are not layers in this listing — they hold no
+ * features, so a count query against one is not a question about sharing.
+ *
+ * <b>It used to walk the services directory for the address, and therefore skipped every
+ * stopped layer</b> — reporting them as *not addressable* rather than probing them. A stopped
+ * layer's anonymous answer is a real answer (503, and the same for everybody), and leaving it
+ * out of a report about who can see what is the wrong silence.
  */
 async function loadAnonymous() {
   const body = $("anonRows");
-  const places = await resolvePlaces();
-  const layers = known.filter(l => places.has(l.name));
-  const skipped = known.length - layers.length;
+
+  // The content screen fills `content`; this tab can be opened first, so it is filled here
+  // when it is empty rather than assumed.
+  if (content.size === 0) await loadMyContent();
+
+  const layers = [...content.values()];
 
   $("anonSummary").innerHTML = "";
   body.innerHTML = `<tr><td colspan="6" class="empty">Probing ${layers.length} layers…</td></tr>`;
@@ -2992,7 +3029,9 @@ async function loadAnonymous() {
   for (let i = 0; i < layers.length; i += 4) {
     const batch = layers.slice(i, i + 4);
     rows.push(...await Promise.all(batch.map(async layer => {
-      const place = places.get(layer.name);
+      // Straight from the row: `/content/layers` carries the address, which is the whole of
+      // D-45's complaint answered for this listing.
+      const place = { service: layer.service, id: layer.layerId };
       const base = `/rest/services/${place.service}/FeatureServer`;
       const results = await Promise.all([
         anon(`${base}?f=json`),
@@ -3015,7 +3054,8 @@ async function loadAnonymous() {
       ${results.map(codeCell).join("")}
       <td${said.bad ? ' class="bad-inline"' : ' class="val"'}>${h(said.text)}</td>
     </tr>`).join("")
-    || `<tr><td colspan="6" class="empty">No layer resolved to a service, so nothing was probed.</td></tr>`;
+    || `<tr><td colspan="6" class="empty">You own nothing and nothing is shared with you, so
+          there was nothing to probe.</td></tr>`;
 
   const exposed = rows.filter(r => r.said.bad && r.layer.sharing !== "public").length;
   const unreachable = rows.filter(r => r.said.bad && r.layer.sharing === "public").length;
@@ -3029,12 +3069,6 @@ async function loadAnonymous() {
       ? `<p class="bad-inline"><b>${unreachable}</b> layer${unreachable === 1 ? " is" : "s are"}
          shared public but did not answer — an ArcGIS client would see this as the layer missing.</p>`
       : `<p class="val">Every public layer answered.</p>`,
-    skipped
-      ? `<p class="val">${skipped} catalogued layer${skipped === 1 ? "" : "s"} could not be located in
-         the services directory and ${skipped === 1 ? "was" : "were"} not probed — a stopped service is
-         absent from the directory, so this is not by itself a fault. It is also the gap ADR-020 §2
-         records: the admin listing does not carry the service and index.</p>`
-      : "",
   ].join("");
 }
 

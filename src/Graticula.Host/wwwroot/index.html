@@ -348,10 +348,16 @@
   -->
   <section class="view" id="view-anonymous">
     <h2>Anonymous view</h2>
-    <p class="lede">What a caller with no credential actually sees, by asking. Every request in
-      this table leaves the <code>Authorization</code> header off; the layer-to-service mapping is
-      resolved <em>with</em> your session, because you cannot ask what a stranger sees at a URL you
-      were unable to find.</p>
+    <!--
+      <b>In Studio, not Server</b> — the owner, 2026-08-17: *"no anonymous view for server."*
+      ADR-034 §6 had already half-said it: this answers *what does a stranger see of this
+      layer*, which is a question about content and its sharing rather than about a running
+      server. The copy follows the move: it is your content it probes, not the catalogue.
+    -->
+    <p class="lede">What a caller with no credential actually sees of your content, by asking.
+      Every request in this table leaves the <code>Authorization</code> header off; the address
+      comes from your own listing, because you cannot ask what a stranger sees at a URL you were
+      unable to find.</p>
     <div class="toolbar">
       <button id="anonRun">Run the probe</button>
       <span class="val">Three requests per layer: the service document, the layer document, and a

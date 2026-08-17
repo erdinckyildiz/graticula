@@ -2000,6 +2000,15 @@ internal static class AdminEndpoints
                 // the button sometimes does not work, which is worse than not
                 // having it.
                 l.Hosted,
+
+                // <b>Where it is, which ADR-020 §2 asked for and this listing did not give.</b>
+                // A caller that has to work out a layer's URL from its name walks the services
+                // directory, and a stopped service is absent from that walk — see AdminLayer's
+                // own remark for the three defects that came of it.
+                l.Service,
+                l.Folder,
+                l.LayerIndex,
+                url = l.Address,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

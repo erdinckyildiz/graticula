@@ -945,4 +945,82 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.True(hollow.IsEmpty);
         Assert.Null(hollow.Cover);
     }
+
+    /// <summary>
+    /// The layer listing carries each layer's address, and keeps carrying it after a stop.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The regression is the stop, not the address.</b> The console used to work a layer's URL
+    /// out by walking the services directory, because this listing did not carry it
+    /// (<see href="../../../docs/architecture-debt.md">D-45</see>). A stopped service answers 503
+    /// to that walk, so three separate screens silently lost stopped layers: the settings page
+    /// drew from nothing, <c>Save</c> refused with *"not in the services directory"*, and the
+    /// service list could offer no Start button. Asserting only the running case would have
+    /// passed against the workaround too.
+    /// </para>
+    /// <para>
+    /// The index matters as much as the service. A member of a multi-layer service is not at
+    /// index 0, and guessing 0 asks for somebody else's layer or for nothing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_layer_listing_carries_an_address_that_survives_a_stop()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "sites", service: "addressed"), owner, CancellationToken.None);
+
+        await admin.PublishLayerAsync(
+            Publication(source, "routes", service: "addressed"), owner, CancellationToken.None);
+
+        IReadOnlyList<AdminLayer> running = await admin.ListLayersAsync(CancellationToken.None);
+
+        AdminLayer sites = running.Single(l => l.Name == "sites");
+        AdminLayer routes = running.Single(l => l.Name == "routes");
+
+        Assert.Equal("addressed", sites.Service);
+        Assert.Equal(0, sites.LayerIndex);
+        Assert.Equal("/rest/services/addressed/FeatureServer/0", sites.Address);
+
+        Assert.Equal(1, routes.LayerIndex);
+        Assert.Equal("/rest/services/addressed/FeatureServer/1", routes.Address);
+
+        await admin.SetStatusAsync("sites", ServiceStatus.Stopped, CancellationToken.None);
+
+        AdminLayer stopped = (await admin.ListLayersAsync(CancellationToken.None))
+            .Single(l => l.Name == "routes");
+
+        Assert.Equal(ServiceStatus.Stopped, stopped.Status);
+
+        Assert.Equal(
+            "/rest/services/addressed/FeatureServer/1",
+            stopped.Address);
+    }
+
+    /// <summary>
+    /// A layer in a folder reports the folder in its address.
+    /// </summary>
+    /// <remarks>
+    /// The folder is part of the URL, so a listing that reported the service and not the folder
+    /// would produce an address that 404s for everything outside the root — which since
+    /// 2026-08-17 is every hosted layer.
+    /// </remarks>
+    [Fact]
+    public async Task A_folder_is_part_of_the_address()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "in_a_folder") with { Folder = "turkiye" },
+            owner,
+            CancellationToken.None);
+
+        AdminLayer listed = (await admin.ListLayersAsync(CancellationToken.None))
+            .Single(l => l.Name == "in_a_folder");
+
+        Assert.Equal("turkiye", listed.Folder);
+        Assert.Equal("/rest/services/turkiye/in_a_folder/FeatureServer/0", listed.Address);
+    }
 }

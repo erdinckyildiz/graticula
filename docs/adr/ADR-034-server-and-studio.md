@@ -255,9 +255,15 @@ So Server's main screen becomes:
 - **The system services stop being a separate table.** The geometry service is a service in the
   `Utilities` folder, and now that folders are real it can be listed as one. Three tables become
   one list and a rail.
-- **Layers appear when a service is opened**, each linking to its settings page. That is the
-  drill-in the three-table screen was avoiding, and it is why the layer editor already lives at
-  its own address.
+- **Layers appear when a service is opened** — *unless there is only one*. The owner, looking at
+  the drill-in for a single-layer service, 2026-08-17: *"this is a really meaningless page tbh.
+  we shall go to settings directly."* For a service of one layer and no groups that page is a
+  one-row table whose only control is a **Settings** link, so the row now opens the layer and
+  the drill-in is kept for the services where the list is a real choice. **The breadcrumb had to
+  follow**, because it is the only way back when a step is skipped: it read *Services › hosted ›
+  name*, where the middle word was `hosted` or `registered` — a fact about the data printed
+  where a reader expects a place — and now reads *Services › folder › service › layer* with each
+  step a link, and the service step present only when opening it would show something.
 - **The map is not here.** It moves to Studio with the viewer (§5d): looking at data is a
   content act, and an operator watching a server does not need a map on the way.
 
@@ -328,9 +334,15 @@ sometimes *"3 layers, 1 group"*.
 - **The console's URLs change**, and bookmarks to `#/services` and `#/layer/…` break. Said out
   loud because ADR-020 §5c took *frozen URLs* from the reference as a rule, and this breaks it
   once, deliberately, before there is anybody to break it for. The old roots redirect.
-- **The anonymous view stays in Server**, which is right and slightly sad: it answers *what
-  does a stranger see*, which a publisher would also like to know about their own layer. A
-  per-layer version of that question belongs in Studio later.
+- **The anonymous view moved to Studio**, and this bullet used to say the opposite — *"stays in
+  Server, which is right and slightly sad"*. The owner, 2026-08-17: *"no anonymous view for
+  server."* They are right and the original reasoning was already leaning that way: the screen
+  answers *what does a stranger see of this layer*, which is a question about content and its
+  sharing rather than about a running server. It stayed in Server because that is where it was
+  written and because it read `/admin/layers`, which needs `admin:viewAllContent`. It now reads
+  `/content/layers` — the publisher's own listing — so the surface and the privilege agree.
+  The per-layer version this bullet promised is still owed; the tab is the whole-content form of
+  it.
 - **Q-112 (groups)**, when answered, lands in Studio.
 
 ## 7. Conditions

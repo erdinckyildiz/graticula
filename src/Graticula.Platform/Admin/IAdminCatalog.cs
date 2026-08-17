@@ -101,6 +101,16 @@ public readonly record struct PublishedLayerAddress(
     string? Folder = null);
 
 /// <summary>A published layer, as the admin API sees it.</summary>
+/// <remarks>
+/// <b>It carries its address, and not carrying it was a recorded gap that cost three
+/// defects.</b> [ADR-020](../../../docs/adr/ADR-020-admin-surface.md) §2 already said the
+/// listing should report the service and the index; until 2026-08-17 it did not, and the
+/// console worked the address out by walking the services directory instead. **A stopped
+/// service answers 503 to that walk**, so everything built on it silently lost stopped
+/// services: the settings page for one drew from nothing, `Save` refused with *"not in the
+/// services directory"*, and the service list could not offer a Start button for the one
+/// service somebody most wanted to start. Three symptoms, one missing field.
+/// </remarks>
 /// <param name="Id">Its catalogue identity.</param>
 /// <param name="Name">Its service name.</param>
 /// <param name="DataSourceName">Which source it reads from.</param>
@@ -118,6 +128,9 @@ public readonly record struct PublishedLayerAddress(
 /// console can offer a tile control only where there is a tile service, rather
 /// than one that answers 400 (Q-67).
 /// </param>
+/// <param name="Service">The service it is in, without the folder.</param>
+/// <param name="Folder">That service's folder, or null for the root.</param>
+/// <param name="LayerIndex">Its number within the service — the last URL segment.</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -128,7 +141,15 @@ public readonly record struct AdminLayer(
     string? OwnerName,
     bool ArcGisServable,
     ServiceStatus Status,
-    bool Hosted);
+    bool Hosted,
+    string Service,
+    string? Folder,
+    int LayerIndex)
+{
+    /// <summary>Its address in the services directory, without the host.</summary>
+    public string Address =>
+        $"/rest/services/{(Folder is null ? "" : Folder + "/")}{Service}/FeatureServer/{LayerIndex}";
+}
 
 /// <summary>
 /// A folder in the services directory, and what is in it.

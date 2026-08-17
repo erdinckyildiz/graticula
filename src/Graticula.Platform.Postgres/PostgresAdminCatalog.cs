@@ -416,7 +416,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         const string Sql = """
             select l.id, l.name, d.name, l.schema_name, l.table_name, s.sharing,
                    s.owner_principal_id, p.name, l.object_id_column, s.status,
-                   d.is_datastore
+                   d.is_datastore, s.name, s.folder, l.layer_index
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -442,7 +442,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 !reader.IsDBNull(8),
                 ParseStatus(reader.GetString(9)),
-                reader.GetBoolean(10)));
+                reader.GetBoolean(10),
+                reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.GetInt32(13)));
         }
 
         return layers;
@@ -1040,9 +1043,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             ServiceStatus.Started,
 
             // Not read back by this statement and not used by its caller, which
-            // only reports the new sharing scope. False rather than a guess: a
+            // only reports the new sharing scope. False and empty rather than a guess: a
             // value invented here would be indistinguishable from a real one.
-            Hosted: false);
+            Hosted: false,
+            Service: string.Empty,
+            Folder: null,
+            LayerIndex: 0);
     }
 
     /// <inheritdoc/>

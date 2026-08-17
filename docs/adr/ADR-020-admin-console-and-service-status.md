@@ -352,7 +352,7 @@ dead page.**
 | Found | What it was | Where it went |
 |---|---|---|
 | The console ran no JavaScript at all, and its sign-in leaked a password into the URL | The §66 security gate's `Content-Security-Policy`, written for three pages that carry no script, applied to a fourth that is nothing but script | [D-44](../architecture-debt.md), closed. Own policy by path; script moved to a file so the policy needs no `'unsafe-inline'`; form cannot serialise a credential without script |
-| Three of six layers were unaddressable | `/admin/layers` carries no service and no layer index, so every URL was guessed as `{layerName}/FeatureServer/0` | [D-45](../architecture-debt.md), open in the API, resolved from the directory in the console |
+| Three of six layers were unaddressable | `/admin/layers` carries no service and no layer index, so every URL was guessed as `{layerName}/FeatureServer/0` | [D-45](../architecture-debt.md), **closed 2026-08-17**: the listing carries `service`, `folder`, `layerIndex` and a built `url`, and the console's directory resolver is gone. It had to be closed rather than tolerated — the resolver could not see a stopped service, so three separate screens silently lost them |
 | Every basemap tile answered 403 | A hardcoded third-party basemap whose usage policy forbids the use, probably tripped by our own `Referrer-Policy` | §4a above. No basemap ships |
 | One refused endpoint blanked the whole console | The boot was a single `Promise.all`, so any rejection took all four sections with it | Each section fails in its own place and says the list is not empty but refused |
 
