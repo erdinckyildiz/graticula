@@ -667,7 +667,10 @@ def build():
 
     parts.append('<header class="top">')
     parts.append(f'<div class="eyebrow">{esc(ui("eyebrow"))}</div>')
-    parts.append('<h1>Control Room</h1>')
+    # The heading is the one string that was hard-coded past the translation table, so
+    # the Turkish page carried an English <h1> under a Turkish <title>. Both come from
+    # the same place now.
+    parts.append(f'<h1>{esc(ui("title"))}</h1>')
     parts.append(f'<p class="lede">{ui("lede")}</p>')
     parts.append(
         f'<p class="stamp">{esc(ui("stamp"))} '
