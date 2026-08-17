@@ -375,12 +375,27 @@ public sealed class ShapefileReaderTests
     /// A hole is a hole even when the file winds its rings the wrong way.
     /// </summary>
     /// <remarks>
-    /// <b>Two of the fifty real polygons in this corpus do exactly that.</b> The
+    /// <para>
+    /// <b>Some of the fifty real polygons in this corpus do exactly that.</b> The
     /// specification says an outer ring is clockwise and a hole
     /// counter-clockwise; these carry the opposite, which is the OGC convention
     /// and what an ordinary export tool chain produced. Read by winding they
     /// became two overlapping shells, and PostGIS reported <em>nested shells</em>
     /// on import — 48 of 50 valid. Grouping by containment instead makes it 50.
+    /// </para>
+    /// <para>
+    /// <b>The count is not pinned, and it was until 2026-08-18.</b> This asserted
+    /// exactly two, which was a property of one export: the generator's query had
+    /// a <c>LIMIT</c> and no <c>ORDER BY</c>, so every regeneration produced a
+    /// different fifty. Regenerating gave three and this test failed on a machine
+    /// with the same data loaded. The query is ordered now, but how many holed
+    /// polygons a real OSM extract contains is still a fact about that extract and
+    /// not about this reader — and the reader's rule is asserted exactly, on a
+    /// deterministic fixture, by <see cref="A_ring_wound_the_other_way_is_a_hole"/>.
+    /// What is left here is what only real data can say: that at least one of them
+    /// is read as a hole, and that <em>none</em> of the fifty became one shell
+    /// sitting inside another.
+    /// </para>
     /// </remarks>
     [Fact]
     public void A_hole_is_recognised_by_containment_rather_than_winding()
@@ -390,7 +405,11 @@ public sealed class ShapefileReaderTests
         int withHoles = dataset.Features.Count(f =>
             f.Geometry is MultiPolygon m && m.Parts.Any(p => p.Holes.Count > 0));
 
-        Assert.Equal(2, withHoles);
+        Assert.True(
+            withHoles > 0,
+            "None of the fifty real polygons was read as having a hole, so this corpus cannot "
+            + "say anything about containment. Regenerate it with tools/make-shapefile-corpus.py "
+            + "against a database that has an OSM extract loaded.");
 
         // And nothing became two shells where one sits inside the other, which
         // is the shape PostGIS refuses.

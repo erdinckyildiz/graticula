@@ -58,8 +58,13 @@ judgement is recorded rather than implied. Of §81's sixteen:
   was wrong by more than double with several already met. A number nobody can
   reproduce is a number nobody maintains, and the count moves every time an ADR
   is written, so **the figure is not written here at all** — run the tool, or read
-  [the status page](docs/status.html), which CI checks against the registers on
-  every push. `tools/registers-check.py` now fails the build if a count reappears
+  [the status page](docs/status.html), which `tools/registers-check.py` compares
+  against the registers — **locally, and so far only locally.** This sentence said
+  *which CI checks on every push* until 2026-08-18, when the Actions history was
+  read for the first time: nine runs, every one a 0-second `startup_failure`, so
+  no workflow in this repository has ever executed a step. The check is real and
+  the workflow that would run it is written; what was not true is that anything
+  ran it. [D-63](docs/architecture-debt.md). `tools/registers-check.py` now fails the build if a count reappears
   in this file, because it did, and it was stale within a day; **A-003**, the load-bearing assumption under
   ADR-007, which now has no validation route; and every finding in
   [independent review 3](docs/reviews/independent-review-3-synthesis.md) not

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Console.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- D-60: one database-backed suite at a time. See the file for why the
+         run settings could not do this and why the lock is a file handle. -->
+    <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
+  </ItemGroup>
+
+
+  <!-- <b>No browser automation package, and that is a decision rather than an
+       omission.</b> Playwright and Selenium both do far more than this suite
+       needs, and both add a browser download step to a repository whose CI
+       already has Chrome on the runner. What is actually needed is: launch a
+       browser, evaluate an expression in a page, read the answer back. Chrome
+       speaks that over a WebSocket, and `System.Net.WebSockets.ClientWebSocket`
+       is in the framework. DevTools.cs is that: 300 lines of code, most of it
+       launching a browser and finding the debugging port it chose. This comment
+       said *ninety* until they were counted — a small instance of the habit
+       tools/conditions.py exists to break, left here rather than quietly fixed.
+
+       The trade is stated so it can be revisited: this client has no waiting
+       primitives, no selector engine and no other browser. If the suite grows to
+       need any of them, adopting a package is the right answer and this comment
+       is the record of when it stopped being. -->
+
+  <!-- <b>No project reference, for the same reason the conformance suite has
+       none.</b> The subject here is a page loaded over HTTP into a real browser;
+       reaching for our own types would let a test assert against a constant the
+       server also reads. Everything below is a selector, a string, or a computed
+       style — which is all a person at the keyboard has. -->
+
+</Project>

@@ -68,6 +68,12 @@ public abstract class PostgresFixture : IAsyncLifetime
             return;
         }
 
+        // <b>D-60: one database-backed suite at a time.</b> This suite is the one
+        // that reports the contention — its commands time out at 30 seconds while
+        // the conformance and console suites drive a server against the same
+        // PostgreSQL — so it is also the one that most needs to wait its turn.
+        Graticula.Testing.OneSuiteAtATime.Enter();
+
         // A private schema per test, so a failure cannot poison the next run and
         // two runs cannot collide.
         _schema = "gisserver_test_" + Guid.NewGuid().ToString("n")[..12];

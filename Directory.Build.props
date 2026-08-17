@@ -29,10 +29,14 @@
   <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
     <IsPackable>false</IsPackable>
 
-    <!-- The run settings apply without anybody remembering a flag. `dotnet test graticula.sln` is
-         the command a person types before committing, so it is the command that has to be
-         trustworthy — see graticula.runsettings for what it prevents and why CI never needed it. -->
-    <RunSettingsFilePath>$(MSBuildThisFileDirectory)graticula.runsettings</RunSettingsFilePath>
+    <!-- <b>There was a `graticula.runsettings` here for a day, and it did nothing.</b> It set
+         `MaxCpuCount` to 1 to stop the database-backed suites contending, which limits parallelism
+         *inside one VSTest run* — and `dotnet test` on a solution does not make one run: MSBuild
+         invokes the VSTest target per project across as many nodes as it has. Two solution-wide
+         runs passed under it and the third failed, which is what a fix that does nothing looks
+         like. Removed rather than kept, because a setting nobody can point at an effect of is worse
+         than none. The contention is handled where it happens — tests/shared/OneSuiteAtATime.cs —
+         and D-60 carries the whole account. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- CA1707 forbids underscores in member names. Underscored test names are
          the convention because they are read as sentences in failure output.

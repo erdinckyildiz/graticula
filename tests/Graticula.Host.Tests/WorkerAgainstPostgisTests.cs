@@ -55,6 +55,11 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     {
         if (ConnectionString is { Length: > 0 } connection)
         {
+            // <b>D-60: one database-backed suite at a time.</b> These compare our
+            // arithmetic against PostGIS on real geometry, over the same connection
+            // the other three suites are loading.
+            Graticula.Testing.OneSuiteAtATime.Enter();
+
             _source = NpgsqlDataSource.Create(connection);
 
             _pool = new GeometryWorkerPool(

@@ -92,9 +92,17 @@ write("withnull", shapefile.POINT,
       [("label", "C", 20, 0)], prj=WGS84)
 
 # 9. Real geometry, straight out of the PostGIS corpus.
+#
+# <b>Ordered, because a LIMIT without an ORDER BY is a different corpus every time.</b>
+# This query had no ordering until 2026-08-18, so which fifty polygons it exported was
+# whatever the planner handed back — and a test asserted that exactly two of them carried
+# a hole. Regenerating gave three, and the suite went red on a machine with the same
+# import. Ordering makes the corpus a function of the database rather than of the run;
+# how many holes it contains is still a property of whichever OSM extract is loaded,
+# which is why ShapefileReaderTests no longer pins the number.
 sql = ("select st_astext(st_transform(way, 4326)), coalesce(name, '') "
        "from planet_osm_polygon where way is not null and name is not null "
-       "and st_npoints(way) between 20 and 200 limit 50")
+       "and st_npoints(way) between 20 and 200 order by osm_id limit 50")
 try:
     out = subprocess.run(
         ["docker", "exec", "gis-experiment-postgis", "psql", "-U", "gis", "-d", "gis",

@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Conformance.Tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Overlay.Worker", "src\Graticula.Overlay.Worker\Graticula.Overlay.Worker.csproj", "{28FBF234-D368-4704-9F32-690F7A1C4284}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Console.Tests", "tests\Graticula.Console.Tests\Graticula.Console.Tests.csproj", "{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -241,6 +243,18 @@ Global
 		{28FBF234-D368-4704-9F32-690F7A1C4284}.Release|x64.Build.0 = Release|Any CPU
 		{28FBF234-D368-4704-9F32-690F7A1C4284}.Release|x86.ActiveCfg = Release|Any CPU
 		{28FBF234-D368-4704-9F32-690F7A1C4284}.Release|x86.Build.0 = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|x64.Build.0 = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Debug|x86.Build.0 = Debug|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|x64.ActiveCfg = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|x64.Build.0 = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|x86.ActiveCfg = Release|Any CPU
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -262,5 +276,6 @@ Global
 		{D316FC94-0462-49BD-B3B7-017F02DFCEB1} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{6B6E2576-CD03-48CF-843C-65E47B30C006} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{28FBF234-D368-4704-9F32-690F7A1C4284} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{BF9C9847-AC3F-4E81-AA0E-9C8864EB23E9} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

@@ -44,7 +44,18 @@ data/
 .env.*
 *.local.yaml
 *.local.json
-secrets/
+
+# <b>Anchored, and it is anchored because the unanchored form hid production
+# source for six days.</b> `secrets/` matches a directory of that name at any
+# depth and case-insensitively on Windows, so it swallowed
+# `src/Graticula.Platform/Secrets/` — the two files that seal every registered
+# data source credential were never committed, and a clone of this repository
+# could not build. Nothing reported it: an ignored file is not untracked, so
+# `git status` says nothing, and the working copy builds. Found on 2026-08-18 by
+# deleting the working copy with `git clean -x` and recovering the source from a
+# build output. See D-62. A leading slash pins this to the repository root, where
+# a deployment's own credential directory would be.
+/secrets/
 
 # Editor and OS
 .vscode/

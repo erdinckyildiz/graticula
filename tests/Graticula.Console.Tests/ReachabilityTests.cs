@@ -1,0 +1,96 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace Graticula.Console.Tests;
+
+/// <summary>
+/// Whether every service's own settings can be reached by clicking.
+/// </summary>
+public sealed class ReachabilityTests : ConsoleTest
+{
+    /// <summary>
+    /// Every service on the list reaches its Limits page from a click on its row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-59's fourth defect, and the one that shows why a browser was needed.</b>
+    /// Moving Capabilities and Limits off the layer pages and onto the service
+    /// (D-61) left behind a shortcut written when a service page was a one-row
+    /// table: a service holding a single layer skipped the drill-in and opened the
+    /// layer instead. So the settings existed, the route existed, the page
+    /// rendered — and eight of nine services had no way to get there. The owner
+    /// found it in a sentence: <em>"tüm servislerden limits ler uçmuş. neden.
+    /// onlar nerede?"</em>
+    /// </para>
+    /// <para>
+    /// <b>Nothing short of clicking would have caught it.</b> Every part worked in
+    /// isolation, including the address, and a test that navigated by setting
+    /// <c>location.hash</c> would have passed on all nine while a person could
+    /// reach one. What was broken was only which route a click chose, which is a
+    /// fact about the browser and not about the code.
+    /// </para>
+    /// <para>
+    /// <b>Every row, not the first.</b> The shortcut applied to the services with
+    /// one member, so a suite that checked one row had a one-in-nine chance of
+    /// finding this. Checking all of them costs a navigation each and is the whole
+    /// reason the defect is expressible as a test.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Every_service_reaches_its_own_limits_page_from_a_click()
+    {
+        (string token, _) = await SignInAsync();
+
+        // <b>The work list comes from the catalogue, not from a screen.</b> Reading
+        // it off the rows made the test depend on the console being right about
+        // what it holds in order to check whether it was — and worse, it silently
+        // recorded one folder's services against another folder's address, which
+        // is how it came to fail about one run in three.
+        List<(string Service, string Folder, string[] Siblings)> work = new();
+
+        foreach ((string folder, string[] services) in await FoldersWithServicesAsync())
+        {
+            foreach (string service in services)
+            {
+                work.Add((service, folder, services));
+            }
+        }
+
+        Assert.NotEmpty(work);
+
+        foreach ((string service, string folder, string[] siblings) in work)
+        {
+            string row = $"tr[data-service={JsonSerializer.Serialize(service)}] span.name";
+
+            // Back to the list every time, and opened by a click every time. The
+            // point is which route a click chooses, so continuing from the page the
+            // previous click left open would test the second service through the
+            // first one's address.
+            await OpenAsync(ServicesIn(folder), token);
+            await ShowingAsync(folder, siblings);
+            await ClickAsync(row);
+
+            await WaitForAsync(
+                "location.hash.startsWith('#/service/')",
+                $"Clicking '{service}' did not open the service. A service that opens one of its "
+                + "layers instead has no reachable Capabilities or Limits at all, which is what "
+                + "left eight of nine without them.");
+
+            // <b>Either shape of Limits counts, because there are two kinds of
+            // service and both have bounds.</b> A feature service gets the left
+            // nav; a service with no layers — the geometry service — gets its own
+            // panel, since there is no list to put beside it and a nav of one item
+            // is furniture. What is being asserted is the rule under both: from a
+            // click on a row, the operator reaches the screen that edits what this
+            // service is allowed to spend.
+            await WaitForAsync(
+                "document.querySelector('#serviceNav a[data-service-page=\"limits\"]')"
+                + " || !document.getElementById('serviceLimits').hidden",
+                $"'{service}' opened, and offered nowhere to read or change its limits. They are "
+                + "stored on the service and no other screen edits them.");
+        }
+    }
+}

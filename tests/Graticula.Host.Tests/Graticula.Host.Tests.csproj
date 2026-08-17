@@ -23,5 +23,6 @@
     <!-- One copy of the oracle-corpus query, compiled into both suites that use it.
          Two verbatim copies is what D-46 is about, and one of them was fixed first. -->
     <Compile Include="..\shared\GeometryCorpus.cs" Link="GeometryCorpus.cs" />
+    <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
   </ItemGroup>
 </Project>

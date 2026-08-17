@@ -188,6 +188,20 @@ jobs:
       - name: build
         run: dotnet build graticula.sln -c Release
 
+      # <b>Named rather than assumed, and reported rather than checked.</b>
+      # ubuntu-latest carries Chrome today; a job that depends on that silently is
+      # a job that breaks with the image, and one that greps for a particular
+      # binary breaks on the day the image ships Chromium instead. So this prints
+      # what is there and lets the suite's own message be the failure — DevTools
+      # .FindChrome names GRATICULA_TEST_CHROME when it finds nothing.
+      - name: which browser the console suite will drive
+        run: |
+          for candidate in google-chrome google-chrome-stable chromium-browser chromium; do
+            path=$(command -v "$candidate" || true)
+            [ -n "$path" ] && echo "$path -- $("$path" --version 2>&1 | head -1)"
+          done
+          true
+
       # <b>The schema, then the migration, then the server.</b> Migrating is an
       # explicit operation on purpose (ADR-016 §4b: refuse rather than migrate),
       # so a server pointed at an empty store refuses to start and says so. The
@@ -256,6 +270,15 @@ jobs:
       - name: conformance
         run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
 
+      # <b>The console, in a real browser, in this job because this is the job with
+      # a server.</b> D-59: four console defects in two days, every one found by the
+      # owner pressing a button, every one a click deep. The suite drives headless
+      # Chrome over the DevTools protocol — no automation package, and none needed
+      # on this runner, which ships Chrome already. If a future image does not, the
+      # suite FAILS and says which variable to set rather than going quietly green.
+      - name: console
+        run: dotnet test tests/Graticula.Console.Tests -c Release --no-build
+
       # <b>The server's own log, whatever happened.</b> A conformance failure is
       # usually a 500 with a stack trace on the other side of the wire, and
       # without this the only evidence is "an ArcGIS client stops here".
@@ -317,9 +340,10 @@ jobs:
           {
             echo "### What this workflow does and does not reach"
             echo
-            echo "All eight suites run: five that need nothing, two against a PostGIS"
-            echo "service container, and the conformance suite against a server this"
-            echo "workflow starts and seeds with \`tools/seed-conformance.py\`."
+            echo "All nine suites run: five that need nothing, two against a PostGIS"
+            echo "service container, and the conformance and console suites against a"
+            echo "server this workflow starts and seeds with"
+            echo "\`tools/seed-conformance.py\`."
             echo
             echo "**Still not reached, and worth knowing:**"
             echo

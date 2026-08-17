@@ -428,6 +428,27 @@ sometimes *"3 layers, 1 group"*.
    instance 9, and re-measured: the publisher's header now carries no switch and no health line,
    the administrator's carries both.
 
+   **A test now holds it, 2026-08-18, and it fails a build.**
+   `SurfaceTests.Without_admin_manageServer_there_is_no_Server_surface_to_see` in
+   `tests/Graticula.Console.Tests` asks for `/server/#/services` as a reader who does not hold the
+   privilege, requires the address to end up under `/studio/`, and then asks the browser what it
+   painted — `offsetParent === null` and a computed `display` of `none` on `#surfaces`. **The
+   rendering question rather than the attribute question, deliberately**, because the attribute
+   question is exactly what was asked before and it answered *hidden* about a visible element. It
+   was verified by putting the CSS defect back: with `[hidden] { display: none !important }`
+   removed, the test fails at that assertion with the sentence naming D-46 #9.
+
+   **Still PARTLY DISCHARGED, and the remaining half is one sentence long.** This condition says
+   *a test that signs in without `admin:manageServer`*, and the test signs in as an administrator
+   and removes that privilege from the server's own `/rest/whoami` answer on the way back to the
+   page. The shape stays the server's, so the console is asked the real question — but the reader
+   is synthetic. The honest reason is small and worth stating: there is no `DELETE /admin/members`,
+   so a suite that created a publisher would leave a live publishable account behind on every run,
+   on the owner's server as well as in CI. Whether members should be removable is
+   [Q-116](../open-questions.md); when it is answered one way, this condition can be discharged in
+   its own words, and the measurement with the real `publisher`/`creator` account above stands as
+   the evidence until then.
+
    **What is still not discharged is the test.** All of the above is a person running a script and
    looking at a screenshot; the condition asks for something that fails a build. That needs a
    browser harness, which this repository has none of — [D-59](../architecture-debt.md) — and it

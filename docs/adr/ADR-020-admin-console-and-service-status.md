@@ -819,6 +819,58 @@ segmented control where the filled half is where you are and the hue says which 
 (teal for Server, violet for Studio). Two independent buttons would read as two actions, and one of
 them is not an action, it is where you already are. Recorded as undecided rather than quietly settled.
 
+### 5k. The console is tested in a browser — 2026-08-18
+
+Four console defects in two days, every one found by the owner pressing a button, every one a click
+deep. §2 says this console is *a client with no back door*, and that is exactly why nothing could
+test it: there was no assertion about these pages except that the files they ask for are served.
+D-59 named it; `tests/Graticula.Console.Tests` closes it, and this section records the decisions
+inside that, because each of them could reasonably have gone the other way.
+
+**A real browser, not a DOM shim.** Two of the four defects are invisible without one. `[hidden]`
+losing to an author `display` is a cascade fact — a shim that reports the attribute reports
+*hidden*, which is precisely the wrong answer that shipped. And the single-layer shortcut broke only
+*which route a click chose*: every part worked in isolation, so a test that navigated by setting
+`location.hash` would have passed on all nine services while a person could reach one.
+
+**No automation package.** Chrome speaks the DevTools protocol over a WebSocket;
+`ClientWebSocket` is in the framework; launch, navigate and evaluate is the whole surface this suite
+uses. That is three hundred lines, most of it launching a browser and finding its debugging port
+honestly — counted rather than estimated, because the first draft of this paragraph said ninety.
+Playwright and Selenium each add a browser download to a workflow whose runner already carries
+Chrome, in exchange for auto-waiting and a selector engine nothing here needs — §6's *what concrete problem does this solve* answers itself. **The trade is written where it
+would be revisited**, in the project file: this client has no waiting primitives, no selector engine
+and no second browser, and if the suite grows to want any of them, adopting a package is the right
+answer and that note is the record of when it stopped being wrong.
+
+**Reads reach the server; writes never leave the page.** The subject of these tests is which code
+path a click takes, not what the server does next — and pressing **Stop** for real would stop the
+operator's service to prove that a button works. So `fetch` is replaced for anything that is not a
+`GET`, and the recorded request *is* the assertion: a click that reached the button shows up in the
+recording, a click that fell through to the row shows up in the address. The other half — that the
+server does what the button asked — is the conformance suite's, on the other side of the same wire.
+
+**Every test comes in a pair, as a rule.** The cheapest way to pass *Stop must not open the
+service* is to stop the row navigating at all; the cheapest way to pass *a cookie session is not
+painted as an administrator* is to paint nobody. So the opposite direction is asserted beside each
+one. Three of the seven tests exist only for that, and they are not padding: each is a defect that
+a narrow fix to its partner would introduce.
+
+**And each test was falsified before it was believed.** The dispatcher's exception list, the boot
+gating on `authenticated` rather than on a token, `[hidden]` left to lose, and Limits removed from
+`SERVICE_PAGES` were put back one at a time into a running server's `wwwroot`; each time exactly the
+test that should go red went red, with the message it was written to give. A test that has never
+failed is a claim about the future, and §3's standing challenge applies to a test as much as to a
+performance argument.
+
+**What it does not reach**, stated because a green tick is read as *everything*: Chrome only; no
+check that the server honoured the click; and it needs a running server, so in CI it runs in the
+conformance job rather than the unit one. The publisher case removes `admin:manageServer` from the
+server's own `/rest/whoami` answer rather than signing in as a member who lacks it, because there is
+no `DELETE /admin/members` and a suite that created one would leave a live publishable account
+behind on every run — [Q-116](../open-questions.md). That is why
+[ADR-034](ADR-034-server-and-studio.md) condition 1 stays partly discharged rather than closed here.
+
 ## 6. Consequences
 
 - **A migration**, taking the platform schema to 6. Expand: one column with a

@@ -10,6 +10,12 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- D-60: one database-backed suite at a time. See the file for why the
+         run settings could not do this and why the lock is a file handle. -->
+    <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
+  </ItemGroup>
+
   <!-- No project reference, deliberately. This suite is a client: it may only
        use what a client can see, which is HTTP and JSON. Referencing our own
        types would let a test assert against a constant that the server also

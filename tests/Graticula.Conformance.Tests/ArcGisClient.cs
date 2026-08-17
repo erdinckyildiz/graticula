@@ -65,6 +65,11 @@ public abstract class ArcGisClient : IDisposable
     /// <summary>Creates the client.</summary>
     protected ArcGisClient()
     {
+        // <b>D-60: one database-backed suite at a time.</b> This suite does not
+        // touch PostgreSQL itself; the server it drives does, with its own pool,
+        // and that is the load the Postgres suite's timeouts were measuring.
+        Graticula.Testing.OneSuiteAtATime.Enter();
+
         HttpClientHandler handler = new()
         {
             // ADR-014 generates a self-signed certificate on start, so a client
