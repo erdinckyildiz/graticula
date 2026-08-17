@@ -60,6 +60,49 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
             + "at one with several, or this suite is testing the single-layer case twice.");
     }
 
+    /// <summary>
+    /// Each layer appears in the list once.
+    /// </summary>
+    /// <remarks>
+    /// <b>Added 2026-08-17 after seeing another server fail it.</b> A peer's
+    /// FeatureServer document listed two layers as four entries — ids
+    /// <c>[1, 1, 2, 2]</c>, the duplicates byte-identical — and an ArcGIS client
+    /// walking that renders every layer twice, with no way to tell which copy is
+    /// spurious. Nothing in this suite asserted the property: the tests here check
+    /// that every listed layer is fetchable, that the catalogue and the directory
+    /// agree, and that the service is listed once rather than once per layer.
+    /// **None of them notices the same layer listed twice**, because every one of
+    /// them passes on a duplicate.
+    /// </remarks>
+    [Fact]
+    public async Task No_layer_is_listed_more_than_once()
+    {
+        (_, JsonElement document) = await ServiceAsync();
+
+        JsonElement layers = Require(
+            document, "layers", "A FeatureServer with no layer list has nothing to add.");
+
+        List<int> ids = [];
+
+        foreach (JsonElement layer in layers.EnumerateArray())
+        {
+            if (layer.TryGetProperty("id", out JsonElement id))
+            {
+                ids.Add(id.GetInt32());
+            }
+        }
+
+        List<int> repeated = [.. ids.GroupBy(i => i).Where(g => g.Count() > 1).Select(g => g.Key)];
+
+        Assert.True(
+            repeated.Count == 0,
+            $"The service document lists {ids.Count} entries for "
+            + $"{ids.Distinct().Count()} distinct layer ids. Repeated: "
+            + string.Join(", ", repeated)
+            + ". A client walking this list draws each of those twice and cannot tell which "
+            + "entry to drop.");
+    }
+
     [Fact]
     public async Task Every_layer_the_service_lists_can_be_fetched_at_its_own_id()
     {
