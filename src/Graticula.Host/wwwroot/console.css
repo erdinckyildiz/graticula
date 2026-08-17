@@ -268,6 +268,17 @@
              padding: 8px 16px; border-left: 3px solid transparent; }
 #editNav a:hover { background: var(--surface-3); }
 #editNav a[aria-current] { background: var(--accent); color: #fff; font-weight: 500; }
+
+/*
+  <b>The way to the other surface's pages for the same layer.</b> ADR-034 §5c promises that each
+  surface links to the other's, so the split never means a dead end — a publisher hunting for
+  Sharing in Server would otherwise find four pages and no clue. Set apart above a rule, because
+  it leaves this environment and a link that does that should not look like a sibling.
+*/
+#editNav a.crossing { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--rule);
+                      color: var(--muted); font-size: 13px; }
+#editNav a.crossing:hover { color: var(--ink); }
+#editNav a.crossing .in { display: block; font-size: 11.5px; color: var(--faint); }
 /*
   <b>Two pages, one rule.</b> A service with no layers has a settings page too, and giving
   it its own padding is how two screens that should look identical start not to — D-46's

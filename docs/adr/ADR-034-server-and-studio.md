@@ -182,13 +182,54 @@ browser, where it can disagree with the first.
 | Folders, and creating them | Publish and create — designed, imported, registered |
 | Start and stop | Symbology (ADR-033), including the stored style |
 | Operations: store, runtime, caches, route governance | Cache lifetime — `content:publishTiles`, A-028 |
-| The anonymous view | Sharing |
-| The administrative all-content listing | Data sources, and registering one |
+| The administrative all-content listing | Sharing |
+| Data sources, and registering one | The anonymous view |
 | Audit | The map viewer and the query page |
 
 A layer therefore appears in both, and that is correct: its *limits* are the server's business
 and its *appearance* is the publisher's. Each surface links to the other's page for the same
 layer, so the split never means a dead end.
+
+**Two rows moved on 2026-08-17, both by the owner, and one of them was already right on paper.**
+
+**Data sources moved to Server**, and this table had it in Studio: *"data sources studio'nun değil
+server'in bir seçeneği. onu da sadece admin ayarlayabilir."* — data sources is Server's option, not
+Studio's, and only an administrator configures it. It had been placed beside publishing on the
+reasoning that you register a source in order to publish from it, which is true and is not the
+question. **Registering is not publishing.** Publishing puts a table on the map; registering hands
+this server a **credential for somebody else's database** and adds a machine the whole deployment
+then depends on. Its failure modes are operational — a connection down, a schema changed, a
+password rotated — and the person who answers for those is the administrator. It is also the only
+act on either surface whose blast radius is outside our own store.
+
+So `content:registerDataStore` **moved from the publisher role to the administrator role**, which
+is how the surface and the API are kept in agreement: had only the tab moved, a publisher would
+have held a privilege for a screen they cannot reach, which is the *"privilege with nothing behind
+it"* complaint [D-56](../architecture-debt.md) makes about `admin:manageMembers`. Changing the grant
+rather than the endpoint means the privilege keeps its name and its meaning. **This is narrower than
+ArcGIS Portal, where registering a data store is a publisher privilege**, and narrow is the safe
+direction — the same shape as [D-20](../architecture-debt.md)'s note about `features:edit`.
+`RolesTests` asserted the old placement and now asserts the new one, keeping the part the decision
+did not change: a plain user has neither.
+
+**Sharing did not move — it had never been built where this table already put it.** The owner,
+looking at the Server services screen: *"aslında bir servisin private mi organization mu public mi
+olduğu studio tarafında ayarlanacak."* That is this table's own row, restated back to us, which is
+the clearest possible sign it had not been carried out. The layer editor had been built as **one
+screen in Server holding all six pages**, so *Sharing* and *Cache lifetime* — two of the three
+Studio rows about a layer — were implemented in Server, and a publisher had no route to either.
+
+The repair is the split this table describes: `LAYER_PAGES` names the surface of each page,
+the router sends `#/layer/x/sharing` to whichever surface owns it, and each editor's left column
+lists its own pages **plus a link to the other's** — which is the second half of the sentence above,
+and without it a publisher hunting for Sharing in Server finds four pages and no clue.
+
+**Splitting it separated two buttons that had been sitting together as *Maintenance*.** *Delete
+layer* is a decision about content — it purges tiles and forgets a shape, and the person who
+published it unpublishes it — so it stayed in Studio. *Forget remembered shape* is a cache the
+**server** keeps ([D-17](../architecture-debt.md)) and moved to General in Server. Neither had been
+wrong before, because before there was one screen; the split is what made them different kinds of
+act.
 
 ### 5d. The viewer belongs to Studio, and the directory links into it
 
@@ -351,6 +392,15 @@ sometimes *"3 layers, 1 group"*.
    `admin:manageServer` and finds no Server surface — not a hidden one, not a 403 toast. The
    current console's per-section failure isolation makes the opposite failure invisible, which
    is why this is a test and not a review note.
+   **The owner restated this condition on 2026-08-17 as a requirement:** *"admin olmayan
+   kullanıcılar şuradaki server studio ayrımını görmeyecek bile. sadece studio onlarda olacak.
+   server ekranına gitse bile ayarlama yapamayacak."* — a non-administrator will not even see the
+   Server/Studio distinction; they will have Studio only; and going to the Server screen will not
+   let them change anything. **All three are written and none is measured.** The switch is hidden
+   when fewer than two surfaces are allowed (`drawSurfaces`), `/server/` redirects to Studio with a
+   sentence naming the missing privilege (`route`), and every write behind it is gated at the
+   endpoint. Restating a requirement is not evidence that it holds, and this remains the one
+   condition whose evidence is unobtainable.
    **Blocked, and the block is worth more than the condition:** there is no way to create a
    second user. The first-run setup makes the administrator and no endpoint makes another, so
    the reader this condition needs cannot exist — [D-56](../architecture-debt.md), opened

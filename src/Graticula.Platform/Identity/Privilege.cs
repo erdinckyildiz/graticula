@@ -179,11 +179,27 @@ public static class Roles
             .Union(dataEditor)
             .Add(Privilege.ContentPublishFeatures)
             .Add(Privilege.ContentPublishTiles)
-            .Add(Privilege.ContentRegisterDataStore)
             .Add(Privilege.FeaturesFullEdit)
             .Add(Privilege.SharingShareToPublic);
 
+        // <b>Registering a data source is an administrator's act here, and Portal grants it to a
+        // publisher.</b> Owner decision 2026-08-17: *"data sources studio'nun değil server'in bir
+        // seçeneği. onu da sadece admin ayarlayabilir."* — data sources is Server's option, not
+        // Studio's, and only an administrator configures it.
+        //
+        // <b>The reasoning is what the act touches.</b> Publishing puts a table on the map;
+        // registering a source hands this server a **credential for somebody else's database** and
+        // adds a machine the whole deployment then depends on. Its failures are operational — a
+        // connection that is down, a schema that changed, a password that rotated — and the person
+        // who answers for those is the administrator. It is also the one act on this surface whose
+        // blast radius is outside our own store.
+        //
+        // <b>Narrower than Portal, and narrow is the safe direction</b> — the same shape as
+        // D-20's note about `features:edit`. Moved by changing the grant rather than the endpoint,
+        // so `content:registerDataStore` keeps its name and meaning and does not become a
+        // privilege with nothing behind it.
         ImmutableHashSet<Privilege> administrator = publisher
+            .Add(Privilege.ContentRegisterDataStore)
             .Add(Privilege.AdminManageMembers)
             .Add(Privilege.AdminManageRoles)
             .Add(Privilege.AdminViewAllContent)

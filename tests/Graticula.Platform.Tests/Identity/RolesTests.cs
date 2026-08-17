@@ -51,15 +51,34 @@ public sealed class RolesTests
     }
 
     [Fact]
-    public void Publishing_hosted_content_does_not_carry_registering_a_data_source()
+    public void Registering_a_data_source_is_an_administrators_act_and_publishing_is_not()
     {
-        // Portal's placement, and ours from the superseded version, for the
-        // reason recorded there: registering hands the server a credential to
-        // somebody else's database. Both sit with the publisher — the point is
-        // that a plain user has neither.
+        // <b>Owner decision 2026-08-17, and this test used to assert the opposite.</b> It read
+        // *Publishing_hosted_content_does_not_carry_registering_a_data_source* and required the
+        // publisher to hold it, which was Portal's placement and ours: registering hands the
+        // server a credential to somebody else's database, so it sat above a plain user.
+        //
+        // The owner moved it further: *"data sources studio'nun değil server'in bir seçeneği. onu
+        // da sadece admin ayarlayabilir."* The reasoning is what the act touches. Publishing puts
+        // a table on the map; registering adds a machine the whole deployment then depends on, and
+        // its failures — a connection down, a schema changed, a password rotated — are answered by
+        // the administrator. **Narrower than Portal, and narrow is the safe direction**, the same
+        // shape as D-20's note about `features:edit`.
+        //
+        // The old assertion is not merely inverted here: what it protected — *a plain user has
+        // neither* — is still asserted, because that is the part the decision did not change.
         Assert.DoesNotContain(Privilege.ContentRegisterDataStore, Roles.PrivilegesOf(Roles.User));
         Assert.DoesNotContain(Privilege.ContentPublishFeatures, Roles.PrivilegesOf(Roles.User));
-        Assert.Contains(Privilege.ContentRegisterDataStore, Roles.PrivilegesOf(Roles.Publisher));
+
+        Assert.Contains(Privilege.ContentPublishFeatures, Roles.PrivilegesOf(Roles.Publisher));
+
+        Assert.DoesNotContain(
+            Privilege.ContentRegisterDataStore,
+            Roles.PrivilegesOf(Roles.Publisher));
+
+        Assert.Contains(
+            Privilege.ContentRegisterDataStore,
+            Roles.PrivilegesOf(Roles.Administrator));
     }
 
     [Fact]

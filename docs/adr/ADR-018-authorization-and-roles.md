@@ -303,7 +303,7 @@ complete would be the opposite of §6.
 | `content:create` — create and own items | `user`, `publisher`, `administrator` |
 | `content:publishFeatures` — publish a hosted feature layer | `publisher`, `administrator` |
 | `content:publishTiles` — publish a hosted tile layer | `publisher`, `administrator` |
-| `content:registerDataStore` — register a data source | `publisher`, `administrator` |
+| `content:registerDataStore` — register a data source | `administrator` *(was also `publisher` until 2026-08-17)* |
 | `features:edit` — edit features in layers shared with you | `data_editor` and above |
 | `features:fullEdit` — edit and delete regardless of editor tracking | `publisher`, `administrator` |
 
@@ -330,11 +330,31 @@ publishing without public exposure withholds exactly this.
 | `admin:manageSecurity` — certificates, sessions, authentication settings | `administrator` |
 | `admin:manageServer` — migrations, pools, workers, pinning | `administrator` |
 
-**`registerDataStore` sits under content and not under administration**, which
-is Portal's placement and also ours from the first version — for the reason
-recorded there: registering hands the server a credential to somebody else's
-database, and every layer over it inherits that reach. Portal puts it in the
-publisher's hands; so do we, and the risk note stays.
+**`registerDataStore` keeps its name under content and is granted only to the
+administrator, which is narrower than Portal.** It sits under content because that
+is what it is *for* — every layer over a registered source inherits its reach — and
+the name is unchanged so nothing that reads it has to be rewritten.
+
+**The grant moved on 2026-08-17 by owner decision:** *"data sources studio'nun
+değil server'in bir seçeneği. onu da sadece admin ayarlayabilir."* — data sources
+is Server's option, not Studio's, and only an administrator configures it. The
+paragraph this replaces argued the opposite, from the same fact: registering hands
+the server a credential to somebody else's database, so Portal puts it in the
+publisher's hands and so did we. **The fact was right and the conclusion did not
+follow.** Publishing puts a table on the map; registering adds a machine the whole
+deployment then depends on, and its failures — a connection down, a schema changed,
+a password rotated — are answered by whoever runs the server. The risk note that
+was the argument *for* publisher placement reads at least as well as an argument
+against it.
+
+**Narrow is the safe direction, and the divergence from Portal is stated rather
+than discovered**, the same shape as [D-20](../architecture-debt.md)'s note about
+`features:edit`. **The grant moved rather than the endpoint**, so
+`content:registerDataStore` does not become a privilege a publisher holds and
+cannot use — which is [D-56](../architecture-debt.md)'s complaint about
+`admin:manageMembers`, and would have been the cost of moving only the tab.
+A deployment that wants Portal's placement back changes one line in `BuildGrants`;
+`RolesTests` will fail, which is the point of asserting it there.
 
 ### Premium
 

@@ -129,6 +129,14 @@ const SURFACES = {
     home: "services",
     tabs: [
       ["services", "Services"],
+
+      // <b>Data sources is Server's, by owner decision 2026-08-17</b> — *"data sources studio'nun
+      // değil server'in bir seçeneği. onu da sadece admin ayarlayabilir."* This corrects ADR-034
+      // §5c, which had put it in Studio beside publishing. Registering a source is not publishing:
+      // it hands this server a credential for somebody else's database and adds a machine the
+      // deployment then depends on, and its failures are operational.
+      ["sources", "Data sources"],
+
       ["operations", "Operations"],
     ],
     action: null,
@@ -139,7 +147,6 @@ const SURFACES = {
     home: "content",
     tabs: [
       ["content", "My content"],
-      ["sources", "Data sources"],
 
       // <b>*"no anonymous view for server"* — the owner, 2026-08-17.</b> ADR-034 §6 had
       // already half-said this: the screen answers *what does a stranger see of this layer*,
@@ -164,11 +171,14 @@ const SURFACES = {
 const SCREEN_SURFACE = {
   services: "server",
   service: "server",
-  layer: "server",
+
+  // <b>Deliberately absent: `layer`.</b> It is the one screen that lives in both surfaces, and
+  // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
+  // page belongs to is `LAYER_PAGES`, and the router asks that instead.
   operations: "server",
   content: "studio",
   anonymous: "studio",
-  sources: "studio",
+  sources: "server",
 };
 
 let privileges = new Set();
@@ -230,6 +240,23 @@ function route() {
   // <b>A screen that lives in the other surface is a navigation.</b> `#/sources` asked for in
   // Server is Studio's data sources: the reader named a screen, not an environment, and sending
   // them to the environment that has it beats a 404 or a silent fallback to the home screen.
+  // <b>A layer's page decides its own surface.</b> The editor is in both surfaces with different
+  // pages in each (§5c), so `#/layer/x/sharing` asked for in Server is Studio's — the same
+  // translation the screen table does one level up, one level down.
+  if (rest[0] === "layer" && rest[1] && rest[2] && LAYER_PAGES[rest[2]]
+      && LAYER_PAGES[rest[2]] !== surface) {
+    const owner = LAYER_PAGES[rest[2]];
+
+    if (!may(SURFACES[owner].needs)) {
+      toast(`That page is in ${SURFACES[owner].title}, which needs ${SURFACES[owner].needs}.`);
+      location.replace(surfaceHref(surface, SURFACES[surface].home));
+      return;
+    }
+
+    location.assign(`/${owner}/${location.hash}`);
+    return;
+  }
+
   const lives = SCREEN_SURFACE[rest[0]];
   if (lives && lives !== surface) {
     if (!may(SURFACES[lives].needs)) {
@@ -245,7 +272,8 @@ function route() {
   drawSurfaces(surface);
 
   if (rest[0] === "layer" && rest[1]) {
-    showLayer(rest[1], EDIT_PAGES.includes(rest[2]) ? rest[2] : EDIT_PAGES[0]);
+    const mine = pagesOf(surface);
+    showLayer(rest[1], mine.includes(rest[2]) ? rest[2] : mine[0]);
     return;
   }
 
@@ -1360,7 +1388,41 @@ function closeDrawer() {
  * The page names are also the route: each is an address under
  * `#/layer/<name>/<page>`, so the left column is six ordinary links.
  */
-const EDIT_PAGES = ["general", "capabilities", "limits", "caching", "sharing", "endpoints"];
+/**
+ * A layer's settings pages, and which surface each belongs to.
+ *
+ * <b>ADR-034 §5c already said this and the code did not do it.</b> Its table puts *Sharing*,
+ * *Symbology* and *Cache lifetime* in Studio and the capability ceilings and limits in Server,
+ * with the sentence: *"a layer therefore appears in both, and that is correct: its limits are the
+ * server's business and its appearance is the publisher's."* The editor was built as one screen in
+ * Server holding all six pages, so three of §5c's Studio rows were implemented in Server.
+ *
+ * The owner, looking at the Server services screen: *"aslında bir servisin private mi organization
+ * mu public mi olduğu studio tarafında ayarlanacak."* — whether a service is private,
+ * organisation or public will be set on the Studio side. They are restating their own decision,
+ * which is the clearest possible sign it had not been carried out.
+ *
+ * <b>The split is by whose act it is, not by who is allowed.</b> An administrator may do all of
+ * it and still wants them apart: stopping a service and choosing who sees it are different
+ * decisions with different consequences, and a screen that mixes them invites the wrong one.
+ */
+const LAYER_PAGES = {
+  // The server's business: what the service will spend, and where it answers.
+  general: "server",
+  capabilities: "server",
+  limits: "server",
+  endpoints: "server",
+
+  // The publisher's: who sees it, how it looks, and how stale a tile may be (A-028 — the
+  // administrator is not the person who knows a layer's volatility; its owner is).
+  sharing: "studio",
+  caching: "studio",
+};
+
+const EDIT_PAGES = Object.keys(LAYER_PAGES);
+
+/** The pages this surface owns, in the order they are listed above. */
+const pagesOf = surface => EDIT_PAGES.filter(page => LAYER_PAGES[page] === surface);
 
 /** Which layer's page is open, and which of its settings pages. */
 let editing = null;
@@ -1452,9 +1514,22 @@ function showLayer(name, page, pending = null) {
 
   $("editCrumb").innerHTML = `${trail.join(" › ")} › <b>${h(name)}</b>`;
 
-  $("editNav").innerHTML = EDIT_PAGES.map(p =>
+  // <b>This surface's pages, and a way to the other's.</b> §5c promises that *each surface links
+  // to the other's page for the same layer, so the split never means a dead end* — without the
+  // second half a publisher looking for Sharing in Server finds five pages and no clue, which is
+  // worse than the single screen this replaced.
+  const here = surfaceOfPath();
+  const elsewhere = here === "server" ? "studio" : "server";
+
+  $("editNav").innerHTML = pagesOf(here).map(p =>
     `<a href="#/layer/${encodeURIComponent(name)}/${p}">${
-      p[0].toUpperCase() + p.slice(1)}</a>`).join("");
+      p[0].toUpperCase() + p.slice(1)}</a>`).join("")
+    + (may(SURFACES[elsewhere].needs)
+      ? `<a class="crossing" href="${surfaceHref(elsewhere,
+          `layer/${encodeURIComponent(name)}/${pagesOf(elsewhere)[0]}`)}">${
+          pagesOf(elsewhere).map(p => p[0].toUpperCase() + p.slice(1)).join(", ")}
+          <span class="in">in ${h(SURFACES[elsewhere].title)}</span></a>`
+      : "");
 
   $("editPages").innerHTML = `
     <section class="page" id="page-general">
@@ -1473,6 +1548,12 @@ function showLayer(name, page, pending = null) {
           ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
                ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
           : ""}
+        <!--
+          The server's own cache of this table's shape (D-17), not the publisher's business. It sat
+          under Maintenance beside Delete layer until the editor was split by surface, which is when
+          the two turned out to be different kinds of act.
+        -->
+        <button data-refresh="${h(name)}">Forget remembered shape</button>
       </div>
 
       <h4>Contents</h4>
@@ -1561,11 +1642,20 @@ function showLayer(name, page, pending = null) {
         Save — ADR-031 §2b. They take effect at once and are never cached, because an
         operator revoking access has to be able to trust that it happened.</p>
 
-      <h4>Maintenance</h4>
+      <!--
+        <b>Unpublishing stays with the publisher; forgetting the remembered shape does not.</b>
+        They were one Maintenance block, and splitting the editor by surface separated what they
+        are: deleting a layer is a decision about content — it purges tiles and forgets a shape,
+        and the person who published it is the person who unpublishes it. Forgetting the remembered
+        table shape (D-17) is a cache the *server* keeps; it moved to General in Server, which is
+        where the other operational buttons are.
+      -->
+      <h4>Unpublish</h4>
       <div class="row">
-        <button data-refresh="${h(name)}">Forget remembered shape</button>
         <button class="danger" data-delete="${h(name)}">Delete layer</button>
       </div>
+      <p class="hint">The source table is not touched. For a hosted layer the data is in this
+        server's datastore and goes with it; for a registered one it stays where it was.</p>
     </section>
 
     <section class="page" id="page-endpoints">
