@@ -559,6 +559,23 @@ public static class Program
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/auth/login")));
 
+        // <b>The origin itself answers, and until 2026-08-17 it did not.</b> Nothing
+        // was mapped to "/", so typing the server's address produced an empty 404 —
+        // no status line, no hint, nothing to click. The owner hit exactly that:
+        // every link in this product carries a path, and the one thing a person types
+        // is the host.
+        //
+        // <b>It redirects to the services directory rather than to the console</b>,
+        // and that ordering is the product's own claim. ADR-023's browsable directory
+        // at the ArcGIS URL is the compatibility surface an administrator arriving
+        // from ArcGIS Server expects to find, and Q-07's promise is that their client
+        // works — so the front door is the thing a client would ask for. The console
+        // is one link away from there.
+        //
+        // 302 rather than 301: a permanent redirect is cached by browsers past the
+        // point where anybody can change their mind about what the root is for.
+        app.MapGet("/", () => Results.Redirect("/rest/services?f=html", permanent: false));
+
         // The root: registered services, the folders, and the system services.
         app.MapGet("/rest/services", (
             HttpContext context,

@@ -613,14 +613,25 @@ internal static class RestDirectory
     }
 
     /// <summary>The signed-in badge, or a link to sign in.</summary>
+    /// <remarks>
+    /// <b>The console is linked from here because the origin now redirects here.</b>
+    /// Added 2026-08-17: nothing was mapped to "/", so the server's own address
+    /// answered an empty 404 and the administration surface was reachable only by
+    /// somebody who already knew its path. The directory is the front door — it is
+    /// what an ArcGIS client asks for — and the console is the other thing a person
+    /// wants, so it belongs in the one line that appears on every page.
+    /// </remarks>
     private static string Who(string path)
     {
         string here = U(path);
 
+        string console = "<a href=\"/console/\">Console</a> &middot; ";
+
         return Current.Value is { Length: > 0 } name
-            ? $"Signed in: <b>{H(name)}</b> &middot; "
+            ? console
+              + $"Signed in: <b>{H(name)}</b> &middot; "
               + $"<a href=\"/rest/auth/logout?f=html\">Sign out</a>"
-            : $"<a href=\"/rest/login?return={here}\">Sign in</a>";
+            : console + $"<a href=\"/rest/login?return={here}\">Sign in</a>";
     }
 
     /// <summary>HTML-encodes a value. Nothing user-supplied is written without it.</summary>
