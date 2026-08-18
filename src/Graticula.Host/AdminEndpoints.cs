@@ -11,6 +11,7 @@ using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
+using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
@@ -47,7 +48,15 @@ internal sealed record PublishRequest(
     string? ServiceName = null,
     int? ParentLayerId = null,
     int? CacheSeconds = null,
-    string? Folder = null);
+    string? Folder = null,
+
+    // <b>D-53: refuse a source whose geometry PostGIS calls invalid.</b> Off by default,
+    // and that default is the decision rather than the timid option. A registered table
+    // belongs to somebody else — 18 invalid rows in 25,280 is a fact about their data,
+    // not a reason for this server to decline to serve it — and every layer published
+    // before today was published without the question being asked. So the count is
+    // *always reported* and the refusal is asked for by whoever wants it.
+    bool RequireValidGeometry = false);
 
 /// <summary>A folder to create in the services directory.</summary>
 /// <param name="Name">What to call it. One URL segment, matched without regard to case.</param>
@@ -2356,6 +2365,53 @@ internal static class AdminEndpoints
         await Results.Json(Describe(result)).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asks the source's own database what it makes of the geometry to be published.
+    /// </summary>
+    /// <remarks>
+    /// <b>Over the registered credential, not over the platform store's.</b> The table
+    /// being published may live in somebody else's database entirely — that is what a
+    /// registered source is — so the only connection that can see it is the one the
+    /// operator registered. Reading it through the platform store's pool would answer
+    /// about a table of the same name in the wrong place, which is a worse failure than
+    /// not asking.
+    /// </remarks>
+    private static async Task<GeometryValidity?> ValidityOfSourceAsync(
+        IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
+    {
+        try
+        {
+            if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
+                    .ConfigureAwait(false) is not { Length: > 0 } connection)
+            {
+                return null;
+            }
+
+            NpgsqlDataSourceBuilder builder = new(connection);
+
+            // <b>Its own bound, because a validity scan is a sequential pass.</b> A
+            // publish is interactive: somebody is waiting on this response, and a scan of
+            // a hundred-million-row table is not worth the wait. Thirty seconds either
+            // answers or reports itself as unmeasured, which is a real answer.
+            builder.ConnectionStringBuilder.CommandTimeout = 30;
+
+            await using NpgsqlDataSource source = builder.Build();
+
+            return await GeometryValidity.MeasureAsync(
+                source,
+                publication.SchemaName,
+                publication.TableName,
+                publication.GeometryColumn,
+                cancellation).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is NpgsqlException or ArgumentException
+            or InvalidOperationException or TimeoutException)
+        {
+            // Unmeasured, and the caller says so rather than guessing.
+            return null;
+        }
+    }
+
     private static async Task PublishAsync(
         HttpContext context,
         PublishRequest request,
@@ -2398,6 +2454,49 @@ internal static class AdminEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
+        // <b>D-53: ask PostGIS what it makes of the source before recording it.</b> Publish
+        // recorded a table it never looked at, so `hosted.tr_ilce_511f6767` was serving 18
+        // invalid geometries out of 25,280 and the way that came to light was another
+        // server refusing to publish the same table. Asking is cheap to write and the
+        // answer is worth having whichever way it comes back.
+        //
+        // <b>Before the write, because a refusal has to leave nothing behind.</b> If the
+        // caller asked for validity and the source has none, no row is created — a
+        // half-publish that has to be undone is the shape D-48 was about.
+        //
+        // <b>Never fails the publish by itself.</b> A source this server cannot scan — no
+        // permission on the table, a timeout on a very large one — is still a source it
+        // can serve, and answering 500 because a *report* could not be produced would
+        // refuse work over a diagnostic. `null` means unmeasured and says so.
+        GeometryValidity? validity = await ValidityOfSourceAsync(
+            catalog, publication, cancellation).ConfigureAwait(false);
+
+        if (request.RequireValidGeometry && validity is not null && !validity.AllValid)
+        {
+            await Refuse(
+                context, 422,
+                $"'{publication.SchemaName}.{publication.TableName}' was not published because "
+                + $"requireValidGeometry was asked for and {validity.Explanation} Publish without "
+                + "that flag to serve it as it is — the count is reported either way — or repair "
+                + "the source. This server does not repair somebody else's data.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (request.RequireValidGeometry && validity is null)
+        {
+            await Refuse(
+                context, 422,
+                $"'{publication.SchemaName}.{publication.TableName}' was not published because "
+                + "requireValidGeometry was asked for and the geometry could not be scanned — so "
+                + "this server cannot tell you whether the condition holds. Check that the "
+                + "registered credential can read the table.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         try
         {
             PublishedLayerAddress published = await catalog
@@ -2414,6 +2513,7 @@ internal static class AdminEndpoints
                     table = $"{publication.SchemaName}.{publication.TableName}",
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
+                    invalidGeometries = validity?.Invalid,
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -2439,6 +2539,26 @@ internal static class AdminEndpoints
                         : $"/rest/services/{published.ServiceName}/FeatureServer/{published.LayerIndex}",
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
+
+                    // <b>What PostGIS makes of the source (D-53).</b> Reported on every
+                    // publish, including the ones that did not ask, because the whole
+                    // defect was that nobody was told.
+                    geometry = validity is null
+                        ? new
+                        {
+                            valid = (bool?)null,
+                            invalid = (long?)null,
+                            reasons = Array.Empty<string>(),
+                            note = "The geometry could not be scanned, so this says nothing "
+                                 + "about it. The layer is published.",
+                        }
+                        : new
+                        {
+                            valid = (bool?)validity.AllValid,
+                            invalid = (long?)validity.Invalid,
+                            reasons = validity.Reasons.ToArray(),
+                            note = validity.Explanation,
+                        },
 
                     // ADR-013 §2a, said at publish time rather than discovered
                     // at the first query by somebody who cannot fix it.

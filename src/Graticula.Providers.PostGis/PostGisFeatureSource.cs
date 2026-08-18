@@ -456,8 +456,28 @@ public sealed class PostGisFeatureSource : IFeatureSource
                    .Append(query.OrderBy[i].Descending ? " desc" : " asc");
             }
         }
-        else if (query.Offset > 0)
+        else
         {
+            // <b>Every limited result is a page, including the first one — and this said
+            // `else if (query.Offset > 0)` until 2026-08-18.</b> D-21 recorded that the
+            // query "orders by identity when an offset is given", which was true and was
+            // the defect: `resultOffset=0` is not "given", so the first page came back in
+            // heap order and every later page came back in identity order. The two
+            // orderings do not line up, so a client walking pages **deterministically**
+            // skipped rows and repeated others.
+            //
+            // <b>Measured on the owner's server, 2026-08-18.</b> `hosted/tr_il` answered
+            // objectids `[1, 33]` for offset 0 and `[2, 3]` for offset 1 — four times out
+            // of four, so not a race. Three of ten layers did it; the seven that did not
+            // were small enough that heap order happened to be identity order, which is
+            // why this survived a conformance test that checks exactly this property.
+            //
+            // <b>The cost is a sort on every unordered query, and it is the right trade.</b>
+            // A `limit` with no `order by` does not have a wrong order — it has no order,
+            // and no order means the server returned an arbitrary subset and called it a
+            // page. For a hosted layer the identity column is the primary key, so this is
+            // an index scan rather than a sort. Where it is not indexed the planner does a
+            // top-N sort, which is what an offset query has always paid here.
             sql.Append(" order by ").Append(LayerDefinition.Quote(_layer.IdentityColumn));
         }
 

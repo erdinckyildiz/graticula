@@ -299,6 +299,33 @@ internal static class HostedDataEndpoints
             throw;
         }
 
+        // <b>D-53: the import says what it wrote, including what PostGIS thinks of it.</b>
+        // Until 2026-08-18 this reported a row count and nothing else, and
+        // `hosted.tr_ilce_511f6767` went out with 18 invalid geometries in 25,280 that
+        // nobody learned about until another server refused to publish the table.
+        //
+        // <b>Asked after the commit rather than before it.</b> The scan is a full pass
+        // over the geometry — there is no index that can answer it — so doing it inside
+        // the import transaction would hold a write lock for the length of a sequential
+        // scan. And the answer does not change what is stored: this server does not
+        // repair silently (see GeometryValidity), so the report is the whole product.
+        //
+        // <b>It cannot fail the import.</b> An import that wrote everything and then
+        // could not count is still an import that wrote everything, and answering 500
+        // after a successful commit would send somebody looking for data that is there.
+        GeometryValidity? validity = null;
+
+        try
+        {
+            validity = await importer
+                .ValidityOfAsync(result.SchemaName, result.TableName, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.NpgsqlException)
+        {
+            // Reported as unmeasured below, which is honest and is not a failure.
+        }
+
         await audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id,
@@ -306,7 +333,7 @@ internal static class HostedDataEndpoints
                 context.Connection.RemoteIpAddress?.ToString(),
                 "layer.import",
                 name,
-                Detail(result, dataset!),
+                Detail(result, dataset!, validity),
                 true),
             cancellation).ConfigureAwait(false);
 
@@ -326,6 +353,27 @@ internal static class HostedDataEndpoints
             geometryType = dataset!.GeometryType.ToString(),
             fields = dataset.Columns.Select(c => new { c.Name, type = c.Type.ToString() }),
             sharing = sharing.ToString().ToLowerInvariant(),
+
+            // <b>What PostGIS makes of what we wrote (D-53).</b> Reported rather than
+            // repaired: ST_MakeValid can drop a ring, split a polygon, or turn an area
+            // into a line, and a server that hands back different geometry from what it
+            // was given is one nobody can reconcile against their source.
+            geometry = validity is null
+                ? new
+                {
+                    valid = (bool?)null,
+                    invalid = (long?)null,
+                    reasons = Array.Empty<string>(),
+                    note = "The validity scan did not complete, so this says nothing about the "
+                         + "geometry. Everything that was uploaded was written.",
+                }
+                : new
+                {
+                    valid = (bool?)validity.AllValid,
+                    invalid = (long?)validity.Invalid,
+                    reasons = validity.Reasons.ToArray(),
+                    note = validity.Explanation,
+                },
 
             // <b>Nothing is reprojected on the way in any more.</b> Owner
             // correction 2026-08-15. The previous version transformed every
@@ -768,7 +816,17 @@ internal static class HostedDataEndpoints
         _ => SharingScope.Private,
     };
 
-    private static string Detail(ImportResult result, ImportedDataset dataset) =>
+    /// <summary>The audit detail for an import.</summary>
+    /// <remarks>
+    /// <b>The validity goes inside the object, and it went beside it first.</b> This
+    /// column is `json`, and appending `", invalidGeometries=18"` to a serialised object
+    /// produces something PostgreSQL refuses — `22P02: invalid input syntax for type
+    /// json` — which surfaced as a 503 on an import that had already written its data.
+    /// Caught by the database on the first real upload, which is the right place for it to
+    /// be caught and the wrong place to be relying on.
+    /// </remarks>
+    private static string Detail(
+        ImportResult result, ImportedDataset dataset, GeometryValidity? validity) =>
         JsonSerializer.Serialize(new
         {
             table = $"{result.SchemaName}.{result.TableName}",
@@ -777,6 +835,7 @@ internal static class HostedDataEndpoints
             geometryType = dataset.GeometryType.ToString(),
             result.SourceSrid,
             result.StoredSrid,
+            invalidGeometries = validity?.Invalid,
         });
 
     private static Task Fail(HttpContext context, int code, string message) =>

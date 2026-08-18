@@ -171,6 +171,23 @@ public sealed class PostGisImporter
     }
 
     /// <summary>
+    /// Asks PostGIS what it makes of a table this importer wrote.
+    /// </summary>
+    /// <remarks>
+    /// <b>Here rather than on the endpoint, because the connection belongs here.</b>
+    /// Handing a caller the data source so it can run one query is how a port stops being
+    /// one — and the thing that wrote the table is the honest place to ask what got
+    /// written. D-53 is the reason it is asked at all.
+    /// </remarks>
+    /// <param name="schema">The schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The counts and the reasons.</returns>
+    public Task<GeometryValidity> ValidityOfAsync(
+        string schema, string table, CancellationToken cancellationToken) =>
+        GeometryValidity.MeasureAsync(_dataSource, schema, table, "geom", cancellationToken);
+
+    /// <summary>
     /// Creates an empty feature class from a schema somebody designed.
     /// </summary>
     /// <param name="fields">The columns, already validated.</param>
