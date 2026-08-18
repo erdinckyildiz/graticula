@@ -1288,6 +1288,28 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
             gap: var(--gap-4); margin-top: var(--gap-5); }
 @media (max-width: 620px) { .newtiles { grid-template-columns: minmax(0, 1fr); } }
 
+/*
+  <b>One tile spans, and the rule retires itself.</b> The design review's answer to *does a single
+  tile in a two-column grid read as room to grow* was no — it reads as a layout that half-rendered,
+  because an equal-width void beside it carries no signal of intent. `:only-child` spans it today and
+  stops applying the moment there is a second tile, so the two-column mechanism stays for when
+  ADR-034 §5j's grid has something to put in it.
+*/
+.newtiles > .newtile:only-child { grid-column: 1 / -1; }
+
+/*
+  The *or* between the drop zone and the tiles. A rule with a word sitting in it, because the two
+  halves of screen one are alternatives and nothing in the layout said so.
+*/
+.orbar { display: flex; align-items: center; gap: var(--gap-3); margin: var(--gap-5) 0 0;
+         font-size: var(--t-small); color: var(--faint); }
+.orbar::before, .orbar::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+
+/* The heading takes focus on every screen change, so it must not draw a ring as though it were a
+   control. The screen reader hears it; the eye should not be told to click it. */
+#addItemTitle:focus { outline: none; }
+#addItemTitle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 .newtile { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: var(--gap-3);
            align-items: start; text-align: left; padding: var(--gap-3); cursor: pointer;
            border: 1px solid transparent; border-radius: var(--round); background: none;

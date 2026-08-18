@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>1aeee5a</code> · 2026-08-18 23:38</p>
+<p class="stamp">Şu commit’ten üretildi: <code>95fb3d2</code> · 2026-08-19 00:27</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">37</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">52/142</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">86 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">55</div><div class="kpi-l">açık soru</div><div class="kpi-n">61 yanıtlandı · 5 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">46</div><div class="kpi-l">açık borç</div><div class="kpi-n">42 ödendi · 6 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">49</div><div class="kpi-l">açık borç</div><div class="kpi-n">42 ödendi · 6 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1250</div><div class="kpi-l">test</div><div class="kpi-n">139 kaynak dosya, 53,053 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1258</div><div class="kpi-l">test</div><div class="kpi-n">139 kaynak dosya, 53,066 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-121</b> — Can a COG be registered in place — served from where it already lives, never copied?</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">3 kapı</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">136 madde</span></div><p><b>86 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>46 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">139 madde</span></div><p><b>86 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>49 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -366,6 +366,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-40</td><td>ADR-008 states a rule it also documents breaking, and the shipped code follows the break.</td><td class="muted-t">Before the first provider that is not a database is designed — GeoParquet or FlatGeobuf as serving providers (Q-52), or…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-89</td><td>The conformance suite enumerates every service this server has, while three other suites create and delete zz fixtures beside it.</td><td class="muted-t">Before D-63 is repaid.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-90</td><td>Two console surfaces answered one page action, and the drawer it opened had grown four jobs.</td><td class="muted-t">The next change to either service form, or the first report that New service opens nothing</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-91</td><td>~~Two elements carried one id, and one of them was inside a hidden view.~~ route() wrote the surface&#x27;s page action into both page heads — #pageAction on Server&#x27;s services screen and #pageActionContent on Studio&#x27;s content screen — and its comment gave the…</td><td class="muted-t">repaid on discovery</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-92</td><td>~~Three log event ids named seven messages between them.~~ 1008 was both AuthorizationIsPortalShaped and OverlayKilled; 1010 was SetupStillPending and OverlayWorkersReclaimed; 1014 was a datastore refusal, a query&#x27;s timings and a configuration warning.</td><td class="muted-t">repaid on discovery</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-93</td><td>The drawer does not move focus into itself, where the dialog beside it does.</td><td class="muted-t">The next drawer that holds a transaction rather than a form, or the first accessibility pass</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -446,15 +449,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">284</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">239</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:75.0%"></div></div><div class="bar-n">213</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:75.7%"></div></div><div class="bar-n">215</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:64.8%"></div></div><div class="bar-n">184</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:47.9%"></div></div><div class="bar-n">136</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:41.2%"></div></div><div class="bar-n">117</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">44</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:17.6%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:7.7%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">11</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>95fb3d2</code><time>2026-08-19</time><span>the drawer of four forms becomes a New item dialog, and the button says what it does</span></li>
 <li><code>1aeee5a</code><time>2026-08-18</time><span>the Python worker is gone; GDAL is a .NET package in a child process</span></li>
 <li><code>a88016e</code><time>2026-08-18</time><span>a job goes in and the worker takes it out</span></li>
 <li><code>5b7f0d0</code><time>2026-08-18</time><span>my own ADR contradicted one from six days earlier, and I found it by building</span></li>
@@ -468,7 +472,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a050c2b</code><time>2026-08-18</time><span>the reader we were costing is one we should not write</span></li>
 <li><code>c54a003</code><time>2026-08-18</time><span>a refusal that names the format, and the survey that says why there is nothing to adopt</span></li>
 <li><code>203ecca</code><time>2026-08-18</time><span>the hash stays, and the reason it was rejected had stopped holding</span></li>
-<li><code>d2f91b5</code><time>2026-08-18</time><span>two pickers for one job, and the one on top was the rejected one</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

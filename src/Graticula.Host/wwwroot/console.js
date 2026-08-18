@@ -1580,17 +1580,26 @@ function drawSurfaces(surface) {
        name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
        name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("");
 
-  // <b>The action goes to whichever page head is on screen.</b> Each surface's home screen has a
-  // slot; naming them apart and asking for both is what keeps the router from having to know which
-  // view is visible.
+  // <b>One slot, because the other copy was a second element with the same id.</b> This wrote the
+  // action into both page heads and said so — *"naming them apart and asking for both is what keeps
+  // the router from having to know which view is visible"* — which bought the router one line and
+  // put two `id="newLayer"` nodes in the document, one of them inside a hidden view. Clicks were
+  // never wrong, because the handler reads `event.target.id` and nobody can press what they cannot
+  // see; `getElementById` was, and it returns the hidden one. Found by the design review
+  // 2026-08-19, whose own first script pressed the invisible copy and timed out. D-91.
+  //
+  // The surface's home screen owns the slot, so the router looks up one name instead of knowing
+  // which view is on.
+  const slots = { services: "pageAction", content: "pageActionContent" };
+
   const markup = config.action
     ? `<button class="primary" id="${config.action.id}"><span class="plus"
          aria-hidden="true">+</span>${h(config.action.label)}</button>`
     : "";
 
-  for (const id of ["pageAction", "pageActionContent"]) {
+  for (const [home, id] of Object.entries(slots)) {
     const slot = $(id);
-    if (slot) slot.innerHTML = markup;
+    if (slot) slot.innerHTML = home === config.home ? markup : "";
   }
 }
 
@@ -4164,6 +4173,8 @@ const ITEM_ROUTES = [
     title: "Define your own layer",
     lede: "Specify the fields and the geometry. Creates an empty layer you fill through the feature "
         + "service.",
+    form: "designForm",
+    submit: "Create empty layer",
   },
   {
     id: "registered",
@@ -4171,12 +4182,16 @@ const ITEM_ROUTES = [
     title: "Publish a table this server can reach",
     lede: "Use a table in a registered PostGIS database. Nothing is copied — the layer reads the "
         + "table where it is.",
+    form: "regForm",
+    submit: "Publish",
   },
   {
     id: "import",
     icon: "upload",
     title: "Upload a file",
     lede: "Use the fields and the data in a zipped shapefile or a GeoJSON FeatureCollection.",
+    form: "importForm",
+    submit: "Import and publish",
   },
 ];
 
@@ -4208,14 +4223,44 @@ function openAddItem() {
   closeDrawer();
 
   drawAddItem();
+
+  // <b>And nothing focuses the heading here.</b> `showModal` sets focus itself and honours the
+  // `autofocus` on *Your device*, which is the better landing for the first screen — the browser's own
+  // default is the first tabbable element, the ✕, where a stray Enter dismissed the dialog. Calling
+  // `nameTheScreen` after this would take that back; the heading is for the transitions, where there
+  // is no `showModal` to do it and the redraw drops focus on the floor.
   $("addItem").showModal();
 }
 
 /** Draws whichever screen `itemStep` names, with the footer that screen needs. */
 function drawAddItem() {
-  if (itemStep === "item") return drawItemKinds();
-  if (itemStep === "kind") return drawLayerRoutes();
-  return drawRouteForm(itemStep);
+  if (itemStep === "item") drawItemKinds();
+  else if (itemStep === "kind") drawLayerRoutes();
+  else drawRouteForm(itemStep);
+
+  nameTheScreen();
+}
+
+/**
+ * Moves focus to the heading of whichever screen was just drawn.
+ *
+ * <b>Because a redraw dropped it on the floor.</b> Measured by the design review 2026-08-19:
+ * `document.activeElement` was `<body>` after the tile and after *Next*, since replacing
+ * `#addItemBody` wholesale destroys whatever held focus. A screen-reader user got no announcement
+ * that the screen had changed and a keyboard user's focus ring vanished until the next Tab.
+ *
+ * <b>The heading rather than the first control</b>, on two grounds. It is what announces *which*
+ * screen you are now on, which is the thing that changed; and a heading does nothing when you press
+ * Enter — where the browser's own default put focus on the close button, so a stray Enter on opening
+ * dismissed the dialog. `autofocus` on *Your device* handles the first screen's opening; this handles
+ * every transition after it.
+ */
+function nameTheScreen() {
+  const dialog = $("addItem");
+  if (!dialog?.open) return;
+
+  const title = $("addItemTitle");
+  if (title) title.focus({ preventScroll: true });
 }
 
 /** Screen one: drop a file, or choose what kind of item to make. */
@@ -4223,15 +4268,23 @@ function drawItemKinds() {
   $("addItemTitle").textContent = "New item";
   $("addItemFoot").innerHTML = "";
 
+  // <b>The two halves are one question, and the first version did not say so.</b> The design review
+  // read this screen as two disconnected regions: the drop zone is a complete module with its own
+  // dashed edge and tinted ground, the tile grid below has no border at rest, and the sentence
+  // *"or choose an option"* most naturally points at the button inside the same box rather than at a
+  // grid past a gap. So the drop zone now names what it is for, and the divider says *or* out loud —
+  // which is what screen two gets from its `.picklede` and this screen had no equivalent of.
   $("addItemBody").innerHTML = `
     <div class="dropzone" id="dropzone">
       ${icon("upload")}
-      <p>Drag and drop your file, or choose an option</p>
-      <button type="button" class="ghost" id="fromDevice">${icon("device")} Your device</button>
+      <p>Drag and drop a file here</p>
+      <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
       <span class="val">A zipped shapefile, or a GeoJSON FeatureCollection</span>
       <input type="file" id="deviceFile" hidden
              accept=".zip,.json,.geojson,application/zip,application/geo+json">
     </div>
+
+    <p class="orbar"><span>or start from a type</span></p>
 
     <div class="newtiles">
       <button type="button" class="newtile" id="kindFeatureLayer">
@@ -4339,16 +4392,28 @@ function drawRouteForm(id) {
 
   $("addItemTitle").textContent = route.title;
 
+  // <b>The primary is in the footer, and leaving it inline was measured wrong.</b> The design review
+  // of 2026-08-19 found *Publish* off the bottom of the screen at 1024×720 in the form's **default**
+  // state, and *Create empty layer* 44 pixels below the fold at 1440×900 once ten fields were added —
+  // while Back and Cancel, which abandon the work, stayed pinned in view the whole time. It came
+  // inline because the markup was lifted whole out of the drawer, where the whole panel scrolled
+  // together; here the chrome is fixed and the body is not, so the button that finishes the
+  // transaction has to live in the chrome. Screen two already does this with its *Next*.
   $("addItemFoot").innerHTML = `
     <button type="button" class="ghost" id="itemBack">Back</button>
     <span class="fill"></span>
-    <button type="button" class="ghost" id="itemCancel">Cancel</button>`;
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="itemSubmit">${h(route.submit)}</button>`;
 
   $("itemBack").addEventListener("click", () => {
     itemStep = "kind";
     drawAddItem();
   });
   $("itemCancel").addEventListener("click", () => $("addItem").close());
+
+  // `requestSubmit` rather than `submit`: it runs the form's own validation and fires the submit
+  // event the route's handler is listening for, which is exactly what pressing an inline button did.
+  $("itemSubmit").addEventListener("click", () => $(route.form)?.requestSubmit());
 
   if (id === "design") return drawDesignForm();
   if (id === "import") return drawImportForm();
@@ -4380,7 +4445,6 @@ function drawDesignForm() {
       </table>
       <div class="row" style="margin:10px 0 0">
         <button type="button" id="dAdd" class="ghost">Add field</button>
-        <button class="primary" type="submit">Create empty layer</button>
       </div>
     </form>
     <div id="newResult" class="group" style="display:none"></div>`;
@@ -4419,7 +4483,6 @@ function drawImportForm() {
       <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
         WGS 84 longitude, latitude by its own specification. A shapefile carries a
         <code>.prj</code> and this server will not guess a code from it.</p>
-      <button class="primary" type="submit">Import and publish</button>
     </form>
     <div id="newResult" class="group" style="display:none"></div>`;
 
@@ -4479,7 +4542,6 @@ function drawRegisteredForm() {
       <p class="hint">Naming an existing service adds this layer to it at the next free index —
         that is how several related layers become one service. Leaving it empty gives the layer a
         single-layer service named after it.</p>
-      <button class="primary" type="submit">Publish</button>
     </form>
     <div id="newResult" class="group" style="display:none"></div>`;
 

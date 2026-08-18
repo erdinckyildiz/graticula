@@ -25,4 +25,30 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    The geodatabase reader is the same arrangement for a different reason. The overlay worker is a
+    separate process because OverlayNG cannot be interrupted; this one is because GDAL parses a file
+    somebody else chose, and ADR-009 §2.2's words for keeping it out of the serving process are that it
+    "removes an untrusted-file parser from the process that serves public requests" (ADR-037 §5a, D-88).
+
+    Opt in with <CopyImportReader>true</CopyImportReader>.
+
+    <b>It is much larger than the overlay worker and that is worth knowing before you wait for it.</b>
+    MaxRev.Gdal's Windows and Linux runtime payloads are both restored, so the directory copied here
+    carries two platforms' native libraries. SkipUnchangedFiles makes the second build cheap; the first
+    is not, and a clean build of anything that opts in pays it.
+  -->
+  <Target Name="CopyImportReader"
+          AfterTargets="Build"
+          Condition="'$(CopyImportReader)' == 'true'">
+    <ItemGroup>
+      <ImportReaderFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(ImportReaderFiles)"
+          DestinationFolder="$(OutDir)importer\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

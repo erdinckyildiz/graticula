@@ -20,6 +20,19 @@ namespace Graticula.Host;
 /// </remarks>
 internal static partial class Log
 {
+    // <b>An EventId is unique, and three of them were not.</b> Found 2026-08-19: 1008 named both
+    // `AuthorizationIsPortalShaped` and `OverlayKilled`, 1010 named `SetupStillPending` and
+    // `OverlayWorkersReclaimed`, and 1014 named three unrelated messages — a datastore refusal, a
+    // query's timings and a configuration warning. An operator filtering on an id got two or three
+    // things, which is worse than no id: the number reads as an identity.
+    //
+    // The first declaration of each shared number kept it, so a filter that already worked still
+    // works, and the later ones moved to 1017 through 1020. **The check is
+    // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
+    // collision took three entries to notice and then got a tool.
+    //
+    // The next id is 1021.
+
     [LoggerMessage(
         EventId = 1000,
         Level = LogLevel.Warning,
@@ -133,7 +146,7 @@ internal static partial class Log
     /// own decomposition instead of a number nobody can explain.
     /// </remarks>
     [LoggerMessage(
-        EventId = 1014,
+        EventId = 1019,
         Level = LogLevel.Debug,
         Message = "query {Layer}: {TotalUs}us total = {LookupUs} lookup + {PrepareUs} prepare "
                 + "+ {SqlUs} driver + {DecodeUs} decode + {SerialiseUs} serialise, {Rows} rows, "
@@ -179,7 +192,7 @@ internal static partial class Log
     public static partial void FailedMidResponse(ILogger logger, System.Exception exception);
 
     [LoggerMessage(
-        EventId = 1014,
+        EventId = 1020,
         Level = LogLevel.Warning,
         Message = "Configured under the former product name: {Keys}. The product is Graticula "
                 + "since 2026-08-17 (ADR-032) and the same settings are read as Graticula__*. "
@@ -196,7 +209,7 @@ internal static partial class Log
         ILogger logger, string scheme, System.Net.IPAddress address, int port);
 
     [LoggerMessage(
-        EventId = 1008,
+        EventId = 1017,
         Level = LogLevel.Warning,
         Message = "An overlay ran past its {DeadlineMs} ms deadline and its worker process was "
                 + "killed. This is the designed bound rather than a fault (Q-97): no property of "
@@ -205,7 +218,7 @@ internal static partial class Log
         ILogger logger, long deadlineMs, System.Exception? exception);
 
     [LoggerMessage(
-        EventId = 1010,
+        EventId = 1018,
         Level = LogLevel.Information,
         Message = "Reclaimed {Workers} geometry worker process(es) idle for more than "
                 + "{IdleSeconds} s. Each holds a heap that may have grown to its 1 GB ceiling, "
