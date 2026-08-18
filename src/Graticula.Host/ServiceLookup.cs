@@ -277,7 +277,16 @@ internal static class ServiceLookup
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (!LayerAccess
-            .Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization)
+            .Evaluate(
+                service.Sharing,
+                service.Owner,
+                current.Principal,
+                current.Authorization,
+
+                // ADR-036: which groups this service is shared with. Read from the catalogue with
+                // the service, so the decision costs no round trip — and consulted only when the
+                // scope is `group`.
+                service.SharedWith)
             .IsAllowed())
         {
             if (!quiet)

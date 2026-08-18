@@ -272,16 +272,19 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // removal that did not say what to do with what is owned, and the refusal has to name it:
         // *3 services* is not enough for an operator to judge whether transferring is right.
         //
-        // <b>Groups are not queried because there is no table.</b> Reported as zero, which is the
-        // honest answer about a thing that does not exist yet -- see MemberHoldings for why it is
-        // reported at all rather than added on the day it arrives.
+        // <b>Groups are queried now, and this comment used to say there was no table.</b> ADR-036
+        // built one on 2026-08-18. §6c wrote the disposition around *owned things* rather than around
+        // services so that this would be an addition rather than a redesign, and it was: one more
+        // subquery here, and two more statements in each disposition.
         const string Sql = """
             select p.id,
                    coalesce((select array_agg(
                               coalesce(nullif(s.folder, '') || '/', '') || s.name order by s.name)
                              from service s where s.owner_principal_id = p.id), '{}'),
                    coalesce((select array_agg(f.name order by f.name)
-                             from folder f where f.owner_principal_id = p.id), '{}')
+                             from folder f where f.owner_principal_id = p.id), '{}'),
+                   (select count(*) from sharing_group g
+                     where g.owner_principal_id = p.id)
               from principal p
              where lower(p.name) = lower(@name)
             """;
@@ -300,7 +303,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         return new MemberHoldings(
             reader.GetFieldValue<string[]>(1),
             reader.GetFieldValue<string[]>(2),
-            0);
+            (int)reader.GetInt64(3));
     }
 
     /// <inheritdoc/>
@@ -368,6 +371,27 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                 .ConfigureAwait(false) is { } refusal)
         {
             return refusal;
+        }
+
+        // <b>Groups are removed here, and services are not — ADR-036 condition 4.</b> Deleting a
+        // group takes its membership rows and its shares and touches nothing else: the services
+        // shared into it keep existing and are read under their own scope. So there is no tile to
+        // purge and no catalogue to notify, and the orchestration the caller does for services would
+        // be ceremony. `sharing_group.owner_principal_id` is `on delete restrict`, so this is also
+        // the only way the delete disposition can succeed at all for somebody who owns one.
+        await using (NpgsqlCommand groups = connection.CreateCommand())
+        {
+            groups.Transaction = transaction;
+
+            groups.CommandText = """
+                delete from sharing_group g
+                 using principal p
+                 where p.id = g.owner_principal_id and lower(p.name) = lower(@name)
+                """;
+
+            groups.Parameters.AddWithValue("name", name);
+
+            await groups.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         // <b>Still owning something is a refusal here, not a cascade.</b> The caller disposes of
@@ -499,8 +523,24 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                  f as (update folder set owner_principal_id = (select id from taker)
                         where owner_principal_id = (select id from giver) returning 1),
                  l as (update layer set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) returning 1)
+                        where owner_principal_id = (select id from giver) returning 1),
+
+                 -- <b>Groups move too — ADR-036, and ADR-015 6c said this would be an addition.</b>
+                 -- The receiver becomes the owner; the group's members and its shares are untouched,
+                 -- so nothing stops being readable by anybody.
+                 g as (update sharing_group set owner_principal_id = (select id from taker),
+                              updated_at = now()
+                        where owner_principal_id = (select id from giver) returning id),
+
+                 -- And the new owner is put in the group, as a manager, for the reason the create
+                 -- path does it: otherwise they own a group that a membership-filtered list omits.
+                 gm as (insert into sharing_group_member (group_id, principal_id, membership, added_by)
+                        select g.id, (select id from taker), 'manager', (select id from taker)
+                          from g
+                        on conflict (group_id, principal_id) do update set membership = 'manager'
+                        returning 1)
             select (select count(*) from s) + (select count(*) from f)
+                 + (select count(*) from g)
             """;
 
         await using NpgsqlCommand command = connection.CreateCommand();

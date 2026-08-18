@@ -156,7 +156,14 @@ public interface IIdentityStore
     /// the two and there is never a reason to have one without the other. Two
     /// queries would be two chances to resolve a ceiling against the wrong roles.
     /// </remarks>
-    Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
+    /// <remarks>
+    /// <b>The group ids ride along, and that is why they are here rather than in
+    /// <see cref="IGroupDirectory"/>.</b> ADR-036's read path asks *is this principal in a group this
+    /// item is shared with* on every request for a `group`-scoped item. The roles are already read
+    /// per request by one statement over `principal`; adding an aggregated subquery to it costs a
+    /// join on a query that happens anyway, where a second port would cost a second round trip.
+    /// </remarks>
+    Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)> GrantsOfAsync(
         Guid principalId, CancellationToken cancellationToken);
 
     /// <summary>Grants a role. Idempotent.</summary>

@@ -812,6 +812,7 @@ internal static class HostedDataEndpoints
     private static SharingScope ParseSharing(string? raw) => raw?.ToLowerInvariant() switch
     {
         "public" => SharingScope.Public,
+        "group" => SharingScope.Group,
         "organization" or "organisation" => SharingScope.Organization,
         _ => SharingScope.Private,
     };

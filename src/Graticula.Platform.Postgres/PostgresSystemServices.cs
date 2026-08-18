@@ -256,6 +256,7 @@ public sealed class PostgresSystemServices
     private static SharingScope Parse(string wire) => wire switch
     {
         "public" => SharingScope.Public,
+        "group" => SharingScope.Group,
         "organization" => SharingScope.Organization,
         _ => SharingScope.Private,
     };
@@ -264,6 +265,7 @@ public sealed class PostgresSystemServices
     {
         SharingScope.Public => "public",
         SharingScope.Organization => "organization",
+        SharingScope.Group => "group",
         _ => "private",
     };
 }

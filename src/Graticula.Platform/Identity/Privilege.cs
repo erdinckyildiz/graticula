@@ -145,6 +145,18 @@ public enum SharingScope
 
     /// <summary>Anyone, including anonymous.</summary>
     Public,
+
+    /// <summary>
+    /// Readable by the members of a group it is shared with, and by nobody else.
+    /// </summary>
+    /// <remarks>
+    /// <b>Portal's fourth scope, added 2026-08-18 by [ADR-036] on the owner's requirement.</b>
+    /// ADR-018 §3b deferred it — *"adding them here would be adopting a subsystem to complete a
+    /// table"* — and the subsystem now exists because every group operation has a privilege to hang
+    /// from. Esri's word for the result is *semiprivate*: private to everybody except the people you
+    /// named.
+    /// </remarks>
+    Group,
 }
 
 /// <summary>
@@ -480,7 +492,22 @@ public static class UserTypes
             .Add(Privilege.ContentRegisterDataStore)
             .Add(Privilege.FeaturesFullEdit)
             .Add(Privilege.SharingShareToOrganization)
-            .Add(Privilege.SharingShareToPublic);
+            .Add(Privilege.SharingShareToPublic)
+
+            // <b>The group privileges, added 2026-08-18 with ADR-036 — and their absence was a
+            // defect for the length of one measurement.</b> A ceiling that does not list a privilege
+            // withholds it, so `groups:create` granted to a role was refused for every member whose
+            // user type is `creator` — which is every member who is not unrestricted. The refusal
+            // even said so correctly: *"your role grants it and your user type does not permit it"*.
+            //
+            // <b>Creator and above, because a group is content.</b> A viewer or an editor cannot
+            // create content at all, and a group is a thing somebody owns. Being *in* a group is
+            // unaffected: membership is the sharing axis, not a privilege, so a viewer reads what is
+            // shared with a group they belong to.
+            .Add(Privilege.GroupsCreate)
+            .Add(Privilege.GroupsDeleteOwn)
+            .Add(Privilege.GroupsManageMembers)
+            .Add(Privilege.GroupsShareTo);
 
         return new Dictionary<string, ImmutableHashSet<Privilege>>(StringComparer.Ordinal)
         {
@@ -509,14 +536,19 @@ public sealed class Authorization
         IEnumerable<string> roles,
         IEnumerable<Privilege> privileges,
         bool administrator = false,
-        IEnumerable<Privilege>? beforeCeiling = null)
+        IEnumerable<Privilege>? beforeCeiling = null,
+        IEnumerable<Guid>? groups = null)
     {
         UserType = userType;
         Roles = [.. roles];
         Privileges = [.. privileges];
         IsAdministrator = administrator;
         _beforeCeiling = beforeCeiling is null ? [.. privileges] : [.. beforeCeiling];
+        Groups = groups is null ? [] : [.. groups];
     }
+
+    /// <summary>Which groups this principal belongs to — ADR-036 §3's membership axis.</summary>
+    public ImmutableHashSet<Guid> Groups { get; }
 
     /// <summary>
     /// Resolves the intersection of the user type's ceiling and the roles' grants.
@@ -565,8 +597,31 @@ public sealed class Authorization
     /// </remarks>
     /// <returns>The resolved authorization.</returns>
     public static Authorization Resolve(
-        string userType, IEnumerable<string> roles, IRoleGrants grants)
+        string userType, IEnumerable<string> roles, IRoleGrants grants) =>
+        Resolve(userType, roles, grants, []);
+
+    /// <summary>
+    /// What a principal may do, including which groups they belong to.
+    /// </summary>
+    /// <param name="userType">The assigned user type.</param>
+    /// <param name="roles">The assigned role names.</param>
+    /// <param name="grants">Where each role's privileges come from.</param>
+    /// <param name="groups">The groups this principal is in — ADR-036.</param>
+    /// <returns>The resolved authorization.</returns>
+    /// <remarks>
+    /// <b>Group membership is not a privilege and is carried here anyway.</b> It is the second axis
+    /// of ADR-036 §3, it is resolved from the same statement as the roles, and every reader that
+    /// needs it already has an <c>Authorization</c> in hand — threading a fifth parameter through
+    /// seven call sites to carry a set of ids would be the ceremony ADR-034 §5c complains about.
+    /// </remarks>
+    public static Authorization Resolve(
+        string userType,
+        IEnumerable<string> roles,
+        IRoleGrants grants,
+        IEnumerable<Guid> groups)
     {
+        ArgumentNullException.ThrowIfNull(groups);
+
         ArgumentNullException.ThrowIfNull(userType);
         ArgumentNullException.ThrowIfNull(roles);
         ArgumentNullException.ThrowIfNull(grants);
@@ -602,7 +657,7 @@ public sealed class Authorization
         }
 
         return new Authorization(
-            userType, granted, fromRoles.Intersect(ceiling), administrator, fromRoles);
+            userType, granted, fromRoles.Intersect(ceiling), administrator, fromRoles, groups);
     }
 
     /// <summary>The assigned user type.</summary>

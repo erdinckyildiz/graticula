@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Graticula.Platform.Identity;
 
@@ -68,6 +69,9 @@ public sealed class PublishedService
     /// configured — which is the same as <see cref="ServiceCapabilityLimits.Unset"/>
     /// and is how every service behaved before ADR-031.
     /// </param>
+    /// <param name="sharedWith">
+    /// Which groups this service is shared with — ADR-036. Empty unless the scope is `group`.
+    /// </param>
     public PublishedService(
         Guid id,
         string name,
@@ -80,7 +84,8 @@ public sealed class PublishedService
         IEnumerable<PublishedLayer> layers,
         IEnumerable<GroupLayer>? groups = null,
         string? style = null,
-        ServiceCapabilityLimits? limits = null)
+        ServiceCapabilityLimits? limits = null,
+        IEnumerable<Guid>? sharedWith = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -93,6 +98,7 @@ public sealed class PublishedService
         Description = description;
         Owner = owner;
         Sharing = sharing;
+        SharedWith = sharedWith is null ? [] : [.. sharedWith];
         Status = status;
         Style = style;
         Layers = [.. layers.OrderBy(l => l.LayerIndex)];
@@ -141,6 +147,17 @@ public sealed class PublishedService
 
     /// <summary>Who may read it (ADR-018 §3b).</summary>
     public SharingScope Sharing { get; }
+
+    /// <summary>
+    /// Which groups this service is shared with — ADR-036, and empty unless the scope is `group`.
+    /// </summary>
+    /// <remarks>
+    /// <b>`SharedWith` rather than `Groups`, because this class already has a `Groups`.</b> That one
+    /// is group *layers* — the folders inside a service document — and the collision is the same
+    /// ambiguity ADR-015 §6c had to settle in the owner's word *grup*. A property whose name means
+    /// two things in one class is a property somebody reads wrong once and then trusts.
+    /// </remarks>
+    public ImmutableArray<Guid> SharedWith { get; }
 
     /// <summary>Whether it is served (ADR-020 §3).</summary>
     public ServiceStatus Status { get; }

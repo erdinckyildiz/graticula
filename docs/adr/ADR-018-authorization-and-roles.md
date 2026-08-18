@@ -144,6 +144,8 @@ The behaviour change from every build before 2026-08-13 stands: a fresh server
 publishes nothing to the unauthenticated, and that is now a property of each
 layer rather than of the whole server.
 
+~~**Groups are deliberately absent.**~~ **UNDEFERRED 2026-08-18 — [ADR-036](ADR-036-groups.md).** The paragraph below is left as written because its argument was right and was answered rather than refuted: groups *were* a subsystem, and what changed is that [ADR-035](ADR-035-role-privileges-are-editable.md) gave every group operation a privilege to hang from, so adopting the subsystem stopped being *adopting a subsystem to complete a table*. The original text:
+
 **Groups are deliberately absent.** Portal's fourth scope is *shared with a
 group*, and groups are a real object with membership, ownership and their own
 privileges. They are not needed to make reading work, and adding them here would

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Immutable;
+using System.Collections.Generic;
 using Graticula.Catalog;
 using Graticula.Geometries;
 using Graticula.Platform.Identity;
@@ -34,7 +36,8 @@ public sealed class PublishedLayer
         TimeSpan? cacheLifetime = null,
         ServiceCostCeilings? cost = null,
         string? symbology = null,
-        TimeSpan? statementTimeout = null)
+        TimeSpan? statementTimeout = null,
+        IEnumerable<Guid>? sharedWith = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -43,6 +46,7 @@ public sealed class PublishedLayer
         Id = id;
         Cost = cost ?? ServiceCostCeilings.Unset;
         StatementTimeout = statementTimeout;
+        SharedWith = sharedWith is null ? [] : [.. sharedWith];
         Definition = definition;
         DataSourceName = dataSourceName;
         ConnectionString = connectionString;
@@ -114,6 +118,17 @@ public sealed class PublishedLayer
     /// </para>
     /// </remarks>
     public TimeSpan? StatementTimeout { get; }
+
+    /// <summary>
+    /// Which groups this layer's *service* is shared with — ADR-036.
+    /// </summary>
+    /// <remarks>
+    /// <b>The service's, like <see cref="Sharing"/> and for the same reason.</b> Migration 11 moved
+    /// the scope onto the service and `layer.sharing` is vestigial; group shares were never on the
+    /// layer at all. A layer carrying its service's answer is what lets the read path decide without
+    /// a second lookup.
+    /// </remarks>
+    public ImmutableArray<Guid> SharedWith { get; }
 
     /// <summary>The group layer above it, or null when it sits at the top.</summary>
     public int? ParentIndex { get; }

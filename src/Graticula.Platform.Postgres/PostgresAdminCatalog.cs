@@ -1305,6 +1305,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     {
         SharingScope.Private => "private",
         SharingScope.Organization => "organization",
+        SharingScope.Group => "group",
         SharingScope.Public => "public",
         _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, null),
     };
@@ -1315,6 +1316,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         "private" => SharingScope.Private,
         "organization" => SharingScope.Organization,
         "public" => SharingScope.Public,
+        "group" => SharingScope.Group,
         _ => throw new InvalidOperationException(
             $"The sharing scope '{scope}' is not one this build knows."),
     };

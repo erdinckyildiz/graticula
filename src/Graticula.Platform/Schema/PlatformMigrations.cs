@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(25);
+    public static SchemaVersion ComponentSchemaVersion => new(26);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -60,6 +60,7 @@ public static class PlatformMigrations
         LayerSymbologyV23,
         ServiceRequestDeadlineV24,
         RolePrivilegesV25,
+        GroupsV26,
     ]);
 
     /// <summary>
@@ -337,6 +338,135 @@ public static class PlatformMigrations
     /// </para>
     /// <para><b>Expand.</b> One new table and rows in it. Nothing existing changes shape.</para>
     /// </remarks>
+    /// <summary>
+    /// Groups: members, what is shared with them, and the fourth sharing scope.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-036], answering Q-112 on the owner's requirement:</b> *"studio tarafında gruplar
+    /// olacak … gruba kullanıcılar ve nesneler atanabilir. şu an için grupla paylaşılabilecek yegane
+    /// şey servisler."* Groups were deferred by ADR-018 §3b — *"adding them here would be adopting a
+    /// subsystem to complete a table"* — and are undeferred now that every group operation has a
+    /// privilege to hang from (ADR-035).
+    /// </para>
+    /// <para>
+    /// <b>`sharing_group` rather than `group`, because `GROUP` is a reserved word.</b> The
+    /// alternative is quoting it in every statement for the life of the product, and a care
+    /// requirement that has to be remembered is the shape of defect this project keeps finding.
+    /// </para>
+    /// <para>
+    /// <b>The fourth scope needs the check widened, and ADR-018 §3b said it would not.</b> That
+    /// paragraph claimed the column *"takes a string so adding `group` later is a value rather than a
+    /// migration"*; all three tables carrying it also carry a three-value check. The claim was
+    /// corrected before this migration needed it — see [D-70]'s neighbours — and widening a check is
+    /// expand-only, so the cost is this migration and not a rewrite.
+    /// </para>
+    /// <para>
+    /// <b>`item_update` is written at creation and never changed</b> (ADR-036 §4c). Flipping a group
+    /// from *view* to *update all* would make every item already shared with it editable by every
+    /// member, retroactively, in one click. The column is here so that editing through a group is an
+    /// addition later rather than a redesign; nothing in v1 reads it, and ADR-036 §4a says so.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> Three new tables, and three widened checks. Nothing existing loses a value.
+    /// </para>
+    /// </remarks>
+    private static Migration GroupsV26 => Migration.Expand(
+        new SchemaVersion(26),
+        "Groups, their members, what is shared with them, and the group sharing scope (ADR-036).",
+
+        """
+        create table sharing_group (
+            id                 uuid        not null primary key,
+            name               text        not null,
+            title              text,
+            description        text,
+
+            -- <b>The owner, and it is required.</b> A group with no owner is one nobody may delete
+            -- or transfer, which is the state ADR-015 6c refuses for a service.
+            owner_principal_id uuid        not null references principal (id) on delete restrict,
+
+            -- ADR-036 4b and 4c: a property of the group, fixed at creation. `none` is the default
+            -- because a group whose purpose is *these people may read this* should not have to
+            -- declare an editing posture it will never use.
+            item_update        text        not null default 'none',
+
+            created_at         timestamptz not null default now(),
+            updated_at         timestamptz not null default now(),
+
+            constraint sharing_group_name_not_blank check (length(btrim(name)) > 0),
+            constraint sharing_group_item_update_known
+                check (item_update in ('none', 'ownItems', 'allItems'))
+        )
+        """,
+
+        // Case-insensitively unique, like every other name in this schema: two groups differing
+        // only in case is the defect two services differing only in the case of their folder already
+        // caused once.
+        "create unique index sharing_group_name_unique on sharing_group (lower(name))",
+
+        """
+        create table sharing_group_member (
+            group_id     uuid        not null references sharing_group (id) on delete cascade,
+            principal_id uuid        not null references principal (id) on delete cascade,
+
+            -- ADR-036 3: the second axis. `manager` holds the group's operations inside it without
+            -- owning it — the owner's *"yönetici olarak atanırsan"*.
+            membership   text        not null default 'member',
+
+            added_at     timestamptz not null default now(),
+            added_by     uuid        references principal (id) on delete set null,
+
+            constraint sharing_group_member_pk primary key (group_id, principal_id),
+            constraint sharing_group_membership_known
+                check (membership in ('member', 'manager'))
+        )
+        """,
+
+        """
+        create table sharing_group_item (
+            group_id   uuid        not null references sharing_group (id) on delete cascade,
+
+            -- <b>A service today, and the table is named for the general case.</b> The owner: other
+            -- things follow when the map model settles. A second column beside this one is a smaller
+            -- change than a renamed table.
+            service_id uuid        not null references service (id) on delete cascade,
+
+            shared_at  timestamptz not null default now(),
+            shared_by  uuid        references principal (id) on delete set null,
+
+            constraint sharing_group_item_pk primary key (group_id, service_id)
+        )
+        """,
+
+        // The read path asks *which groups is this shared with* far more often than the reverse.
+        "create index sharing_group_item_by_service on sharing_group_item (service_id)",
+
+        // And *which groups am I in*, on every request by a signed-in principal.
+        "create index sharing_group_member_by_principal on sharing_group_member (principal_id)",
+
+        // <b>The fourth scope, by name.</b> All three checks were created with explicit names in
+        // migrations 11, 16 and 18 — verified against the live schema rather than assumed — so this
+        // is three plain statements instead of a `do` block that reads the catalogue. A migration
+        // that has to discover what it is altering is one nobody can read.
+        "alter table service drop constraint service_sharing_known",
+        """
+        alter table service add constraint service_sharing_known
+          check (sharing in ('private', 'organization', 'public', 'group'))
+        """,
+
+        "alter table layer drop constraint layer_sharing_known",
+        """
+        alter table layer add constraint layer_sharing_known
+          check (sharing in ('private', 'organization', 'public', 'group'))
+        """,
+
+        "alter table system_service drop constraint system_service_sharing_known",
+        """
+        alter table system_service add constraint system_service_sharing_known
+          check (sharing in ('private', 'organization', 'public', 'group'))
+        """);
+
     private static Migration RolePrivilegesV25 => Migration.Expand(
         new SchemaVersion(25),
         "What each role grants, editable per deployment (ADR-035).",

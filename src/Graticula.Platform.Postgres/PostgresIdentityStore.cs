@@ -386,7 +386,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
     }
 
     /// <inheritdoc/>
-    public async Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
+    public async Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)> GrantsOfAsync(
         Guid principalId, CancellationToken cancellationToken)
     {
         // A left join, so a principal with no roles still yields its user type.
@@ -394,7 +394,15 @@ public sealed class PostgresIdentityStore : IIdentityStore
         // brand-new account — and the ceiling would silently read as unknown,
         // which UserTypes.CeilingOf treats as nothing.
         const string Sql = """
-            select p.user_type, r.role_name
+            select p.user_type,
+                   r.role_name,
+
+                   -- <b>Aggregated rather than joined.</b> A third join would multiply the rows by
+                   -- roles times groups and make the reader deduplicate; the subquery returns one
+                   -- array per row and the reader takes it from the first.
+                   (select coalesce(array_agg(m.group_id), '{}')
+                      from sharing_group_member m
+                     where m.principal_id = p.id)
             from principal p
             left join principal_role r on r.principal_id = p.id
             where p.id = @principal
@@ -409,6 +417,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
 
         string userType = UserTypes.Unrestricted;
         List<string> roles = [];
+        Guid[] groups = [];
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -418,9 +427,14 @@ public sealed class PostgresIdentityStore : IIdentityStore
             {
                 roles.Add(reader.GetString(1));
             }
+
+            // The same array on every row, because it is a subquery over the principal — taken from
+            // whichever row arrives rather than from the first, so a principal with no roles still
+            // gets their groups.
+            groups = reader.GetFieldValue<Guid[]>(2);
         }
 
-        return (userType, roles);
+        return (userType, roles, groups);
     }
 
     /// <inheritdoc/>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Graticula.Platform.Identity;
 
@@ -44,6 +45,17 @@ public static class LayerAccess
         /// decorative. A single boolean answer could not support that.
         /// </remarks>
         AdministrativeOverride,
+
+        /// <summary>
+        /// Shared with a group this caller belongs to — ADR-036 §4a.
+        /// </summary>
+        /// <remarks>
+        /// <b>Its own reason, for the same argument that separates owner from organisation:</b> the
+        /// audit trail should say *they read it because they are in the planning group*, not *because
+        /// it was shared with somebody*. When the question later becomes *why could they see this*,
+        /// the group is the answer somebody is looking for.
+        /// </remarks>
+        Group,
     }
 
     /// <summary>Decides whether a caller may read an item.</summary>
@@ -51,8 +63,22 @@ public static class LayerAccess
     /// <param name="owner">The item's owner, or null if it has none.</param>
     /// <param name="caller">Who is asking.</param>
     /// <param name="authorization">What they may do.</param>
+    /// <param name="itemGroups">
+    /// Which groups this item is shared with — ADR-036. Empty for anything that is not
+    /// <c>group</c>-scoped, and unread unless the scope is.
+    /// </param>
+    /// <remarks>
+    /// <b>The item's groups are a parameter and the caller's are on the authorization.</b> One is a
+    /// property of the thing being read and changes when somebody shares it; the other is a property
+    /// of the reader and is resolved once per request. Putting both in one place would make a
+    /// per-request value carry a per-item one.
+    /// </remarks>
     public static Reason Evaluate(
-        SharingScope scope, Guid? owner, Principal caller, Authorization authorization)
+        SharingScope scope,
+        Guid? owner,
+        Principal caller,
+        Authorization authorization,
+        IReadOnlyCollection<Guid>? itemGroups = null)
     {
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -74,6 +100,23 @@ public static class LayerAccess
         if (scope == SharingScope.Organization && !caller.IsAnonymous)
         {
             return Reason.Organization;
+        }
+
+        // <b>Group, and it is never open to an anonymous caller.</b> A group is a set of members;
+        // somebody who has not signed in is in no group, so the intersection is empty and the check
+        // is a formality — stated anyway, because *"the empty set intersects nothing"* is the kind of
+        // reasoning that stops being true when somebody adds a default group.
+        if (scope == SharingScope.Group
+            && !caller.IsAnonymous
+            && itemGroups is { Count: > 0 })
+        {
+            foreach (Guid group in itemGroups)
+            {
+                if (authorization.Groups.Contains(group))
+                {
+                    return Reason.Group;
+                }
+            }
         }
 
         // Last, so that an administrator reading something they could have read

@@ -358,19 +358,55 @@ public sealed class RolesTests
         }
     }
 
+    /// <summary>
+    /// The schema admits every sharing scope the code knows about.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test earned its keep on 2026-08-18, and its premise had to be corrected to let it.</b>
+    /// It read migration 5 — where the check constraint was first written — and asserted every enum
+    /// value appeared there. Adding <c>SharingScope.Group</c> (ADR-036) broke it, correctly: the code
+    /// knew a value the schema refused. But migration 26 widens the check, so *migration 5* stopped
+    /// being where the answer lives.
+    /// </para>
+    /// <para>
+    /// <b>So it now reads the last migration that states the check.</b> The invariant is unchanged —
+    /// a scope the code can produce and the database rejects is a 23514 at runtime on a value an
+    /// operator chose from a dropdown — and it survives the next widening without being edited,
+    /// which is what a guard has to do to stay a guard.
+    /// </para>
+    /// </remarks>
     [Fact]
     public void The_sharing_scopes_the_code_knows_are_the_ones_the_check_constraint_allows()
     {
         string sql = string.Join(
             "\n",
-            PlatformMigrations.All.All.Single(m => m.Version.Value == 5).Statements);
+            PlatformMigrations.All.All
+                .Where(m => m.Statements.Any(
+                    x => x.Contains("sharing in (", StringComparison.Ordinal)))
+                .OrderByDescending(m => m.Version.Value)
+                .First()
+                .Statements
+                .Where(x => x.Contains("sharing in (", StringComparison.Ordinal)));
 
         foreach (SharingScope scope in Enum.GetValues<SharingScope>())
         {
             Assert.Contains(
                 $"'{scope.ToString().ToLowerInvariant()}'", sql, StringComparison.Ordinal);
         }
+
+        // <b>And every table that carries the column is widened, not only the one somebody
+        // remembered.</b> Three tables carry `sharing`; a fourth scope admitted on `service` and
+        // refused on `layer` is a 23514 that depends on which write path an operator used.
+        foreach (string table in Tables)
+        {
+            Assert.Contains(
+                $"{table} add constraint {table}_sharing_known", sql, StringComparison.Ordinal);
+        }
     }
+
+    /// <summary>The three tables that carry a sharing scope.</summary>
+    private static readonly string[] Tables = ["service", "layer", "system_service"];
 
     [Theory]
     [InlineData(3)]

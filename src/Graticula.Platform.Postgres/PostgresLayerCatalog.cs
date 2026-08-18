@@ -61,7 +61,14 @@ public sealed class PostgresLayerCatalog
         -- column broke by sitting beside the other cost ceilings it belongs with. It is
         -- read by name and so was `symbology`, so nothing shifted — but a rule that is
         -- followed only when it happens to be harmless is not being followed.
-        s.request_deadline_seconds
+        s.request_deadline_seconds,
+
+        -- <b>Which groups this service is shared with — ADR-036.</b> Aggregated rather than joined,
+        -- for the reason the caller's own groups are: a join would multiply every layer row by every
+        -- group and make the reader deduplicate. Empty for all but a `group`-scoped service, and the
+        -- read path does not consult it otherwise.
+        (select coalesce(array_agg(gi.group_id), '{}')
+           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -227,7 +234,10 @@ public sealed class PostgresLayerCatalog
             reader.IsDBNull(reader.GetOrdinal("statement_timeout_ms"))
                 ? null
                 : TimeSpan.FromMilliseconds(
-                    reader.GetInt32(reader.GetOrdinal("statement_timeout_ms"))));
+                    reader.GetInt32(reader.GetOrdinal("statement_timeout_ms"))),
+
+            // ADR-036: the owning service's group shares, so the read path decides in one place.
+            reader.GetFieldValue<Guid[]>(reader.GetOrdinal("shared_with_groups")));
     }
 
     /// <summary>The group layers held by the services named.</summary>
@@ -389,7 +399,7 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, List<PublishedLayer>> byService = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
-            ServiceCapabilityLimits Limits)> heads = [];
+            ServiceCapabilityLimits Limits, Guid[] SharedWith)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -421,7 +431,13 @@ public sealed class PostgresLayerCatalog
                         ParseSharing(reader.GetString(14)),
                         ParseStatus(reader.GetString(15)),
                         reader.IsDBNull(25) ? null : reader.GetString(25),
-                        ReadLimits(reader));
+                        ReadLimits(reader),
+
+                        // <b>By name, like the two columns before it.</b> Appended after every
+                        // ordinal above was written, and hand-counting the last index is what
+                        // served a stored symbology as *generated* (ADR-033 §5i).
+                        reader.GetFieldValue<Guid[]>(
+                            reader.GetOrdinal("shared_with_groups")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -449,7 +465,8 @@ public sealed class PostgresLayerCatalog
                 head.Owner, head.Sharing, head.Status, byService[id],
                 groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : [],
                 head.Style,
-                head.Limits));
+                head.Limits,
+                head.SharedWith));
         }
 
         return services;
@@ -553,6 +570,7 @@ public sealed class PostgresLayerCatalog
         "private" => SharingScope.Private,
         "organization" => SharingScope.Organization,
         "public" => SharingScope.Public,
+        "group" => SharingScope.Group,
         _ => throw new InvalidOperationException(
             $"The sharing scope '{sharing}' is not one this build knows. The platform store has "
             + "been written by a different version of the server."),

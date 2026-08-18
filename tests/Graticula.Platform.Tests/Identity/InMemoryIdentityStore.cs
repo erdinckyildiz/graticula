@@ -183,14 +183,20 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
     /// <summary>User types by principal. Defaults to no ceiling.</summary>
     public Dictionary<Guid, string> UserTypes { get; } = [];
 
-    public Task<(string UserType, IReadOnlyList<string> Roles)> GrantsOfAsync(
-        Guid principalId, CancellationToken cancellationToken) =>
+    /// <summary>Which groups a principal is in, for the tests that care — ADR-036.</summary>
+    public Dictionary<Guid, HashSet<Guid>> GroupsOf { get; } = [];
+
+    public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)>
+        GrantsOfAsync(Guid principalId, CancellationToken cancellationToken) =>
         Task.FromResult((
             UserTypes.TryGetValue(principalId, out string? t)
                 ? t
                 : Graticula.Platform.Identity.UserTypes.Unrestricted,
             (IReadOnlyList<string>)(_roles.TryGetValue(principalId, out HashSet<string>? g)
                 ? [.. g.Order(StringComparer.Ordinal)]
+                : []),
+            (IReadOnlyList<Guid>)(GroupsOf.TryGetValue(principalId, out HashSet<Guid>? inGroups)
+                ? [.. inGroups]
                 : [])));
 
     public Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken) =>

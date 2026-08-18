@@ -81,6 +81,25 @@ internal sealed record GroupLayerRequest(string? Name, string? Folder, int? Pare
 internal sealed record ServiceRequest(
     string? Name, string? Folder, string? Description, string? Sharing);
 
+/// <summary>A group to create.</summary>
+/// <param name="Name">Its name, unique case-insensitively.</param>
+/// <param name="Title">A display title, or null.</param>
+/// <param name="Description">What it is for, or null.</param>
+/// <param name="ItemUpdate">
+/// What it confers on the items shared with it — `none` (the default), `ownItems` or `allItems`.
+/// **Fixed here and never again** (ADR-036 §4c): changing it would make every item already shared
+/// with the group editable by every member, retroactively.
+/// </param>
+internal sealed record NewGroupRequest(
+    string? Name, string? Title, string? Description, string? ItemUpdate);
+
+/// <summary>Whether a member is a manager of the group.</summary>
+/// <param name="Manager">
+/// True to make them a manager — ADR-036 §3's second axis. A manager holds the group's operations
+/// inside it without owning it, and may not delete or transfer it.
+/// </param>
+internal sealed record GroupMemberRequest(bool Manager);
+
 /// <summary>A role to create, with what it grants.</summary>
 /// <param name="Name">Its name.</param>
 /// <param name="Description">A one-line description, shown on the roles screen.</param>
@@ -305,6 +324,18 @@ internal static class AdminEndpoints
         app.MapPut("/admin/roles/{name}/privileges", SetRolePrivilegesAsync);
         app.MapDelete("/admin/roles/{name}", DeleteRoleAsync);
 
+        // <b>Groups — ADR-036, and they are Studio's by ADR-034 §6.</b> The paths sit under
+        // `/admin` because that is where every administrative surface of this server lives; which
+        // *screen* they belong to is the console's decision and it puts them in Studio.
+        app.MapGet("/admin/groups", ListGroupsAsync);
+        app.MapPost("/admin/groups", CreateGroupAsync);
+        app.MapDelete("/admin/groups/{name}", DeleteGroupAsync);
+        app.MapGet("/admin/groups/{name}", DescribeGroupAsync);
+        app.MapPut("/admin/groups/{name}/members/{member}", SetGroupMemberAsync);
+        app.MapDelete("/admin/groups/{name}/members/{member}", RemoveGroupMemberAsync);
+        app.MapPut("/admin/groups/{name}/items/{service}", ShareWithGroupAsync);
+        app.MapDelete("/admin/groups/{name}/items/{service}", UnshareFromGroupAsync);
+
         // Group layers. Owner request 2026-08-15: "enable group layers also."
         app.MapGet("/admin/routes", ListRoutesAsync);
 
@@ -483,7 +514,8 @@ internal static class AdminEndpoints
         foreach (PublishedService service in services)
         {
             LayerAccess.Reason reason = LayerAccess.Evaluate(
-                service.Sharing, service.Owner, current.Principal, current.Authorization);
+                service.Sharing, service.Owner, current.Principal, current.Authorization,
+                service.SharedWith);
 
             if (!reason.IsAllowed())
             {
@@ -2420,6 +2452,426 @@ internal static class AdminEndpoints
 
         _ => Refuse(context, 500, "Unhandled role outcome."),
     };
+
+    /// <summary>
+    /// Groups this caller can see, and where they stand in each.
+    /// </summary>
+    /// <remarks>
+    /// <b>Membership decides what is listed, and <c>admin:manageAllContent</c> widens it.</b> A
+    /// group somebody is not in is not theirs to know about — the same reasoning ADR-018 §3b gives
+    /// for a private item. An administrator sees all of them because a group whose owner has left
+    /// must be administrable, which is ADR-015 §6c's problem in a new place.
+    /// </remarks>
+    private static async Task ListGroupsAsync(
+        HttpContext context,
+        IGroupDirectory groups,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Groups are for members. Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        bool all = current.Authorization.Allows(Privilege.AdminManageAllContent);
+
+        IReadOnlyList<GroupSummary> mine = await groups
+            .ListAsync(current.Principal.Id, all, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            groups = mine.Select(g => new
+            {
+                name = g.Name,
+                title = g.Title,
+                description = g.Description,
+                owner = g.Owner,
+                itemUpdate = Wire(g.ItemUpdate),
+                members = g.Members,
+                items = g.Items,
+                standing = g.Standing.ToString().ToLowerInvariant(),
+
+                // What this caller may do to this group, so the screen does not have to work it out
+                // from `standing` and a privilege list and get it wrong differently from the server.
+                mayManage = all
+                    || g.Standing is GroupStanding.Owner or GroupStanding.Manager,
+                mayDelete = all || g.Standing == GroupStanding.Owner,
+            }),
+
+            listing = all ? "every group on the server" : "groups you own or belong to",
+
+            note = "A group confers reading. What is shared with it is readable by its members and "
+                + "by nobody else — editing is still features:edit (ADR-036 §4a).",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>One group, its members and what is shared with it.</summary>
+    private static async Task DescribeGroupAsync(
+        HttpContext context,
+        string name,
+        IGroupDirectory groups,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Groups are for members. Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        bool all = current.Authorization.Allows(Privilege.AdminManageAllContent);
+
+        IReadOnlyList<GroupSummary> visible = await groups
+            .ListAsync(current.Principal.Id, all, cancellation).ConfigureAwait(false);
+
+        GroupSummary? found = visible
+            .FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (found is null)
+        {
+            // <b>404 rather than 403, and the reason is ADR-018's.</b> A 403 on a named group
+            // confirms it exists, which turns this endpoint into a directory of every group on the
+            // server for anybody who can guess names.
+            await Refuse(context, 404, $"No group '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name = found.Name,
+            title = found.Title,
+            description = found.Description,
+            owner = found.Owner,
+            itemUpdate = Wire(found.ItemUpdate),
+            standing = found.Standing.ToString().ToLowerInvariant(),
+
+            members = (await groups.MembersAsync(found.Name, cancellation).ConfigureAwait(false))
+                .Select(m => new { name = m.Member, standing = m.Standing.ToString().ToLowerInvariant() }),
+
+            items = await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Creates a group.</summary>
+    private static async Task CreateGroupAsync(
+        HttpContext context,
+        NewGroupRequest request,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.GroupsCreate).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryReadItemUpdate(request.ItemUpdate, out GroupItemUpdate itemUpdate, out string? bad))
+        {
+            await Refuse(context, 400, bad!).ConfigureAwait(false);
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        (GroupChange outcome, Guid id) = await groups.CreateAsync(
+            current.Principal.Id,
+            request.Name.Trim(),
+            request.Title?.Trim(),
+            request.Description?.Trim(),
+            itemUpdate,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, request.Name, outcome, null).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "group.create", request.Name,
+            Detail(new { itemUpdate = Wire(itemUpdate) }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            id,
+            name = request.Name.Trim(),
+            itemUpdate = Wire(itemUpdate),
+            note = "You own it and manage it. Nothing is shared with it yet, and a service reaches "
+                + "its members only once its own sharing scope is 'group'.",
+        }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes a group.</summary>
+    private static async Task DeleteGroupAsync(
+        HttpContext context,
+        string name,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        GroupChange outcome = await groups.RemoveAsync(
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            name,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, name, outcome, null).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "group.delete", name, Detail(new { removed = name }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            removed = true,
+            note = "The services that were shared with it still exist and are read under their own "
+                + "sharing scope. Deleting a group never unpublishes anybody's data.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Adds a member, or makes one a manager.</summary>
+    private static async Task SetGroupMemberAsync(
+        HttpContext context,
+        string name,
+        string member,
+        GroupMemberRequest request,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.GroupsManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        GroupChange outcome = await groups.SetMemberAsync(
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            name,
+            member,
+            request.Manager,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, name, outcome, member).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "group.member", name,
+            Detail(new { member, manager = request.Manager }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            group = name,
+            member,
+            manager = request.Manager,
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes a member.</summary>
+    private static async Task RemoveGroupMemberAsync(
+        HttpContext context,
+        string name,
+        string member,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.GroupsManageMembers)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        GroupChange outcome = await groups.RemoveMemberAsync(
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            name,
+            member,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, name, outcome, member).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "group.member.remove", name, Detail(new { member }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { group = name, member, removed = true })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Shares a service with a group.</summary>
+    private static Task ShareWithGroupAsync(
+        HttpContext context,
+        string name,
+        string service,
+        string? folder,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation) =>
+        ShareAsync(context, name, service, folder, groups, audit, true, cancellation);
+
+    /// <summary>Stops sharing a service with a group.</summary>
+    private static Task UnshareFromGroupAsync(
+        HttpContext context,
+        string name,
+        string service,
+        string? folder,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation) =>
+        ShareAsync(context, name, service, folder, groups, audit, false, cancellation);
+
+    private static async Task ShareAsync(
+        HttpContext context,
+        string name,
+        string service,
+        string? folder,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        bool wanted,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.GroupsShareTo).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        GroupChange outcome = await groups.ShareAsync(
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            name,
+            service,
+            string.IsNullOrWhiteSpace(folder) ? null : folder.Trim(),
+            wanted,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, name, outcome, service).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, wanted ? "group.share" : "group.unshare", name,
+            Detail(new { service, folder }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            group = name,
+            service,
+            folder,
+            shared = wanted,
+
+            // <b>Said every time, because it is the step people miss.</b> Sharing into a group and
+            // setting the service's scope to `group` are two acts; either alone is a state that
+            // reads as done and is not.
+            note = wanted
+                ? "The service's own sharing scope must also be 'group' for its members to read it "
+                  + "— PUT /admin/services/{name}/sharing."
+                : "Its scope is unchanged. If no group is left, a 'group'-scoped service is readable "
+                  + "by its owner and administrators only.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>One refusal per outcome.</summary>
+    private static Task RefuseGroupChangeAsync(
+        HttpContext context, string name, GroupChange outcome, string? target) => outcome switch
+    {
+        GroupChange.Absent => Refuse(context, 404, $"No group '{name}'."),
+
+        GroupChange.Exists => Refuse(context, 409,
+            $"A group called '{name}' already exists. Names are compared without regard to case."),
+
+        GroupChange.NotYours => Refuse(context, 403,
+            $"You neither own nor manage '{name}'. The privilege to manage a group's members is not "
+            + "the privilege to manage every group's members (ADR-036 §3) — ask its owner to make "
+            + "you a manager."),
+
+        GroupChange.OwnerOnly => Refuse(context, 403,
+            $"Only the owner of '{name}' may do that. A manager may add members and share items; "
+            + "deleting and transferring stay with the owner, which is the difference between "
+            + "delegating work and delegating control."),
+
+        GroupChange.NoSuchTarget => Refuse(context, 404,
+            $"'{target}' is not something this server has, or is disabled."),
+
+        GroupChange.Immutable => Refuse(context, 409,
+            $"What '{name}' confers on its items was fixed when it was created and cannot be "
+            + "changed. Widening it would make every item already shared with the group editable by "
+            + "every member, retroactively (ADR-036 §4c). Make a new group and move the shares."),
+
+        _ => Refuse(context, 500, "Unhandled group outcome."),
+    };
+
+    private static string Wire(GroupItemUpdate update) => update switch
+    {
+        GroupItemUpdate.OwnItems => "ownItems",
+        GroupItemUpdate.AllItems => "allItems",
+        _ => "none",
+    };
+
+    private static bool TryReadItemUpdate(
+        string? said, out GroupItemUpdate update, out string? error)
+    {
+        update = GroupItemUpdate.None;
+        error = null;
+
+        switch (said?.Trim())
+        {
+            case null or "" or "none": return true;
+            case "ownItems": update = GroupItemUpdate.OwnItems; return true;
+            case "allItems": update = GroupItemUpdate.AllItems; return true;
+
+            default:
+                error = $"'{said}' is not a group item-update capability. Use 'none' (the default), "
+                    + "'ownItems' or 'allItems'. It is fixed at creation and cannot be changed "
+                    + "afterwards, so it is worth getting right now (ADR-036 §4c).";
+                return false;
+        }
+    }
 
     /// <summary>
     /// Health, and it must answer when the platform store does not.
@@ -4362,6 +4814,11 @@ internal static class AdminEndpoints
             case "private": scope = SharingScope.Private; return true;
             case "organization": scope = SharingScope.Organization; return true;
             case "public": scope = SharingScope.Public; return true;
+
+            // ADR-036's fourth scope. Which groups is a separate act —
+            // PUT /admin/groups/{name}/items/{service} — and the refusal for a group-scoped
+            // service shared with nothing says so.
+            case "group": scope = SharingScope.Group; return true;
             default:
                 error = "sharing must be 'private', 'organization' or 'public'.";
                 return false;

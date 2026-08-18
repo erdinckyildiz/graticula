@@ -152,6 +152,9 @@ public static class Program
         builder.Services.AddSingleton<IRoleDirectory>(services =>
             new PostgresRoleDirectory(services.GetRequiredService<NpgsqlDataSource>()));
 
+        builder.Services.AddSingleton<IGroupDirectory>(services =>
+            new PostgresGroupDirectory(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>A second port over the same store, and the split is deliberate</b> — see
         // IMemberDirectory. Every request touches IIdentityStore to authenticate; only
         // admin:manageMembers touches this, so the login path has no route to member creation.
@@ -1034,7 +1037,8 @@ public static class Program
                 && (service.IsRunning || seesStopped)
                 && LayerAccess
                     .Evaluate(
-                        service.Sharing, service.Owner, current.Principal, current.Authorization)
+                        service.Sharing, service.Owner, current.Principal, current.Authorization,
+                        service.SharedWith)
                     .IsAllowed()),
         ];
 
@@ -1069,6 +1073,11 @@ public static class Program
             .. (await system.ListAsync(cancellation).ConfigureAwait(false))
                 .Where(s => string.Equals(s.Folder, folder, StringComparison.OrdinalIgnoreCase)
                     && LayerAccess
+                        // <b>No group shares for a system service, and that is a scope statement
+                        // rather than an omission.</b> `sharing_group_item` references `service`;
+                        // the Utilities services live in `system_service` and are part of the
+                        // server rather than somebody's content, so *share this with the planning
+                        // team* is not a thing to say about the geometry service.
                         .Evaluate(s.Sharing, null, current.Principal, current.Authorization)
                         .IsAllowed())
                 .Select(s => (
@@ -2399,8 +2408,11 @@ public static class Program
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
+        // <b>A layer's scope comes from its service and so do its groups.</b> `layer.Sharing` is
+        // what the catalogue read off the owning service row (migration 11), and `SharedWith` is the
+        // same service's group shares — the layer table carries neither.
         LayerAccess.Reason reason = LayerAccess.Evaluate(
-            layer.Sharing, layer.Owner, current.Principal, current.Authorization);
+            layer.Sharing, layer.Owner, current.Principal, current.Authorization, layer.SharedWith);
 
         if (reason == LayerAccess.Reason.AdministrativeOverride)
         {
