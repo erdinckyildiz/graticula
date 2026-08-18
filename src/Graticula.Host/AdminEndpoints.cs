@@ -102,6 +102,11 @@ internal sealed record SharingRequest(string? Sharing);
 /// <param name="MaxResponseBytes">Most bytes one response body may reach, or null.</param>
 /// <param name="MaxRequestBytes">Most bytes one request body may carry, or null.</param>
 /// <param name="MaxEditsPerTransaction">Most edits one applyEdits may carry, or null.</param>
+/// <param name="RequestDeadlineSeconds">
+/// How long a client may occupy this service, or null for the server's own bound. **The whole
+/// request**, not the database statement — <c>StatementTimeoutMilliseconds</c> above is that, and
+/// it stops counting when the query returns. May only lower.
+/// </param>
 internal sealed record ServiceCapabilitiesRequest(
     string? Folder,
     bool? ServesFeatures,
@@ -112,7 +117,8 @@ internal sealed record ServiceCapabilitiesRequest(
     int? DefaultRecordCount = null,
     long? MaxResponseBytes = null,
     long? MaxRequestBytes = null,
-    int? MaxEditsPerTransaction = null);
+    int? MaxEditsPerTransaction = null,
+    int? RequestDeadlineSeconds = null);
 
 /// <summary>How long a layer's tiles stay fresh.</summary>
 /// <param name="Seconds">
@@ -1899,6 +1905,22 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>Refused rather than rounded, because rounding here would raise it.</b> The bound is
+        // enforced as Npgsql's command timeout, which is whole seconds, so 500 ms would be applied
+        // as 1,000 — a service asking for less time being given more, which is the one direction
+        // §2a forbids. Adjusting an operator's number upward without saying so is worse than
+        // refusing it, and no service anywhere has a sub-second value set (checked, not assumed),
+        // so nothing is being taken away.
+        if (request.StatementTimeoutMilliseconds is { } asked and > 0 and < 1000)
+        {
+            await Refuse(context, 400,
+                $"A statement timeout of {asked} ms cannot be honoured exactly: it is enforced in "
+                + "whole seconds, so this would be applied as 1000 ms — more time than you asked "
+                + "for. Use 1000 or more, or leave it unset for the data source's own bound.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         ServiceCapabilityLimits limits;
 
         try
@@ -1915,7 +1937,10 @@ internal static class AdminEndpoints
                     request.DefaultRecordCount,
                     request.MaxResponseBytes,
                     request.MaxRequestBytes,
-                    request.MaxEditsPerTransaction));
+                    request.MaxEditsPerTransaction,
+                    request.RequestDeadlineSeconds is { } seconds
+                        ? TimeSpan.FromSeconds(seconds)
+                        : null));
         }
         catch (Exception e) when (e is ArgumentException or ArgumentOutOfRangeException)
         {
@@ -1948,6 +1973,7 @@ internal static class AdminEndpoints
                 servesTiles = limits.ServesTiles,
                 capabilities = limits.Ceiling,
                 statementTimeoutMs = limits.StatementTimeout?.TotalMilliseconds,
+                requestDeadlineSeconds = limits.Cost.RequestDeadline?.TotalSeconds,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -1964,6 +1990,9 @@ internal static class AdminEndpoints
             maxResponseBytes = limits.Cost.MaximumResponseBytes,
             maxRequestBytes = limits.Cost.MaximumRequestBytes,
             maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
+            requestDeadlineSeconds = limits.Cost.RequestDeadline is { } deadline
+                ? (int?)deadline.TotalSeconds
+                : null,
 
             // <b>Said back, because a ceiling is easy to misread as a grant.</b> An
             // operator who ticks Update on a service whose readers lack the
@@ -2000,6 +2029,7 @@ internal static class AdminEndpoints
         string name,
         string? folder,
         IAdminCatalog catalog,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
@@ -2025,6 +2055,16 @@ internal static class AdminEndpoints
             name,
             folder = at,
             configured = !limits.IsUnset,
+
+            // <b>What the server itself allows, so the console can show it as the placeholder.</b>
+            // This file's own rule about controls: a box displaying a figure it did not read is a
+            // box that lies the moment somebody changes the setting. `Graticula:RequestDeadline-
+            // Seconds` is a deployment's choice, so 600 hard-coded in the console would be wrong
+            // for any deployment that chose otherwise. Nought means the deployment asked for no
+            // bound at all, which the console says in words rather than as a number.
+            serverRequestDeadlineSeconds = settings.RequestDeadline > TimeSpan.Zero
+                ? (int?)settings.RequestDeadline.TotalSeconds
+                : null,
             servesFeatures = limits.ServesFeatures,
             servesTiles = limits.ServesTiles,
             capabilities = limits.Ceiling,
@@ -2034,6 +2074,9 @@ internal static class AdminEndpoints
             maxResponseBytes = limits.Cost.MaximumResponseBytes,
             maxRequestBytes = limits.Cost.MaximumRequestBytes,
             maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
+            requestDeadlineSeconds = limits.Cost.RequestDeadline is { } deadline
+                ? (int?)deadline.TotalSeconds
+                : null,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

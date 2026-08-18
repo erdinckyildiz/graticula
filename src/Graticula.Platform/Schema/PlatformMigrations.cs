@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(23);
+    public static SchemaVersion ComponentSchemaVersion => new(24);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -58,6 +58,7 @@ public static class PlatformMigrations
         SystemServicePoolingV21,
         CredentialMustChangeV22,
         LayerSymbologyV23,
+        ServiceRequestDeadlineV24,
     ]);
 
     /// <summary>
@@ -260,6 +261,50 @@ public static class PlatformMigrations
     /// with no symbology keeps the generated appearance, which §5b makes a real answer
     /// rather than a placeholder.</para>
     /// </remarks>
+    /// <summary>
+    /// How long a client may occupy this service, in seconds.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner requirement, restated 2026-08-18:</b> *"sadece geometri değil, tüm servislerde
+    /// timeout olmalı"* — every service needs a timeout, not only the geometry service. Migrations
+    /// 20 and 21 gave the geometry service a deadline, a queue wait and an idle bound because that
+    /// is where the request arrived; this is the same fact for every other service.
+    /// </para>
+    /// <para>
+    /// <b>It is the whole request, not the database statement.</b> There has been a fixed
+    /// 30-second `statement_timeout` on the connection pool since ADR-007 §4.8, and it bounds a
+    /// query — not the projecting, encoding and writing that happen after the query returns. The
+    /// reference calls this *the maximum time a client can use a service*, and nothing in this
+    /// server bounded it before.
+    /// </para>
+    /// <para>
+    /// <b>Null means the server's own default</b>, which is `Graticula:RequestDeadlineSeconds` and
+    /// defaults to 600. So this column changes nothing on a service nobody configures — which is
+    /// every service that exists today.
+    /// </para>
+    /// <para>
+    /// <b>The check permits only a positive number, and there is no ceiling here.</b> A service may
+    /// ask for less than the server allows and its request is bounded by the smaller of the two
+    /// (`RequestDeadline.LowerTo`), so a large value stored here is harmless rather than a way
+    /// around the deployment's limit — and a ceiling written into the schema would be a second
+    /// place for the same rule to disagree from. Zero is refused rather than treated as *no bound*:
+    /// a service that wants no bound of its own leaves this null, and a column where 0 and null
+    /// mean different things is a column somebody reads wrong.
+    /// </para>
+    /// <para><b>Expand.</b> One nullable column and a check that permits null.</para>
+    /// </remarks>
+    private static Migration ServiceRequestDeadlineV24 => Migration.Expand(
+        new SchemaVersion(24),
+        "How long a client may occupy a service, per service, in seconds.",
+
+        "alter table service add column request_deadline_seconds integer",
+
+        """
+        alter table service add constraint service_request_deadline_is_positive
+          check (request_deadline_seconds is null or request_deadline_seconds > 0)
+        """);
+
     private static Migration LayerSymbologyV23 => Migration.Expand(
         new SchemaVersion(23),
         "A canonical MapLibre symbology document per layer, which both faces derive from.",

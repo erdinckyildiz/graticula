@@ -47,6 +47,7 @@ internal sealed record HostSettings(
     TimeSpan OverlayIdle,
     TimeSpan CatalogFallbackWindow,
     long MaximumResponseBytes,
+    TimeSpan RequestDeadline,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -226,6 +227,20 @@ internal sealed record HostSettings(
             // this one, so a deployment that would rather stream without a limit
             // can say so.
             Math.Max(0, keys.Value<long>("MaximumResponseBytes", 64L * 1024 * 1024)),
+
+            // <b>How long a client may occupy any service, and 600 seconds is not our
+            // number.</b> Owner requirement 2026-08-18: every service needs a timeout, not
+            // only the geometry service. The default is what the reference's Pooling page
+            // shows for *the maximum time a client can use a service* — ten minutes, which
+            // is generous enough that no ordinary request meets it and finite enough that
+            // one runaway does not hold a connection for ever.
+            //
+            // <b>A service may lower it and never raise it</b> (RequestDeadline.LowerTo),
+            // which is ADR-031 §4's rule for the statement timeout applied to the whole
+            // request. **Zero disables it**, which is the behaviour of every build before
+            // this one — so a deployment that has its own front-end timeout can say so
+            // rather than having two bounds disagree.
+            TimeSpan.FromSeconds(Math.Max(0, keys.Value("RequestDeadlineSeconds", 600))),
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

@@ -68,6 +68,7 @@ this project shipping one instance of that class of fault.
 | **Feature capabilities** | `Query`, `Create`, `Update`, `Delete`, `Extract` | A ceiling intersected with the caller's privileges. `Query` may be turned off: a service that exists and answers nothing is a legitimate state during an incident, and is distinct from stopped |
 | **Cache lifetime** | seconds, or unset | Already exists — `PUT /admin/layers/{name}/cache`. Moves onto this screen rather than being re-implemented |
 | **Statement timeout** | seconds, within bounds | **May only lower.** ADR-007 §4.8 makes a per-connection `statement_timeout` mandatory and D-42 records it being silently removable once already; an override that can raise or unset it re-opens that hole. A service may ask for *less* time than the source allows and never more |
+| **Request deadline** | seconds, or unset | **May only lower**, same rule. How long a client may occupy this service, counting the *whole* request rather than the statement. Added 2026-08-18 by owner requirement; §3b |
 
 **The tiles checkbox is shown for a registered layer and disabled, with the reason.**
 Hiding it would make Q-67 invisible at exactly the moment somebody is looking for it;
@@ -127,6 +128,113 @@ exist. Both documents now advertise the smaller of the two, measured: with a cei
 20,000 the layer and service documents say 20,000, and an unconfigured service beside it
 still says 50,000. §2's *never grants* has a companion — **never over-declares** — and
 ADR-008 §2's never-degrade-silently is the same rule from the other end.
+
+### 3b. The request deadline, added 2026-08-18
+
+**Owner requirement, and it had been asked twice.** With the reference's *Pooling* page
+open and an arrow on *The maximum time a client can use a service: 600 seconds*:
+*"sadece geometri değil, tüm servislerde timeout olmalı"* — every service needs a
+timeout, not only the geometry service. The first delivery of that requirement had been
+narrowed to the geometry service, where a settable deadline already lives (ADR-022), and
+the narrowing was the fault rather than the timing.
+
+**What existed before, stated exactly, because the gap was smaller than it sounds and
+worse than it sounds.** One fixed 30-second `statement_timeout` on the connection pool
+(ADR-007 §4.8), shared by every layer on a data source. That bounds a *database
+statement*. Projecting geometry, encoding JSON and writing thirty-five megabytes to a
+client all happen after the statement has returned, and none of it was bounded by
+anything. So the honest answer to *how long can one client occupy this server* was: for
+as long as they like. The two bounds are not versions of each other, and the console now
+says so where an operator sets them.
+
+**Two stages, because a token has to exist before the handler is invoked.** A
+minimal-API handler's `CancellationToken` is bound from `HttpContext.RequestAborted`
+before the body runs, so replacing it after the service has been resolved is too late for
+the parameter the handler already holds; and resolving the service in middleware, to
+learn its deadline, would read the catalogue a second time on every request. So
+middleware starts every request on the server's `Graticula:RequestDeadlineSeconds`
+(default 600, nought meaning no bound), and `ServiceLookup` — the single place a URL
+becomes a service, which has just done the only catalogue read — lowers it. **Lowering is
+the only operation the API offers**, which is §2a's *may only lower* expressed as a
+signature rather than as a check somebody must remember to write.
+
+**Measured, not asserted.** `tr_yol` (46,041 features) with `request_deadline_seconds =
+1`, `tr_ilce` (25,280) with nothing set, forty concurrent full-table queries each,
+reprojected to 3857 — the condition a request deadline exists for rather than a
+synthetic slow path:
+
+| | 504 | connection aborted | 200 | slowest |
+|---|---|---|---|---|
+| `tr_yol`, deadline 1 s | **31** | 9 | 0 | 1.80 s |
+| `tr_ilce`, no deadline | 0 | 0 | **40** | 13.74 s |
+
+Every 504 landed between 1.13 s and 1.80 s, and carried the number that applied: *"This
+request reached the time a client may occupy a service — 1 second — and was stopped."*
+The control service, under the same load in the same server, was served in full and took
+up to 13.74 s to do it. That is the per-service lowering demonstrated rather than argued:
+one number in one row changed what happened to forty requests, and changed nothing for
+the service beside it.
+
+**The nine aborted connections are the honest limit of any request deadline, and the
+server already said so.** Once bytes are on the wire the status line has been sent, so a
+deadline can only hang up: those nine were logged as *"A response failed after the body
+had begun, so the client received a truncated document and no status. The connection was
+aborted, which is the only signal available once bytes are on the wire."* Nine log lines,
+nine clients with no status — the accounting closes. This is not a defect to fix but a
+property to document: **a deadline can refuse a request or truncate it, and which one
+depends on whether the answer had started.** The consequence for an operator is that a
+deadline short enough to fire mid-response will show up in client logs as a network
+fault, which is an argument for setting it above the time an ordinary response takes
+rather than at it.
+
+**The reference's other two Pooling rows have no analogue here, and saying so is part of
+answering the request.** That page carries three numbers, and only one of them transfers:
+
+| Reference | Here |
+|---|---|
+| *The maximum time a client can use a service* | **This.** ADR-031 §2a, per service, measured above |
+| *The maximum time a client will wait to get a service* | **Nothing to wait for.** That number is how long a request queues for a free *service instance*, and this server has no per-service instances — ADR-007 chose a single process serving every service from a shared pool, so there is no queue with a service's name on it. The nearest real thing is the wait for a database connection, which belongs to the data source and not to the service, and which ADR-007 §4.8 bounds through the pool |
+| *The maximum time an idle instance can be kept running* | **Nothing to keep running.** Same reason: there is no process per service to reap. What this server has instead is the catalogue cache, whose lifetime is a different decision with a different failure mode |
+
+**This is a difference in architecture, not a gap to fill.** Adding a per-service instance pool
+so that two more numbers could be configured would be §82's question answered backwards — the
+numbers exist in the reference because the instances do.
+
+### 3c. And the statement timeout beside it, which had never been applied
+
+**Found by building the request deadline next to it.** §2a has listed a per-service statement
+timeout as configurable since this decision; the API accepted it, the store kept it, the `GET`
+said it back and the console drew a box for it. Nothing in any query path read the value. The
+only bound on a statement was ADR-007 §4.8's fixed 30 seconds on the pool. Putting a second time
+bound on the same screen is what made *which of these two actually does anything* a question, and
+the answer was one of them. D-67.
+
+**It is now applied, and the mechanism was chosen against two alternatives rather than picked.**
+The service's figure is carried onto the layer — where the connection is opened — lowered against
+the pool's 30 seconds, and applied at the one factory every command in the PostGIS source goes
+through. It is `NpgsqlCommand.CommandTimeout`: client-driven, on top of a server-side floor that
+a registration cannot opt out of. A server-side per-service value would need either a pool per
+timeout (§60: a thousand-service deployment must not pay for this) or a `SET` leading the command
+text, which was **measured safe over the pool** — Npgsql discards connection state on return,
+checked against the database rather than assumed — but which shifts the result set a streaming
+reader opens on. D-68 records the cost of the choice: a firing timeout discards its physical
+connection.
+
+**Two things the fix had to get right and one it got wrong first.**
+
+- **A sub-second value is refused, not rounded.** The bound is enforced in whole seconds, so
+  500 ms would be applied as 1,000 — a service asking for *less* time being given *more*, the one
+  direction §2a forbids. Adjusting an operator's number upward silently is worse than refusing it.
+  No service anywhere had a sub-second value set; checked, not assumed.
+- **A timeout is a timeout, not an unreachable database.** The first working version answered
+  *"A database this server depends on is unreachable"* to 19 of 30 queries against a service whose
+  own one-second bound had just fired — because Npgsql's command timeout does not raise `57014`;
+  it throws `NpgsqlException` wrapping `TimeoutException`, which fell through to the connectivity
+  case. So an operator who set the bound themselves had their clients sent to check the network.
+  This is the third time that costume has fooled this mapping — 42883 and 42703 were the first two
+  — and the branch is written narrowly on purpose: matching every `NpgsqlException` as a timeout
+  would report a database that is genuinely down as a slow query, which is worse because it
+  reassures.
 
 ## 4. Conditions
 

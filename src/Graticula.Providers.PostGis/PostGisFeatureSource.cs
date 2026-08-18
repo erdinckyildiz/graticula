@@ -45,15 +45,68 @@ namespace Graticula.Providers.PostGis;
 public sealed class PostGisFeatureSource : IFeatureSource
 {
     private readonly NpgsqlDataSource _dataSource;
+
+    /// <summary>What this service allows one statement, or null for the pool's own bound.</summary>
+    private readonly TimeSpan? _statementTimeout;
+
+    /// <summary>
+    /// A command on this layer's pool, bounded by what its service allows.
+    /// </summary>
+    /// <param name="sql">The statement.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Every command in this class comes through here, and that is the point.</b> A
+    /// per-service statement bound applied at six of seven call sites is a bound an operator
+    /// believes in and does not have.
+    /// </para>
+    /// <para>
+    /// <b>Client-driven, on top of a server-side floor that cannot be opted out of.</b>
+    /// ADR-007 §4.8's fixed 30-second <c>statement_timeout</c> is set in the connection options
+    /// and stays: it is what protects the pool when this process is the thing that has stopped
+    /// responding. What this adds is the lowering a service asks for, and Npgsql implements it by
+    /// sending the backend a cancellation — real termination, not a client giving up on a query
+    /// that keeps running.
+    /// </para>
+    /// <para>
+    /// <b>Not a second pool per timeout, which was the other option and was measured against.</b>
+    /// A server-side per-service value would mean a pool keyed by (connection string, timeout),
+    /// so fifty services with fifty different bounds on one database would hold fifty pools —
+    /// and §60 says a deployment of a thousand services must not be made to pay for a feature
+    /// like this. A `SET` on a borrowed connection was measured as safe (Npgsql discards
+    /// connection state on return to the pool, checked against this database rather than assumed)
+    /// but it has to lead the command text, and a leading `SET` shifts which result set the
+    /// reader opens on — a trap in the one code path that streams.
+    /// </para>
+    /// </remarks>
+    private NpgsqlCommand Command(string sql)
+    {
+        NpgsqlCommand command = _dataSource.CreateCommand(sql);
+
+        if (_statementTimeout is { } allowed && allowed > TimeSpan.Zero)
+        {
+            // Ceiling, and at least one second: Npgsql reads 0 as *no timeout*, so truncating
+            // a half-second bound would turn the narrowest configuration into none at all. The
+            // admin API refuses a sub-second value for exactly this reason — rounding one up is
+            // giving a service more time than it asked for — so this floor only ever meets a
+            // fractional second from a row written by hand.
+            command.CommandTimeout = Math.Max(1, (int)Math.Ceiling(allowed.TotalSeconds));
+        }
+
+        return command;
+    }
     private readonly LayerDefinition _layer;
 
     /// <summary>Creates a feature source over one layer.</summary>
-    public PostGisFeatureSource(NpgsqlDataSource dataSource, LayerDefinition layer)
+    public PostGisFeatureSource(
+        NpgsqlDataSource dataSource,
+        LayerDefinition layer,
+        TimeSpan? statementTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
 
         _dataSource = dataSource;
+        _statementTimeout = statementTimeout;
         _layer = layer;
     }
 
@@ -73,7 +126,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
         FeatureSchema schema = SchemaFor(query);
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(BuildSql(query, schema));
+        await using NpgsqlCommand command = Command(BuildSql(query, schema));
         Bind(command, query);
 
         // SequentialAccess: read each column once, in order, without buffering
@@ -580,7 +633,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
         AppendWhere(sql, query);
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        await using NpgsqlCommand command = Command(sql.ToString());
         BindFilters(command, query);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
@@ -610,7 +663,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
         sql.Append(") s");
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        await using NpgsqlCommand command = Command(sql.ToString());
         BindFilters(command, query);
 
         await using NpgsqlDataReader reader =
@@ -662,7 +715,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
         sql.Append(" order by ").Append(column);
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        await using NpgsqlCommand command = Command(sql.ToString());
         BindFilters(command, query);
 
         List<long> ids = [];
@@ -747,7 +800,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
             sql.Append(" limit @limit");
         }
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+        await using NpgsqlCommand command = Command(sql.ToString());
         command.Parameters.AddWithValue("limit", query.Limit);
         BindFilters(command, query);
 
@@ -826,7 +879,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
             order by ordinal_position
             """;
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        await using NpgsqlCommand command = Command(Sql);
         command.Parameters.AddWithValue("schema", _layer.SchemaName);
         command.Parameters.AddWithValue("table", _layer.TableName);
         command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
@@ -897,7 +950,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
     {
         try
         {
-            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+            await using NpgsqlCommand command = Command(sql);
 
             object? value =
                 await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);

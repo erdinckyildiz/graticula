@@ -30,7 +30,7 @@ namespace Graticula.Platform.Catalog;
 public sealed class ServiceCostCeilings
 {
     /// <summary>Nothing configured.</summary>
-    public static ServiceCostCeilings Unset { get; } = new(null, null, null, null, null);
+    public static ServiceCostCeilings Unset { get; } = new(null, null, null, null, null, null);
 
     /// <summary>Creates a set of ceilings.</summary>
     /// <param name="maximumRecordCount">Most rows one response may carry, or null.</param>
@@ -40,12 +40,20 @@ public sealed class ServiceCostCeilings
     /// <param name="maximumResponseBytes">Most bytes one response body may reach, or null.</param>
     /// <param name="maximumRequestBytes">Most bytes one request body may carry, or null.</param>
     /// <param name="maximumEditsPerTransaction">Most edits one applyEdits may carry, or null.</param>
+    /// <param name="requestDeadline">
+    /// How long a client may occupy this service, or null for the server's own bound. Owner
+    /// requirement 2026-08-18: every service needs one, not only the geometry service.
+    /// </param>
     public ServiceCostCeilings(
         int? maximumRecordCount,
         int? defaultRecordCount,
         long? maximumResponseBytes,
         long? maximumRequestBytes,
-        int? maximumEditsPerTransaction)
+        int? maximumEditsPerTransaction,
+        // <b>Defaulted, because *not configured* is the ordinary case and the honest value.</b>
+        // Every service that exists today leaves this unset, and a required parameter would make
+        // fourteen call sites pass `null` to say what null already says.
+        TimeSpan? requestDeadline = null)
     {
         Positive(maximumRecordCount, nameof(maximumRecordCount));
         Positive(defaultRecordCount, nameof(defaultRecordCount));
@@ -74,6 +82,19 @@ public sealed class ServiceCostCeilings
         MaximumResponseBytes = maximumResponseBytes;
         MaximumRequestBytes = maximumRequestBytes;
         MaximumEditsPerTransaction = maximumEditsPerTransaction;
+
+        // <b>A deadline of nought or less is refused rather than read as *no bound*.</b> A service
+        // that wants the server's bound leaves this null; a column where 0 and null mean different
+        // things is a column somebody reads wrong. Migration 24's check says the same in the schema.
+        if (requestDeadline is { } deadline && deadline <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestDeadline),
+                deadline,
+                "A request deadline must be positive. Leave it null to use the server's own bound.");
+        }
+
+        RequestDeadline = requestDeadline;
     }
 
     /// <summary>Most rows one response may carry, or null for the server's figure.</summary>
@@ -91,11 +112,36 @@ public sealed class ServiceCostCeilings
     /// <summary>Most edits one <c>applyEdits</c> may carry, or null.</summary>
     public int? MaximumEditsPerTransaction { get; }
 
+    /// <summary>
+    /// How long a client may occupy this service, or null for the server's own bound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner requirement 2026-08-18: every service, not only the geometry service.</b> This is
+    /// the reference's *maximum time a client can use a service* — the whole request, from the
+    /// first byte read to the last byte written, rather than the database statement that ADR-007
+    /// §4.8's fixed <c>statement_timeout</c> already bounds. Projecting geometry, encoding a
+    /// response and writing a hundred thousand features all happen after the statement returns,
+    /// and none of it was bounded before.
+    /// </para>
+    /// <para>
+    /// <b>A cost ceiling rather than a capability, and that is why it lives here.</b> This class's
+    /// own remarks draw the line: a capability answers *may you*, a cost ceiling answers *how
+    /// much*. Time is how much.
+    /// </para>
+    /// <para>
+    /// <b>It may only lower.</b> <c>RequestDeadline.LowerTo</c> takes the smaller of this and the
+    /// server's, so a service cannot claim more time than the deployment allows — the same rule
+    /// ADR-031 §4 states for the statement timeout, for the same reason.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? RequestDeadline { get; }
+
     /// <summary>True when nothing is configured.</summary>
     public bool IsUnset =>
         MaximumRecordCount is null && DefaultRecordCount is null
         && MaximumResponseBytes is null && MaximumRequestBytes is null
-        && MaximumEditsPerTransaction is null;
+        && MaximumEditsPerTransaction is null && RequestDeadline is null;
 
     /// <summary>The row ceiling in force, given the server's own.</summary>
     /// <param name="serverCeiling">What the server permits at most.</param>

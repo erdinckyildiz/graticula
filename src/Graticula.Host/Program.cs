@@ -298,6 +298,13 @@ public static class Program
         // gate; see SecurityHeaders.
         app.UseSecurityHeaders(settings.RequireHttps);
 
+        // <b>Before authentication, so that a request cannot outlive its deadline by
+        // hanging in a place the deadline has not started yet.</b> Signing in reads the
+        // platform store, and a store that has stopped answering would otherwise hold the
+        // request open with nothing bounding it. Owner requirement 2026-08-18: every
+        // service needs a timeout — see RequestDeadline for why it is two stages.
+        app.UseRequestDeadline(settings.RequestDeadline);
+
         app.Use(async (context, next) =>
         {
             RequestPrincipal current = await context.RequestServices

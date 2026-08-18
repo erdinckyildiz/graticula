@@ -33,7 +33,8 @@ public sealed class PublishedLayer
         int? parentIndex = null,
         TimeSpan? cacheLifetime = null,
         ServiceCostCeilings? cost = null,
-        string? symbology = null)
+        string? symbology = null,
+        TimeSpan? statementTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -41,6 +42,7 @@ public sealed class PublishedLayer
 
         Id = id;
         Cost = cost ?? ServiceCostCeilings.Unset;
+        StatementTimeout = statementTimeout;
         Definition = definition;
         DataSourceName = dataSourceName;
         ConnectionString = connectionString;
@@ -93,6 +95,25 @@ public sealed class PublishedLayer
     /// the layer</em>.
     /// </remarks>
     public ServiceCostCeilings Cost { get; }
+
+    /// <summary>
+    /// What this layer's service allows one database statement, or null for the pool's bound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The service's value on the layer, because the layer is what opens a connection.</b>
+    /// The same argument as <see cref="Cost"/>, which the catalogue has read off the service row
+    /// since migration 17: a limit belongs to the service and is enforced where the work happens.
+    /// </para>
+    /// <para>
+    /// <b>It was stored, reported and never applied until 2026-08-18.</b> ADR-031 §2a has listed
+    /// a per-service statement timeout as configurable since the decision, the admin API accepted
+    /// it, the console showed it and the `GET` said it back — and no query path read it. Reporting
+    /// a limit that is not enforced is the same fault as advertising a `maxRecordCount` a service
+    /// does not honour, which ADR-031 §3a already had to correct once. D-67.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? StatementTimeout { get; }
 
     /// <summary>The group layer above it, or null when it sits at the top.</summary>
     public int? ParentIndex { get; }

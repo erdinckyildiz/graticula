@@ -47,6 +47,52 @@ public sealed class ErrorResponseTests
         Assert.Contains("resultRecordCount", message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A client-side statement timeout is a timeout, not an unreachable database.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured before it was fixed.</b> A service configured with a one-second statement
+    /// timeout answered 19 of 30 concurrent queries with *a database this server depends on is
+    /// unreachable* — because Npgsql's command timeout does not raise 57014. It gives up on the
+    /// socket read and throws <c>NpgsqlException</c> wrapping a <c>TimeoutException</c>, which fell
+    /// through to the general connectivity case. The operator had set the bound themselves and
+    /// their clients were sent to check the network.
+    /// </remarks>
+    [Fact]
+    public void A_client_side_statement_timeout_is_not_reported_as_an_unreachable_database()
+    {
+        NpgsqlException timedOut = new(
+            "Exception while reading from stream",
+            new TimeoutException("Timeout during reading attempt"));
+
+        (int status, string message) = ErrorResponse.Classify(timedOut);
+
+        Assert.Equal(504, status);
+        Assert.Contains("statement timeout", message, StringComparison.Ordinal);
+
+        // The half that was wrong: it must not send anybody to look at the network.
+        Assert.DoesNotContain("unreachable", message, StringComparison.Ordinal);
+        Assert.Contains("up and reachable", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A genuinely unreachable database still says so.</summary>
+    /// <remarks>
+    /// <b>The other side of the branch above, and the reason it is written narrowly.</b> Matching
+    /// every <c>NpgsqlException</c> as a timeout would have traded one misdiagnosis for its
+    /// opposite — a database that is actually down reported as a slow query, which is worse
+    /// because it is reassuring.
+    /// </remarks>
+    [Fact]
+    public void An_unreachable_database_is_still_reported_as_unreachable()
+    {
+        NpgsqlException down = new("Failed to connect", new System.Net.Sockets.SocketException(10061));
+
+        (int status, string message) = ErrorResponse.Classify(down);
+
+        Assert.Equal(503, status);
+        Assert.Contains("unreachable", message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_dropped_table_says_retrying_will_not_help()
     {
@@ -124,6 +170,7 @@ public sealed class ErrorResponseTests
         [
             WithSqlState("57014"), WithSqlState("42P01"), WithSqlState("42501"),
             WithSqlState("23505"), new InvalidOperationException(),
+            new NpgsqlException("read", new TimeoutException()),
         ];
 
         foreach (Exception exception in readByACaller)

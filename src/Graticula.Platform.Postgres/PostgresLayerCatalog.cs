@@ -55,7 +55,13 @@ public sealed class PostgresLayerCatalog
         -- columns by ordinal, so inserting one in the middle would silently shift
         -- every field after it — the shape of defect that reads a sharing scope as a
         -- status. New columns go on the end (ADR-033, migration 23).
-        l.symbology
+        l.symbology,
+
+        -- On the end, per the rule three lines above, which the first version of this
+        -- column broke by sitting beside the other cost ceilings it belongs with. It is
+        -- read by name and so was `symbology`, so nothing shifted — but a rule that is
+        -- followed only when it happens to be harmless is not being followed.
+        s.request_deadline_seconds
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -215,7 +221,13 @@ public sealed class PostgresLayerCatalog
             // faces disagreed and neither looked broken. Npgsql caches the lookup, so
             // the cost is a dictionary hit and the benefit is that adding a column
             // cannot silently shift this one.
-            Nullable(reader, "symbology"));
+            Nullable(reader, "symbology"),
+
+            // By name, like the two columns above it, and for the same reason.
+            reader.IsDBNull(reader.GetOrdinal("statement_timeout_ms"))
+                ? null
+                : TimeSpan.FromMilliseconds(
+                    reader.GetInt32(reader.GetOrdinal("statement_timeout_ms"))));
     }
 
     /// <summary>The group layers held by the services named.</summary>
@@ -494,10 +506,21 @@ public sealed class PostgresLayerCatalog
         long? requestBytes = reader.IsDBNull(33) ? null : reader.GetInt64(33);
         int? edits = reader.IsDBNull(34) ? null : reader.GetInt32(34);
 
+        // <b>By name, for the reason `symbology` is read by name.</b> Every ordinal above was
+        // written with the query and has not moved; this one was appended after them, and
+        // hand-counting the last index is what served a stored symbology as *generated* while the
+        // admin endpoint reported it correctly (ADR-033 §5i).
+        int deadlineOrdinal = reader.GetOrdinal("request_deadline_seconds");
+
+        TimeSpan? deadline = reader.IsDBNull(deadlineOrdinal)
+            ? null
+            : TimeSpan.FromSeconds(reader.GetInt32(deadlineOrdinal));
+
         return maxRows is null && defaultRows is null && responseBytes is null
-            && requestBytes is null && edits is null
+            && requestBytes is null && edits is null && deadline is null
             ? ServiceCostCeilings.Unset
-            : new ServiceCostCeilings(maxRows, defaultRows, responseBytes, requestBytes, edits);
+            : new ServiceCostCeilings(
+                maxRows, defaultRows, responseBytes, requestBytes, edits, deadline);
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

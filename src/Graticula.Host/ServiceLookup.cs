@@ -139,6 +139,17 @@ internal static class ServiceLookup
             return null;
         }
 
+        // <b>The one place a service lowers its own request deadline.</b> The middleware has
+        // already put this request on the server's bound; here is the first moment the service
+        // behind the URL is known, and it is known without a second catalogue read because this
+        // method has just done the only one. Every route that serves a service — feature, tile,
+        // metadata, editing — resolves through here, so wiring it once is wiring it everywhere,
+        // and a route that forgot to would be a route that does not resolve a service at all.
+        //
+        // <b>After the visibility check, deliberately.</b> A caller who may not see this service
+        // must not be able to time the difference between *absent* and *present but slow*.
+        RequestDeadline.LowerTo(context, service.Limits.Cost.RequestDeadline);
+
         return service;
     }
 

@@ -57,7 +57,16 @@ internal static class ErrorResponse
     /// <summary>Maps an exception to a status and a message for the caller.</summary>
     public static async Task WriteAsync(HttpContext context, Exception exception, ILogger logger)
     {
-        (int status, string message) = Classify(exception);
+        // <b>A request that ran out of time and a client that hung up throw the same
+        // exception, and they deserve opposite answers.</b> 499 exists so the access log
+        // can say *they left*; saying that about a request the server itself stopped sends
+        // whoever reads it to look at the network. Only the deadline knows which happened,
+        // so it is asked before the general mapping — and it answers false when the client's
+        // own token was cancelled too.
+        (int status, string message) = exception is OperationCanceledException
+            && RequestDeadline.Expired(context)
+                ? (StatusCodes.Status504GatewayTimeout, DeadlineMessage(context))
+                : Classify(exception);
 
         if (context.Response.HasStarted)
         {
@@ -73,6 +82,29 @@ internal static class ErrorResponse
         await Results.Json(new { error = new { code = status, message } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>The sentence a request that ran out of time gets.</summary>
+    /// <remarks>
+    /// <b>It names the number, because the number is configurable and therefore not
+    /// guessable.</b> A deployment may set `Graticula:RequestDeadlineSeconds`, and a service
+    /// may lower it further, so *the request took too long* leaves a caller unable to tell
+    /// whether they were 2 seconds over or 200. Naming what applied to this request is what
+    /// makes the refusal something they can act on.
+    /// </remarks>
+    private static string DeadlineMessage(HttpContext context)
+    {
+        double seconds = RequestDeadline.Of(context)?.Allowed.TotalSeconds ?? 0;
+
+        // <b>Singular when it is one.</b> "1 seconds" in the sentence an operator pastes into a
+        // ticket is the kind of detail that makes a real message read as a generated one.
+        string howLong = $"{seconds:0.#} second" + (Math.Abs(seconds - 1) < 0.05 ? "" : "s");
+
+        return $"This request reached the time a client may occupy a service — "
+            + $"{howLong} — and was stopped. The server did not fail; it stopped "
+            + "waiting. Narrow the extent, lower resultRecordCount, or ask the operator: the "
+            + "bound is the smaller of the server's `Graticula:RequestDeadlineSeconds` and this "
+            + "service's own setting.";
     }
 
     /// <summary>Which status and sentence an exception earns.</summary>
@@ -91,6 +123,20 @@ internal static class ErrorResponse
             "The query exceeded the statement timeout on the underlying database. Narrow the "
             + "extent, lower resultRecordCount, or index the geometry column. The server did not "
             + "fail; it stopped waiting."),
+
+        // <b>A client-side statement timeout, which arrives wearing the connectivity costume.</b>
+        // Npgsql's command timeout does not produce 57014 above: it gives up on the socket read
+        // and throws `NpgsqlException("Exception while reading from stream")` with an inner
+        // `TimeoutException`, which fell through to the general Npgsql case and answered *a
+        // database this server depends on is unreachable*. So an operator who set a one-second
+        // statement bound on their own service had their clients told the database was down —
+        // measured, 19 of 30 concurrent queries, and the same misdiagnosis 42883 and 42703 were
+        // already corrected for. The bound was honoured; only the sentence was wrong.
+        NpgsqlException { InnerException: TimeoutException } => (
+            StatusCodes.Status504GatewayTimeout,
+            "The query exceeded the statement timeout configured for this service. Narrow the "
+            + "extent, lower resultRecordCount, or index the geometry column. The database is "
+            + "up and reachable; this server stopped waiting for one statement."),
 
         PostgresException { SqlState: "42P01" } => (
             StatusCodes.Status503ServiceUnavailable,

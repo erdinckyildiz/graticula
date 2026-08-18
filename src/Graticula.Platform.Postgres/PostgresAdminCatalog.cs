@@ -986,6 +986,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    max_response_bytes   = @responseBytes,
                    max_request_bytes    = @requestBytes,
                    max_edits_per_transaction = @edits,
+                   request_deadline_seconds  = @deadline,
                    updated_at          = now()
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -1019,6 +1020,17 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue(
             "edits", (object?)limits.Cost.MaximumEditsPerTransaction ?? DBNull.Value);
 
+        // <b>Seconds, and a whole number of them.</b> The column is an integer because a
+        // sub-second bound on a whole request is not something an operator means, and because a
+        // fractional value in a settings page is a value somebody has to be told how to write.
+        // Rounding up rather than truncating: a half-second must not be stored as nought, which
+        // the check constraint refuses anyway.
+        command.Parameters.AddWithValue(
+            "deadline",
+            limits.Cost.RequestDeadline is { } deadline
+                ? (object)(int)Math.Ceiling(deadline.TotalSeconds)
+                : DBNull.Value);
+
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
@@ -1044,7 +1056,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    default_record_count,
                    max_response_bytes,
                    max_request_bytes,
-                   max_edits_per_transaction
+                   max_edits_per_transaction,
+                   request_deadline_seconds
               from service
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -1077,7 +1090,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         return new ServiceCapabilityLimits(features, tiles, ceiling, timeout)
             .With(new ServiceCostCeilings(
-                Number(4), Number(5), Bytes(6), Bytes(7), Number(8)));
+                Number(4),
+                Number(5),
+                Bytes(6),
+                Bytes(7),
+                Number(8),
+                Number(9) is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
     }
 
     /// <inheritdoc/>

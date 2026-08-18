@@ -1261,10 +1261,20 @@ function serviceSettingsMarkup() {
         <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
       <div class="setting"><span class="q">The most edits one call may apply:</span>
         <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
-      <div class="setting"><span class="q">The longest one statement may run:</span>
-        <input type="number" id="capTimeout" min="1" placeholder="default"><span class="u">ms</span></div>
+
+      <h4>Time</h4>
+      <div class="setting"><span class="q">The longest a client may use this service:</span>
+        <input type="number" id="capDeadline" min="1" placeholder="600"><span class="u">seconds</span></div>
+      <div class="setting"><span class="q">The longest one database statement may run:</span>
+        <input type="number" id="capTimeout" min="1000" step="1000" placeholder="30000"><span class="u">ms</span></div>
+      <p class="hint"><b>The two time limits are not the same limit.</b> The first bounds the whole
+        request — reading it, querying, projecting, encoding and writing the answer. The second
+        bounds one database statement, and stops counting the moment the query returns. A request
+        that spends four minutes writing a million features exceeds the first and never touches the
+        second.</p>
       <p class="hint">Empty means the server's own value. These are the service's, so they bound
-        every layer inside it.</p>
+        every layer inside it. Neither can raise the server's limit: a value above it is held down
+        to it rather than refused.</p>
     </section>`;
 }
 
@@ -2487,6 +2497,16 @@ async function loadServiceCapabilities(name, folderGiven) {
   set("capInBytes", c.maxRequestBytes);
   set("capEdits", c.maxEditsPerTransaction);
   set("capTimeout", c.statementTimeoutMs);
+  set("capDeadline", c.requestDeadlineSeconds);
+
+  // <b>The placeholder is read, not assumed.</b> 600 is this build's default and a deployment may
+  // have chosen otherwise, so the empty box shows what would actually apply to this request.
+  const box = $("capDeadline");
+  if (box) {
+    box.placeholder = c.serverRequestDeadlineSeconds != null
+      ? String(c.serverRequestDeadlineSeconds)
+      : "no bound";
+  }
 }
 
 /**
@@ -2532,6 +2552,7 @@ async function saveServiceSettings(service, folder) {
       maxRequestBytes: num("capInBytes"),
       maxEditsPerTransaction: num("capEdits"),
       statementTimeoutMilliseconds: num("capTimeout"),
+      requestDeadlineSeconds: num("capDeadline"),
     }),
   });
 

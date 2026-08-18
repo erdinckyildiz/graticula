@@ -65,7 +65,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             layer.ConnectionString,
             BuildPool);
 
-        return new PostGisFeatureSource(pool, layer.Definition);
+        // <b>Lowered here, never raised.</b> The pool's own 30 seconds is in the connection
+        // options and cannot be opted out of (ADR-007 §4.8); a service asking for more than that
+        // gets the pool's figure, which is ADR-031 §2a's *may only lower* rule applied at the one
+        // place a statement is issued from.
+        TimeSpan? asked = layer.StatementTimeout;
+
+        return new PostGisFeatureSource(
+            pool,
+            layer.Definition,
+            asked is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
+                ? wanted
+                : null);
     }
 
     /// <summary>
