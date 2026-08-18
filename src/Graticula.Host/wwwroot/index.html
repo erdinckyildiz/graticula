@@ -440,6 +440,8 @@
             <tbody id="services"></tbody>
           </table>
         </div>
+        <!-- Ten a page, owner 2026-08-18. Empty when there is only one page. -->
+        <div id="servicesPager"></div>
         <p class="hint" id="serviceNote"></p>
       </div>
     </div>
@@ -549,6 +551,7 @@
         <tbody id="sources"></tbody>
       </table>
     </div>
+    <div id="sourcesPager"></div>
     <div id="probe"></div>
 
     <div class="label">Register a source</div>
@@ -803,6 +806,7 @@
         <tbody id="members"></tbody>
       </table>
     </div>
+    <div id="membersPager"></div>
 
     <p class="hint"><b>There is no delete, and the <em>Owns</em> column is why.</b> A member owns
       content: removing the row would orphan every service that names them as its owner, and the

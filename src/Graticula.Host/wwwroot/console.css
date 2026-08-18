@@ -797,6 +797,18 @@ label.field {
 .toolbar input[type=search], .toolbar input[type=text] { flex: 0 1 360px; }
 .toolbar .val { white-space: nowrap; }
 
+/* Ten rows a page on Server's listings — owner 2026-08-18. Sits under the panel it pages,
+   right-aligned, because that is where a reader's eye finishes a table. Nothing but the two
+   arrows and which rows are on screen: a pager that offers page numbers on a list of a
+   thousand offers a hundred links nobody clicks. */
+.pager {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--gap-3);
+  margin: calc(-1 * var(--gap-2)) 0 var(--gap-4);
+  padding: 0 var(--gap-2);
+}
+.pager .val { white-space: nowrap; }
+.pager button { min-width: 2.2em; }
+
 dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--gap-4); margin: 0;
            font-size: var(--t-small); }
 dl.facts dt { color: var(--muted); }

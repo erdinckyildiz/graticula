@@ -177,6 +177,79 @@ function metric(label, value, note) {
  * Each surface owns its tab strip, and the strip is built rather than written down, because a
  * tab a reader cannot use must not be in the document at all.
  */
+/**
+ * Ten rows a page, on every Server listing, from one place.
+ *
+ * <b>Owner 2026-08-18:</b> *"server tarafında görüntülenen max item sayısı 10 olmalı. 10 üstü
+ * paging olacak."* Server lists services, data sources and members, and before this every one of
+ * them rendered its whole result — a deployment of the scale CLAUDE.md §7 targets, 100 to 1,000
+ * services, would have drawn a thousand rows into one table.
+ *
+ * <b>One mechanism, not three, and that is the part worth defending.</b> D-61 is a debt about the
+ * console solving the same problem separately on each screen until the screens disagreed; three
+ * hand-rolled pagers would be the same mistake with a new subject. So: a page index per list id,
+ * a slice, and a control strip — and a list opts in by calling {@link pageOf} and
+ * {@link pagerFor} with its own id.
+ *
+ * <b>Paging is applied after filtering, and changing a filter resets to page one.</b> The
+ * alternative is the bug every list of this shape has: filter to three results while standing on
+ * page four, and the table is empty while the count says three.
+ */
+const PAGE_SIZE = 10;
+
+/** Which page each list is on, by the id of its `tbody`. */
+const pages = new Map();
+
+/**
+ * The slice of `rows` this list is currently showing.
+ *
+ * <b>Clamped rather than trusted.</b> A page index survives a reload of the list, and the list
+ * may have got shorter — a service deleted, a filter typed — so the index is brought back into
+ * range here instead of at every place that could shorten it.
+ */
+function pageOf(id, rows) {
+  const last = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
+  const at = Math.min(pages.get(id) ?? 0, last);
+
+  pages.set(id, at);
+  return rows.slice(at * PAGE_SIZE, (at + 1) * PAGE_SIZE);
+}
+
+/**
+ * The control strip under a list, or nothing at all when there is one page.
+ *
+ * <b>Absent rather than disabled when it is not needed.</b> A deployment with four services has
+ * no use for *Page 1 of 1* and two dead arrows; a control that never does anything is the kind
+ * of furniture that makes a dense screen unreadable.
+ *
+ * <b>It says which rows, not only which page.</b> *11–20 of 47* answers the question somebody
+ * actually has when a list is paged, which *Page 2* does not.
+ */
+function pagerFor(id, total) {
+  if (total <= PAGE_SIZE) {
+    pages.set(id, 0);
+    return "";
+  }
+
+  const at = pages.get(id) ?? 0;
+  const last = Math.ceil(total / PAGE_SIZE) - 1;
+  const first = at * PAGE_SIZE + 1;
+  const upto = Math.min(total, (at + 1) * PAGE_SIZE);
+
+  return `<div class="pager">
+    <button class="tiny ghost" data-page="${h(id)}" data-page-to="${at - 1}"
+      ${at === 0 ? "disabled" : ""} title="Previous ${PAGE_SIZE}">&larr;</button>
+    <span class="val">${num(first)}&ndash;${num(upto)} of ${num(total)}</span>
+    <button class="tiny ghost" data-page="${h(id)}" data-page-to="${at + 1}"
+      ${at === last ? "disabled" : ""} title="Next ${PAGE_SIZE}">&rarr;</button>
+  </div>`;
+}
+
+/** Sends a list back to its first page, which every filter change must do. */
+function resetPage(id) {
+  pages.set(id, 0);
+}
+
 const SURFACES = {
   server: {
     title: "Server",
@@ -1510,7 +1583,9 @@ async function loadMembers() {
   $("memberCount").textContent =
     `${rows.length} member${rows.length === 1 ? "" : "s"}`;
 
-  $("members").innerHTML = rows.map(m => `
+  $("membersPager").innerHTML = pagerFor("members", rows.length);
+
+  $("members").innerHTML = pageOf("members", rows).map(m => `
     <tr>
       <td class="name">${h(m.name)}${m.displayName
         ? `<div class="val" style="font-weight:400">${h(m.displayName)}</div>` : ""}</td>
@@ -1909,13 +1984,18 @@ async function loadServices() {
     ? `${shown_.length} of ${rows.length}`
     : `${rows.length} service${rows.length === 1 ? "" : "s"}`;
 
+  // Ten a page. The slice is taken after the filter, so a narrowed list starts at its own
+  // first page rather than wherever the unfiltered one was standing.
+  const onPage = pageOf("services", shown_);
+  $("servicesPager").innerHTML = pagerFor("services", shown_.length);
+
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
 
   $("services").innerHTML = shown_.length === 0
     ? `<tr><td colspan="6" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : `Nothing in ${h(where)} matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
-    : shown_.map(r => {
+    : onPage.map(r => {
       const held = [
         r.layers ? `${r.layers} layer${r.layers === 1 ? "" : "s"}` : "",
         r.groups ? `${r.groups} group${r.groups === 1 ? "" : "s"}` : "",
@@ -2646,9 +2726,11 @@ async function loadSources() {
   const { dataSources } = await api("/admin/datasources");
   $("cSources").textContent = dataSources.length;
 
+  $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
+
   $("sources").innerHTML = dataSources.length === 0
     ? `<tr><td colspan="5" class="empty">None registered.</td></tr>`
-    : dataSources.map(d => `<tr>
+    : pageOf("sources", dataSources).map(d => `<tr>
         <td class="name">${h(d.name)}</td>
         <td class="val">${h(d.kind)}</td>
         <td class="num">${num(d.layerCount)}</td>
@@ -3973,9 +4055,37 @@ document.addEventListener("change", async event => {
   }
 });
 
+/**
+ * Turning a page, for whichever list asked.
+ *
+ * <b>One listener for all three, keyed by the list's own id.</b> The button carries which list
+ * and which page, so adding a fourth paged list needs nothing here — which is the whole reason
+ * the mechanism is shared rather than copied.
+ *
+ * <b>Re-reads rather than re-slices.</b> Turning a page calls the same loader the screen already
+ * uses, so a page you turn to is as fresh as a page you refresh onto. Slicing a list held in a
+ * variable would be faster and would show somebody a service that was deleted a minute ago.
+ */
+document.addEventListener("click", event => {
+  const turn = event.target.closest?.("[data-page]");
+  if (!turn) return;
+
+  const id = turn.dataset.page;
+  pages.set(id, Math.max(0, Number(turn.dataset.pageTo)));
+
+  if (id === "services") section("services", loadServices, "services");
+  else if (id === "members") section("members", loadMembers, "members");
+  else if (id === "sources") section("data sources", loadSources, "sources");
+});
+
 document.addEventListener("input", event => {
   if (event.target.id === "serviceFilter") {
     serviceFilter = event.target.value;
+
+    // <b>Back to page one on every keystroke.</b> Without this, filtering to three results
+    // while standing on page four shows an empty table beside a count of three — and the
+    // reader blames the filter.
+    resetPage("services");
     section("services", loadServices, "services");
     return;
   }

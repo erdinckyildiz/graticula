@@ -295,6 +295,41 @@ public abstract class ConsoleTest : IAsyncLifetime
                 : Array.Empty<string>();
     }
 
+    /// <summary>
+    /// Calls an admin endpoint as the configured administrator, and says what came back.
+    /// </summary>
+    /// <param name="method">The verb.</param>
+    /// <param name="path">The path, from the root.</param>
+    /// <param name="json">A body, or null.</param>
+    /// <returns>The status and the body, for a caller that wants to assert on either.</returns>
+    /// <remarks>
+    /// <b>Added so a test can provision what it needs instead of requiring the server to already
+    /// have it.</b> A suite that needs eleven services and finds ten either fails on the fixture —
+    /// which is a fact about the machine, not about the code — or asserts something weaker than
+    /// it meant to. Creating and removing an empty service is the cheapest provisioning this
+    /// console has: `POST /admin/featureservices` makes a container with no layers and no data.
+    /// </remarks>
+    protected async Task<(int Status, string Body)> AdminAsync(
+        HttpMethod method, string path, string? json = null)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(path);
+
+        (string token, _) = await SignInAsync();
+
+        using HttpRequestMessage request = new(method, new Uri($"{Root}{path}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        if (json is not null)
+        {
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     /// <summary>Reads a catalogue document as the configured administrator.</summary>
     private async Task<JsonElement> ReadAsync(string path)
     {
@@ -368,6 +403,17 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// listing against what the server says it holds, which is worth checking on
     /// its own: a folder quietly dropping a service from the screen is the shape of
     /// D-61's reachability defect.
+    /// <para>
+    /// <b>Narrowed 2026-08-18, when Server's listings became paged at ten.</b> This required the
+    /// folder's <em>whole</em> contents to be on screen, which a paged list makes false by
+    /// design — so a folder of eleven services would have failed every test that opens it. What
+    /// it asserts now keeps the defect it was written for and loses nothing else: **the screen is
+    /// showing a page of this folder, every row on it is a service the catalogue reports, and
+    /// there is at least one.** A folder dropping a service still fails, because a name on screen
+    /// that the catalogue does not hold fails, and an empty page fails. What it can no longer
+    /// prove on its own is that the *last* service is reachable — `ListPagingTests` proves that,
+    /// by turning the page and requiring different rows.
+    /// </para>
     /// </remarks>
     protected async Task ShowingAsync(string folder, string[] expected)
     {
@@ -380,10 +426,14 @@ public abstract class ConsoleTest : IAsyncLifetime
             $"(() => {{ const want = {wanted}; const have = "
             + "Array.from(document.querySelectorAll('tr[data-service]'))"
             + ".map(r => r.dataset.service); "
-            + "return want.every(n => have.includes(n)); })()",
-            $"The services screen for '{(folder.Length == 0 ? "the root" : folder)}' never listed "
-            + $"all {expected.Length} of the services the catalogue says it holds: "
-            + string.Join(", ", expected));
+            + "if (want.length === 0) return true; "
+            + "if (have.length === 0) return false; "
+            + "return have.every(n => want.includes(n)); })()",
+            $"The services screen for '{(folder.Length == 0 ? "the root" : folder)}' is not showing "
+            + $"a page of what the catalogue says the folder holds ({expected.Length} service(s): "
+            + string.Join(", ", expected)
+            + "). Either it drew nothing, or it drew a name the catalogue does not report — which "
+            + "is a screen reading from somewhere other than this folder.");
     }
 
     /// <summary>
