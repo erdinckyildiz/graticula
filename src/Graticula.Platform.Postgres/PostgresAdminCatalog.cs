@@ -611,7 +611,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    (select l.name from layer l
                      where l.service_id = s.id order by l.layer_index limit 1),
                    (select l.layer_index from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1)
+                     where l.service_id = s.id order by l.layer_index limit 1),
+                   s.updated_at, s.created_at
             from service s
             left join principal p on p.id = s.owner_principal_id
             order by coalesce(s.folder, ''), lower(s.name)
@@ -638,7 +639,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 (int)reader.GetInt64(9),
                 reader.IsDBNull(10)
                     ? null
-                    : new AdminServiceCover(reader.GetString(10), reader.GetInt32(11))));
+                    : new AdminServiceCover(reader.GetString(10), reader.GetInt32(11)),
+                reader.GetFieldValue<DateTimeOffset>(12),
+                reader.GetFieldValue<DateTimeOffset>(13)));
         }
 
         return services;

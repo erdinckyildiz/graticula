@@ -280,6 +280,7 @@ internal static class AdminEndpoints
         // cannot be built on it. This answers the other question, for whoever is asking,
         // with no privilege beyond being signed in.
         app.MapGet("/content/layers", ListMyContentAsync);
+        app.MapGet("/content/items", ListContentItemsAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -516,6 +517,205 @@ internal static class AdminEndpoints
     /// question, and a client that cannot act on either.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Everything this caller may see, as items, with why they may see each one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Asked for by the owner, 2026-08-18:</b> *"content can be my own, from my groups, or shared in
+    /// organization. I think we need a public section as well to get publicly shared items."* Four
+    /// sections, and the interesting part is that **they are not four queries**. <see
+    /// cref="LayerAccess.Evaluate"/> already returns exactly this as its <c>Reason</c> — Owner, Group,
+    /// Organization, Public — because ADR-018 condition 3 wanted an auditable answer to *why could they
+    /// see this* rather than a boolean. The console has been receiving that value on every row of
+    /// <c>/content/layers</c> since it was written and throwing it into two buckets called <c>mine</c>
+    /// and <c>shared</c>.
+    /// </para>
+    /// <para>
+    /// <b>Items are services, where <c>/content/layers</c> returns layers.</b> A service is the thing
+    /// that is shared, owned, named in a directory and drawable; a layer is a member of one. The old
+    /// listing is per layer because it was written to feed a map, and it stays for that — this is not a
+    /// rename of it. A screen that lets somebody *choose* something to share has to offer the unit
+    /// sharing operates on, which is the defect this endpoint exists to fix: the group page offered a
+    /// list of qualified service names in a select box, and the owner pointed out that at their scale —
+    /// 512 items — a list of names is not something a person can choose from.
+    /// </para>
+    /// <para>
+    /// <b>The whole set, unpaged, and that is a decision with a stated limit.</b> The scale target is
+    /// 100–1,000 services (§60), the evaluation is per service in memory because sharing depends on
+    /// group membership, and paging in SQL would mean paging *before* the filter that decides
+    /// visibility — which cannot produce a correct page count. So the caller receives everything it may
+    /// see, with per-scope counts, and pages in the client. **What makes this honest rather than lazy is
+    /// that it is measured when it stops being true**: the catalogue read has already been the cost once
+    /// in this repository, and the repair was to stop reading every service to answer about one.
+    /// </para>
+    /// <para>
+    /// <b><see cref="LayerAccess.Reason.AdministrativeOverride"/> is reported as its own scope and not
+    /// folded into any other.</b> An administrator reading somebody else's private service is
+    /// legitimate and must be distinguishable — ADR-018 condition 3 — and a listing that quietly mixed
+    /// it into *organization* would be the console misreporting the sharing model to the one person who
+    /// can change it.
+    /// </para>
+    /// </remarks>
+    private static async Task ListContentItemsAsync(
+        HttpContext context,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        IGroupDirectory groups,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401,
+                "This lists the content you can see, so it needs to know who you are. Sign in at "
+                + "/rest/auth/login. What is public is in the services directory at /rest/services, "
+                + "which needs no credential.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>Two listings joined on the qualified name, because neither alone can answer this.</b>
+        // `layers.ListServicesAsync` carries `SharedWith` — the groups a service is shared with, which
+        // the evaluator needs — and `catalog.ListServicesAsync` carries the owner's *name*, the cover
+        // to draw and the two dates. Joining them here beats widening either: one is the runtime's view
+        // of what is served and the other is the administrative view of what exists.
+        IReadOnlyList<PublishedService> served =
+            await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        IReadOnlyList<AdminService> known =
+            await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        Dictionary<string, AdminService> byName = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (AdminService one in known)
+        {
+            byName[one.Qualified] = one;
+        }
+
+        // Which groups this caller is in, so a `group`-scoped service can say *which* group put it
+        // here — the fact that makes the scope actionable rather than just a label.
+        Dictionary<string, string> groupTitles = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (GroupSummary g in await groups
+            .ListAsync(current.Principal.Id, false, cancellation).ConfigureAwait(false))
+        {
+            groupTitles[g.Name] = g.Title ?? g.Name;
+        }
+
+        List<object> items = [];
+        SortedSet<string> folders = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, int> counts = new(StringComparer.Ordinal)
+        {
+            ["mine"] = 0,
+            ["group"] = 0,
+            ["organization"] = 0,
+            ["public"] = 0,
+            ["administrative"] = 0,
+        };
+
+        foreach (PublishedService service in served)
+        {
+            LayerAccess.Reason reason = LayerAccess.Evaluate(
+                service.Sharing, service.Owner, current.Principal, current.Authorization,
+                service.SharedWith);
+
+            if (!reason.IsAllowed())
+            {
+                continue;
+            }
+
+            // <b>Ownership first, and the evaluator deliberately does not do it that way.</b>
+            // `Evaluate` checks `Public` before `Owner` because it answers *why are you allowed* and
+            // the cheapest sufficient reason is the right answer to that question — a public service is
+            // readable whoever asks. **A content scope answers a different question**: *whose is this,
+            // and how did it reach me.* Using the reason as the label put ten of this server's eleven
+            // services under *public* for the person who owns them, so *My content* would have shown
+            // one item to an operator who published all eleven. Measured before it reached a screen.
+            //
+            // Recorded rather than fixed in `Evaluate`: changing that order would make an audit line
+            // say *they read it because they own it* where *because it is public to everybody* is the
+            // stronger and more useful fact.
+            bool owned = service.Owner is { } who && who == current.Principal.Id;
+
+            string scope = owned
+                ? "mine"
+                : reason switch
+                {
+                    LayerAccess.Reason.Group => "group",
+                    LayerAccess.Reason.Organization => "organization",
+                    LayerAccess.Reason.Public => "public",
+                    LayerAccess.Reason.AdministrativeOverride => "administrative",
+
+                    // enum-default-is-deliberate: an unrecognised allowed reason that is not ownership
+                    // is reported as the narrowest scope rather than the widest, for the reason
+                    // `ReadVisibility` gives — a scope this build does not understand must not read as
+                    // *public*.
+                    _ => "organization",
+                };
+
+            counts[scope]++;
+            folders.Add(service.Folder ?? string.Empty);
+
+            byName.TryGetValue(service.QualifiedName, out AdminService admin);
+
+            items.Add(new
+            {
+                name = service.QualifiedName,
+                bare = service.Name,
+                folder = service.Folder,
+                kind = service.Kind,
+                description = service.Description,
+                owner = admin.OwnerName,
+                sharing = PostgresSharing(service.Sharing),
+                status = Wire(service.Status),
+                layers = service.Layers.Count,
+                scope,
+
+                // <b>Why the caller may read it, beside whose it is.</b> The two differ for an owner's
+                // public service — theirs, and readable by anybody — and both facts are worth showing:
+                // one says which section it belongs in, the other says who else can see it.
+                because = reason.ToString().ToLowerInvariant(),
+
+                // <b>What to draw, and it is a layer because a service holds no geometry.</b> The same
+                // `cover` the Services screen draws with, so a picker and a listing show the same
+                // picture of the same thing rather than two idioms for one fact.
+                cover = admin.Cover is null
+                    ? null
+                    : new
+                    {
+                        layer = admin.Cover.Value.Name,
+                        index = admin.Cover.Value.LayerIndex,
+                        url = $"/rest/services/{service.QualifiedName}"
+                            + $"/FeatureServer/{admin.Cover.Value.LayerIndex}",
+                    },
+
+                updated = admin.Updated == default ? (DateTimeOffset?)null : admin.Updated,
+                created = admin.Created == default ? (DateTimeOffset?)null : admin.Created,
+            });
+        }
+
+        await Results.Json(new
+        {
+            items,
+            counts,
+
+            // <b>The folders present in what this caller can see, rather than every folder on the
+            // server.</b> A rail offering a folder whose every service is invisible to you is a dead
+            // entry, and `/admin/folders` — which lists them all — needs `admin:manageServer`, so a
+            // publisher could not fill a rail from it anyway. The root is the empty string, which is
+            // how `AdminFolder` reports it too.
+            folders,
+
+            groups = groupTitles,
+
+            note = counts["mine"] == 0
+                ? "You have published nothing yet. Everything here belongs to somebody else and is "
+                  + "listed under why you can see it."
+                : null,
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task ListMyContentAsync(
         HttpContext context,
         IAdminCatalog catalog,

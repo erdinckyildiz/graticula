@@ -227,6 +227,12 @@ public readonly record struct AdminServiceCover(string Name, int LayerIndex);
 /// what is inside — which is what the console did, and which cannot see a stopped service at
 /// all, since a stopped service answers 503 to the walk.
 /// </param>
+/// <param name="Updated">
+/// When it last changed. <b>Optional at the end because it is a listing fact and not an identity
+/// one</b> — every caller that had this record before still compiles, and the one that needs to sort
+/// *most recently changed first* stops having to ask per service.
+/// </param>
+/// <param name="Created">When it was published.</param>
 public readonly record struct AdminService(
     Guid Id,
     string Name,
@@ -238,7 +244,9 @@ public readonly record struct AdminService(
     string? OwnerName,
     int Layers,
     int Groups,
-    AdminServiceCover? Cover = null)
+    AdminServiceCover? Cover = null,
+    DateTimeOffset Updated = default,
+    DateTimeOffset Created = default)
 {
     /// <summary>Its address in the directory: <c>folder/name</c>, or just the name.</summary>
     public string Qualified => Folder is null ? Name : $"{Folder}/{Name}";
