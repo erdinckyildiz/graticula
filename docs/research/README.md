@@ -76,5 +76,7 @@ or undocumented internals.
 
 ## Written
 
-- [file-geodatabase-readers.md](file-geodatabase-readers.md) — whether a `.gdb` can be read without
-  GDAL, and what writing our own would cost. Answers [Q-108](../open-questions.md).
+- [file-geodatabase-readers.md](file-geodatabase-readers.md) — how to read a `.gdb`, what writing our
+  own would cost, and why the answer became *adopt `pyogrio` in a Python worker* once GDAL and
+  non-.NET were both allowed. Answers [Q-108](../open-questions.md), opens
+  [Q-120](../open-questions.md).

@@ -936,13 +936,18 @@ internal static class HostedDataEndpoints
             || extensions.Contains(".gdbtablx")
             || extensions.Contains(".gdbindexes"))
         {
+            // <b>The route is named, and it changed within a day of this sentence being written.</b>
+            // It first said *"there is no GDAL-free managed reader to adopt, so writing one is a
+            // project"* — true under the constraint of the hour and wrong by the evening, when the
+            // owner allowed GDAL and dropped the .NET requirement. A refusal that names a plan has to
+            // be corrected when the plan changes, or it becomes the most confidently wrong text in the
+            // product.
             return "This is a File Geodatabase, and this server does not import one yet. It is in "
-                + "scope for migration and it is not built: the open-source route is GDAL's "
-                + "OpenFileGDB driver in a separate worker, and there is no GDAL-free managed reader "
-                + "to adopt, so writing one is a project rather than a change — see Q-108 and "
+                + "scope for migration and it is planned rather than open: a geodatabase is read in "
+                + "the job worker, which is not built. See Q-108 and "
                 + "docs/research/file-geodatabase-readers.md. What imports today is a zipped "
-                + "shapefile, or a GeoJSON FeatureCollection. ArcGIS Pro exports a feature class to "
-                + "either.";
+                + "shapefile, or a GeoJSON FeatureCollection — ArcGIS Pro exports a feature class to "
+                + "either, which is the way in until the worker exists.";
         }
 
         if (extensions.Contains(".gpkg"))

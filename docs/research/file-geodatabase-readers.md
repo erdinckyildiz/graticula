@@ -1,16 +1,24 @@
-# Reading a File Geodatabase without GDAL
+# Reading a File Geodatabase
 
-**Surveyed 2026-08-18**, on two owner instructions in sequence: *"peki gdb alırken
-kullanabileceğimiz açık kaynaklı bir kütüphane yok mu?"*, then *"bulunan şey gdal'a bağımlı
-olmasın ama."*
+**Surveyed 2026-08-18**, over four owner instructions that arrived in sequence and moved the answer
+twice. Written in the order they came, because the reasoning is only legible that way:
 
-The second sentence is what makes this note worth writing. There **is** an open-source library —
-GDAL's `OpenFileGDB` — and the answer to the first question alone would have been *yes, and it is
-already the plan*. Ruling GDAL out changes the question from *which library* to *can we write one,
-and from what*.
+1. *"peki gdb alırken kullanabileceğimiz açık kaynaklı bir kütüphane yok mu?"*
+2. *"bulunan şey gdal'a bağımlı olmasın ama."*
+3. *"gdal da ekleyebiliriz. çok büyük bir problem değil."*
+4. *"illa .net olmak zorunda değil… geoprocessing araçları pythonda yazılacağı için."*
 
-**Answers [Q-108](../open-questions.md).** Nothing here is a decision; the recommendation is still
-that this is not v1 work, and it is now recommended against on evidence rather than on estimate.
+**The conclusion is in §8 and §9, and it contradicts §1–§7.** Sections 1 to 7 answer the question
+under instruction 2 — *no GDAL* — and reach *there is nothing to adopt, so writing our own is the only
+route, and it is expensive*. Instructions 3 and 4 remove the premise: with GDAL acceptable and .NET not
+required, `pyogrio` in a Python worker reads a `.gdb` in one line.
+
+**The superseded sections are kept rather than rewritten**, because the survey in them is the evidence
+the new answer rests on — the cost of writing our own is exactly why adopting is right — and because a
+note that shows its own reasoning being overturned is worth more than one that reads as though it
+always knew.
+
+**Answers [Q-108](../open-questions.md)**, and opens [Q-120](../open-questions.md).
 
 ---
 
@@ -36,7 +44,7 @@ in three attempts, which is the practical form of the question.
 | [Aspose.GIS](https://docs.aspose.com/gis/net/gdb-file-esri/) | C# | **commercial** | no | no | **No.** §7's licensing stance is open source, copyleft acceptable; a paid closed library is a distribution constraint on a gift. |
 
 **So the owner's constraint resolves to: write our own.** Which is exactly Q-108, arrived at from
-the other direction.
+the other direction — **and is superseded by §8.** Read on before acting on this line.
 
 ## 3. It is writable, and there are three independent proofs
 
@@ -106,16 +114,92 @@ relationships stay ours and engine-independent, because most PostGIS estates hav
 anywhere. It removes one stated reason from that argument, which is worth knowing the next time the
 argument is made.
 
-## 8. Recommendation
+## 8. And then the constraint moved twice, which changes the answer
 
-**Unchanged, and now better grounded: not v1.**
+**The owner, later the same day:** *"gdal da ekleyebiliriz. çok büyük bir problem değil. gdalsız gitmeyi
+tercih ederdim ama dediğim gibi. çok da önemli değil. bu arada illa .net olmak zorunda değil. ileride
+koyacağımız geoprocessing araçları pythonda yazılacağı için, python kütüphanesi kullanılabilirdi."*
 
-- If *no GDAL in the serving artefact* is the rule, it is already satisfied ([A-016](../architecture-assumptions.md)), and `OpenFileGDB` in the worker image is the cheapest complete answer.
-- If *no GDAL anywhere* is the rule, the only route is our own reader, and the cost is a multi-month
-  binary-format project whose defects are silent. It buys a smaller air-gapped checklist and one
-  fewer image — worth doing eventually, wrong to start before v1 ships.
-- **The intermediate step worth taking now costs nothing:** say so in the product. A `.gdb.zip`
-  uploaded today is refused with *"no shapefile in this archive"*, which is true and useless.
+Two inputs, and the second is the material one. GDAL becoming acceptable makes §2's first row usable
+again; **dropping the .NET requirement makes most of this note's cost analysis irrelevant.**
+
+### The convergence, and half of it was already written down
+
+[Q-74](../open-questions.md) had already reasoned its way to Python on the *outbound* side. Asked how
+data crosses into a geoprocessing tool, it rejected giving Python a database connection, rejected
+calling our own API for bulk, and chose *materialise the input to a file the tool reads* — concluding
+that the interchange format **wants to be one Python's geospatial stack reads natively, which means
+GeoParquet or Arrow**, because *"`geopandas`, `pyarrow` and `shapely` all read them without a shim."*
+
+The owner's observation completes the circle on the *inbound* side. The same Python process reads
+`.gdb` through [`pyogrio`](https://github.com/geopandas/pyogrio), which is GDAL-backed, vectorised, and
+**Arrow-native** — the same boundary format Q-74 arrived at independently. One worker, Arrow in both
+directions.
+
+### And it is a line of code, not a project
+
+```python
+gdf = geopandas.read_file("estate.gdb", layer="roads", driver="OpenFileGDB", use_arrow=True)
+```
+
+`pyogrio` reports **5–10× faster reads and 5–20× faster writes** than Fiona's non-vectorised path, and
+`use_arrow=True` with GDAL 3.6+ is faster again. It also reads a geodatabase's **non-spatial tables**,
+which a migration needs and which our shapefile path has no equivalent of.
+
+Set against §5's estimate for our own reader — a multi-month binary-format project whose defects are
+silent, benchmarked against a single-author pure implementation that stopped before multi-part
+geometries — this is not a close call.
+
+### The objection, and why it does not block
+
+v1-scope §3c **cut the Python runtime from the job-worker image**, and Q-75 (sandbox) and Q-76
+(dependencies) gate the Python SDK. So does a Python import worker pull forward a decision that was
+deliberately deferred?
+
+**No, and the distinction is the whole answer: those questions are about *user-supplied* code.**
+Q-75 is *"how is user-supplied Python sandboxed"* — the largest security surface in the product,
+arbitrary code execution by design. Q-76 is whether *user* tools may install dependencies; ADR-016
+answered it with a curated wheel set we version. A Python process running **our** import script,
+against **our** pinned wheels, has neither problem. It is our code in a second language, which is a
+packaging cost and not a security surface.
+
+**What it does cost is honest and should be stated:** a second runtime in the deployment, a second
+dependency graph to patch, and a wheel set that arrives earlier than ADR-016 planned. Against that it
+**removes** the thing Q-108's prize was about — writing and maintaining a reverse-engineered binary
+parser — and it arrives in a process that has to exist anyway for Q-17b.
+
+### What this makes into a real question
+
+**The job worker's language is not decided anywhere.** `Graticula.Overlay.Worker` is .NET, and it is a
+worker for one reason ADR-022 measured: an overlay that cannot be bounded from inside must be killable
+from outside. Nothing in ADR-011 or ADR-016 says what language a *job* worker is written in, and until
+today nothing needed to.
+
+Now two things want to be in one: File Geodatabase import, and the geoprocessing runtime. Both point
+at Python; the overlay worker points at .NET and has a measured reason. **Two worker kinds is a
+defensible answer** — they are different jobs with different reasons — **and it should be a decision
+rather than a residue.** Opened as [Q-120](../open-questions.md).
+
+## 9. Recommendation
+
+**Changed by §8, and the change is larger than *not v1*: do not write one at all.**
+
+- **`pyogrio` in a Python job worker**, which is the process Q-17b brings anyway, and Arrow is the
+  boundary Q-74 already chose. One line of code against a multi-month parser.
+- **Writing our own managed reader is now the wrong project**, not merely a deferred one. Its whole
+  prize was removing GDAL; the owner has said GDAL is acceptable, and the remaining prize — one fewer
+  runtime — is *lost* rather than won by writing .NET, because the Python runtime arrives with
+  geoprocessing regardless.
+- **Not v1 still**, because the worker is not built and v1-scope §3c cut its runtime. What changes is
+  what v2 does: adopt, not build.
+- **The step worth taking now costs nothing and is done:** a `.gdb.zip` is refused by name, pointing at
+  Q-108 and this note, instead of *"zip the shapefile's files directly rather than the folder holding
+  them"* — advice that cannot be followed for a format whose whole shape is a folder.
+
+### Sources added 2026-08-18
+
+- [`pyogrio`](https://github.com/geopandas/pyogrio) and [on PyPI](https://pypi.org/project/pyogrio)
+- [GeoPandas — reading and writing files](https://geopandas.org/en/stable/docs/user_guide/io.html)
 
 ## Sources
 
