@@ -8,6 +8,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. Context
 
 Where does the platform's own durable state live — service definitions, catalog,
@@ -110,8 +124,10 @@ Against Alternative C, honestly:
 platform state, and it is not necessarily PostgreSQL.** Alternative C, with the
 following shape:
 
-> **AMENDED 2026-08-12.** The owner decided PostgreSQL is not mandatory; Oracle
-> Spatial and SQL Server Spatial are first-class. A-009 is `INVALIDATED` and
+> **AMENDED 2026-08-12, and narrowed by the v1 cut on 2026-08-13 — read the scope note
+> above before this paragraph.** The owner decided PostgreSQL is not mandatory; Oracle
+> Spatial and SQL Server Spatial are first-class **in the design, and deferred out of
+> v1**. A-009 is `INVALIDATED` and
 > §4.1 and §4.4 below are superseded by §4a. Everything else in this decision
 > survives — see
 > [research/multi-database-consequences.md](../research/multi-database-consequences.md)
@@ -181,8 +197,12 @@ owner. The mitigation is that Q-32 ships the datastore as a managed appliance we
 install, configure, back up and upgrade — the requirement is *run our
 container*, not *employ a PostgreSQL DBA*.
 
-**What does not change.** **Oracle Spatial and SQL Server Spatial remain
-first-class providers**, with full read/write feature services and ArcGIS
+**What does not change.** **Oracle Spatial and SQL Server Spatial stay first-class in
+the design and are not in v1** — *corrected 2026-08-18; this sentence read "remain
+first-class providers" in the present tense for five days after the scope cut, which is
+the single worst instance of [D-27](../architecture-debt.md) because a reader who starts
+at this ADR was told the opposite of the scope on their first page.* What the design
+gives them, when they arrive, is full read/write feature services and ArcGIS
 FeatureServer compatibility (Q-50a, Q-17), against data that stays where it is.
 They are not platform stores, not datastores and — since Q-67 — not tile
 sources. The multi-dialect problem is now entirely a *query and write* problem,

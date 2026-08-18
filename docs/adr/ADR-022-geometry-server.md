@@ -10,6 +10,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. Context
 
 [v1-scope](../v1-scope.md) records GeometryServer as *crucial* on the owner's

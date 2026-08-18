@@ -40,6 +40,43 @@ Grouped by what their removal buys, because that is the point.
 
 **Oracle, SQL Server, MySQL, MariaDB, DuckDB.**
 
+> **AMENDED 2026-08-18 — this is a deferral, and this section was written as a
+> removal.** Owner decision, in their words: *"Şimdilik postgis ile gideceğiz. Sonra
+> diğer db'ler eklenecek. V1'de sadece Postgis olarak kalabiliriz."* — PostGIS for now,
+> the other databases added afterwards, and v1 may stay PostGIS only.
+>
+> **What changes: nothing about v1, and one thing about everything else.** The scope
+> below stands exactly as written. What was wrong was the *tense* the consequences were
+> written in. This section says *"A-043 dies"*, *"Q-20 dies"*, *"ADR-008's per-dialect
+> pushdown table dissolves"* — and a reader repairing the ADRs against it would delete
+> the multi-engine reasoning as obsolete. It is not obsolete; it is **dormant**, and it
+> is what the second engine will be built from. Every assumption, question and design
+> in that list sleeps until the engine that needs it arrives, and it wakes with it.
+>
+> **One bullet below is now wrong rather than merely mis-tensed**, and it is the one
+> that matters most. *"ADR-008 condition 1a and review finding P10 dissolve — the
+> second-dialect compiler was a forcing function against PostGIS-shaped assumptions.
+> With one dialect by decision rather than by drift, there is nothing to force."* That
+> argument holds only if there is never a second dialect. There will be one. So the
+> forcing function was not made unnecessary, it was **switched off while the thing it
+> guards against carries on happening** — and it has already happened once, visibly:
+> [ADR-008](adr/ADR-008-query-engine.md) §4a-i records `FeatureQuery.Where` carrying
+> ready-made SQL text into the domain model, which §4.1 forbids precisely so that a
+> non-database provider stays possible. §4a-i's own reasoning for recording it rather
+> than repairing it was that *"the only consumer is hypothetical"*. After this decision
+> the consumer is **scheduled**, which is a different word. It is still not urgent —
+> §82's question is what concrete problem an abstraction solves *today* — but the
+> revisit trigger is now a date on somebody's plan rather than a hypothesis, and the
+> cost of every further PostGIS-shaped assumption is paid later by whoever adds Oracle.
+>
+> **This is the missing decision [D-27](architecture-debt.md) was waiting for.** That
+> debt says twelve of twenty-two ADRs still describe a three-database product and that
+> it is *"not repairable by a sweep: some of those paragraphs are deferred rather than
+> wrong, and deciding which is which per paragraph is the owner's."* The rule is now
+> decided and it is a default: **deferred unless it claims to be current.** A paragraph
+> that designs for several engines stays and says when it applies; a paragraph that
+> tells the reader v1 serves Oracle today is corrected.
+
 This is the largest single simplification available to the project, and it
 removes more unresolved risk than everything else on this list combined:
 

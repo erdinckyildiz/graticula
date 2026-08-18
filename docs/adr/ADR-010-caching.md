@@ -8,6 +8,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. Context
 
 Caching became more important than it was when this ADR was stubbed.
@@ -518,7 +532,10 @@ grant fingerprint is the fix — not a purge.
 
 ## 12. Conditions
 
-1. **TTL must work with no other mechanism available.** The read-only Oracle
+1. **TTL must work with no other mechanism available.** *(The worked example is an
+   engine v1 does not serve; the requirement is not about the engine — a read-only
+   PostGIS source reached over a credential that cannot create a trigger is the same
+   case, and it is in scope.)* The read-only Oracle
    case is the test: if the design only works with change detection, it does not
    work.
 2. **The invalidation delay must be documented as a number**, not described as

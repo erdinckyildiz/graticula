@@ -8,6 +8,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. The question
 
 *What is the modern equivalent of ArcSOC?* (§16, §80.5)
@@ -323,7 +337,9 @@ policy, and it should be an idle timeout rather than aggressive closing.
 - **Quiesce** is an administrative operation on a data source: drain its
   connections, hold its requests, let the DBA work, resume.
 
-The budget must be produced per provider, since Oracle, SQL Server and
+The budget must be produced per provider — **which in v1 means one provider, and the
+per-provider shape is kept because the second one is scheduled rather than
+hypothetical** — since Oracle, SQL Server and
 PostgreSQL price sessions differently (Q-04).
 
 ### 4.9 Backpressure

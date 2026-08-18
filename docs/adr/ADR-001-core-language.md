@@ -8,6 +8,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 0. Status downgraded 2026-08-13 — the reason for skipping the prototype is dead
 
 §6 gives three reasons the two-language comparison was dropped. **The first no
@@ -98,7 +112,9 @@ HTTP request
 That is **an HTTP server, a PostgreSQL client and a serialiser.** With pushdown
 working, very little heavy computation happens in our process at all.
 
-> **Partially reversed 2026-08-12.** The owner made Oracle Spatial and SQL Server
+> **Partially reversed 2026-08-12, then deferred out of v1 on 2026-08-13 — the
+> criterion below is still the right criterion and it is not being weighed today.** The
+> owner made Oracle Spatial and SQL Server
 > Spatial first-class, and **`ST_AsMVT` exists only in PostGIS**. For two of the
 > three primary providers, in-process MVT encoding is the only path — so the
 > tile path *is* CPU-bound in our process for most enterprise deployments. A-001

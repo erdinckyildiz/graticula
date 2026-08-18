@@ -9,6 +9,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. Context
 
 [Q-17](../open-questions.md) committed us to full ArcGIS FeatureServer
@@ -417,7 +431,7 @@ by argument; nobody has pointed a slow reader at it.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-040 | All three engines can stream BLOBs out of a query without materialising them in our process | `UNVALIDATED` — load-bearing for §4a. PostgreSQL `bytea`, SQL Server `varbinary(max)` and Oracle `BLOB` all document streaming access, but with different APIs and different behaviour under TOAST / row-overflow / out-of-line storage |
+| A-040 | All three engines can stream BLOBs out of a query without materialising them in our process — **of which only PostGIS is in v1, so two thirds of this assumption is dormant rather than unvalidated** | `UNVALIDATED` — load-bearing for §4a. PostgreSQL `bytea`, SQL Server `varbinary(max)` and Oracle `BLOB` all document streaming access, but with different APIs and different behaviour under TOAST / row-overflow / out-of-line storage |
 | A-041 | A bounded separate pool is sufficient protection against slow-client connection exhaustion | `UNVALIDATED` — §4b. If false, attachments need buffer-and-release above a size threshold, which reintroduces the memory problem §4a exists to avoid |
 | A-027 | Optimistic concurrency is correct against writes we never see | Unchanged, and now also covers attachment and related-record edits |
 

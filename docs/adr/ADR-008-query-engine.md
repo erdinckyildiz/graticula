@@ -8,6 +8,20 @@
 
 ---
 
+> **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
+> deferred rather than cut.** This decision reasons about several database engines.
+> Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de
+> sadece Postgis olarak kalabiliriz."* — [v1-scope](../v1-scope.md) §3a, which is the one
+> place that says what the deferral means.
+>
+> **The multi-engine reasoning here is kept on purpose**, because it is what the second
+> engine will be built from and because deleting it would make it be re-derived later
+> from nothing. What it is not is a description of what v1 does. Where a sentence below
+> reads as *the server supports Oracle today*, it has been corrected; where it reads as
+> *this is how several engines would be supported*, it stands and waits.
+>
+> [D-27](../architecture-debt.md).
+
 ## 1. Context
 
 Features first ([product-context.md](../product-context.md)), so this is the
@@ -453,6 +467,30 @@ provider would solve exactly one: handing a `FeatureQuery` to something that is
 not a database. v1 is PostGIS only ([v1-scope.md](../v1-scope.md)), so that
 problem does not exist yet, and building the seam now would be an abstraction
 whose only consumer is hypothetical.
+
+**Amended 2026-08-18 — the consumer is no longer hypothetical, it is scheduled, and
+the word matters more than the timing.** Owner decision: *"Sonra diğer db'ler
+eklenecek"* — the other databases are added after v1 ([v1-scope](../v1-scope.md) §3a).
+Three things follow, and only the third is a change of plan:
+
+- **The decision not to build the AST now stands unchanged.** §82's question is what
+  concrete problem an abstraction solves *today*, and the answer is still none. A seam
+  built now would be designed against an imagined second dialect, which is a worse
+  design than one built against a real one.
+- **The revisit trigger stops being conditional.** It read *"the first non-database
+  provider"*, which sounded like something that might never happen. It is now *"the
+  second engine, which is planned"*, and a trigger nobody expects to fire is a trigger
+  nobody watches.
+- **What has actually changed is the cost of the interval.** v1-scope §3a argued that
+  ADR-008 condition 1a — the second-dialect compiler as a forcing function against
+  PostGIS-shaped assumptions — *dissolved* with the cut, on the grounds that with one
+  dialect by decision there is nothing to force. That argument required the cut to be
+  permanent. It is not, so **the forcing function was switched off while the thing it
+  guards against carries on happening**, and every PostGIS-shaped assumption written
+  between now and the second engine is paid for by whoever adds it. `ParsedWhere` is
+  the first one and it is recorded; the point of this amendment is that it will not be
+  the last, and the architecture test that fails the build on a *second* SQL-shaped
+  member in the query model is now the only thing watching.
 
 What is true instead, stated plainly so nobody has to rediscover it:
 
