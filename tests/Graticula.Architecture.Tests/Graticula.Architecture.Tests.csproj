@@ -12,6 +12,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
+
+    <!--
+      <b>Added 2026-08-18 for the authorization guards D-71 and D-74 asked for.</b> `SharingScope`,
+      `Privilege` and the user-type ceilings live in `Graticula.Platform`, and the tests that check
+      *every value is handled everywhere it is read* need the values. This does not weaken the tier
+      rules the rest of this project asserts: an architecture test reading the platform's own
+      vocabulary is the test doing its job, not a Tier 1 type crossing a boundary.
+    -->
+    <ProjectReference Include="..\..\src\Graticula.Platform\Graticula.Platform.csproj" />
   </ItemGroup>
 
 </Project>

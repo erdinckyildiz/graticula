@@ -345,12 +345,21 @@ is that *"0 errors"* from a filtered build log is not a build result.
    stored grants deletes. The test that matters: for each prerequisite pair, a role holding the
    dependent privilege without its prerequisite is refused on write; for each implication pair, a
    role holding only the wider privilege passes a check for the narrower.
-7. **PARTLY DISCHARGED 2026-08-18.** The resolver half is done and tested — a custom role granted
-   every privilege in the catalogue is still not an administrator. What is **not** done is the
-   reserved operations themselves: nothing yet refuses *changing a member's role to administrator*
-   or *resetting an administrator's password* to a non-administrator, because those endpoints check
-   `admin:manageMembers` and an edited role can carry it. **No custom role, at any privilege level,
-   can produce an administrator.** §4g. Concretely:
+7. **DISCHARGED 2026-08-18.** Five acts are now reserved to the administrator role by name rather
+   than by privilege: changing a role **to or from** administrator, creating an administrator,
+   resetting an administrator's password, and removing an administrator. All five asked
+   `admin:manageMembers`, which a deployment may grant to anything — so the escalation was one
+   privilege long, and taking the role *away* was the half that mattered as much as granting it,
+   because somebody clearing the way does it by removing the others. `PrivilegeEscalationConformance-
+   Tests` grants a role **every privilege in the catalogue** and tries all five against a running
+   server, with two calls that must succeed as the control; falsified by disabling the guard.
+   **No custom role, at any privilege level, can produce an administrator.**
+
+   **And the search found a second defect in two places.** Both the create and the role-change
+   handler validated the requested role against `Roles.All` — the five this build ships with — so a
+   deployment could define a role and **assign it to nobody**. The feature was half-built in two
+   handlers that failed differently enough for repairing one to look like repairing it. Both now read
+   the store, and a test assigns a defined role at creation and on an existing member. §4g. Concretely:
    changing a role to or from administrator, deleting an administrator, and resetting an
    administrator's password are refused to everybody except the built-in administrator role.
    Asserted by a test that gives a custom role every privilege in the catalogue and then tries all

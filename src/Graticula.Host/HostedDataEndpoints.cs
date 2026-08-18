@@ -809,6 +809,13 @@ internal static class HostedDataEndpoints
     /// like, and a default of *organisation* would share data before its owner
     /// had confirmed it imported correctly.
     /// </remarks>
+    // enum-default-is-deliberate: private
+    //
+    // <b>Everything unrecognised is `private`, which is the decision the remarks above argue for</b> —
+    // a default of *organisation* would share an import before its owner had seen what it looks like.
+    // The marker tells `EnumeratedValuesAreCoveredTests` this is not the fourth-scope defect it exists
+    // to catch: four of the five parsers that missed `group` had a discard arm too, and read a
+    // group-scoped service as private, which is worse than refusing it.
     private static SharingScope ParseSharing(string? raw) => raw?.ToLowerInvariant() switch
     {
         "public" => SharingScope.Public,

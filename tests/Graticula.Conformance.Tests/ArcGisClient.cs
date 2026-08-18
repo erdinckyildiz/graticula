@@ -61,6 +61,17 @@ public abstract class ArcGisClient : IDisposable
     private static bool _signedIn;
 
     private readonly HttpClient _http;
+
+    /// <summary>
+    /// The client this fixture holds, for a test that needs to send its own request.
+    /// </summary>
+    /// <remarks>
+    /// <b>Exposed rather than reconstructed.</b> A test that built its own would need the
+    /// certificate handler and the timeout again, and a second one of those is a second place for
+    /// them to drift — which is D-46's subject. The tests that need it are the ones acting as
+    /// somebody other than the configured administrator.
+    /// </remarks>
+    protected HttpClient Http => _http;
     private bool _disposed;
 
     /// <summary>Creates the client.</summary>

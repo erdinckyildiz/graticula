@@ -2459,6 +2459,52 @@ internal static class AdminEndpoints
     };
 
     /// <summary>
+    /// Whether this caller may act on the administrator role, and the refusal if not.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="what">What they were trying to do, for the sentence.</param>
+    /// <returns>True to proceed. If false, the response has been written.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-035 §4g and condition 7: reserved by role, not by privilege.</b> Three acts are the
+    /// administrator's alone — changing a role to or from administrator, deleting an administrator,
+    /// and resetting an administrator's password. All three used to require
+    /// <c>admin:manageMembers</c>, and since ADR-035 a deployment can grant that to any role it
+    /// likes. So a role holding it could make its own holder an administrator, and §4a's editability
+    /// contained its own defeat: one privilege away from every other.
+    /// </para>
+    /// <para>
+    /// <b>Asked of <see cref="Authorization.IsAdministrator"/>, which is not a set of rows.</b> That
+    /// flag comes from holding the role, and the role's authority is a property of the code — so no
+    /// edit to <c>role_privilege</c> and no <c>UPDATE</c> against the store can produce it.
+    /// </para>
+    /// <para>
+    /// <b>403 rather than 404, unlike the group refusals.</b> Hiding the existence of the
+    /// administrator role from somebody who can already list the roles would be hiding nothing; what
+    /// this refusal must do is explain that no privilege grants this, or the reader spends their
+    /// afternoon editing a role that will never work.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> AdministratorOnlyAsync(HttpContext context, string what)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Authorization.IsAdministrator)
+        {
+            return true;
+        }
+
+        await Refuse(context, 403,
+            $"{what} is reserved to the administrator role, and no privilege grants it. Editing a "
+            + "role cannot produce this — the administrator's authority is a property of the server "
+            + "rather than a set of grants (ADR-035 §4b), and the acts that create or remove an "
+            + "administrator are held to the same rule so that no other role can reach it. Ask an "
+            + "administrator.").ConfigureAwait(false);
+
+        return false;
+    }
+
+    /// <summary>
     /// Groups this caller can see, and where they stand in each.
     /// </summary>
     /// <remarks>
@@ -3692,6 +3738,7 @@ internal static class AdminEndpoints
         HttpContext context,
         MemberRequest request,
         IMemberDirectory directory,
+        IRoleDirectory roles,
         IPasswordHasher hasher,
         IAuditLog audit,
         CancellationToken cancellation)
@@ -3715,13 +3762,31 @@ internal static class AdminEndpoints
 
         string role = (request.Role ?? "").Trim();
 
-        if (!Roles.All.Contains(role, StringComparer.Ordinal))
+        // <b>Every role the deployment has, not the five this build ships with.</b> The second place
+        // this was wrong: `Roles.All` here meant a role a deployment had just defined could not be
+        // given to a new member either — so the feature was half-built in two handlers, and they
+        // failed differently enough that fixing one looked like fixing it.
+        IReadOnlyList<RoleGrant> defined = await roles.ListAsync(cancellation).ConfigureAwait(false);
+
+        if (!defined.Any(r => string.Equals(r.Name, role, StringComparison.Ordinal)))
         {
             await Refuse(
                 context, 400,
-                $"'{role}' is not a role. The roles are {string.Join(", ", Roles.All)}, and one is "
-                + "required: a member with none holds nothing, and a default would be an "
-                + "authorization decision made by whoever wrote it.").ConfigureAwait(false);
+                $"'{role}' is not a role on this server. It has "
+                + $"{string.Join(", ", defined.Select(r => r.Name))}, and one is required: a member "
+                + "with none holds nothing, and a default would be an authorization decision made by "
+                + "whoever wrote it.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>ADR-035 §4g: creating an administrator is the administrator's act too.</b> Not in that
+        // section's list, and it follows from it — a role that could create a member and hand them the
+        // administrator role would reach it in two calls instead of one, which is the same escalation
+        // with an extra step.
+        if (string.Equals(role, Roles.Administrator, StringComparison.Ordinal)
+            && !await AdministratorOnlyAsync(context, "Creating an administrator")
+                .ConfigureAwait(false))
+        {
             return;
         }
 
@@ -3798,10 +3863,12 @@ internal static class AdminEndpoints
         MemberRoleRequest request,
         IMemberDirectory directory,
         IIdentityStore identity,
+        IRoleDirectory roles,
         IAuditLog audit,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(roles);
 
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
@@ -3811,9 +3878,35 @@ internal static class AdminEndpoints
 
         string? role = string.IsNullOrWhiteSpace(request.Role) ? null : request.Role.Trim();
 
-        if (role is not null && !Roles.All.Contains(role, StringComparer.Ordinal))
+        // <b>Every role the deployment has, not the five this build ships with.</b> This read
+        // `Roles.All`, so from the moment ADR-035 let a deployment define a role, it could define one
+        // and not assign it — the feature was half-built and the refusal said *"'x' is not a role"*
+        // about a role that plainly was. D-74's pattern for the fourth time in one day: a reader of a
+        // set that stopped being fixed.
+        if (role is not null)
         {
-            await Refuse(context, 400, $"'{role}' is not a role.").ConfigureAwait(false);
+            IReadOnlyList<RoleGrant> defined =
+                await roles.ListAsync(cancellation).ConfigureAwait(false);
+
+            if (!defined.Any(r => string.Equals(r.Name, role, StringComparison.Ordinal)))
+            {
+                await Refuse(context, 400,
+                    $"'{role}' is not a role on this server. GET /admin/roles lists them.")
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
+
+        // <b>ADR-035 §4g: to or from administrator is the administrator's act.</b> Both directions —
+        // granting it is the escalation, and removing it is how somebody would clear the way.
+        bool touchesAdministrator =
+            string.Equals(role, Roles.Administrator, StringComparison.Ordinal)
+            || await HoldsAdministratorAsync(directory, name, cancellation).ConfigureAwait(false);
+
+        if (touchesAdministrator
+            && !await AdministratorOnlyAsync(
+                context, "Changing a role to or from administrator").ConfigureAwait(false))
+        {
             return;
         }
 
@@ -3864,6 +3957,18 @@ internal static class AdminEndpoints
     /// Asked of the listing rather than with a count query, because the listing already reports
     /// roles and a second SQL path for the same fact is a second place to get it wrong.
     /// </remarks>
+    /// <summary>Whether a named member holds the administrator role.</summary>
+    /// <remarks>
+    /// <b>From the listing, like its neighbour, and for the same reason.</b> `IIdentityStore` answers
+    /// by principal id and every caller here has a name; the member listing is one statement and is
+    /// already read on this path to count administrators.
+    /// </remarks>
+    private static async Task<bool> HoldsAdministratorAsync(
+        IMemberDirectory directory, string name, CancellationToken cancellation) =>
+        (await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
+            .Any(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
+                && m.Roles.Contains(Roles.Administrator, StringComparer.Ordinal));
+
     private static async Task<bool> SomebodyElseAdministersAsync(
         IMemberDirectory directory, string name, CancellationToken cancellation) =>
         (await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
@@ -4104,6 +4209,17 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>ADR-035 §4g: removing an administrator is the administrator's act.</b> Before the
+        // last-administrator refusal, because that one is about the *server's* recoverability and
+        // this one is about who may reach the role at all — a role granted `admin:manageMembers`
+        // could otherwise delete every administrator but one and then take the role for itself.
+        if (await HoldsAdministratorAsync(members, name, cancellation).ConfigureAwait(false)
+            && !await AdministratorOnlyAsync(context, "Removing an administrator")
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await members.HoldingsOfAsync(name, cancellation).ConfigureAwait(false)
             is not { } holdings)
         {
@@ -4270,6 +4386,17 @@ internal static class AdminEndpoints
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // <b>ADR-035 §4g: resetting an administrator's password is the administrator's act.</b> It is
+        // the quietest of the three — no role changes, nothing deleted — and it is the one that hands
+        // somebody an administrator's session outright, because the issued password comes back in the
+        // response.
+        if (await HoldsAdministratorAsync(directory, name, cancellation).ConfigureAwait(false)
+            && !await AdministratorOnlyAsync(
+                context, "Resetting an administrator's password").ConfigureAwait(false))
         {
             return;
         }
