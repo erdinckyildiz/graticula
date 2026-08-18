@@ -361,6 +361,36 @@ directive; the correct answer is that the server creates the scratch directory a
 permissions, because this is the one process in the product whose input is a file a stranger chose —
 which is what security.md's upload section is about, and root is not a defence anybody picks on purpose.
 
+## 8e. Measured: the work is fast, and the asynchrony is not about duration
+
+The owner asked whether the job machinery was really necessary — *"bu iş bu kadar karışık mı?"* — and
+the measurement says the premise behind it was wrong.
+
+**The biggest layer across the three archives is 3,659 features. Reading it takes 0.21 s and writing
+the GeoParquet 0.08 s.** All three archives together hold 21,411 features. Every comment written while
+building this said an import *"takes minutes and cannot be answered on the request that asks for it"*.
+For this estate it takes a third of a second.
+
+**But the asynchrony does not come from the duration, and that is the useful correction.** The worker is
+a separate container because the serving artefact ships no GDAL ([A-016](../architecture-assumptions.md),
+[ADR-009](../adr/ADR-009-raster-engine.md) §2.2), and the server has no channel into it — no Docker
+socket, no listener. **The job table is that channel.** So the machinery is not a queue for slow work; it
+is the cost of keeping GDAL out of the server, which is a rule the owner chose to keep.
+
+**One simplification is genuinely available and is not taken here.** At a third of a second the upload
+could wait for the job and answer inline, sparing the console any polling. It is not taken because the
+scale that makes it safe is *this* estate's, and an import path that holds a request until the work
+finishes is one large archive away from a timeout — the shape [D-30](../architecture-debt.md)'s harness
+lessons keep arriving in. The polling interval is two seconds and the work is sub-second, so what an
+operator actually waits for is the poll rather than the import; **that** is the number to reduce if it
+ever matters, and reducing it costs nothing structural.
+
+**And `pyogrio` drops M itself, with a warning:** *"Measured (M) geometry types are not supported.
+Original type 'Measured 3D Point' is converted to 'Point Z'."* So the M loss is the library's rather
+than ours, and [ADR-024](../adr/ADR-024-shapefile-import.md) condition 5's rule — say it at the moment
+of the loss — applies to a message we did not generate. The worker has to surface it rather than let it
+go to stderr and vanish.
+
 ## 9. Recommendation
 
 **Changed by §8, and the change is larger than *not v1*: do not write one at all.**

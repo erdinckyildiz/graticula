@@ -5,6 +5,7 @@
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-08-18 |
+| **Reversed** | **2026-08-18, the same day — see §5a. The Python worker is gone; GDAL is linked in .NET.** |
 | **Answers** | [Q-120](../open-questions.md) |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -134,6 +135,64 @@ widen it will come from convenience, and the register is the only thing that wil
 | GDAL is a bill of materials, not one licence | `LICENSE.TXT` lists BSD, public-domain, **Apache-2.0 (Esri components)**, ISC, Info-ZIP and Qhull beside the MIT-style core | [GDAL LICENSE.TXT](https://github.com/OSGeo/gdal/blob/master/LICENSE.TXT), [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) |
 | Nothing decided this before | No `job` table, no queue, no status endpoint. ADR-011 is a decision with no implementation | Verified against the schema and `src/`, 2026-08-18 |
 
+## 5a. Reversed the same day, and the reason is that §2's Alternative A was argued against a
+constraint that had already gone
+
+**The owner: *"iyi de öyle saçmalık mı olur. Ben gdalsız dedim. eğer ki illa gdal kullanacaksam .net de
+olur. gidip dockerize gdal mı kullanılır"*.** They are right, and the error is visible in this
+document's own structure.
+
+§2's Alternative A is *"one worker, .NET, with a managed File Geodatabase reader"* — and its argument
+against is entirely about the cost of **writing a parser**: the reverse-engineered format, the silent
+failure mode, `spark-gdb`'s abandoned TODO list. That argument is sound and it answers a question nobody
+was asking any more. **Once GDAL is acceptable, .NET does not need a parser — it needs a binding**, and
+[`MaxRev.Gdal.Core`](https://www.nuget.org/packages/MaxRev.Gdal.Core/) is one. This ADR chose Python to
+avoid writing a reader, while accepting GDAL, which is the only thing that made writing a reader
+necessary.
+
+**So the whole justification for a second runtime dissolved and I kept its conclusion.**
+
+### Measured before reversing, on the owner's own archives
+
+| | Python worker (`pyogrio`) | .NET (`MaxRev.Gdal.Core`) |
+|---|---|---|
+| same layer, 3,659 features, read + write GeoParquet | 0.29 s | **0.06 s** |
+| output | 2,260 KB | 2,335 KB |
+| GDAL | 3.10.3, from the base image | 3.13.1, from the package |
+| `OpenFileGDB` | present | present |
+| `Parquet` driver | via `pyarrow` | **present in the build** |
+| second language runtime | yes | no |
+| second container image | yes | no |
+| a channel from server to worker | the job table | a child process's pipe |
+
+The `.gdb` opened, all twelve layers listed with their feature counts, and `EPSG:2952` resolved through
+PROJ in both. `VectorTranslate` is `ogr2ogr` as a library call rather than a process, so it is the same
+code path without the process.
+
+### What the reversal costs, and none of it is hidden
+
+- **[A-016](../architecture-assumptions.md) and [ADR-009](ADR-009-raster-engine.md) §2.2 are broken as
+  written.** *"The serving container ships no GDAL. It exists only in the job worker image."* GDAL now
+  ships in the server image, loaded by a child process rather than by the serving process. The rule
+  becomes about the **process** rather than the **image**, which is weaker: an image boundary is
+  checkable and a process boundary is a convention.
+- **[Q-28](../open-questions.md)'s stricter form is given up.** *"No GDAL or OSGeo package reference
+  anywhere in the solution"* — mechanically checkable where an image boundary is not — was recorded as
+  available to us and is now spent. There is a package reference.
+- **[D-06](../architecture-debt.md) comes due.** `Directory.Packages.props` says so in its own header:
+  the repayment trigger is *"before the first binary that bundles a database driver, a GDAL build or a
+  Python wheel set."* This is that binary, and GDAL's licence is a bill of materials rather than one
+  licence.
+- **The job record loses its reason to be a channel** but keeps its reason to exist. It is still how a
+  caller is told *later*, and it is still ADR-011's first increment; it is no longer the only way the
+  server can reach a worker.
+
+### What the reversal buys
+
+One language, one image, one dependency graph, and five times faster on the measurement that matters.
+The Python runtime returns to being what [v1-scope](../v1-scope.md) §3c cut it as: the cost of
+user-supplied tools, arriving with them and not before.
+
 ## 5. Decision
 
 **There are two kinds of job worker, chosen by what bounds the work rather than by what the work is
@@ -143,10 +202,21 @@ A **.NET worker** runs work our own runtime must bound and kill — where the ce
 runtime we control, and where the input is adversarial because a caller supplied it.
 `Graticula.Overlay.Worker` is this kind and does not move.
 
-A **Python worker** runs work whose value is in somebody else's ecosystem — reading foreign formats and,
-later, running foreign tools. It carries GDAL and a pinned wheel set; the serving container carries
+~~A **Python worker** runs work whose value is in somebody else's ecosystem — reading foreign formats
+and, later, running foreign tools. It carries GDAL and a pinned wheel set; the serving container carries
 neither, which leaves [A-016](../architecture-assumptions.md) intact. **File Geodatabase import is its
-first job.**
+first job.**~~
+
+**Reversed — §5a.** There is **one kind of worker: a .NET child process the server starts and kills.**
+Reading a foreign format is one of its jobs, and GDAL is linked into it through
+[`MaxRev.Gdal.Core`](https://www.nuget.org/packages/MaxRev.Gdal.Core/) rather than reached through a
+second language. **A Python runtime arrives with user-supplied tools and not before**, which is where
+[v1-scope](../v1-scope.md) §3c had it.
+
+**The two-kinds rule survives in a narrower and more useful form:** what decides whether work leaves
+the serving process is whether its input is chosen by somebody else. Adversarial geometry
+([ADR-022](ADR-022-geometry-server.md) §9) and an uploaded archive are both that; a catalogue read is
+not. Both now go to the same kind of process, and one of them already existed.
 
 **The boundary between the Python worker and our runtime is a file, and the format is GeoParquet** —
 executing [Q-74](../open-questions.md)'s choice rather than making a new one. **The worker never touches

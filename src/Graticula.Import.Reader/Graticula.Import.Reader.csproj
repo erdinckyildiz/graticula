@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2, and deliberately its own process — the same shape and the same argument as
+    Graticula.Overlay.Worker beside it.
+
+    That project is a separate executable because an adversarial geometry cost 153 seconds and
+    16.7 GB and OverlayNG cannot be interrupted. This one is separate because it parses a file
+    somebody else chose: ADR-009 §2.2's words for keeping GDAL out of the serving process are that it
+    "removes an untrusted-file parser from the process that serves public requests", and with the
+    package now in the server image (ADR-037 §5a) a child process is what makes that true.
+
+    GDAL is therefore referenced HERE AND NOWHERE ELSE. The host never loads it.
+
+    ADR-037 §5a reversed that ADR's Python worker on the day it was written. Once GDAL is acceptable,
+    .NET needs a binding rather than a parser — measured at 0.06s against the Python worker's 0.29s
+    on the owner's own geodatabase.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Graticula.Import.Reader</RootNamespace>
+    <AssemblyName>Graticula.Import.Reader</AssemblyName>
+
+    <!--
+      Same reasoning as the overlay worker's: server GC sizes itself to the machine, and this process
+      exists so that a hostile archive cannot take the machine. Workstation GC plus the heap ceiling
+      the host sets on the environment keeps it inside its own bound.
+    -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+
+    <!--
+      NOT InvariantGlobalization. GDAL and PROJ read their own data files and resolve authority codes;
+      the overlay worker can be invariant because it only computes on coordinates, and this one cannot
+      because it reads names, aliases and coded domains out of somebody's geodatabase.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MaxRev.Gdal.Core" />
+
+    <!--
+      The native payload, per platform. Both are referenced because the development machine is Windows
+      and ADR-016 §2's images are Linux; NuGet resolves by RID at publish, so carrying both costs a
+      package reference rather than a payload.
+    -->
+    <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" />
+    <PackageReference Include="MaxRev.Gdal.LinuxRuntime.Minimal" />
+  </ItemGroup>
+
+</Project>
