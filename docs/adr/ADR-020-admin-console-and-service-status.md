@@ -599,6 +599,29 @@ route nothing here answers, and an address that 404s on refresh is not an addres
 Verified by driving it — services → limits → caching → Back → Back → Forward lands on
 `#/layer/tr_ilce/limits` with that page shown and its left column marked.
 
+**Reconsidered and declined by the owner, 2026-08-18**, when they asked *"# yerine başka bir isim
+kullanamaz mıyız?"* — and then *"tamam kalsın # o kadar önemliyse"* once the price was on the table.
+Recorded because the paragraph above rejects `pushState` on a premise that had stopped holding: the
+console being static files is a reason only while nothing answers those paths, and two catch-all routes
+returning `index.html` would answer them. So this is a live option, not a closed one, and what follows
+is what it costs rather than why it is impossible.
+
+- **The character cannot be renamed.** `#` is the fragment delimiter in RFC 3986. Removing the fragment
+  is the only version of the request that exists.
+- **Measured surface: about 47 touch points** — 19 `href="#/…"`, 9 writes to `location.hash`, 12 reads
+  of it, 7 `surfaceHref` calls — plus the router, plus a click interceptor, plus the server routes.
+- **Nothing functional is gained.** Back, forward, middle-click and copy-link already work; they are
+  what the hash buys, and it buys them with no code.
+- **The risk is the interceptor.** Without one, every navigation becomes a full page load. With one,
+  `ctrl`/`cmd`/middle-click and `target="_blank"` must fall through or *open in new tab* silently
+  breaks — which is this console's most-repeated defect shape: a control that looks right and is not.
+- **And the ten-line server route was not ten lines.** The first attempt was written and measured
+  before the owner decided, and it answered `/studio/console.js` with `text/html` — the catch-all won
+  over the static file middleware for that path, so the console's own script was being served as a
+  page. Cause not chased, because the change was dropped; the symptom is the point. **A change
+  described as small had already broken the console once**, and that is the strongest argument in this
+  note for leaving the hash alone.
+
 Two behaviours exist because of what the drawer used to hide:
 
 - **A refresh does not eat an unsaved figure.** Start, Stop, Map and Tiles all re-read
