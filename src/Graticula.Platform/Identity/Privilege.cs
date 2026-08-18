@@ -95,7 +95,10 @@ public enum Privilege
 /// </summary>
 /// <remarks>
 /// Stored as a string so that Portal's fourth scope — shared with a group — can
-/// be added as a value rather than a migration. Groups are deliberately absent:
+/// be added without redesigning this — though <b>not without a migration, which this
+/// comment claimed until 2026-08-18</b>: all three tables carrying the column also carry a
+/// check constraint listing exactly three values, so the fourth needs the check widened.
+/// Expand-only and cheap; the wrong part was *no schema change*. Groups are deliberately absent:
 /// they are a real object with membership and ownership of their own, and are
 /// not needed to make reading work.
 /// </remarks>

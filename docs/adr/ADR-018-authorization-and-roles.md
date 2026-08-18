@@ -148,7 +148,9 @@ layer rather than of the whole server.
 group*, and groups are a real object with membership, ownership and their own
 privileges. They are not needed to make reading work, and adding them here would
 be adopting a subsystem to complete a table. Deferred, and the scope column
-takes a string so adding `group` later is a value rather than a migration.
+takes a string so adding `group` later is a small change rather than a redesign.
+
+**Corrected 2026-08-18: this is a migration after all, and a cheap one.** The column is text, and `layer`, `service` and `system_service` each carry `check (sharing in ('private','organization','public'))` — measured against the live schema. Widening a check is expand-only and safe, so the cost is one migration rather than none; what was wrong was the claim that no schema change is needed, which is what anybody estimating [Q-112](../open-questions.md) would have planned from.
 
 ### 3b-ii. Who may change what — the split the owner likes, without the split that causes it
 

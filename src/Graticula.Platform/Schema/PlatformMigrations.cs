@@ -813,7 +813,10 @@ public static class PlatformMigrations
     /// </para>
     /// <para>
     /// The scope is text, not an enum type, so Portal's fourth scope — shared
-    /// with a group — arrives as a value rather than a migration.
+    /// with a group — arrives without a new column. <b>Not without a migration, which this
+    /// comment claimed until 2026-08-18:</b> the check constraint written three lines below
+    /// lists exactly three values, so the fourth scope needs it widened. That is expand-only
+    /// and cheap — the wrong part was the claim that nothing schema-shaped is needed.
     /// </para>
     /// </remarks>
     private static Migration SharingV5 => Migration.Expand(
