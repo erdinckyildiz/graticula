@@ -90,6 +90,33 @@ The alternative — serving arbitrary formats and hoping the client copes — pu
 our format problem onto every client and guarantees inconsistent behaviour. GDAL
 reads hundreds of formats; browsers read approximately one.
 
+**Added 2026-08-18, and it is a clarification rather than a change: a raster that is
+already a COG needs no GDAL anywhere.** Serving one is HTTP range reads over a TIFF,
+and §2.2 already keeps GDAL out of the serving artefact — so a deployment whose
+imagery arrives as COG never loads it. The three bullets above are all true and
+together they *imply* this, which is exactly why it is worth writing down: read
+quickly, *"other formats are converted at registration … GDAL reads it once"* leaves
+a reader believing raster requires GDAL. It requires GDAL to **ingest a
+non-COG**, which is a different sentence and a much smaller claim.
+
+**Why it came up.** The owner asked whether GDAL becomes mandatory once raster is in
+scope — *"raster olsa gdal zorunlu mu?"* — and the honest answer needed this line to
+exist. It is the same shape as
+[ADR-037](ADR-037-job-workers-come-in-two-kinds.md)'s: the serving path is clean,
+the ingest path is a job, and the worker is optional at the cost of exactly the
+formats it converts.
+
+**What is still not written, and is not decided here:** registering a COG **in
+place** — catalogued and served from where it already lives, with no copy into a
+writable store. §2.1's next paragraph says conversion needs somewhere to write and
+that a read-only source holding a non-COG can be catalogued but not served; it does
+not say what happens when that read-only source holds a COG, which is the case where
+nothing needs writing at all. [Q-121](../open-questions.md) opens it. **Derived from
+reading the reference's public description** — ADR-030 condition 1 — which advertises
+*"No GDAL required on the server"* and cloud-optimized GeoTIFFs *"registered in place
+from S3/Azure"*; the properties of COG itself are cited from
+[its own specification](https://cogeo.org/) rather than from them, per condition 3.
+
 Conversion needs somewhere to write, which means a writable store
 ([data-model.md](../data-model.md) §2). A registered read-only source containing
 a non-COG raster can be catalogued but not served. That is a real limitation and
