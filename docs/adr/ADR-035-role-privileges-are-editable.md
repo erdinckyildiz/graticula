@@ -156,11 +156,108 @@ axis of §4c is part of the authorization model from the start. If it is not, gr
 retrofitted into a check that was written for one axis — and a second axis added to an
 authorization decision later is the change most likely to be got wrong quietly.
 
+
+### 4e. Privileges are not independent, and making roles editable is what exposes that
+
+**This is a gap in §4a as first written, found by reading the reference the owner named.** Esri's
+public documentation of role privileges states the dependency directly: *"This privilege is required
+if you grant any of the privileges that allow members to publish, register data stores, or create
+notebooks"* — about **create, update and delete content** — and, for version management, that
+*"Manage all"* **automatically grants** *Edit* and *Edit with full control*.
+([Privileges for roles](https://doc.esri.com/en/arcgis-enterprise/latest/administer/privileges-for-roles-orgs.html),
+which is the public specification and therefore the citation, per
+[ADR-030](ADR-030-reading-the-reference-implementation.md) condition 3.)
+
+**Our own grants already encode exactly that, and they encode it in the one place editing
+destroys.** `Privilege.BuildGrants()` builds each role out of the one below it:
+
+```csharp
+ImmutableHashSet<Privilege> user      = viewer.Add(ContentCreate).Add(SharingShareToOrganization);
+ImmutableHashSet<Privilege> publisher = user.Union(dataEditor)
+                                            .Add(ContentPublishFeatures) …
+```
+
+`publisher` holds `content:create` **because it is built on `user`**, not because anybody listed it.
+The nesting *is* the dependency statement, and it is unwritten anywhere else. Flatten those five
+sets into `role_privilege` rows and the nesting is gone: an operator can then tick
+`content:publishFeatures`, leave `content:create` off, and save a role that claims to publish and
+cannot create the thing it would publish. **Nothing in §4a would have refused that**, and the role
+would look correct on the screen.
+
+**Two different relations, and they are resolved differently — which matters, because treating them
+alike is how one of them becomes wrong.**
+
+- **Implication.** `features:fullEdit` is a superset of `features:edit`; `admin:manageAllContent` is
+  a superset of `admin:viewAllContent`. These are resolved **in the authorization check**, not in the
+  stored grants: a role holding only `fullEdit` passes an `edit` check. Storing both would make the
+  screen show two ticks for one decision, and unticking the narrower one while the wider stays would
+  be a state that means nothing.
+- **Prerequisite.** `content:publishFeatures` needs `content:create`, and neither contains the
+  other. These are **refused on write, with the missing privilege named** — not auto-added. Esri
+  auto-adds for version management and we do not, because auto-adding silently grants something the
+  operator did not tick, and *never silently widen* is the rule this project applied to the
+  statement timeout the same day: a value that cannot be honoured exactly is refused rather than
+  adjusted. A refusal that says *"publishFeatures needs create; tick it or untick this"* teaches the
+  model; an auto-add hides it.
+
+**Which relation each pair is has to be written down**, because today it lives in the shape of five
+`ImmutableHashSet` expressions. That is condition 6.
+
+### 4f. The screen, with its shape taken from the reference the owner named
+
+Owner, 2026-08-18, with the Create-role dialog on screen and an arrow on one control: *"Ekran
+görüntüsünde işaretlediğim de güzel bir özellik."* The marked control is **Set from existing role**.
+
+**Set from existing role is the feature, and it is worth stating why rather than just copying it.**
+Sixty-five privileges in the reference, fourteen here and growing: without it, creating a role means
+ticking boxes from nothing, and the realistic use is *"publisher, but without share-to-public"* —
+a small edit to an existing set. Starting from empty makes the operator reconstruct a set somebody
+already designed, and the errors that produces are omissions, which are invisible. It also composes
+with §4a's seed: the five built-in roles are rows like any other, so *set from existing* has
+something to copy on a fresh install.
+
+The rest of the dialog's shape, and what we take from each part:
+
+| Reference | Here |
+|---|---|
+| Two sections, **General** and **Administrative** | **Taken, and it is [ADR-034](ADR-034-server-and-studio.md)'s split arriving from the other direction.** General is Studio's vocabulary — content, sharing, features; Administrative is Server's. Seven of our fourteen fall each side, which is a coincidence worth nothing and a confirmation worth something |
+| Per-category counts — *Enabled: 0/14* | **Taken.** A collapsed category that cannot say how much of it is on forces the operator to open all of them |
+| **Enable all** per category and per section, **Expand all** | **Taken.** With fourteen privileges it is a convenience; the reference has thirty-two in one section, and that is where this becomes necessary rather than pleasant |
+| A **privilege compatibility** control, and a derived line — *"Compatible with Creator user type and 2 others"* | **The derived line, yes. The slider, not yet.** Esri's rule is stated plainly: *"When you create a custom role that includes administrative privileges, only members assigned a Creator, Professional, or Professional Plus user types can be assigned to the custom role."* So which user types may hold a role is a **consequence of what is ticked**, and the screen should say it rather than ask it — [ADR-018](ADR-018-authorization-and-roles.md) §3a's ceiling, shown at the moment it is being created. Whether a *control* that bounds the ticking in advance is worth having is a separate question and is not answered here: we have three user types and no licences to meter, so the line may be the whole of it |
+
+**One privilege has no section, and it is the one the owner moved.**
+`content:registerDataStore` is named for content and granted only to the administrator, by owner
+decision 2026-08-17 (*"data sources studio'nun değil server'in bir seçeneği"*). The reference lists
+*Register data stores* under **General → Content**. So on this screen it appears in the section it is
+*granted* from — Administrative — while carrying a name from the other one. That is the only place
+our catalogue's names and sections disagree, it is a consequence of a deliberate narrowing, and it is
+listed here so that whoever builds the screen does not read it as a mistake and move it back.
+
+### 4g. Some operations belong to no role, however privileged
+
+**The reference is more precise than *"admin can do everything"*, and the precision is worth
+taking.** Certain capabilities are reserved for the **default administrator** and are not available
+to any custom role at any privilege level: changing a role to or from administrator, deleting another
+administrator, resetting an administrator's password, creating backups, registering custom data
+providers.
+
+**That is a third category beside §4b's two**, and it sharpens what the owner asked for. *"Admin
+yetkisi değiştirilemez. Ve sınırlandırılamaz"* is §4b: the administrator role's grants are not data.
+This adds the converse — **a custom role cannot be edited up into an administrator.** Without it,
+§4a's editability contains its own defeat: a role with `admin:manageRoles` could grant itself
+everything else, and a role with `admin:manageMembers` could make its holder an administrator. The
+[ADR-015](ADR-015-authentication.md) §6c refusal to remove the last administrator is the same family
+of rule, and this is the wider version of it.
+
+Condition 7.
+
 ## 5. Consequences
 
 - **`admin:manageRoles` gets something behind it**, closing half of what
   [D-56](../architecture-debt.md) describes.
-- **A new Server screen**: roles, their privileges, and which members hold them. It is Server's
+- **A new Server screen**, shaped by §4f: two sections, per-category counts, expand-all and
+  enable-all, *set from existing role*, and a line saying which user types may hold what has been
+  ticked. Roles, their privileges, and which members hold them. It is Server's
   because granting a capability is administrative — the same split
   [ADR-034](ADR-034-server-and-studio.md) §5c draws everywhere else — even though the privileges it
   hands out are mostly Studio's.
@@ -191,6 +288,16 @@ authorization decision later is the change most likely to be got wrong quietly.
 5. **No screen appears that its reader cannot use** — [ADR-034](ADR-034-server-and-studio.md)
    condition 1, restated because the roles screen is the first one whose whole subject is who may
    see which screens.
+6. **Every implication and every prerequisite between privileges is written down as data, and
+   tested.** §4e. Today they exist only in the shape of `BuildGrants()`'s nesting, which the move to
+   stored grants deletes. The test that matters: for each prerequisite pair, a role holding the
+   dependent privilege without its prerequisite is refused on write; for each implication pair, a
+   role holding only the wider privilege passes a check for the narrower.
+7. **No custom role, at any privilege level, can produce an administrator.** §4g. Concretely:
+   changing a role to or from administrator, deleting an administrator, and resetting an
+   administrator's password are refused to everybody except the built-in administrator role.
+   Asserted by a test that gives a custom role every privilege in the catalogue and then tries all
+   three.
 
 ## 7. Dissent
 
