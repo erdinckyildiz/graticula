@@ -42,7 +42,13 @@
   --nav-line: #272c66;
   --nav-ink: #eceefb;
   --nav-muted: #9ea4d2;
-  --nav-faint: #6e75ad;
+  /*
+    <b>Lightened 2026-08-19: 3.73:1 on `--nav-base`, which is the dark twin of the `--faint` bug
+    above.</b> When `--faint` was fixed for the light surfaces the parallel token on the rail was
+    never re-measured. It carries the item count beside a sidebar row — a second fact, but a fact.
+    #868dbe is 5.09:1 on #171b49 and stays a step below `--nav-muted` (#9ea4d2, 6.74:1).
+  */
+  --nav-faint: #868dbe;
   --nav-on: #1e2359;
 
   --paper: #f6f8fa;
@@ -61,8 +67,28 @@
     <b>#6b7787 is 4.55:1 and the same hue.</b> Nothing structural moves — it stays a step lighter than
     `--muted` (#566275, 5.89:1), which is what it is for: a second fact inside a cell whose first fact
     is already muted. A token that cannot be read is not a lighter shade of a token that can.
+
+    <b>Darkened again 2026-08-19, because 4.55:1 was measured against one ground and used on four.</b>
+    Three design reviews the same night measured the same failure independently, and so did an
+    arithmetic check afterwards:
+
+    | ground | #6b7787 | #616b7a |
+    | --- | --- | --- |
+    | `--surface` #ffffff | 4.55 | 5.40 |
+    | `--paper` #f6f8fa | **4.28** | 4.71 → 5.07 |
+    | `--surface-2` #f1f4f8 | **4.13** | 4.89 |
+    | `--surface-3` #e7ecf3 | **3.83** | 4.54 |
+
+    The three failures are not edge cases: `--paper` is the page's own background, and `h4, div.label`
+    sits directly on it for every section label on Operations and Sources, as does `.tabstrip .count`
+    for the scope counts on Studio's content screen and the group tabs. The 2026-08-18 fix was right
+    about the token and checked it in one place.
+
+    <b>#616b7a clears AA on the worst ground it is used on, which is the number that matters.</b> It is
+    the lightest value that does — 4.54:1 on `--surface-3` — so the hierarchy above survives: still a
+    step lighter than `--muted`, and 5.07:1 against 5.80:1 on the page's own ground.
   */
-  --faint: #6b7787;
+  --faint: #616b7a;
   --rule: #e3e8ef;
   --rule-strong: #cfd7e3;
 
@@ -322,7 +348,9 @@ a:hover { text-decoration: underline; }
   --nav-line: #3d2668;
   --nav-ink: #f1ecfb;
   --nav-muted: #b3a4d8;
-  --nav-faint: #8474b4;
+  /* 3.93:1 on Studio's violet base, same finding as Server's. #9c8cc8 is 5.36:1 and stays below
+     `--nav-muted` (#b3a4d8). */
+  --nav-faint: #9c8cc8;
   --nav-on: #33205c;
 }
 
@@ -410,6 +438,17 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
 }
 #tabs a[data-tab][aria-current="page"] .ico { color: var(--cyan); opacity: 1; }
+
+/*
+  <b>And the count goes up with the label, because the selected row's ground is lighter.</b> The rule
+  above lifts the surface with a teal-to-indigo gradient, which takes the effective background from
+  `--nav-base` #171b49 to about #2b477d on Server and #533c88 on Studio. `--nav-faint` was fixed for
+  the *base* and measures 2.86:1 and 2.77:1 against those — worse than before the row was selected,
+  which is the wrong direction for the row you are on. #c3c8ea is 5.55:1 and 5.39:1, and stays quieter
+  than the label's full white beside it. Measured 2026-08-19, after a design review's own measurement
+  said 3:1 and my first check said 5.09 — both were reading a different pair, and the gradient is why.
+*/
+#tabs a[data-tab][aria-current="page"] .count { color: #c3c8ea; }
 
 /*
   The glyph, from a token so a section cannot arrive without one. Brighter than the label on purpose
@@ -694,7 +733,25 @@ tr.pick td { transition: background .1s; }
 tr.pick:hover td { background: #f7fafc; }
 tr.pick:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent-hot); }
 
-td.acts { white-space: nowrap; text-align: right; }
+/*
+  <b>`nowrap` was what made two tables wider than the window.</b> Measured 2026-08-19, after the closed
+  menu sheets were fixed and the overflow did not go away: the actions cell held two or three buttons
+  and a row menu on one unbreakable line, so Server's services list came to 1100 pixels and Studio's
+  content list to 1107 against a 1024 viewport — and the page scrolled sideways, carrying the
+  navigation column out with it.
+
+  <b>Wrapping rather than a scroll container, because these tables carry row menus.</b> A
+  `widetable` would clip an open dropdown — a scroll box clips absolutely positioned descendants — so
+  the fix has to make the row narrower rather than hide it. Two buttons over two lines in a cell nobody
+  reads as prose is a fair trade for a page that fits.
+
+  <b>And `display: flex` on the `<td>` was the wrong way to do it</b> — that replaces `table-cell`, so
+  the browser wraps the cell in an anonymous one and the content escapes the column instead of wrapping
+  inside it. Measured: the buttons still stuck out, now at right=1091 with no ancestor growing to match,
+  which is the signature of content leaving its cell. Removing `nowrap` is the whole fix: the buttons
+  are inline-blocks with whitespace between them and wrap on their own.
+*/
+td.acts { text-align: right; }
 td.acts > * + * { margin-left: var(--gap-1); }
 
 .empty { color: var(--muted); font-size: var(--t-small); padding: var(--gap-5) var(--gap-4); }
@@ -759,6 +816,21 @@ button.danger:hover { background: var(--alert-soft); border-color: var(--alert-l
 .menu > summary::-webkit-details-marker { display: none; }
 .menu > summary:hover { background: var(--surface-2); color: var(--ink); }
 .menu[open] > summary { background: var(--surface-2); border-color: var(--rule); }
+/*
+  <b>A closed menu takes no space, and it was taking 450 pixels.</b> Measured 2026-08-19 while chasing
+  a horizontal overflow the design reviews found on four screens: a closed `<details>` still gave its
+  `.sheet` a layout box — `display: block`, `offsetParent` non-null, 450px wide, its right edge at
+  x=1083 in a 1024 viewport — so ten row menus were what pushed `document.body.scrollWidth` to 1100 on
+  Server's services list and 1107 on Studio's content list. The tables themselves fit: 820 pixels
+  inside an 820-pixel panel.
+
+  <b>Which is why neither of those tables is wrapped in `widetable`.</b> Wrapping them would have
+  hidden the symptom and clipped every open menu, since a scroll container clips absolutely positioned
+  descendants. Members and the group's Content tab *are* wrapped, because those tables are genuinely
+  wider than their panels and carry no row menu.
+*/
+.menu:not([open]) .sheet { display: none; }
+
 .menu .sheet {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 800;
   min-width: 210px; padding: var(--gap-1);
@@ -814,7 +886,15 @@ label.field {
   box-shadow: var(--lift);
 }
 .toolbar input[type=search], .toolbar input[type=text] { flex: 0 1 360px; }
-.toolbar .val { white-space: nowrap; }
+/*
+  <b>Wrapping, because one of these is a sentence.</b> `nowrap` was right for the short values it was
+  written for and made the page scroll sideways at 1024px on the Anonymous view, whose toolbar carries
+  *"Three requests per layer: the service document, the layer document, and a count query."* Measured
+  2026-08-19: `body.scrollWidth` 1054 against a 1024 viewport, and no other toolbar overflowed — so the
+  rule was one long value away from being wrong rather than wrong in general. A toolbar is a row of
+  facts, and a fact that needs two lines takes two.
+*/
+.toolbar .val { min-width: 0; }
 
 /* Ten rows a page on Server's listings — owner 2026-08-18. Sits under the panel it pages,
    right-aligned, because that is where a reader's eye finishes a table. Nothing but the two
@@ -906,7 +986,18 @@ button:hover .ico { opacity: 1; }
 */
 #serverGrid { display: grid; grid-template-columns: 282px minmax(0, 1fr); gap: var(--gap-5);
               align-items: start; }
-@media (max-width: 1080px) { #serverGrid { grid-template-columns: 1fr; } }
+/*
+  <b>`minmax(0, 1fr)` and not `1fr`, which is the whole of why this page scrolled sideways.</b> A bare
+  `1fr` is `minmax(auto, 1fr)`, and `auto` as a minimum means **min-content** — so the column could
+  never be narrower than the widest thing in it, whatever that thing's own `overflow` said. The desktop
+  rule above already had it right; the narrow one, which is the case that needs it, did not.
+
+  Measured 2026-08-19 by hiding subtrees until `document.body.scrollWidth` fell: services list 1100
+  against a 1024 window, and the last thing standing was the table's own header row setting a
+  min-content the grid then honoured. Wrapping the table in `widetable` did nothing until this changed,
+  because the panel was being sized to its content rather than sizing its content.
+*/
+@media (max-width: 1080px) { #serverGrid { grid-template-columns: minmax(0, 1fr); } }
 
 #folderRail { background: var(--surface); border: 1px solid var(--rule);
               border-radius: var(--round-lg); overflow: hidden; box-shadow: var(--lift);
@@ -1237,7 +1328,15 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
           max-width: 560px; background: var(--surface); color: var(--ink);
           box-shadow: 0 24px 60px -30px rgba(16, 24, 38, .5); }
 #issued::backdrop { background: rgba(16, 24, 38, .42); }
-#issued h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule); }
+/*
+  <b>Not a section label, which is what the global `h4` rule had made it.</b> `h4, div.label, …` sets
+  11.5px uppercase in `--faint`, so the one fact this dialog exists to get right — *who* the secret is
+  for — rendered as chrome while the value nobody should mix up between people was 15px and bordered.
+  Measured 2026-08-19. It is a heading here and is sized like one.
+*/
+#issued h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule);
+              font-size: var(--t-head); text-transform: none; letter-spacing: 0;
+              color: var(--ink); }
 #issuedValue { width: 22ch; font-family: var(--mono); font-size: 15px; letter-spacing: .04em;
                text-align: center; }
 
@@ -1262,6 +1361,31 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 */
 .widetable { overflow-x: auto; }
 .widetable table { min-width: 640px; }
+/* A panel that scrolls keeps its own padding rather than losing it to the scroll box. */
+.panel.widetable { padding-bottom: 0; }
+
+/*
+  The route table's two problems: a pattern that cannot wrap because it has no spaces, and a last
+  column starved by the first taking everything. Breaking at the slashes gives the pattern somewhere
+  to fold, and holding the governance clause on one line stops a 67-row table becoming 9,700px.
+*/
+.routetable td:first-child { overflow-wrap: anywhere; }
+.routetable td:last-child { white-space: nowrap; }
+.routetable table { min-width: 780px; }
+
+/*
+  <b>A row's primary cell carries the real control.</b> A clickable `<tr>` is a mouse affordance and
+  nothing else: the roles table had no keyboard path to its own function at all — tabbing from *New
+  role* skipped all five rows and landed in the editor below. So the name is a button where the row
+  opens something on this page, and a link where the row is an address. It is styled as the text it
+  replaced, because it is the row's name and not a second control beside it.
+*/
+.rowname { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
+           font-weight: inherit; text-align: left; cursor: pointer; }
+.rowname:hover { text-decoration: underline; }
+.rowname:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+td.name a { color: inherit; text-decoration: none; }
+td.name a:hover { text-decoration: underline; }
 
 .dialoghead { display: flex; align-items: center; justify-content: space-between;
               gap: var(--gap-4); padding: var(--gap-4) var(--gap-5);
@@ -1490,7 +1614,9 @@ tr.groupband > td {
    Collapses to one column where there is not room for two three-column tables. */
 .grouppair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-5);
              margin-top: var(--gap-4); }
-@media (max-width: 1100px) { .grouppair { grid-template-columns: 1fr; } }
+/* Same trap, same fix, before it is measured rather than after: `1fr` cannot shrink below
+   min-content, and this pair holds a table. */
+@media (max-width: 1100px) { .grouppair { grid-template-columns: minmax(0, 1fr); } }
 
 /* The facts, which were two paragraphs of grey hint carrying one word each. A label/value pair is
    the reference's Details block reduced to what we have: the standing and what the group confers. */
@@ -1574,7 +1700,18 @@ tr.already .name { font-weight: 500; }
 .pickall { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--t-small);
            color: var(--muted); white-space: nowrap; }
 
-.addfoot { margin-top: var(--gap-5); gap: var(--gap-3); align-items: baseline; flex-wrap: wrap; }
+/*
+  <b>Stuck to the bottom, because the count of what you picked was below the fold.</b> Measured
+  2026-08-19 on the screen the owner asked for by name: with the picker open, `Add N items` sat at
+  y=1481 in a 900-pixel viewport and y=1663 in a 720-pixel one. Everything above the fold said how
+  many items *exist*; nothing said how many were *chosen*, and the select-all's only feedback was a
+  native indeterminate dash. A confirmation you have to scroll to find is a confirmation that does not
+  confirm.
+*/
+.addfoot { position: sticky; bottom: 0; z-index: 2;
+           margin-top: var(--gap-5); gap: var(--gap-3); align-items: baseline; flex-wrap: wrap;
+           padding: var(--gap-3) 0; background: var(--surface);
+           border-top: 1px solid var(--rule); }
 .addfoot .hint { flex: 1 1 340px; min-width: 240px; }
 
 /* ---------------------------------------------------------------- the inline picker

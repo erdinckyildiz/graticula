@@ -270,7 +270,8 @@ async function loadGroups() {
            a group's name, title, description and owner.</td></tr>`
       : pageOf("groupRows", shown).map(g => `
       <tr class="pick${g.name === groupOpen ? " on" : ""}" data-group="${h(g.name)}">
-        <td class="name">${h(g.title || g.name)}${g.title && g.title !== g.name
+        <td class="name"><a href="#/group/${encodeURIComponent(g.name)}"
+            >${h(g.title || g.name)}</a>${g.title && g.title !== g.name
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
         <td class="val">${g.itemUpdate === "allItems"
           ? "edit all"
@@ -951,7 +952,8 @@ async function drawGroupAdd(one) {
   $("addCommit").textContent = addPicked.size === 0
     ? "Add items"
     : offPage > 0
-      ? `Add ${num(addPicked.size)} items (${num(offPage)} not on this page)`
+      ? `Add ${num(addPicked.size)} item${addPicked.size === 1 ? "" : "s"}`
+        + ` (${num(offPage)} not on this page)`
       : `Add ${num(addPicked.size)} item${addPicked.size === 1 ? "" : "s"}`;
 
   $("addCommit").disabled = addPicked.size === 0;
@@ -1031,6 +1033,18 @@ async function saveGroupSettings(patch, what) {
  * in, what each requires and what each contains, and this file renders whatever it is given.
  */
 let roleOpen = null;
+
+/**
+ * What a role grants, what carries administrative weight, and how many hold each — for the two
+ * confirmations that ask before capability changes hands.
+ *
+ * <b>Three maps rather than one object</b>, because they answer three questions and are filled from two
+ * different arrays in the same response: the privilege catalogue says which names are administrative,
+ * and the role list says who holds what.
+ */
+const roleAdministrative = new Map();
+const roleHolders = new Map();
+const roleIsAdministrative = new Set();
 
 /**
  * Re-reads the ticks and updates every count and the compatibility line.
@@ -1152,7 +1166,8 @@ async function loadRoles() {
     ? `<tr><td colspan="5" class="empty">No roles, which cannot happen: the schema seeds five.</td></tr>`
     : pageOf("roleRows", roles).map(r => `
       <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}">
-        <td class="name">${h(r.name)}${r.builtIn
+        <td class="name"><button type="button" class="rowname"
+            data-role="${h(r.name)}">${h(r.name)}</button>${r.builtIn
           ? ` <span class="val">built in</span>` : ""}</td>
         <td class="val">${h(r.description || "")}</td>
         <td class="num">${num(r.privileges.length)}</td>
@@ -1165,6 +1180,23 @@ async function loadRoles() {
 
   $("rolesPager").innerHTML = pagerFor("roleRows", roles.length);
 
+  // <b>What the save confirmation reads, recorded where the answer already is.</b> Held rather than
+  // re-fetched: the confirmation must describe the change against what is *stored*, and the ticks on
+  // screen are what is *wanted* — asking the server again between the two would be a third answer.
+  roleAdministrative.clear();
+  roleHolders.clear();
+  roleIsAdministrative.clear();
+
+  for (const entry of catalogue) {
+    if (entry.administrative) roleIsAdministrative.add(entry.name);
+  }
+
+  for (const r of roles) {
+    roleHolders.set(r.name, r.members || 0);
+    roleAdministrative.set(
+      r.name, (r.privileges || []).filter(privilege => roleIsAdministrative.has(privilege)));
+  }
+
   $("roleCount").textContent =
     `${roles.length} role${roles.length === 1 ? "" : "s"}, `
     + `${catalogue.length} privilege${catalogue.length === 1 ? "" : "s"}`;
@@ -1172,7 +1204,17 @@ async function loadRoles() {
   if (!chosen) { $("roleEditor").hidden = true; return; }
 
   $("roleEditor").hidden = false;
-  $("roleEditorName").innerHTML = `<b>${h(chosen.name)}</b>`;
+
+  // <b>And how many accounts it changes, because *Save privileges* changes them retroactively.</b> The
+  // editor named only the role, and the member count was in the table row you scrolled past to get
+  // here — eighteen privilege rows earlier on a full page. A grant here is not a setting on a role, it
+  // is a capability handed to N live accounts, and the number belongs beside the button that hands it
+  // over. Design review 2026-08-19.
+  $("roleEditorName").innerHTML = `<b>${h(chosen.name)}</b>`
+    + (chosen.members
+      ? ` <span class="val">held by ${num(chosen.members)} `
+        + `member${chosen.members === 1 ? "" : "s"} — saving changes what they can do</span>`
+      : ` <span class="val">held by nobody, so saving changes nothing yet</span>`);
 
   // <b>Set from existing role.</b> Every other role is an option; choosing one copies its ticks
   // into this editor without saving, so the operator can then narrow it. Absent for the
@@ -1394,7 +1436,17 @@ const SURFACES = {
  */
 const SCREEN_SURFACE = {
   services: "server",
-  service: "server",
+
+  // <b>Deliberately absent: `service`, for the reason `layer` is absent two lines down.</b> Naming
+  // Server as the owner made **Studio's only service page unreachable** — `sharing` belongs to Studio
+  // (`SERVICE_PAGES`, owner decision 2026-08-17), the router forced every `#/service/...` onto Server
+  // before `servicePagesOf(surfaceOfPath())` was consulted, so `sharing` could never be in the page
+  // set and `drawServiceSettings` fell back to Capabilities. Both of the two links this console
+  // provides *to* the Sharing page landed on Capabilities instead, silently, with nothing to say the
+  // page had not opened. Found by the design review 2026-08-19; the same mistake, the same table, and
+  // the note below was already there describing it for `layer`.
+  //
+  // Which pages a service page shows is `SERVICE_PAGES`, and the router asks that instead.
 
   // <b>Deliberately absent: `layer`.</b> It is the one screen that lives in both surfaces, and
   // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
@@ -1546,6 +1598,74 @@ function route() {
   // "the services in turkiye" is a place you can link somebody to.
   openScreen(surface, screen, screen === "services" ? rest[1] ?? null : null);
 }
+
+/**
+ * Places an open row menu against the viewport instead of against its cell.
+ *
+ * <b>Because the two widest tables have to scroll, and a scroll box clips a dropdown.</b> Server's
+ * services list and Studio's content list are wider than a 1024-pixel window — measured 2026-08-19 by
+ * hiding subtrees until `document.body.scrollWidth` fell: the tables' own minimum width, header row
+ * included, is what exceeds it. So they scroll inside `widetable`, and `overflow-x: auto` computes
+ * `overflow-y: auto` too, which clips absolutely positioned descendants. The row menu is one.
+ *
+ * <b>So an open sheet becomes `position: fixed`, measured from its summary.</b> Fixed positioning is
+ * relative to the viewport, so no ancestor can clip it; on close it goes back to `absolute` and the
+ * stylesheet's own `right: 0; top: calc(100% + 4px)` applies again. Two lines of arithmetic instead of
+ * choosing between a page that scrolls sideways and a menu that is cut in half.
+ *
+ * <b>Capture phase, because `toggle` does not bubble.</b> The listings are rebuilt on every load, so a
+ * listener per menu would have to be reattached each time and the one that was missed would be the one
+ * that broke. A capture-phase listener on the document sees a non-bubbling event on any descendant,
+ * once, for every menu this console will ever draw.
+ */
+document.addEventListener("toggle", event => {
+  const menu = event.target;
+  if (!(menu instanceof HTMLDetailsElement) || !menu.classList.contains("menu")) return;
+
+  const sheet = menu.querySelector(".sheet");
+  if (!sheet) return;
+
+  if (!menu.open) {
+    sheet.style.position = "";
+    sheet.style.top = "";
+    sheet.style.right = "";
+    sheet.style.left = "";
+    return;
+  }
+
+  // <b>One open at a time.</b> A fixed sheet does not move with its row, so two of them left open
+  // while the table scrolled would sit over each other in the wrong places.
+  for (const other of document.querySelectorAll("details.menu[open]")) {
+    if (other !== menu) other.open = false;
+  }
+
+  const at = (menu.querySelector("summary") || menu).getBoundingClientRect();
+
+  // <b>Clamped into the window, because the summary can be scrolled out of it.</b> The table scrolls
+  // horizontally inside `widetable`, so a menu in the last column may sit past the panel's right edge
+  // — and positioning against it would put the sheet off screen, which is what the first version did:
+  // measured at right=1083 in a 1024 window. A menu you cannot see is not worth positioning precisely.
+  sheet.style.position = "fixed";
+  sheet.style.top = `${Math.round(at.bottom + 4)}px`;
+  sheet.style.right = `${Math.max(8, Math.round(window.innerWidth - at.right))}px`;
+  sheet.style.left = "auto";
+
+  // <b>Flipped above the row when there is no room below.</b> A fixed sheet is not clipped, so without
+  // this it would simply hang off the bottom of the window on the last row of a long table.
+  const box = sheet.getBoundingClientRect();
+
+  if (box.bottom > window.innerHeight - 8) {
+    sheet.style.top = `${Math.max(8, Math.round(at.top - box.height - 4))}px`;
+  }
+
+  // And if the row itself is below the fold — a long table, opened by keyboard — bring it up rather
+  // than leaving the sheet somewhere nobody is looking.
+  const after = sheet.getBoundingClientRect();
+
+  if (after.top > window.innerHeight - 8 || after.bottom < 8) {
+    sheet.style.top = `${Math.round(Math.max(8, window.innerHeight - after.height - 8))}px`;
+  }
+}, true);
 
 window.addEventListener("hashchange", route);
 
@@ -2328,8 +2448,15 @@ async function loadMyContent() {
   // <b>The administrative scope appears only when it holds something.</b> And its own tab rather than
   // folded into any other: a listing that quietly mixed other people's private content into
   // *organization* would misreport the sharing model to the one person who can change it.
+  // <b>And when it is the scope you are looking at, whatever it holds.</b> `#/content/administrative`
+  // renders its own note and its own rows, and the strip beside it showed no current tab at all —
+  // which reads as a rendering fault rather than as *you are somewhere the strip does not list*.
+  // Design review 2026-08-19.
   const scopes = CONTENT_SCOPES.filter(([key]) =>
-    key === "all" || key !== "administrative" || (counts.administrative || 0) > 0);
+    key === "all"
+    || key !== "administrative"
+    || (counts.administrative || 0) > 0
+    || contentScope === "administrative");
 
   $("contentScopes").innerHTML = scopes.map(([key, label]) => {
     const n = key === "all" ? total : (counts[key] || 0);
@@ -2360,23 +2487,42 @@ async function loadMyContent() {
   // <b>One line, and only where it says something the table does not.</b> The administrative scope
   // carries the sentence ADR-018 condition 3 is about, and it is only writable because the listing now
   // records the read — the promise was checked before it was made.
-  $("contentNote").innerHTML = contentScope === "administrative"
-    ? `These are private to their owners. You can see them because you are an administrator, and every
-       listing that includes them is recorded against your name.`
-    : contentScope === "group"
-      ? `Shared with you through a group you are in. What a group confers is fixed when it is made —
-         reading, or editing what its members shared.`
-      : contentScope === "all" && total === 0
-        ? h(answer.note || "Nothing to see yet.")
-        : "";
+  // <b>A line for every scope, because two of the six had none and their empty state was ambiguous.</b>
+  // Design review 2026-08-19: landing on *Public* with no rows gave no way to tell whether nothing is
+  // public, or sharing is unfinished, or something is broken — while *From my groups* and *Not shared
+  // with you* each explained themselves. A scope is a claim about how something reached you, and a
+  // claim with no sentence is a heading.
+  const SCOPE_NOTES = {
+    administrative:
+      `These are private to their owners. You can see them because you are an administrator, and every
+       listing that includes them is recorded against your name.`,
+    group:
+      `Shared with you through a group you are in. What a group confers is fixed when it is made —
+       reading, or editing what its members shared.`,
+    organization:
+      `Shared with everyone signed in to this server. Not public — a stranger with the address still
+       gets nothing — and not through any group.`,
+    public:
+      `Readable by anyone with the address, signed in or not. <b>Anonymous view</b> shows what a
+       stranger actually receives, which is the check worth making before believing this list.`,
+    mine:
+      `Published by you. Sharing one does not move it out of here — this is ownership, and the other
+       sections are how it reached somebody else.`,
+  };
 
+  $("contentNote").innerHTML = SCOPE_NOTES[contentScope]
+    ?? (contentScope === "all" && total === 0 ? h(answer.note || "Nothing to see yet.") : "");
+
+  // <b>*New item*, which is what the button says.</b> It said *New layer* until 2026-08-19, when
+  // ADR-034 §5j renamed the page action — so the one instruction this screen gave named a control that
+  // is not on it. D-83's exact shape: the page's own instruction unfollowable.
   $("contentRows").innerHTML = total === 0
     ? `<tr><td colspan="7" class="empty">${h(answer.note || "Nothing here yet.")}
-         <b>New layer</b> publishes one.</td></tr>`
+         <b>New item</b> publishes one.</td></tr>`
     : inScope.length === 0
       ? `<tr><td colspan="7" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
-             ? `<b>New layer</b> publishes something of your own.`
+             ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0
         ? `<tr><td colspan="7" class="empty">Nothing matches <b>${h(contentFilter)}</b>. The search
@@ -2388,8 +2534,23 @@ async function loadMyContent() {
           const isShown = key !== null && shown.has(key);
           const stopped = i.status === "stopped";
 
+          // <b>A route to the layer's own page, which this console did not have.</b> The service
+          // page's layer list was removed by owner decision 2026-08-18, and the comment that replaced
+          // it said *"a layer's own page is reachable from Studio's content list and by its
+          // address"* — the second half was true and the first was not. Nothing anywhere linked to
+          // `#/layer/…` except the editor's own tabs, so Maintenance, Symbology, Caching, General and
+          // Endpoints were reachable only by typing an address, using a name the screen never showed.
+          // Design review 2026-08-19. This restores the half that was claimed rather than
+          // reinstating the list the owner removed.
+          //
+          // <b>Only where there is one layer to mean.</b> A single-layer service — which is what an
+          // import makes, and what most of these are — has exactly one answer, so the row carries it.
+          // A multi-layer service does not, and guessing would open the wrong layer's appearance
+          // settings; its name still goes to the service page, which is the container.
+          const only = i.layers === 1 && i.cover ? i.cover.layer : null;
+
           return `
-          <tr>
+          <tr${only !== null ? ` class="pick" data-pick="${h(String(only))}"` : ""}>
             <td class="thumbcell">${i.cover
               ? `<canvas class="thumb" width="104" height="70"
                    data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
@@ -2444,11 +2605,35 @@ async function loadMyContent() {
  * construction — and a stopped service refusing it is shown in place, because that refusal is
  * expected rather than a fault.
  */
+/**
+ * The service whose page is open, held rather than read back out of the breadcrumb.
+ *
+ * <b>This is the fix for the worst defect the 2026-08-19 design review found.</b> The settings tabs
+ * re-derived the folder by running `splitService` over the **text of the breadcrumb's `<b>`** — and that
+ * element holds only the bare name, because the breadcrumb is built as
+ * `Services › folder › <b>name</b>`. So `folder` came back null for every service not at the site root,
+ * `drawServiceSettings` refetched `/admin/services/{name}/capabilities?folder=`, the server answered
+ * 404, `loadServiceCapabilities` threw before setting a single field, and the freshly drawn checkboxes
+ * stayed at their unchecked default under a toast saying *No service at the root*.
+ *
+ * <b>And the unchecked state is what Save reads.</b> Open a foldered service, look at Limits, come back
+ * to Capabilities, press Save — and Feature access and Vector tiles are switched off on a live service.
+ * Measured on `hosted/look_EarlyAlert`, which is public and has four layers. The review did not press
+ * Save, and did not need to: `saveServiceSettings` reads the same boxes the reader is looking at.
+ *
+ * <b>The bug class is reading a value back out of rendered text.</b> The name was in hand in
+ * `showService` and was thrown away, then reconstructed from a string written for a person to read.
+ * `editing` already holds the layer being edited for exactly this reason; this is its counterpart.
+ */
+let serviceOpen = null;
+
 async function showService(qualified) {
   editing = null;
   showView("view-service", "services");
 
   const { folder, name } = splitService(qualified);
+
+  serviceOpen = { qualified, folder, name };
 
   $("serviceCrumb").innerHTML =
     `<a href="#/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
@@ -2479,9 +2664,19 @@ async function showService(qualified) {
 
     const layers = doc.layers || [];
 
+    // <b>*Operations*, not *capabilities*, and the word was doing two jobs.</b> This line said *no
+    // capabilities* directly above a panel headed **Capabilities** with two boxes ticked — both true,
+    // because the ArcGIS `capabilities` string is Query/Create/Update/Delete/Extract while the panel
+    // above is which faces the service offers. An operator scanning does not know that, and should not
+    // have to. Design review 2026-08-19.
+    //
+    // <b>And the layer count is the document's, which is not the list screen's.</b> The services list
+    // says *3 layers, 1 group* where this says 4: the FeatureServer `layers` array counts the group and
+    // the layer nested under it. Both are right in different units, so this one names its unit.
     $("serviceFacts").textContent =
-      `${layers.length} layer${layers.length === 1 ? "" : "s"} · max ${num(doc.maxRecordCount)} rows`
-      + ` · ${doc.capabilities || "no capabilities"}`;
+      `${layers.length} entr${layers.length === 1 ? "y" : "ies"} in the service document`
+      + ` · max ${num(doc.maxRecordCount)} rows`
+      + ` · ${doc.capabilities ? `operations: ${doc.capabilities}` : "no editing operations"}`;
 
     // The layer list was here until 2026-08-18, when the owner asked for it to go: this page is
     // the service's settings, and the counts are in the facts line above. What went with it is a
@@ -2861,7 +3056,15 @@ async function loadMembers() {
 
   $("membersPager").innerHTML = pagerFor("members", rows.length);
 
-  $("members").innerHTML = pageOf("members", rows).map(m => `
+  // <b>An empty listing says so, like its two siblings in this file.</b> `loadSources` answers *None
+  // registered.* and `loadRoles` answers *No roles, which cannot happen: the schema seeds five.*; this
+  // one rendered a header over blank white. Probably unreachable — root always exists — and a screen
+  // that would look broken if it were is worth one line. Design review 2026-08-19.
+  $("members").innerHTML = rows.length === 0
+    ? `<tr><td colspan="7" class="empty">No members, which cannot happen while you are reading this:
+         you are signed in as one. If you are seeing this, the directory answered and the answer was
+         empty — look at the platform store rather than at this screen.</td></tr>`
+    : pageOf("members", rows).map(m => `
     <tr>
       <td class="name">${h(m.name)}${m.displayName
         ? `<div class="val" style="font-weight:400">${h(m.displayName)}</div>` : ""}</td>
@@ -3325,9 +3528,9 @@ async function loadServices() {
           // reader cannot tell a scope that is fixed from one that is set elsewhere unless the
           // screen says which. Sharing stays Studio's (owner, 2026-08-17); what was missing is the
           // route to it.
-          : `<a href="#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}"
-               data-open-service-page="sharing"
-               title="Set on this service's Sharing page — a scope is its owner's decision">${
+          : `<a href="${surfaceHref("studio",
+                 "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
+               title="Set on this service's Sharing page in Studio — a scope is its owner's decision">${
                  pill(r.sharing)}</a>`}</td>
         <td class="val">${h(r.owner || "—")}</td>
 
@@ -3590,18 +3793,35 @@ function showLayer(name, page, pending = null) {
   // Now every step is where the layer is and every step is a link: the folder goes to the
   // folder, and the service goes to its layer list where there is one worth seeing.
   const at = placeOf(name);
-  const trail = [`<a href="#/services">Services</a>`];
+
+  // <b>Back to the surface you are on, not always to Server's.</b> Both the breadcrumb's first step
+  // and the Cancel link were hardcoded to `#/services`, so a Studio publisher editing a layer's
+  // symbology and pressing *Cancel* was sent to Server — and one without `admin:manageServer` got the
+  // refusal toast and a bounce to Studio's home. A plain *nevermind* should not cross the product.
+  // Design review 2026-08-19.
+  const home = surfaceOfPath() === "studio" ? "content" : "services";
+  const homeLabel = home === "content" ? "My content" : "Services";
+
+  $("editCancel").setAttribute("href", `#/${home}`);
+
+  const trail = [`<a href="#/${home}">${homeLabel}</a>`];
 
   if (at) {
-    trail.push(`<a href="#/services${at.folder ? "/" + encodeURIComponent(at.folder) : ""}">${
-      h(at.folder || "Site (root)")}</a>`);
+    // <b>The folder step is Server's, because only Server has a folder list.</b> In Studio it linked
+    // to a screen that surface does not have, which for a publisher without `admin:manageServer` is a
+    // refusal toast and a bounce. Studio's trail is *My content › the service › this layer*, which is
+    // the path they actually came along.
+    if (home === "services") {
+      trail.push(`<a href="#/services${at.folder ? "/" + encodeURIComponent(at.folder) : ""}">${
+        h(at.folder || "Site (root)")}</a>`);
+    }
 
     // Only when the service holds something else. For a service of one layer this page *is*
     // the service, and a link to a single-row table is the step the owner asked us to drop.
     const siblings = known.filter(k => k.service === at.bare
       && (k.folder || null) === at.folder).length;
 
-    if (siblings > 1) {
+    if (siblings > 1 || home === "content") {
       trail.push(`<a href="#/service/${encodeURIComponent(at.service)}">${h(at.bare)}</a>`);
     }
   } else {
@@ -4639,6 +4859,14 @@ function openNewService() {
 
   $("drawer").classList.add("on");
   $("drawer").setAttribute("aria-hidden", "false");
+
+  // <b>Focus goes in, which every other reveal in this console already does.</b> Opening it left
+  // `document.activeElement` on the trigger, so the first Tab went to the folder rail's *+* button
+  // elsewhere on the page rather than into the drawer. It is a panel and not a modal — deliberately,
+  // see the note above — and a panel still places initial focus in itself. Design review 2026-08-19;
+  // D-93 is the half of that finding this does not fix, which is that focus is not trapped and does
+  // not need to be.
+  $("cName")?.focus();
 }
 
 // ------------------------------------------- publishing what is already there
@@ -6142,6 +6370,35 @@ async function handleClick(event) {
     const wanted = [...document.querySelectorAll("#rolePrivileges input[data-privilege]")]
       .filter(b => b.checked).map(b => b.dataset.privilege);
 
+    // <b>The riskier act had less friction than the harmless one.</b> *Delete role* asks — and the
+    // server only ever permits it on a role nobody holds — while *Save privileges* could hand every
+    // `admin:*` capability to a role live accounts are using, and committed on one press with a toast
+    // afterwards. Design review 2026-08-19.
+    //
+    // <b>Only when the administrative set changes, and only when somebody holds the role.</b> A
+    // confirmation on every save is a confirmation nobody reads; this one fires on the case that
+    // cannot be undone by noticing.
+    const wasAdmin = new Set((roleAdministrative.get(name) || []));
+    const nowAdmin = wanted.filter(privilege => roleIsAdministrative.has(privilege));
+
+    const gained = nowAdmin.filter(privilege => !wasAdmin.has(privilege));
+    const lost = [...wasAdmin].filter(privilege => !nowAdmin.includes(privilege));
+    const holders = roleHolders.get(name) || 0;
+
+    if (holders > 0 && (gained.length || lost.length)) {
+      const said = [
+        gained.length ? `grants ${gained.join(", ")}` : "",
+        lost.length ? `takes away ${lost.join(", ")}` : "",
+      ].filter(Boolean).join(" and ");
+
+      if (!confirm(
+        `Save '${name}'? This ${said}, for ${holders} member`
+        + `${holders === 1 ? "" : "s"} who hold${holders === 1 ? "s" : ""} it — at once, and for `
+        + "sessions already signed in.")) {
+        return;
+      }
+    }
+
     try {
       const saved = await api(`/admin/roles/${encodeURIComponent(name)}/privileges`, {
         method: "PUT",
@@ -6185,10 +6442,11 @@ async function handleClick(event) {
   if (t.dataset?.servicePage) {
     event.preventDefault();
     SERVICE_PAGE_OPEN = t.dataset.servicePage;
-    const { folder, name } = splitService(
-      ($("serviceCrumb").querySelector("b")?.textContent || "").trim());
-    drawServiceSettings(name || ($("serviceCrumb").querySelector("b")?.textContent || "").trim(),
-      folder);
+
+    // <b>From `serviceOpen`, not from the breadcrumb.</b> See its own note: reading the folder back out
+    // of rendered text lost it for every foldered service and turned a tab switch into a silent
+    // capability wipe.
+    if (serviceOpen) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
     return;
   }
 
@@ -6479,6 +6737,23 @@ document.addEventListener("change", async event => {
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
   if (d.memberRole) {
+    // <b>Instant and unconfirmed, which is right for a sharing toggle and not for handing out
+    // administration.</b> Same reasoning as *Save privileges* above, and the same narrow trigger: only
+    // when the role being given is one that carries administrative capability. Design review
+    // 2026-08-19.
+    const becoming = event.target.value || "";
+
+    if (becoming && (roleAdministrative.get(becoming) || []).length > 0) {
+      if (!confirm(
+        `Make '${d.memberRole}' a '${becoming}'? That role carries `
+        + `${(roleAdministrative.get(becoming) || []).length} administrative `
+        + `privilege${(roleAdministrative.get(becoming) || []).length === 1 ? "" : "s"}, `
+        + "and it takes effect at once.")) {
+        await section("members", loadMembers, "members");
+        return;
+      }
+    }
+
     try {
       const r = await api(`/admin/members/${encodeURIComponent(d.memberRole)}/role`, {
         method: "PUT",

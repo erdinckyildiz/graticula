@@ -430,7 +430,16 @@
           <button class="tiny ghost" id="serviceRefresh" title="Read the listings again">&#8635;</button>
         </div>
 
-        <div class="panel">
+        <!--
+          <b>`widetable`, and it took three attempts to earn the word.</b> The page scrolled sideways at
+          1024 — 1100 pixels. First guess: the table. Measured, and the table fitted. Second: the row
+          menu's closed dropdown, which really did have a layout box and really was 450 pixels wide —
+          fixed in the stylesheet, and the overflow stayed. Third, by hiding subtrees until
+          `document.body.scrollWidth` fell: the table's own minimum width, header row included, is
+          what exceeds the window. So it scrolls, and the row menu is positioned against the viewport
+          on open so the scroll box cannot clip it — `console.js`, the `toggle` listener.
+        -->
+        <div class="panel widetable">
           <table>
             <thead><tr>
               <th style="width:1%"></th>
@@ -527,7 +536,7 @@
 
     <p class="hint" id="contentNote"></p>
 
-    <div class="panel">
+    <div class="panel widetable">
       <table>
         <thead><tr>
           <th colspan="2">Layer</th><th>Where</th><th>Status</th>
@@ -656,7 +665,15 @@
       <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
       this is where that claim is checked rather than asserted.</p>
     <div class="panel"><dl class="metrics" id="routeMetrics"></dl></div>
-    <div class="panel" style="margin-top:14px">
+    <!--
+      <b>`widetable` and `routetable`, because this one failed twice over.</b> 1407 pixels against a
+      1024 viewport, so Methods and *Governed by* were invisible until you scrolled; and the auto
+      layout gave Route up to 1290 pixels — route patterns contain no spaces, only slashes, so nothing
+      wraps — while starving *Governed by* to 118, where its three sentences wrapped to three lines
+      each and took a 67-row table to about 9,700 pixels tall. Measured 2026-08-19. `routetable`
+      breaks the pattern at its slashes and keeps the last column on one line.
+    -->
+    <div class="panel widetable routetable" style="margin-top:14px">
       <table>
         <thead><tr><th>Route</th><th>Methods</th><th>Governed by</th></tr></thead>
         <tbody id="routes"></tbody>
@@ -827,7 +844,15 @@
           <option value="name">Name</option>
         </select>
       </div>
-      <div class="panel">
+      <!--
+        <b>`widetable`, because this one measured 1042 pixels against a 1024 viewport</b> and the page
+        scrolled sideways instead of the table — which took the row's *Stop sharing* button off screen
+        mid-word. Design review 2026-08-19. Safe here and on Members and nowhere else yet: a scroll
+        container clips `position: absolute` children, and `.menu .sheet` — the row menu on Server's
+        and Studio's listings — is one. So the twelve other tables in bare panels are not wrapped, and
+        that is written down rather than left as an oversight.
+      -->
+      <div class="panel widetable">
         <table>
           <thead><tr>
             <th colspan="2">Service</th><th>Kind</th><th>Reaches members</th><th>Shared</th><th></th>
@@ -1087,7 +1112,14 @@
       </div>
     </div>
 
-    <div class="panel">
+    <!--
+      <b>`widetable`: 1182 pixels against a 1024 viewport, and the two destructive actions were the
+      part off screen.</b> At the initial scroll position only *Set password* was visible; *Disable*
+      and *Remove* sat past x=1100 with nothing to say they existed. Measured 2026-08-19, and it is
+      the shape this repository has shipped three times — a control that is in the DOM and cannot be
+      seen. No row menu in this table, so the scroll container clips nothing.
+    -->
+    <div class="panel widetable">
       <table>
         <thead><tr>
           <th>Member</th><th>Role</th><th>User type</th><th>State</th>
@@ -1291,6 +1323,15 @@
     <span class="u"></span>
   </div>
   <p class="hint" id="issuedNote"></p>
+  <!--
+    <b>The fact this dialog exists for, stated inside it.</b> It was only in the `confirm()` that
+    precedes it — *"the server picks it, you see it once"* — and a native confirm is dismissed
+    reflexively by anybody who has done this before. Warned in advance is not the same as reminded at
+    the moment it matters, and the moment it matters is while the secret is on screen. Design review
+    2026-08-19.
+  -->
+  <p class="hint"><b>This is the only time it is shown.</b> Nothing on this server can retrieve it
+    again — closing this without copying it means issuing another one.</p>
   <div class="row" style="margin-bottom:0">
     <span style="flex:1"></span>
     <button class="primary" id="issuedDone">I have it</button>
