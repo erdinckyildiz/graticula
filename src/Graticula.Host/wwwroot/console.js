@@ -5396,69 +5396,18 @@ async function handleClick(event) {
     return;
   }
 
-  // <b>The services you may share are your own content, which is a list the server already
-  // offers.</b> `/content/layers` is what any signed-in member may read about their own things —
-  // no new endpoint, and the set is right rather than merely available: you share what you
-  // published.
-  if (t.id === "groupShare") {
-    if (!groupOpen) return;
-
-    const content = await api("/content/layers") || {};
-
-    // <b>Services, not layers.</b> The listing is per layer and a group is shared a *service*, so
-    // three layers of one service must offer one choice rather than three.
-    //
-    // <b>`l.service` already carries the folder</b>, so prefixing `l.folder` produced
-    // `hosted/hosted/look_buildings`, and the share below split that into folder `hosted/hosted`.
-    // Every service on this server is in a folder, so *Share a service* answered 404 for all of
-    // them — with `'look_buildings' is not something this server has`, about a service the screen
-    // had just offered. Found in the design review of 2026-08-18.
-    const services = [...new Set((content.mine || []).map(l =>
-      l.service.includes("/") || !l.folder ? l.service : `${l.folder}/${l.service}`))].sort();
-
-    if (services.length === 0) {
-      toast("You have published nothing to share.");
-      return;
-    }
-
-    $("groupPicker").innerHTML = `
-      <div class="picker">
-        <label for="groupPickFilter">Add an item to this group</label>
-        <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
-        <select id="groupPickWhat" size="8" aria-label="Services you could share">${services.map(n =>
-          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
-        <div class="row">
-          <button class="primary" id="groupPickShare">Share</button>
-          <button class="ghost" id="groupPickCancel">Cancel</button>
-        </div>
-      </div>`;
-
-    $("groupPicker").hidden = false;
-    $("groupPickFilter")?.focus();
-    return;
-  }
-
-  if (t.id === "groupPickShare") {
-    const what = $("groupPickWhat")?.value;
-    if (!what || !groupOpen) return;
-
-    const cut = what.split("/");
-    const bare = cut.pop();
-    const folder = cut.join("/");
-
-    try {
-      const done = await api(
-        `/admin/groups/${encodeURIComponent(groupOpen)}/items/${encodeURIComponent(bare)}`
-        + `?folder=${encodeURIComponent(folder)}`,
-        { method: "PUT" });
-
-      toast(done.note ? `${bare} shared. ${done.note}` : `${bare} shared`, true);
-    } catch (e) { toast(e.message); }
-
-    $("groupPicker").hidden = true;
-    await refreshGroup();
-    return;
-  }
+  // <b>`groupShare` has no handler, and that absence is the point.</b> It is an `<a>` to
+  // `#/group/{name}/add` now, so the router draws the page and the browser does the navigating.
+  //
+  // <b>The inline picker it used to open is deleted rather than left dormant.</b> Both were firing:
+  // the anchor navigated to the new page *and* this handler rendered the old `<select>` of qualified
+  // names above it — two pickers for one job, and the one on top was exactly what the owner rejected.
+  // A dead branch that still runs is worse than a dead branch, and worse than either is a screen that
+  // offers the same act twice by two different rules.
+  //
+  // What was here: a `<select size="8">` filled from `/content/layers`, and a `Share` button. What
+  // replaced it is `drawGroupAdd` — thumbnails, a folder rail, multi-select, and a row that says
+  // whether the share will actually reach anybody. ADR-034 §5z.
 
   // <b>Leave group, which we had no way to do at all.</b> Taken from the reference's group page,
   // where *"You are a member"* sits above it. A member could be removed by a manager and could not
@@ -6044,7 +5993,10 @@ document.addEventListener("input", async event => {
   if (event.target.id === "groupPickFilter") {
     const needle = event.target.value.trim().toLowerCase();
 
-    for (const list of [$("groupPickWho"), $("groupPickWhat")]) {
+    // <b>One list, since the service picker became a page.</b> `#groupPickWhat` was the other one and
+    // is deleted with it; iterating over a second box that no longer exists is how a dead reference
+    // survives a deletion.
+    for (const list of [$("groupPickWho")]) {
       if (!list) continue;
 
       for (const option of list.options) {
