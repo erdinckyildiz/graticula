@@ -124,8 +124,31 @@ narrowed to PostGIS estates, and it is the price of shipping.
 - **Review finding O3 leaves v1** — arbitrary code execution against a server
   holding the organisation's spatial data, with no sandbox and a publisher role
   that Q-59 has not defined.
-- The job-worker image loses the Python runtime, which shrinks the air-gapped
-  bundle and Q-76's maintenance burden.
+- ~~The job-worker image loses the Python runtime, which shrinks the air-gapped
+  bundle and Q-76's maintenance burden.~~
+
+**Amended 2026-08-18 by owner decision, and only this last bullet moves.** Asked
+whether File Geodatabase import was worth the cost, the owner said *"gdb import
+önemli. o yüzden yığın büyüyecekse büyüyebilir."* So **the Python runtime returns
+to the job-worker image — for our own code**, because
+[ADR-037](adr/ADR-037-job-workers-come-in-two-kinds.md) puts `pyogrio` there and
+[Q-108](open-questions.md) established there is nothing GDAL-free to adopt for
+.NET and that writing our own reader is the wrong project.
+
+**Everything else in this section stays cut, and the line is one sentence wide.**
+GPServer, the Python SDK, the sandbox and the *user* wheel set remain out;
+[Q-75](open-questions.md) — how user-supplied Python is sandboxed, *"the largest
+security surface in the product by a wide margin"* — is not reopened, and neither
+is Q-76. **Our script against our pinned wheels is a packaging cost; their tool
+against our server is arbitrary code execution.** ADR-037 condition 3 makes that
+a build-time check rather than a sentence, because a sentence is not a guard.
+
+**The cost this concedes, stated rather than absorbed:** the air-gapped bundle
+grows again, the wheel set becomes ours earlier than
+[ADR-016](adr/ADR-016-packaging-deployment-upgrade.md) §7 planned, and
+[A-049](architecture-assumptions.md) — that a curated set can cover realistic
+work without pip at runtime — is `UNVALIDATED` and now load-bearing sooner. That
+is the bullet above being given up on purpose, not overlooked.
 
 ### 3d. The rest of the protocol surface
 
