@@ -111,11 +111,21 @@ public sealed record JobRecord(
 /// content.
 /// </para>
 /// <para>
-/// <b>What this interface deliberately does not have is a way to claim work.</b> No
-/// <c>TakeNextAsync</c>, no lease, no visibility timeout. One process creates a job and the same
-/// process runs it; a claim protocol is for competing consumers, which is the queue this is not. The
-/// absence is load-bearing — adding it later is a decision, and finding it here would let somebody
-/// assume the contention story had been thought through.
+/// <b>Claiming is here, and the first version of this file argued it should not be.</b> That version
+/// said the absence of a <c>TakeNextAsync</c> was load-bearing, and that adding one later would be *a
+/// decision*. It was already decided: [ADR-011] §3.2 chose
+/// <c>SELECT … FOR UPDATE SKIP LOCKED</c> on PostgreSQL on 2026-08-12, and §3.3 chose
+/// <c>LISTEN</c>/<c>NOTIFY</c> for wake-up with polling as the fallback. **So the comment was not
+/// cautious, it was uninformed** — it presented a settled question as an open one, which is worse than
+/// either answer because the next reader would have believed it.
+/// </para>
+/// <para>
+/// <b>What is still not here is the rest of ADR-011:</b> no lease reclaim, no fair-shared scheduling,
+/// no job classes, no OGC API Processes surface. `SKIP LOCKED` is the one mechanism a second worker
+/// needs in order not to take the same row, and it is here because the deployment has the worker in a
+/// **separate container** ([ADR-016](../../../docs/adr/ADR-016-packaging-deployment-upgrade.md) §2) —
+/// so *one process creates a job and the same process runs it*, which the old comment assumed, was
+/// never the shape.
 /// </para>
 /// </remarks>
 public interface IJobStore
@@ -164,11 +174,35 @@ public interface IJobStore
     /// <returns>True when it moved from queued to running.</returns>
     /// <remarks>
     /// <b>False when it was not queued, rather than an exception.</b> The caller's question is *may I
-    /// run this*, and *somebody already is* is an answer to it. This is the seam a claim protocol would
-    /// grow from if competing consumers ever arrive — it is not one today, because the conditional
-    /// update is the whole of it.
+    /// run this*, and *somebody already is* is an answer to it.
     /// </remarks>
     Task<bool> StartAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes the oldest queued job of a kind, and marks it running in the same breath.
+    /// </summary>
+    /// <param name="kind">Which sort of work this worker can do.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The job, now running, or null when there is nothing queued.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-011] §3.2's mechanism, not a new one:</b> <c>SELECT … FOR UPDATE SKIP LOCKED</c>, chosen
+    /// there because the platform store is PostgreSQL only (Q-70) and two workers must not take the
+    /// same row. `SKIP LOCKED` is the part that matters — without it the second worker waits on the
+    /// first one's lock and the pool serialises itself while looking like it is running in parallel.
+    /// </para>
+    /// <para>
+    /// <b>Filtered by kind, because a worker can only do what it carries.</b> The Python image reads
+    /// geodatabases; handing it something else would be a job that fails for a reason nobody chose.
+    /// </para>
+    /// <para>
+    /// <b>What is deliberately absent is a lease.</b> A job claimed by a worker that then dies stays
+    /// `running` for ever, and nothing reclaims it — ADR-011 §3.3 names the reclaim sweep and this is
+    /// not it. Recorded rather than hidden: the first stuck job is the evidence that sweep needs, and
+    /// building it now would be guessing at a timeout with nothing measured behind it.
+    /// </para>
+    /// </remarks>
+    Task<JobRecord?> ClaimAsync(JobKind kind, CancellationToken cancellationToken);
 
     /// <summary>Reports how far along a running job is.</summary>
     /// <param name="id">Which job.</param>

@@ -151,6 +151,40 @@ public sealed class PostgresJobStore : IJobStore
     }
 
     /// <inheritdoc/>
+    public async Task<JobRecord?> ClaimAsync(JobKind kind, CancellationToken cancellationToken)
+    {
+        // <b>ADR-011 §3.2's statement, and `skip locked` is the whole reason it has this shape.</b>
+        // Without it a second worker blocks on the first one's row lock, so a pool of four serialises
+        // itself while every metric says it is running in parallel — the failure that looks like
+        // success. The select and the update are one statement, so a crash between them is not a
+        // state: either the row is taken and running, or it is untouched and still queued.
+        const string Sql = """
+            with taken as (
+                select id from job
+                 where status = 'queued' and kind = @kind
+                 order by created_at
+                 limit 1
+                 for update skip locked
+            )
+            update job
+               set status = 'running', started_at = now()
+             where id in (select id from taken)
+            returning id, kind, status, progress, owner_principal_id, subject, detail, failure,
+                      created_at, started_at, finished_at
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("kind", Wire(kind));
+
+        await using NpgsqlDataReader reader = await command
+            .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? Read(reader)
+            : null;
+    }
+
+    /// <inheritdoc/>
     public async Task ProgressAsync(Guid id, int percent, CancellationToken cancellationToken)
     {
         if (percent is < 0 or > 100)

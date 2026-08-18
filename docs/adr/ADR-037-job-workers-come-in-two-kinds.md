@@ -149,11 +149,28 @@ neither, which leaves [A-016](../architecture-assumptions.md) intact. **File Geo
 first job.**
 
 **The boundary between the Python worker and our runtime is a file, and the format is GeoParquet** —
-executing [Q-74](../open-questions.md)'s choice rather than making a new one. The worker never holds a
-database connection: it reads `.gdb` and writes GeoParquet, and our importer reads that. Q-74 rejected a
-database connection for user tools on authorization grounds; the same shape is kept here even though our
-own script would not bypass anything, because the boundary that survives the arrival of user tools is
-the one to build now.
+executing [Q-74](../open-questions.md)'s choice rather than making a new one. **The worker never touches
+the datastore**: it reads `.gdb`, writes GeoParquet, and our importer reads that and writes the features.
+Q-74 rejected a datastore connection for user tools on authorization grounds — a tool that can read the
+spatial store bypasses our sharing model and our capability checks — and that boundary is built now
+rather than when user tools arrive.
+
+> **Corrected 2026-08-18, hours after this was written, and the first version contradicted
+> [ADR-011](ADR-011-job-system.md).** It said *"the worker never holds a database connection"*, full
+> stop. ADR-011 §3.2 decided on 2026-08-12 that a worker **claims its own work from the platform
+> store** — `SELECT … FOR UPDATE SKIP LOCKED` on PostgreSQL — and §3.3 that it wakes on
+> `LISTEN`/`NOTIFY`. So the sentence as written forbade the mechanism the job system already has.
+>
+> **The distinction that makes both right is which store.** The **platform store** holds the job table;
+> a worker claiming its own row bypasses nothing and is how work reaches it at all. The **datastore**
+> holds the features, and that is what Q-74's argument is about. Conflating the two produced a
+> constraint that sounded stronger and was simply wrong.
+>
+> **Found while wiring the worker to the server**, by asking how a job would reach a separate container
+> and checking whether anything had already decided it. Something had, six days earlier. Recorded here
+> rather than quietly narrowed, because a decision that contradicts an existing one and is then edited
+> to agree leaves no trace of what was believed — and the contradiction sweep exists because that trace
+> is what nobody has.
 
 **Two kinds is the answer, and it is a ceiling rather than a floor.** A third kind needs its own ADR.
 
@@ -183,9 +200,16 @@ the one to build now.
   to a temporary directory — a capability the server does not have and
   [security.md](../security.md)'s upload rules did not contemplate.~~ **Withdrawn 2026-08-18, measured
   rather than reasoned.** GDAL reads inside the archive: `ogrinfo /vsizip//data/x.gdb.zip` opened three
-  of the owner's real geodatabases and listed their layers, unpacking member by member in memory. There
-  is no temporary directory, so there is nothing to bound or clean —
+  of the owner's real geodatabases and listed their layers, unpacking member by member in memory —
   [file-geodatabase-readers.md](../research/file-geodatabase-readers.md) §8b.
+
+  **Narrowed the same day, because the withdrawal over-claimed.** `/vsizip/` removes the *extraction*,
+  not the *storage*: an upload is a stream and a worker is handed a path, so the archive itself is
+  still written to one scratch file. What is gone is unpacking hundreds of members onto our disk and
+  the zip-bomb expansion that came with it — one file at its transferred size, against an archive that
+  can expand arbitrarily. **So this consequence is smaller than first written and larger than the
+  withdrawal claimed**, and the line exists because correcting a correction costs less than leaving a
+  document that denies a capability it needs.
 - **GDAL's licence is a bill of materials**, so the worker image's drivers must be enumerated before it
   ships. [D-06](../architecture-debt.md) narrows again rather than closing.
 
@@ -221,9 +245,12 @@ dependency that leaks.
 6. ~~**The temporary extraction directory has stated bounds and is cleaned**, with the same shape of
    argument `ArchiveLimits.ForShapefile` carries: numbers derived from the format rather than round.~~
    ***(Withdrawn 2026-08-18 — there is no extraction directory. See §6's negative consequences.)***
-   **What replaces it is not another condition but an existing one:** with `/vsizip/` the archive is
-   opened by GDAL inside the worker, so `BoundedArchive` is not in the path and the bomb defence is the
-   worker's memory and time bound — this ADR's own process boundary. Measured on the way: the owner's
+   **Replaced by a narrower condition, since the withdrawal over-claimed:** the *uploaded archive* is
+   still written to one scratch file, because a worker is handed a path rather than a stream — so that
+   file has a stated maximum size and is removed whether the job succeeds or fails. What is gone is the
+   expansion: with `/vsizip/` GDAL opens the archive inside the worker, nothing unpacks onto our disk,
+   `BoundedArchive` is not in the path, and the bomb defence is the worker's memory and time bound —
+   this ADR's own process boundary. Measured on the way: the owner's
    archives run to 338 members and one member compressing **430×**, against
    `ArchiveLimits.ForShapefile`'s 32 and 100×, so the shapefile numbers were never going to serve both
    formats. A ratio calibrated for two formats at once is a ratio calibrated for neither.
@@ -239,7 +266,8 @@ dependency that leaks.
 
 ## 9. Dependencies
 
-**Depends on** — [ADR-011](ADR-011-job-system.md) (the job system this is a worker for),
+**Depends on** — [ADR-011](ADR-011-job-system.md) (the job system this is a worker for, and whose
+§3.2 claim mechanism this ADR's first version contradicted — see §5),
 [ADR-016](ADR-016-packaging-deployment-upgrade.md) §7 (the wheel set),
 [ADR-022](ADR-022-geometry-server.md) §9 (why the .NET worker exists),
 [ADR-024](ADR-024-shapefile-import.md) (the archive exception this extends, condition 3),

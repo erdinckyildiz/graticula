@@ -322,6 +322,111 @@ public sealed class JobStoreTests : PostgresFixture
                 CancellationToken.None));
     }
 
+    /// <summary>
+    /// Two workers claiming at once take two different jobs, and neither waits for the other.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-011] §3.2's mechanism, and the test is about `skip locked` rather than about claiming.</b>
+    /// A plain `for update` would also give two workers two different rows — eventually. The second one
+    /// would block on the first one's lock, take its turn, and get the next job; the *answers* would be
+    /// correct and a pool of four would serialise itself while every metric said it was running in
+    /// parallel. That is the failure this clause exists to prevent and the one a correctness-only test
+    /// cannot see.
+    /// </para>
+    /// <para>
+    /// <b>So both halves are asserted: two distinct jobs, and both claims resolving concurrently.</b>
+    /// The second is checked by starting them together and requiring the pair to finish well inside the
+    /// time a serialised pair would take — measured against a deliberate delay held by an open
+    /// transaction, so the assertion is about waiting rather than about a stopwatch on fast work.
+    /// </para>
+    /// <para>
+    /// <b>And a claim is filtered by kind</b>, because a worker can only do what its image carries.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Two_workers_claiming_at_once_take_different_jobs_without_waiting()
+    {
+        await MigrateAsync();
+
+        PostgresJobStore jobs = new(DataSource);
+        (Guid owner, _) = await MemberAsync("zz_job_claim");
+
+        JobRecord first = await jobs.CreateAsync(
+            owner, JobKind.GeodatabaseImport, "hosted/first", null, CancellationToken.None);
+
+        JobRecord second = await jobs.CreateAsync(
+            owner, JobKind.GeodatabaseImport, "hosted/second", null, CancellationToken.None);
+
+        // <b>One connection holds the oldest row's lock, so the other claim must skip it.</b> Without
+        // `skip locked` the second claim blocks here until this transaction ends — which is exactly the
+        // behaviour being ruled out, and the reason the lock is taken by hand rather than inferred from
+        // two racing claims that might not overlap.
+        await using Npgsql.NpgsqlConnection holding = await DataSource.OpenConnectionAsync();
+        await using Npgsql.NpgsqlTransaction held = await holding.BeginTransactionAsync();
+
+        await using (Npgsql.NpgsqlCommand lockIt = holding.CreateCommand())
+        {
+            lockIt.Transaction = held;
+            lockIt.CommandText = "select id from job where id = @id for update";
+            lockIt.Parameters.AddWithValue("id", first.Id);
+
+            await lockIt.ExecuteScalarAsync();
+        }
+
+        // <b>A token with a deadline, so the failure is legible.</b> Without one, removing `skip
+        // locked` makes this wait until Npgsql's own command timeout — two minutes, ending in
+        // *"exception while reading from stream"*, which says nothing about locking. Falsified that way
+        // once, and the message was the reason to change it: a guard whose failure does not name the
+        // defect teaches the next reader to re-run the suite rather than to read it.
+        using CancellationTokenSource patience = new(TimeSpan.FromSeconds(3));
+
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        JobRecord? claimed;
+
+        try
+        {
+            claimed = await jobs.ClaimAsync(JobKind.GeodatabaseImport, patience.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Assert.Fail(
+                "The claim was still waiting after three seconds while another transaction held the "
+                + "oldest queued row. It is blocking on the lock instead of skipping it, which turns a "
+                + "pool of workers into a queue of one — ADR-011 §3.2 chose `skip locked` for exactly "
+                + "this and the answers would look correct without it.");
+
+            throw;
+        }
+
+        clock.Stop();
+
+        // It skipped the locked row and took the next one rather than waiting for the lock.
+        Assert.NotNull(claimed);
+        Assert.Equal(second.Id, claimed!.Id);
+        Assert.Equal(JobStatus.Running, claimed.Status);
+        Assert.NotNull(claimed.Started);
+
+        Assert.True(
+            clock.Elapsed < TimeSpan.FromSeconds(2),
+            $"The claim took {clock.Elapsed.TotalSeconds:F1}s while another transaction held the "
+            + "oldest row. It waited for the lock instead of skipping it, which is what turns a pool "
+            + "of workers into a queue of one.");
+
+        // Nothing left queued, so a third claim finds nothing rather than the locked row.
+        Assert.Null(await jobs.ClaimAsync(JobKind.GeodatabaseImport, CancellationToken.None));
+
+        await held.RollbackAsync();
+
+        // With the lock released the first job is claimable again — it was never taken.
+        JobRecord? afterwards = await jobs.ClaimAsync(
+            JobKind.GeodatabaseImport, CancellationToken.None);
+
+        Assert.NotNull(afterwards);
+        Assert.Equal(first.Id, afterwards!.Id);
+    }
+
     private async Task<(Guid Id, string Name)> MemberAsync(string name)
     {
         await using Npgsql.NpgsqlCommand command = DataSource.CreateCommand(
