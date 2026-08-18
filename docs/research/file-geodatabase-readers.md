@@ -315,6 +315,52 @@ support burden. For the organisation this product is aimed at, *"run this Docker
 geodatabase first"* is friction of exactly the kind the product exists to remove, and it lands on the
 customer least equipped to absorb it. That is the trade, and it is the owner's to make rather than mine.
 
+## 8d. Built, and run against the real archives
+
+**2026-08-18, after the owner chose the worker** — *"workerla gidelim o zaman"*. The worker exists at
+`src/Graticula.Import.Worker`: a Dockerfile on `ghcr.io/osgeo/gdal:ubuntu-small-3.10.3`, four pinned
+wheels, and one script that speaks `GeometryWorkerPool`'s contract — one JSON request per line on
+stdin, one response per line on stdout, diagnostics to stderr, and the server owns the kill.
+
+Three operations: `ping`, `layers`, `convert`. The split matters at the owner's scale — one of their
+archives holds 55 layers, so a picker has to ask *what is in here* before anything is read in full.
+
+**Measured against their own data, network disabled, archive folder mounted read-only:**
+
+| | result |
+|---|---|
+| `ping` | GDAL 3.10.3 |
+| `layers` on archive A | 12 layers, with per-layer feature counts, field counts and `EPSG:2952` on every one |
+| `convert` of a MultiPolygon layer | 11 features, geometry valid, CRS carried |
+| `convert` of a 3D Point layer | 9 features, geometry valid, **`hasZ: true`** |
+| the GeoParquet read back | 32 and 10 columns, geometry column intact, `is_valid.all()` true |
+
+**The coordinate system travels inside the file.** GeoParquet's metadata carries PROJJSON with
+`{"authority": "EPSG", "code": 2952}` and the full parameter set. So §8b's second correction holds all
+the way through: nothing has to ask the operator for an `srid`, and the .NET side reads an
+authoritative code rather than inferring one. That is [Q-74](../open-questions.md)'s boundary working
+in the inbound direction, measured rather than argued.
+
+### Three things the build taught that reading could not
+
+**1. The pinning debt came due immediately, not eventually.** The first Dockerfile said
+`ubuntu-small-latest` with a comment that a pin was owed. `latest` is Ubuntu 25.10 carrying **Python
+3.14**, for which `pyogrio` and `pyarrow` have no wheels — so pip fell back to source and the image has
+no compiler: `No such file or directory: 'x86_64-linux-gnu-gcc'`. **A floating base put the runtime
+ahead of the wheel ecosystem**, which is a failure nobody predicts from *use the latest patch*, and it
+is the concrete form of what ADR-016 §7's curated set is for. 3.10.3 is Ubuntu 24.04 with Python 3.12.
+
+**2. The owner's attachment tables are empty.** All six `__ATTACH` tables report **0 features**. So the
+geodatabase carries the *structure* for attachments and none of the content — which makes §8b's
+loudest finding much less urgent for this estate than its shape suggested. The question of what an
+import does with attachments stays open; the answer for these three archives is *nothing is lost*.
+
+**3. `USER nobody` needs a scratch directory it can write, and that is a deployment fact rather than a
+bug.** The convert run needed the output volume made writable. The temptation is to drop the user
+directive; the correct answer is that the server creates the scratch directory and owns its
+permissions, because this is the one process in the product whose input is a file a stranger chose —
+which is what security.md's upload section is about, and root is not a defence anybody picks on purpose.
+
 ## 9. Recommendation
 
 **Changed by §8, and the change is larger than *not v1*: do not write one at all.**
