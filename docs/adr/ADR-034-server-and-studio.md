@@ -369,6 +369,83 @@ the strip. The layer and group counts moved under the name and their own column 
 they were in two places at once, and a table column is the wrong place for a fact that is
 sometimes *"3 layers, 1 group"*.
 
+### 5j. Making a thing is a New item dialog, not a drawer of forms — owner decision, 2026-08-19
+
+*"ve bu ekran hiç güzel değil. bunu da kaldıralım. örnek olarak verdiğim arcgis ekranları daha
+kullanışlı."* Then, when the first repair was still the wrong shape: *"ben ondan bahsetmedim. new layer
+diyip öyle bir ekran istemiyorum. add item diyerek açılan ekranları da göndermiştim sana."* And then
+the button itself, circled in red on the screenshot: *"1.si new item."*
+
+**What was there.** A right-hand drawer titled *Create*, opened by the page action on both surfaces,
+holding four forms stacked in one column: *Design a schema*, *Import a file*, *Publish a registered
+table*, and *A service, and groups inside one*. Around 1,600 pixels of scroll, four headings, five
+submit buttons, and nothing in the layout saying they were **alternatives** rather than steps. Its own
+comment recorded the drift: *"Retitled 2026-08-16: it held only hosted layers, and now it also
+publishes a table this server does not hold and creates services and groups. A heading that names one
+of four things is worse than a general one."* A general heading was the wrong repair — the problem was
+that one surface had four jobs.
+
+#### The reference, in two screens
+
+The owner sent both. Their *New item* dialog: a dashed drop zone across the top reading *Drag and drop
+your file or choose an option* with a *Your device* button inside it, and beneath it a two-column grid
+of item-type tiles — an icon square, a bold name, one sentence each. Clicking *Feature layer* opens a
+second screen, *Create a feature layer*, which is a heading, the line *Select an option to create an
+empty feature layer.*, five radio rows with a sentence each, and a footer carrying *Back* on the left
+with *Cancel* and *Next* on the right.
+
+So ours is three screens, and the third is the form:
+
+| Screen | Asks | Footer |
+| --- | --- | --- |
+| **New item** | drop a file, or pick a kind of item | none — there is nothing to confirm yet |
+| **Create a feature layer** | which of three routes | Back · Cancel · Next |
+| the route's form | the fields that route needs | Back · Cancel, and the form's own submit |
+
+The three routes are *Define your own layer*, *Publish a table this server can reach*, and *Upload a
+file* — the first three drawer forms, unchanged in what they submit, because moving markup is not the
+moment to also rewrite a contract that `ImportFormTests` asserts.
+
+#### The entry point was the error, not the wizard
+
+I read the first correction as a rejection of the radio-and-*Next* step and started rebuilding it as a
+drawer of route rows — a row that is the choice, no confirmation, one interaction instead of two. That
+was wrong twice over. The owner's objection was to beginning at *New layer*: you begin by adding an
+**item**, and what kind of item it is comes second. And their second screenshot is the radio wizard
+itself, sent as the thing they want. **Their shape wins on their own screens; my argument against the
+extra press is recorded here and not acted on.**
+
+#### The fourth form leaves rather than moves
+
+*A service, and groups inside one* is not on the dialog, and the reason is a rule the owner had already
+given twice — *"add member shall be inside members section"*, and then *"grupun ve servisin orada
+ilişkisi yok. servis katmanın bir özelliği."* A service is not an item you add; it is how a layer is
+presented. So the two service forms keep the surface whose subject they are, **Server**, behind its own
+*New service* action, and the two page actions stop being aliases for one drawer. Nothing is withdrawn:
+`POST /admin/services` and the group-layer endpoints keep the route an operator can reach.
+
+It also had a second problem worth naming, because it is a collision this product created for itself:
+its *group* meant an ArcGIS **group layer**, three lines away from a sharing control, in a console that
+now has **sharing groups** with four tabs of their own. Two unrelated things called the same word on one
+screen. The group-layer form now says which it is in its own copy.
+
+#### One tile where theirs has ten
+
+Their grid offers URL, Application, Tile layer, Scene layer, Locator, Data store, Developer credentials
+and a raster function template. This server has a feature layer. **The other nine are not drawn**, by
+the same rule that kept a category rail off the group's Content tab and Categories, Tags and Location
+off the item picker's rail in §5z: a control for a feature that does not exist is worse than its
+absence, because it promises. The grid is two columns and laid out for the rest to arrive into.
+
+#### And the drop zone is not decoration
+
+It is the shortest path for the case the owner said matters — *"gdb import önemli"* — and it removes an
+interaction rather than adding a surface: a file dropped there lands on the import form with the file
+already attached and the layer name offered from the file name. The `File` cannot be assigned when it
+arrives, because `#iFile` is on the third screen and does not exist yet, so it is held and written into
+the input through a `DataTransfer` once the form is drawn. That is the only way to fill a file input
+from script, and it keeps the form with one source of truth rather than two.
+
 ### 5z. Content is listed by how it reached you — owner decision, 2026-08-18
 
 *"content can be my own, from my groups, or shared in organization. I think we need a public section as

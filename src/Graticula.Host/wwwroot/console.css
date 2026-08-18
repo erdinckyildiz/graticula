@@ -1241,6 +1241,82 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 #issuedValue { width: 22ch; font-family: var(--mono); font-size: 15px; letter-spacing: .04em;
                text-align: center; }
 
+/* ------------------------------------------------------------------ new item */
+/*
+  The New item dialog. Chrome first — a header, a scrolling body, a footer — because both of the
+  owner's screenshots have exactly that and the body is the only part that scrolls: their *Create a
+  feature layer* keeps Back and Next planted at the bottom with five options above them.
+*/
+#addItem { border: 1px solid var(--rule); border-radius: var(--round-lg); padding: 0;
+           width: 680px; max-width: 94vw; background: var(--surface); color: var(--ink);
+           box-shadow: 0 24px 60px -30px rgba(16, 24, 38, .5); }
+#addItem::backdrop { background: rgba(16, 24, 38, .42); }
+
+.dialoghead { display: flex; align-items: center; justify-content: space-between;
+              gap: var(--gap-4); padding: var(--gap-4) var(--gap-5);
+              border-bottom: 1px solid var(--rule); }
+.dialoghead h3 { font-size: var(--t-head); margin: 0; }
+
+/* Capped rather than tall: the dialog must not grow past the viewport on a laptop, and their
+   screen 2 is already 900 pixels of options. */
+.dialogbody { padding: var(--gap-5); max-height: min(68vh, 620px); overflow-y: auto; }
+
+.dialogfoot { display: flex; align-items: center; gap: var(--gap-2);
+              padding: var(--gap-4) var(--gap-5); border-top: 1px solid var(--rule);
+              background: var(--surface-2); border-radius: 0 0 var(--round-lg) var(--round-lg); }
+.dialogfoot .fill { flex: 1; }
+/* Empty on the first screen, where the only way out is the close button — theirs is the same. */
+.dialogfoot:empty { display: none; }
+
+/*
+  The drop zone. Dashed, because a dashed edge is the one border convention that reads as *put
+  something here* rather than *this is a box*, and it is the one their screen uses.
+*/
+.dropzone { border: 1px dashed var(--rule-strong); border-radius: var(--round-lg);
+            background: var(--surface-2); padding: var(--gap-6) var(--gap-5);
+            text-align: center; display: grid; justify-items: center; gap: var(--gap-3); }
+.dropzone p { margin: 0; font-size: var(--t-body); }
+.dropzone .val { font-size: var(--t-small); color: var(--faint); }
+.dropzone svg { width: 30px; height: 30px; color: var(--faint); }
+/* Only while a file is over it: the affordance has to answer, or a drag ends in a guess. */
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone.over svg { color: var(--accent); }
+
+/* Two columns, as theirs, collapsing rather than squeezing — a 48px icon beside two lines of prose
+   has no room to give at 520px. */
+.newtiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: var(--gap-4); margin-top: var(--gap-5); }
+@media (max-width: 620px) { .newtiles { grid-template-columns: minmax(0, 1fr); } }
+
+.newtile { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: var(--gap-3);
+           align-items: start; text-align: left; padding: var(--gap-3); cursor: pointer;
+           border: 1px solid transparent; border-radius: var(--round); background: none;
+           font: inherit; color: inherit; width: 100%; }
+.newtile:hover { border-color: var(--rule-strong); background: var(--surface-2); }
+.newtile .glyph { display: grid; place-items: center; width: 46px; height: 46px;
+                  background: var(--surface-3); border-radius: var(--round); color: var(--muted); }
+.newtile .glyph svg { width: 22px; height: 22px; }
+.newtile b { display: block; font-weight: 600; }
+.newtile span { display: block; margin-top: 2px; font-size: var(--t-small); color: var(--muted); }
+
+/*
+  The radio list. One accent, and it is the one this console already uses for a chosen thing — the
+  selected option gets the accent edge and a tinted ground, which is how the rest of the page marks
+  a current row.
+*/
+.pickrow { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--gap-3);
+           padding: var(--gap-4); border: 1px solid var(--rule); border-radius: var(--round);
+           margin-top: var(--gap-2); cursor: pointer; }
+.pickrow:first-of-type { margin-top: 0; }
+.pickrow:hover { border-color: var(--rule-strong); }
+.pickrow.on { border-color: var(--accent); background: var(--accent-soft); }
+.pickrow input { margin: 3px 0 0; accent-color: var(--accent); }
+.pickrow b { display: block; font-weight: 600; }
+.pickrow span { display: block; margin-top: 3px; font-size: var(--t-small); color: var(--muted); }
+/* Named as a question, because their heading is one: *Select an option to create an empty feature
+   layer.* A list of five nouns with no question above it is a list of five nouns. */
+.picklede { margin: 0 0 var(--gap-4); font-size: var(--t-body); }
+
 #drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: 620px; max-width: 96vw;
   background: var(--surface); border-left: 1px solid var(--rule); z-index: 1500;

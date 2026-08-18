@@ -35,6 +35,52 @@ namespace Graticula.Console.Tests;
 public sealed class ImportFormTests : ConsoleTest
 {
     /// <summary>
+    /// Walks an operator's route to the import form: New item, Feature layer, Upload a file, Next.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three screens, because the owner's reference is three screens.</b> The form used to be one
+    /// of four stacked in a drawer that opened on the surface's action; it is now the third step of a
+    /// <c>New item</c> dialog, and the shape came from two ArcGIS Portal screenshots the owner sent —
+    /// the <c>New item</c> grid with its drop zone, and <c>Create a feature layer</c> with its radio
+    /// list and its <c>Next</c>.
+    /// </para>
+    /// <para>
+    /// <b>Written as one helper rather than pasted into three tests</b>, so that the next time the
+    /// route changes these tests move with it in one place. Each step waits on
+    /// <c>offsetParent</c> — this console has shipped a control that existed and could not be seen
+    /// three times, and a walker that clicks blind would report the fourth as a passing test.
+    /// </para>
+    /// </remarks>
+    private async Task OpenImportFormAsync()
+    {
+        await WaitForAsync(
+            "document.querySelectorAll('#contentScopes a').length > 0",
+            "The content screen never rendered, so its page action is not there to press.");
+
+        await ClickAsync("#newLayer");
+
+        await WaitForAsync(
+            "document.getElementById('kindFeatureLayer')?.offsetParent !== null",
+            "The New item dialog did not open, or its Feature layer tile is not visible. A closed "
+            + "`dialog` is `display: none`, so `offsetParent` answers both questions at once.");
+
+        await ClickAsync("#kindFeatureLayer");
+
+        await WaitForAsync(
+            "document.querySelector('.pickrow input[value=\"import\"]')?.offsetParent !== null",
+            "The Create a feature layer step has no Upload a file option, so there is no route to "
+            + "the import form at all.");
+
+        await ClickAsync(".pickrow input[value=\"import\"]");
+        await ClickAsync("#itemNext");
+
+        await WaitForAsync(
+            "document.getElementById('iFile')?.offsetParent !== null",
+            "Next did not reach the import form, or the form is not visible.");
+    }
+
+    /// <summary>
     /// A zipped shapefile can be chosen, and the form takes the code the server requires.
     /// </summary>
     [Fact]
@@ -44,17 +90,7 @@ public sealed class ImportFormTests : ConsoleTest
 
         await OpenAsync("/studio/#/content", token);
 
-        await WaitForAsync(
-            "document.querySelectorAll('#contentScopes a').length > 0",
-            "The content screen never rendered, so its page action is not there to press.");
-
-        // The drawer is opened by the surface's own action, which is how an operator reaches it.
-        await ClickAsync("#newLayer");
-
-        await WaitForAsync(
-            "document.getElementById('iFile')?.offsetParent !== null",
-            "Create did not open, or its import form is not visible. `offsetParent`, because this "
-            + "console has shipped a control that existed and could not be seen three times.");
+        await OpenImportFormAsync();
 
         // <b>The archive is selectable.</b> A browser's file picker filters on this attribute, so a
         // `.zip` missing from it is a shapefile the operator cannot choose however good the reader is.
@@ -93,18 +129,14 @@ public sealed class ImportFormTests : ConsoleTest
 
         await OpenAsync("/studio/#/content", token);
 
-        await WaitForAsync(
-            "document.querySelectorAll('#contentScopes a').length > 0",
-            "The content screen never rendered.");
+        await OpenImportFormAsync();
 
-        await ClickAsync("#newLayer");
-
-        await WaitForAsync(
-            "document.getElementById('importForm')?.offsetParent !== null",
-            "The import form never became visible.");
-
+        // <b>The dialog's body, not the form's `.group` wrapper.</b> There is no wrapper any more:
+        // the form is the third screen of a dialog rather than one section of four in a drawer, and
+        // the sentence that names what it takes is a sibling paragraph above it. Reading the body
+        // reads both, which is what an operator does.
         string copy = await Browser.EvaluateAsync<string>(
-            "document.getElementById('importForm').closest('.group').innerText") ?? string.Empty;
+            "document.getElementById('addItemBody').innerText") ?? string.Empty;
 
         foreach (string denial in new[]
         {
@@ -156,15 +188,7 @@ public sealed class ImportFormTests : ConsoleTest
 
         await OpenAsync("/studio/#/content", token);
 
-        await WaitForAsync(
-            "document.querySelectorAll('#contentScopes a').length > 0",
-            "The content screen never rendered.");
-
-        await ClickAsync("#newLayer");
-
-        await WaitForAsync(
-            "document.getElementById('iFile')?.offsetParent !== null",
-            "The import form never became visible.");
+        await OpenImportFormAsync();
 
         // A file input cannot be typed into; `DataTransfer` is how a browser hands one over.
         string planted = $$"""

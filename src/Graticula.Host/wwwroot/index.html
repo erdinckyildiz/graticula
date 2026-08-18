@@ -1211,6 +1211,44 @@
   </div>
 </div>
 
+<!-- ---------------------------------------------------------------- new item -->
+<!--
+  <b>The owner sent this screen twice and then pointed at the button.</b> ArcGIS Portal's *New item*
+  dialog: a dashed drop zone across the top reading *Drag and drop your file or choose an option* with
+  a *Your device* button inside it, and under that a two-column grid of item-type tiles — an icon
+  square, a bold name, a sentence. Clicking *Feature layer* opens a second screen, *Create a feature
+  layer*, which is a radio list with *Back*, *Cancel* and *Next*.
+
+  <b>What was wrong before was the entry point, not the wizard.</b> Ours was a right-hand drawer
+  titled *Create* with four forms stacked in it, 1,600 pixels of scroll, and nothing saying they were
+  alternatives rather than steps. The owner's correction — *"new layer diyip öyle bir ekran
+  istemiyorum. add item diyerek açılan ekranları da göndermiştim sana"* — is that you begin by adding
+  an **item**, and the kind of item is the next question rather than the first.
+
+  <b>A `dialog`, and this is the console's second.</b> `showModal()` brings a backdrop, a focus trap,
+  Escape and an inert page behind — see `#issued`, where the note explains that a modal is right when
+  leaving the thing on screen would let you act behind it. Here the reason is the same: the file being
+  read and the layer being named are one transaction.
+
+  <b>Radio inputs, and they are the first in this file.</b> I argued against them — a row that is the
+  choice removes the *Next* — and the owner's screenshot settles it the other way. Their step asks the
+  question in a heading, lists the answers with a sentence each, and confirms with *Next*; at five
+  options that reads better than five clickable blocks, and ours has three.
+
+  <b>The tiles are two, not ten.</b> Theirs offers URL, Application, Tile layer, Scene layer, Locator,
+  Data store, Developer credentials and a raster function template. We have a feature layer and the
+  data-store connection, and ADR-034's rule is that a control is not built for a feature that does not
+  exist. The grid is laid out for the rest to arrive into.
+-->
+<dialog id="addItem" aria-labelledby="addItemTitle">
+  <header class="dialoghead">
+    <h3 id="addItemTitle">New item</h3>
+    <button class="tiny ghost" id="addItemClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="addItemBody"></div>
+  <footer class="dialogfoot" id="addItemFoot"></footer>
+</dialog>
+
 <!-- ------------------------------------------------------------------ drawer -->
 <!--
   <b>Outside the shell on purpose.</b> It is `position: fixed` and covers both columns, so nesting

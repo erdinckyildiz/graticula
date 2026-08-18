@@ -115,6 +115,23 @@ const ICONS = {
   private: '<rect x="3.4" y="7.2" width="9.2" height="6.6" rx="1.4"/>'
          + '<path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8"/>',
 
+  // A sheet of paper with an arrow leaving it: the drop zone and the *Upload a file* option, which
+  // are the same act reached two ways.
+  upload: '<path d="M4.2 1.9h4.6l3.2 3.2v8.9H4.2z"/><path d="M8.6 1.9v3.4h3.4"/>'
+        + '<path d="M8 11.6V7.4"/><path d="M6.5 8.9 8 7.4l1.5 1.5"/>',
+
+  // A laptop, for *Your device* — the file is on the machine in front of you, not on this server.
+  device: '<rect x="2.6" y="3.4" width="10.8" height="7" rx="1.1"/><path d="M1.4 12.6h13.2"/>',
+
+  // A map sheet with a point on it, for a feature layer. Not a stack of sheets: a stack is what this
+  // console draws for a *service*, which holds layers, and the two must not read as each other.
+  featurelayer: '<path d="M2.3 12.9V4.1l4.4-1.6 4.6 1.6 2.4-1v8.8l-2.4 1-4.6-1.6z"/>'
+              + '<circle cx="8" cy="7.1" r="1.6"/>',
+
+  // A table: rows and a header, because what is published is a table and nothing is copied.
+  table: '<rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.1"/>'
+       + '<path d="M2.2 6.3h11.6M6.6 6.3v6.5"/>',
+
   // A house for the site root, a folder for the rest — see the rail's own comment for why that is a
   // distinction rather than decoration.
   root: '<path d="M2.2 7.4 8 2.6l5.8 4.8"/><path d="M3.8 8.6v4.8h8.4V8.6"/>',
@@ -1363,7 +1380,7 @@ const SURFACES = {
       // administrator's.
       ["groups", "Groups"],
     ],
-    action: { id: "newLayer", label: "New layer" },
+    action: { id: "newLayer", label: "New item" },
   },
 };
 
@@ -4132,120 +4149,373 @@ async function refreshHealth() {
 const FIELD_TYPES =
   ["Text", "Integer", "BigInteger", "SmallInteger", "Double", "Single", "Boolean", "Date", "Guid"];
 
-function openNewLayer() {
-  // Retitled 2026-08-16: it held only hosted layers, and now it also publishes a
-  // table this server does not hold and creates services and groups. A heading
-  // that names one of four things is worse than a general one.
-  $("drawerTitle").textContent = "Create";
-  $("drawerSub").textContent = "a layer, a service, or a group inside one";
+/**
+ * The three ways a feature layer comes into being, as the second screen lists them.
+ *
+ * <b>An array rather than three blocks of markup</b>, because the radio list, the heading it gets on
+ * the third screen and the route the *Next* takes all read the same row — and D-74's lesson is that a
+ * set of values with no one place naming them all gains a member somewhere and loses it everywhere
+ * else.
+ */
+const ITEM_ROUTES = [
+  {
+    id: "design",
+    icon: "featurelayer",
+    title: "Define your own layer",
+    lede: "Specify the fields and the geometry. Creates an empty layer you fill through the feature "
+        + "service.",
+  },
+  {
+    id: "registered",
+    icon: "table",
+    title: "Publish a table this server can reach",
+    lede: "Use a table in a registered PostGIS database. Nothing is copied — the layer reads the "
+        + "table where it is.",
+  },
+  {
+    id: "import",
+    icon: "upload",
+    title: "Upload a file",
+    lede: "Use the fields and the data in a zipped shapefile or a GeoJSON FeatureCollection.",
+  },
+];
+
+/** Which screen the dialog is showing: `item`, `kind`, or a route id. */
+let itemStep = "item";
+
+/** Which route the radio list has selected, remembered so Back returns to the answer given. */
+let itemRoute = "design";
+
+/**
+ * A file chosen on the first screen, held until the import form exists to receive it.
+ *
+ * <b>Held rather than assigned, because the input is not in the document yet.</b> The drop zone and
+ * the *Your device* button are on screen one and `#iFile` is on screen three, so the `File` waits
+ * here and `#iFile.files` is set from a `DataTransfer` once the form is drawn — which is the only way
+ * to fill a file input from script, and it keeps the form with one source of truth rather than two.
+ */
+let handedFile = null;
+
+/** Opens the New item dialog on its first screen. */
+function openAddItem() {
+  itemStep = "item";
+  handedFile = null;
+
+  // <b>The drawer is emptied, and this is not tidiness.</b> Both surfaces build a `#newResult` box
+  // for the server's answer, and two elements with one id means `getElementById` returns whichever
+  // comes first in the document — the dialog's, always, since it is written above the drawer.
+  $("drawerBody").innerHTML = "";
+  closeDrawer();
+
+  drawAddItem();
+  $("addItem").showModal();
+}
+
+/** Draws whichever screen `itemStep` names, with the footer that screen needs. */
+function drawAddItem() {
+  if (itemStep === "item") return drawItemKinds();
+  if (itemStep === "kind") return drawLayerRoutes();
+  return drawRouteForm(itemStep);
+}
+
+/** Screen one: drop a file, or choose what kind of item to make. */
+function drawItemKinds() {
+  $("addItemTitle").textContent = "New item";
+  $("addItemFoot").innerHTML = "";
+
+  $("addItemBody").innerHTML = `
+    <div class="dropzone" id="dropzone">
+      ${icon("upload")}
+      <p>Drag and drop your file, or choose an option</p>
+      <button type="button" class="ghost" id="fromDevice">${icon("device")} Your device</button>
+      <span class="val">A zipped shapefile, or a GeoJSON FeatureCollection</span>
+      <input type="file" id="deviceFile" hidden
+             accept=".zip,.json,.geojson,application/zip,application/geo+json">
+    </div>
+
+    <div class="newtiles">
+      <button type="button" class="newtile" id="kindFeatureLayer">
+        <span class="glyph">${icon("featurelayer")}</span>
+        <span><b>Feature layer</b>
+          <span>Create an editable layer — define the fields yourself, publish a table this server
+            can reach, or upload a file.</span></span>
+      </button>
+    </div>`;
+
+  const zone = $("dropzone");
+
+  // <b>Four listeners, and `dragleave` is the one that is easy to get wrong.</b> It fires when the
+  // pointer crosses onto a child, so the highlight would flicker over the button and the text; the
+  // guard is that the element being entered is still inside the zone.
+  zone.addEventListener("dragover", event => {
+    event.preventDefault();
+    zone.classList.add("over");
+  });
+  zone.addEventListener("dragleave", event => {
+    if (!zone.contains(event.relatedTarget)) zone.classList.remove("over");
+  });
+  zone.addEventListener("drop", event => {
+    event.preventDefault();
+    zone.classList.remove("over");
+    takeFile(event.dataTransfer?.files);
+  });
+
+  $("fromDevice").addEventListener("click", () => $("deviceFile").click());
+  $("deviceFile").addEventListener("change", event => takeFile(event.target.files));
+
+  $("kindFeatureLayer").addEventListener("click", () => {
+    itemStep = "kind";
+    drawAddItem();
+  });
+}
+
+/**
+ * A file arriving from the drop zone or the device button.
+ *
+ * Both land on the import form with the file already in hand, because asking for it again after it
+ * has been dropped is the interaction the drop zone exists to remove.
+ */
+function takeFile(files) {
+  if (!files || files.length === 0) return;
+
+  handedFile = files[0];
+  itemRoute = "import";
+  itemStep = "import";
+  drawAddItem();
+}
+
+/** Screen two: which of the three routes makes the layer. */
+function drawLayerRoutes() {
+  $("addItemTitle").textContent = "Create a feature layer";
+
+  $("addItemBody").innerHTML = `
+    <p class="picklede">Select an option to create a feature layer.</p>
+    ${ITEM_ROUTES.map(route => `
+      <label class="pickrow${route.id === itemRoute ? " on" : ""}" data-route="${route.id}">
+        <input type="radio" name="layerRoute" value="${route.id}"
+               ${route.id === itemRoute ? "checked" : ""}>
+        <span><b>${h(route.title)}</b><span>${h(route.lede)}</span></span>
+      </label>`).join("")}`;
+
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="itemNext">Next</button>`;
+
+  // The ground moves with the choice, so the selected row is legible without hunting for the dot.
+  $("addItemBody").addEventListener("change", event => {
+    itemRoute = event.target.value;
+    for (const row of $("addItemBody").querySelectorAll(".pickrow")) {
+      row.classList.toggle("on", row.dataset.route === itemRoute);
+    }
+  });
+
+  $("itemBack").addEventListener("click", () => {
+    itemStep = "item";
+    drawAddItem();
+  });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+  $("itemNext").addEventListener("click", () => {
+    itemStep = itemRoute;
+    drawAddItem();
+  });
+}
+
+/**
+ * Screen three: the chosen route's form.
+ *
+ * <b>The forms and their ids are unchanged from the drawer they came out of.</b> `createDesigned`,
+ * `createImported` and `publishRegistered` read `#dName`, `#iFile`, `#rSource` and the rest, and four
+ * tests in `ImportFormTests` assert the import form's contract. Moving markup is not the moment to
+ * also rewrite what it submits.
+ */
+function drawRouteForm(id) {
+  const route = ITEM_ROUTES.find(candidate => candidate.id === id);
+  if (!route) {
+    itemStep = "item";
+    return drawAddItem();
+  }
+
+  $("addItemTitle").textContent = route.title;
+
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>`;
+
+  $("itemBack").addEventListener("click", () => {
+    itemStep = "kind";
+    drawAddItem();
+  });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+
+  if (id === "design") return drawDesignForm();
+  if (id === "import") return drawImportForm();
+  return drawRegisteredForm();
+}
+
+/** Define your own layer: fields, geometry, sharing. */
+function drawDesignForm() {
+  $("addItemBody").innerHTML = `
+    <p class="hint">For data you are going to collect. Creates an empty feature class you fill
+      through the feature service. <code>objectid</code> and <code>geom</code> are made for you,
+      stored in Web Mercator so the layer can serve tiles.</p>
+    <form id="designForm" autocomplete="off">
+      <div class="row">
+        <label class="field">Name<input type="text" id="dName" placeholder="inspections" required></label>
+        <label class="field">Geometry<select id="dGeom">
+          <option>Point</option><option>MultiPoint</option><option>LineString</option>
+          <option>MultiLineString</option><option selected>Polygon</option><option>MultiPolygon</option>
+        </select></label>
+        <label class="field">Sharing<select id="dShare">
+          <option value="private" selected>private</option>
+          <option value="organization">organization</option>
+          <option value="public">public</option>
+        </select></label>
+      </div>
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr></thead>
+        <tbody id="dFields"></tbody>
+      </table>
+      <div class="row" style="margin:10px 0 0">
+        <button type="button" id="dAdd" class="ghost">Add field</button>
+        <button class="primary" type="submit">Create empty layer</button>
+      </div>
+    </form>
+    <div id="newResult" class="group" style="display:none"></div>`;
+
+  $("designForm").addEventListener("submit", createDesigned);
+  $("dAdd").addEventListener("click", () => addFieldRow());
+  addFieldRow();
+}
+
+/**
+ * Upload a file.
+ *
+ * <b>The coordinate system is asked for and not inferred</b>, and the note says so: a shapefile
+ * carries a `.prj` and matching its WKT to a code by comparing strings is how a layer comes to
+ * declare a system it is not in (ADR-024).
+ */
+function drawImportForm() {
+  $("addItemBody").innerHTML = `
+    <p class="hint">For data you already have. The schema is read from the file — a
+      <b>zipped shapefile</b> or a <b>GeoJSON FeatureCollection</b>.</p>
+    <form id="importForm" autocomplete="off">
+      <div class="row">
+        <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
+        <label class="field">Sharing<select id="iShare">
+          <option value="private" selected>private</option>
+          <option value="organization">organization</option>
+          <option value="public">public</option>
+        </select></label>
+      </div>
+      <div class="row">
+        <label class="field">File<input id="iFile" type="file"
+          accept=".zip,.json,.geojson,application/zip,application/geo+json" required></label>
+        <label class="field">Coordinate system<input type="text" id="iSrid" inputmode="numeric"
+          placeholder="4326"><span class="u"></span></label>
+      </div>
+      <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
+        WGS 84 longitude, latitude by its own specification. A shapefile carries a
+        <code>.prj</code> and this server will not guess a code from it.</p>
+      <button class="primary" type="submit">Import and publish</button>
+    </form>
+    <div id="newResult" class="group" style="display:none"></div>`;
+
+  $("importForm").addEventListener("submit", createImported);
+
+  if (!handedFile) return;
+
+  // <b>A `DataTransfer` is the only way to fill a file input from script</b>, and it is a real one:
+  // the form then validates, submits and clears exactly as it does when the picker was used.
+  const carrier = new DataTransfer();
+  carrier.items.add(handedFile);
+  $("iFile").files = carrier.files;
+
+  // The name is offered, not imposed. Portal prefills the title from the file and lets it be typed
+  // over, and a layer named after the ZIP somebody was sent is usually wrong.
+  $("iName").value = handedFile.name.replace(/\.(zip|json|geojson)$/i, "");
+  $("iName").select();
+  handedFile = null;
+}
+
+/** Publish a table this server can reach. */
+function drawRegisteredForm() {
+  $("addItemBody").innerHTML = `
+    <p class="hint">For data that already lives in a PostGIS database this server can reach.
+      <b>Nothing is copied</b> — the layer reads the table where it is. The tables are read from
+      the database when you pick a connection, not remembered from when it was registered, so a
+      table that has been dropped or revoked does not appear. Only tables with a geometry column
+      are offered, because the rest cannot be a feature layer.</p>
+    <form id="regForm" autocomplete="off">
+      <div class="row">
+        <label class="field" style="flex:1 1 190px">Connection<select id="rSource">
+          <option value="">choose a connection…</option>
+        </select></label>
+        <label class="field" style="flex:2 1 250px">Table<select id="rTable" disabled>
+          <option value="">pick a connection first</option>
+        </select></label>
+      </div>
+      <div id="rFacts" style="display:none"></div>
+      <div class="row">
+        <label class="field">Layer name<input type="text" id="rName" placeholder="parcels" required></label>
+        <label class="field">Identity column
+          <input type="text" id="rIdentity" placeholder="nominate one" required></label>
+        <label class="field">Sharing<select id="rShare">
+          <option value="private" selected>private</option>
+          <option value="organization">organization</option>
+          <option value="public">public</option>
+        </select></label>
+        <label class="field">Into service <span class="val">(optional)</span>
+          <input type="text" id="rService" list="serviceNames" placeholder="a service of its own">
+        </label>
+      </div>
+      <p class="hint">Which column identifies a feature for the life of the layer. It is your
+        nomination, not something read from the table (Q-57): we will not synthesise one, because
+        a row number is not stable and a side mapping table would drift on the owner's first
+        edit.</p>
+      <datalist id="serviceNames"></datalist>
+      <p class="hint">Naming an existing service adds this layer to it at the next free index —
+        that is how several related layers become one service. Leaving it empty gives the layer a
+        single-layer service named after it.</p>
+      <button class="primary" type="submit">Publish</button>
+    </form>
+    <div id="newResult" class="group" style="display:none"></div>`;
+
+  $("regForm").addEventListener("submit", publishRegistered);
+  $("rSource").addEventListener("change", loadRegisteredTables);
+  $("rTable").addEventListener("change", showChosenTable);
+
+  // Filled after the screen is on, so a request does not hold the form shut. The control says what
+  // it is waiting for in its own first option.
+  section("connections", fillConnectionChoices);
+  section("service names", fillServiceChoices);
+}
+
+/**
+ * Server's own action: an empty service, and the group layers inside one.
+ *
+ * <b>Not on the New item dialog, and that is the owner's rule applied.</b> They gave it for the group
+ * screen — *"add member shall be inside members section"* — and then again here: *"grupun ve servisin
+ * orada ilişkisi yok. servis katmanın bir özelliği."* A service is not an item you add; it is how a
+ * layer is presented. So it keeps the surface whose subject it is, Server, and the item dialog is
+ * about items.
+ *
+ * <b>And it stays a drawer.</b> Two short forms that are read against the service list behind them —
+ * the group form's *Nest under* is a layer id you get from that list — which is the case the note
+ * beside `#issued` gives for a panel rather than a modal.
+ */
+function openNewService() {
+  itemStep = "item";
+  $("addItemBody").innerHTML = "";
+  if ($("addItem").open) $("addItem").close();
+
+  $("drawerTitle").textContent = "New service";
+  $("drawerSub").textContent = "a container for layers, and the groups inside it";
   $("drawerBody").innerHTML = `
     <div class="group">
-      <h3>Design a schema</h3>
-      <p class="hint">For data you are going to collect. Creates an empty feature class you
-        fill through the feature service. <code>objectid</code> and <code>geom</code> are made
-        for you, stored in Web Mercator so the layer can serve tiles.</p>
-      <form id="designForm" autocomplete="off">
-        <div class="row">
-          <label class="field">Name<input type="text" id="dName" placeholder="inspections" required></label>
-          <label class="field">Geometry<select id="dGeom">
-            <option>Point</option><option>MultiPoint</option><option>LineString</option>
-            <option>MultiLineString</option><option selected>Polygon</option><option>MultiPolygon</option>
-          </select></label>
-          <label class="field">Sharing<select id="dShare">
-            <option value="private" selected>private</option>
-            <option value="organization">organization</option>
-            <option value="public">public</option>
-          </select></label>
-        </div>
-        <table>
-          <thead><tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr></thead>
-          <tbody id="dFields"></tbody>
-        </table>
-        <div class="row" style="margin:10px 0 0">
-          <button type="button" id="dAdd" class="ghost">Add field</button>
-          <button class="primary" type="submit">Create empty layer</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="group">
-      <h3>Import a file</h3>
-      <p class="hint">For data you already have. Reads the schema from the file — a
-        <b>zipped shapefile</b> or a <b>GeoJSON FeatureCollection</b>. A shapefile needs its
-        <code>srid</code> given, because matching the <code>.prj</code>'s WKT to a code by comparing
-        strings is how a layer comes to declare a system it is not in.</p>
-      <form id="importForm" autocomplete="off">
-        <div class="row">
-          <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
-          <label class="field">Sharing<select id="iShare">
-            <option value="private" selected>private</option>
-            <option value="organization">organization</option>
-            <option value="public">public</option>
-          </select></label>
-        </div>
-        <div class="row">
-          <label class="field">File<input id="iFile" type="file"
-            accept=".zip,.json,.geojson,application/zip,application/geo+json" required></label>
-          <label class="field">Coordinate system<input type="text" id="iSrid" inputmode="numeric"
-            placeholder="4326"><span class="u"></span></label>
-        </div>
-        <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
-          WGS 84 longitude, latitude by its own specification. A shapefile carries a
-          <code>.prj</code> and this server will not guess a code from it.</p>
-        <button class="primary" type="submit">Import and publish</button>
-      </form>
-    </div>
-
-      // Empty, required, and not prefilled — which is a decision from the
-      // register rather than a UI preference. Q-57: identity for a registered
-      // table is "declared, not inferred", and the administrator nominates the
-      // column. Filling this from the probe would make the server's inference
-      // look like the operator's choice, and this is the column that decides
-      // which row an edit lands on.
-    <div class="group">
-      <h3>Publish a registered table</h3>
-      <p class="hint">For data that already lives in a PostGIS database this server can reach.
-        <b>Nothing is copied</b> — the layer reads the table where it is. The tables are read from
-        the database when you pick a connection, not remembered from when it was registered, so a
-        table that has been dropped or revoked does not appear. Only tables with a geometry column
-        are offered, because the rest cannot be a feature layer.</p>
-      <form id="regForm" autocomplete="off">
-        <div class="row">
-          <label class="field" style="flex:1 1 190px">Connection<select id="rSource">
-            <option value="">choose a connection…</option>
-          </select></label>
-          <label class="field" style="flex:2 1 250px">Table<select id="rTable" disabled>
-            <option value="">pick a connection first</option>
-          </select></label>
-        </div>
-        <div id="rFacts" style="display:none"></div>
-        <div class="row">
-          <label class="field">Layer name<input type="text" id="rName" placeholder="parcels" required></label>
-          <label class="field">Identity column
-            <input type="text" id="rIdentity" placeholder="nominate one" required></label>
-          <label class="field">Sharing<select id="rShare">
-            <option value="private" selected>private</option>
-            <option value="organization">organization</option>
-            <option value="public">public</option>
-          </select></label>
-          <label class="field">Into service <span class="val">(optional)</span>
-            <input type="text" id="rService" list="serviceNames" placeholder="a service of its own">
-          </label>
-        </div>
-        <p class="hint">Which column identifies a feature for the life of the layer. It is your
-          nomination, not something read from the table (Q-57): we will not synthesise one, because
-          a row number is not stable and a side mapping table would drift on the owner's first
-          edit.</p>
-        <datalist id="serviceNames"></datalist>
-        <p class="hint">Naming an existing service adds this layer to it at the next free index —
-          that is how several related layers become one service. Leaving it empty gives the layer a
-          single-layer service named after it.</p>
-        <button class="primary" type="submit">Publish</button>
-      </form>
-    </div>
-
-    <div class="group">
-      <h3>A service, and groups inside one</h3>
+      <h3>An empty service</h3>
       <p class="hint">A service is a container of layers, so it can exist before its layers do —
         and that is the order you need when the structure matters: create the service, add the
         groups, then publish layers into it naming the group to nest under.</p>
@@ -4266,11 +4536,14 @@ function openNewLayer() {
         </div>
         <button type="submit">Create empty service</button>
       </form>
+    </div>
 
-      // The groups a service already has, listed here and removable here. The place
-      // something is made is the place to unmake it: there is no other screen a group
-      // belongs to, since a group holds no data and has no settings of its own.
-      <form id="grpForm" autocomplete="off" style="margin-top:16px">
+    <div class="group">
+      <h3>A group layer inside one</h3>
+      <p class="hint">A group layer nests layers within a service's own tree. It is not a sharing
+        group and holds no data — the groups a service already has are listed below, and removable
+        there, because the place a thing is made is the place to unmake it.</p>
+      <form id="grpForm" autocomplete="off">
         <div class="row">
           <label class="field" style="flex:2 1 220px">Group inside
             <input type="text" id="gService" list="serviceNames" placeholder="hosted/EarlyAlert" required></label>
@@ -4278,6 +4551,7 @@ function openNewLayer() {
           <label class="field">Nest under <span class="val">(layer id)</span>
             <input type="number" id="gParent" min="0" placeholder="top level"></label>
         </div>
+        <datalist id="serviceNames"></datalist>
         <button type="submit">Create group layer</button>
         <div id="gExisting" class="val" style="margin-top:10px"></div>
       </form>
@@ -4285,21 +4559,10 @@ function openNewLayer() {
 
     <div id="newResult" class="group" style="display:none"></div>`;
 
-  $("designForm").addEventListener("submit", createDesigned);
-  $("importForm").addEventListener("submit", createImported);
-  $("regForm").addEventListener("submit", publishRegistered);
   $("svcForm").addEventListener("submit", createService);
   $("grpForm").addEventListener("submit", createGroupLayer);
   $("gService").addEventListener("change", event => showServiceGroups(event.target.value));
-  $("rSource").addEventListener("change", loadRegisteredTables);
-  $("rTable").addEventListener("change", showChosenTable);
-  $("dAdd").addEventListener("click", () => addFieldRow());
-  addFieldRow();
 
-  // Both lists are filled after the drawer is on screen. A form that cannot be
-  // used until a request finishes should say so in its own control rather than
-  // hold the drawer shut.
-  section("connections", fillConnectionChoices);
   section("service names", fillServiceChoices);
 
   $("drawer").classList.add("on");
@@ -4681,7 +4944,9 @@ async function handleClick(event) {
   // inside one — the form was general before the button was — so Server's *New service* and
   // Studio's *New layer* open the same thing and each names the part its reader came for. Two
   // drawers would be two copies of a publish form, which is D-46's whole subject.
-  if (t.id === "newLayer" || t.id === "newService") { openNewLayer(); return; }
+  if (t.id === "newLayer") { openAddItem(); return; }
+  if (t.id === "newService") { openNewService(); return; }
+  if (t.id === "addItemClose") { $("addItem").close(); return; }
 
   // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject
   // rather than a field on something else (ADR-034 §5h).
