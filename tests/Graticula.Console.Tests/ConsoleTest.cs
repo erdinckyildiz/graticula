@@ -532,6 +532,23 @@ public abstract class ConsoleTest : IAsyncLifetime
           window.__writes = [];
           window.__confirmed = [];
 
+          // <b>Every way a page can fail without saying so.</b> The four defects this
+          // suite was built for were all visible on screen; a thrown exception is not —
+          // it stops one section and leaves the rest looking finished, which is exactly
+          // how a half-loaded console reads as a loaded one. `error` catches a throw,
+          // `unhandledrejection` catches an await nobody caught, and the console's own
+          // `api()` rejects on every refusal, so the second is the one that matters here.
+          window.__pageErrors = [];
+
+          window.addEventListener("error", e => {
+            window.__pageErrors.push("error: " + (e.message || String(e.error)));
+          });
+
+          window.addEventListener("unhandledrejection", e => {
+            const why = e.reason && (e.reason.message || e.reason);
+            window.__pageErrors.push("unhandled rejection: " + String(why));
+          });
+
           // Every confirm is answered yes. A dialog that blocks is a headless
           // browser that hangs, and what a test wants to know is what the click
           // did once it was allowed to proceed.
@@ -651,6 +668,20 @@ public abstract class ConsoleTest : IAsyncLifetime
             $"Ten seconds passed and nothing on the page matched '{selector}'. The address was "
             + $"{await Browser.EvaluateAsync<string>("location.href")}.");
     }
+
+    /// <summary>
+    /// Anything the page threw or failed to await, in order.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the same question as "does the screen look right".</b> The console loads
+    /// each section on its own so that one refused endpoint cannot blank the page — which
+    /// is the right design and means a section that threw leaves the rest looking
+    /// finished. A test that only checks what is visible cannot tell a loaded console from
+    /// a half-loaded one.
+    /// </remarks>
+    protected async Task<string[]> PageErrorsAsync() =>
+        await Browser.EvaluateAsync<string[]>("window.__pageErrors")
+            ?? Array.Empty<string>();
 
     /// <summary>What the page tried to write while the test was running.</summary>
     protected async Task<string[]> WritesAsync() =>
