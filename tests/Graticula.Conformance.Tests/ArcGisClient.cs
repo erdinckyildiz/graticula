@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -162,6 +163,79 @@ public abstract class ArcGisClient : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Every FeatureServer a client could add, folders included.
+    /// </summary>
+    /// <returns>Qualified service names, in the order the catalogue lists them.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Because "the first service" is a fact about the fixture, not about the
+    /// server.</b> Most of this suite asks its question of <c>AnyServiceNameAsync</c>,
+    /// which returns whichever service the catalogue happens to list first — so an
+    /// invariant asserted that way is asserted about one layer, and the other nine are
+    /// unexamined.
+    /// </para>
+    /// <para>
+    /// <b>It cost a real defect, and the test that should have caught it was passing.</b>
+    /// On 2026-08-18 `Pages_do_not_overlap_or_skip` went red the moment an unrelated
+    /// change moved which layer came first — and the bug it then found (D-21: the first
+    /// page ordered differently from every later one) had been live for four days on three
+    /// of the owner's ten layers. The seven it was not visible on were small enough that
+    /// heap order happened to be identity order. A test whose coverage is decided by row
+    /// order is a test that reports on the data rather than on the server.
+    /// </para>
+    /// <para>
+    /// <b>So the invariants walk all of them.</b> Not every test — a test about one
+    /// document's shape has nothing to gain from repetition — but the ones whose claim is
+    /// *for every layer this server serves*.
+    /// </para>
+    /// </remarks>
+    protected async Task<IReadOnlyList<string>> EveryServiceNameAsync()
+    {
+        List<string> found = [];
+        JsonElement root = await GetJsonAsync("/rest/services");
+
+        Collect(root, found);
+
+        if (root.TryGetProperty("folders", out JsonElement folders)
+            && folders.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement folder in folders.EnumerateArray())
+            {
+                if (folder.GetString() is { Length: > 0 } name)
+                {
+                    Collect(await GetJsonAsync($"/rest/services/{name}"), found);
+                }
+            }
+        }
+
+        Assert.NotEmpty(found);
+        return found;
+
+        // <b>Feature services only.</b> The Utilities folder holds the geometry service,
+        // which has no layers and would fail every assertion a caller makes about one.
+        static void Collect(JsonElement catalogue, List<string> into)
+        {
+            if (!catalogue.TryGetProperty("services", out JsonElement services)
+                || services.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (JsonElement service in services.EnumerateArray())
+            {
+                if (service.TryGetProperty("type", out JsonElement type)
+                    && string.Equals(type.GetString(), "FeatureServer", StringComparison.Ordinal)
+                    && service.TryGetProperty("name", out JsonElement name)
+                    && name.GetString() is { Length: > 0 } qualified
+                    && !into.Contains(qualified))
+                {
+                    into.Add(qualified);
+                }
+            }
+        }
     }
 
     protected async Task<string> RequireServerAsync()

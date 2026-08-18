@@ -31,121 +31,117 @@ namespace Graticula.Conformance.Tests;
 [Trait("Category", "Conformance")]
 public sealed class ArcGisConsistencyTests : ArcGisClient
 {
+    /// <summary>
+    /// The six consistency claims, asked of every layer this server serves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every layer, and that is the correction of 2026-08-18.</b> These asked their
+    /// question of whichever service the catalogue listed first, which made their coverage
+    /// a fact about row order rather than about the server. It cost a real defect: the
+    /// paging test below passed for four days while three of the owner's ten layers were
+    /// skipping rows, because the layer it landed on was small enough for heap order to be
+    /// identity order (D-21).
+    /// </para>
+    /// <para>
+    /// <b>Six claims rather than six tests per layer, because a failure has to name the
+    /// layer.</b> Each check runs inside the loop and puts the qualified service name in
+    /// its message — a red assertion that says *the object id was a string* without saying
+    /// where is a red assertion somebody has to reproduce before they can act on it.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task The_query_names_the_same_object_id_field_the_layer_document_declares()
+    public async Task Every_layer_is_consistent_with_its_own_document()
     {
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
+        int examined = 0;
 
-        // A client selects and pages by this name. If they differ it matches
-        // nothing, silently, forever.
-        Assert.Equal(
-            layer.GetProperty("objectIdField").GetString(),
-            query.GetProperty("objectIdFieldName").GetString());
-    }
-
-    [Fact]
-    public async Task The_query_returns_the_geometry_type_the_layer_document_promised()
-    {
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
-
-        // The client has already built a polygon renderer by the time the first
-        // feature arrives.
-        Assert.Equal(
-            layer.GetProperty("geometryType").GetString(),
-            query.GetProperty("geometryType").GetString());
-    }
-
-    [Fact]
-    public async Task The_query_returns_the_spatial_reference_the_layer_document_promised()
-    {
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
-
-        int declared = layer.GetProperty("extent").ValueKind == JsonValueKind.Null
-            ? query.GetProperty("spatialReference").GetProperty("wkid").GetInt32()
-            : layer.GetProperty("extent").GetProperty("spatialReference").GetProperty("wkid").GetInt32();
-
-        Assert.Equal(declared, query.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
-    }
-
-    [Fact]
-    public async Task The_object_id_is_emitted_as_a_number_because_it_is_declared_as_an_OID()
-    {
-        // The bug this pins, found by reading a real response: objectid came out
-        // as "1" in quotes while the field was declared esriFieldTypeOID. A
-        // client paging or selecting against a quoted value matches nothing and
-        // is told nothing.
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
-
-        string oid = layer.GetProperty("objectIdField").GetString()!;
-        JsonElement attributes = query.GetProperty("features")[0].GetProperty("attributes");
-
-        Assert.True(
-            attributes.TryGetProperty(oid, out JsonElement value),
-            $"The features do not carry '{oid}', which objectIdFieldName names. A client cannot "
-            + "page or select against a field that is not in the response.");
-
-        Assert.Equal(JsonValueKind.Number, value.ValueKind);
-    }
-
-    [Fact]
-    public async Task Every_attribute_returned_was_declared_as_a_field()
-    {
-        // An undeclared attribute has no column in the client's table, so the
-        // value is fetched, transferred, and dropped.
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
-
-        HashSet<string> declared = [.. layer.GetProperty("fields").EnumerateArray()
-            .Select(f => f.GetProperty("name").GetString()!)];
-
-        foreach (JsonProperty attribute in query.GetProperty("features")[0]
-            .GetProperty("attributes").EnumerateObject())
+        foreach ((string name, JsonElement layer, JsonElement query) in
+            await EveryLayerAndQueryAsync())
         {
+            // A client selects and pages by this name. If they differ it matches
+            // nothing, silently, forever.
+            Assert.Equal(
+                layer.GetProperty("objectIdField").GetString(),
+                query.GetProperty("objectIdFieldName").GetString());
+
+            // The client has already built a polygon renderer by the time the first
+            // feature arrives.
+            Assert.Equal(
+                layer.GetProperty("geometryType").GetString(),
+                query.GetProperty("geometryType").GetString());
+
+            int declaredSrid = layer.GetProperty("extent").ValueKind == JsonValueKind.Null
+                ? query.GetProperty("spatialReference").GetProperty("wkid").GetInt32()
+                : layer.GetProperty("extent").GetProperty("spatialReference")
+                    .GetProperty("wkid").GetInt32();
+
+            Assert.Equal(
+                declaredSrid,
+                query.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+
+            string oid = layer.GetProperty("objectIdField").GetString()!;
+
+            JsonElement attributes = query.GetProperty("features")[0].GetProperty("attributes");
+
+            // The bug this pins, found by reading a real response: objectid came out as
+            // "1" in quotes while the field was declared esriFieldTypeOID. A client paging
+            // or selecting against a quoted value matches nothing and is told nothing.
             Assert.True(
-                declared.Contains(attribute.Name),
-                $"'{attribute.Name}' came back in a feature and is not in the layer's field list.");
-        }
-    }
+                attributes.TryGetProperty(oid, out JsonElement identity),
+                $"'{name}' does not carry '{oid}' in its features, which objectIdFieldName "
+                + "names. A client cannot page or select against a field that is not in the "
+                + "response.");
 
-    [Fact]
-    public async Task Every_declared_field_type_matches_the_value_actually_sent()
-    {
-        // The silent class of failure: a field declared as an integer and sent
-        // as a string parses back as a number and loses precision; declared as a
-        // number and sent as a string sorts as text. Neither raises anything.
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
+            Assert.Equal(JsonValueKind.Number, identity.ValueKind);
 
-        Dictionary<string, string> declared = layer.GetProperty("fields").EnumerateArray()
-            .ToDictionary(
-                f => f.GetProperty("name").GetString()!,
-                f => f.GetProperty("type").GetString()!);
+            Dictionary<string, string> declared = layer.GetProperty("fields").EnumerateArray()
+                .ToDictionary(
+                    f => f.GetProperty("name").GetString()!,
+                    f => f.GetProperty("type").GetString()!);
 
-        foreach (JsonProperty attribute in query.GetProperty("features")[0]
-            .GetProperty("attributes").EnumerateObject())
-        {
-            if (attribute.Value.ValueKind == JsonValueKind.Null)
+            foreach (JsonProperty attribute in attributes.EnumerateObject())
             {
-                continue;
+                // An undeclared attribute has no column in the client's table, so the value
+                // is fetched, transferred, and dropped.
+                Assert.True(
+                    declared.ContainsKey(attribute.Name),
+                    $"'{name}' returned '{attribute.Name}' in a feature and it is not in the "
+                    + "layer's field list.");
+
+                if (attribute.Value.ValueKind == JsonValueKind.Null)
+                {
+                    continue;
+                }
+
+                // The silent class of failure: a field declared as an integer and sent as a
+                // string parses back as a number and loses precision; declared as a number
+                // and sent as a string sorts as text. Neither raises anything.
+                string type = declared[attribute.Name];
+                JsonValueKind kind = attribute.Value.ValueKind;
+
+                bool agrees = type switch
+                {
+                    "esriFieldTypeOID" or "esriFieldTypeInteger" or "esriFieldTypeSmallInteger"
+                        or "esriFieldTypeDouble" or "esriFieldTypeSingle" or "esriFieldTypeDate"
+                        => kind == JsonValueKind.Number,
+                    "esriFieldTypeString" or "esriFieldTypeGUID" or "esriFieldTypeBlob"
+                        => kind == JsonValueKind.String,
+                    _ => true,
+                };
+
+                Assert.True(
+                    agrees,
+                    $"'{name}.{attribute.Name}' is declared {type} and was sent as {kind}. A "
+                    + "client parses the value according to the declaration, so this is wrong in "
+                    + "a way nothing reports.");
             }
 
-            string type = declared[attribute.Name];
-            JsonValueKind kind = attribute.Value.ValueKind;
-
-            bool agrees = type switch
-            {
-                "esriFieldTypeOID" or "esriFieldTypeInteger" or "esriFieldTypeSmallInteger"
-                    or "esriFieldTypeDouble" or "esriFieldTypeSingle" or "esriFieldTypeDate"
-                    => kind == JsonValueKind.Number,
-                "esriFieldTypeString" or "esriFieldTypeGUID" or "esriFieldTypeBlob"
-                    => kind == JsonValueKind.String,
-                _ => true,
-            };
-
-            Assert.True(
-                agrees,
-                $"'{attribute.Name}' is declared {type} and was sent as {kind}. A client parses "
-                + "the value according to the declaration, so this is wrong in a way nothing "
-                + "reports.");
+            examined++;
         }
+
+        Assert.True(
+            examined > 0,
+            "No layer on this server returned a feature, so none of these claims was checked.");
     }
 
     [Fact]
@@ -154,15 +150,26 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // A client that respects maxRecordCount never triggers a server-side
         // clamp. One that ignores it must still not be able to ask for more than
         // the server said it would give.
-        string name = await FirstServiceNameAsync();
+        //
+        // <b>Every layer, because each service carries its own ceiling (ADR-031)</b> — so
+        // these are genuinely different claims, and asking only the first one is the
+        // coverage problem that let D-21's paging defect live for four days.
+        foreach (string name in await EveryServiceNameAsync())
+        {
+            JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
+            int advertised = layer.GetProperty("maxRecordCount").GetInt32();
 
-        JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
-        int advertised = layer.GetProperty("maxRecordCount").GetInt32();
+            JsonElement query = await GetJsonAsync(
+                $"/rest/services/{name}/FeatureServer/0/query"
+                + $"?resultRecordCount={advertised + 1000}");
 
-        JsonElement query = await GetJsonAsync(
-            $"/rest/services/{name}/FeatureServer/0/query?resultRecordCount={advertised + 1000}");
+            int returned = query.GetProperty("features").GetArrayLength();
 
-        Assert.True(query.GetProperty("features").GetArrayLength() <= advertised);
+            Assert.True(
+                returned <= advertised,
+                $"'{name}' advertises maxRecordCount {advertised} and returned {returned} "
+                + $"for a request of {advertised + 1000}.");
+        }
     }
 
     [Fact]
@@ -171,32 +178,54 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // ArcGIS reads part structure out of winding: a clockwise ring is a
         // shell, counter-clockwise is a hole. Getting it backwards renders holes
         // as solid and shells as holes, and no error is raised anywhere.
-        (JsonElement layer, JsonElement query) = await LayerAndQueryAsync();
+        //
+        // <b>Every polygon layer, because winding is a property of the data as much as of
+        // the writer.</b> A dataset exported by one tool chain arrives wound the OGC way
+        // and another arrives the specification's way — that is exactly what the shapefile
+        // reader's containment rule exists for — so a check on one layer says nothing about
+        // the next import. Asking one was the coverage habit that let D-21's paging defect
+        // live for four days.
+        int polygonal = 0;
 
-        if (layer.GetProperty("geometryType").GetString() != "esriGeometryPolygon")
+        foreach ((string name, JsonElement layer, JsonElement query) in
+            await EveryLayerAndQueryAsync())
         {
-            return;
+            if (layer.GetProperty("geometryType").GetString() != "esriGeometryPolygon")
+            {
+                continue;
+            }
+
+            JsonElement rings = query.GetProperty("features")[0]
+                .GetProperty("geometry").GetProperty("rings");
+
+            Assert.True(rings.GetArrayLength() > 0, $"'{name}' returned a polygon with no rings.");
+
+            JsonElement shell = rings[0];
+
+            Assert.True(
+                shell.GetArrayLength() >= 4,
+                $"'{name}' returned a ring of {shell.GetArrayLength()} positions; a ring needs at "
+                + "least four.");
+
+            double[] first = [shell[0][0].GetDouble(), shell[0][1].GetDouble()];
+            JsonElement lastPoint = shell[shell.GetArrayLength() - 1];
+            double[] last = [lastPoint[0].GetDouble(), lastPoint[1].GetDouble()];
+
+            Assert.Equal(first[0], last[0]);
+            Assert.Equal(first[1], last[1]);
+
+            Assert.True(
+                SignedArea(shell) < 0,
+                $"'{name}' returned a counter-clockwise outer ring. ArcGIS reads that as a hole, "
+                + "so the feature renders inside-out and nothing reports an error.");
+
+            polygonal++;
         }
 
-        JsonElement rings = query.GetProperty("features")[0]
-            .GetProperty("geometry").GetProperty("rings");
-
-        Assert.True(rings.GetArrayLength() > 0);
-
-        JsonElement shell = rings[0];
-        Assert.True(shell.GetArrayLength() >= 4, "A ring needs at least four positions.");
-
-        double[] first = [shell[0][0].GetDouble(), shell[0][1].GetDouble()];
-        JsonElement lastPoint = shell[shell.GetArrayLength() - 1];
-        double[] last = [lastPoint[0].GetDouble(), lastPoint[1].GetDouble()];
-
-        Assert.Equal(first[0], last[0]);
-        Assert.Equal(first[1], last[1]);
-
         Assert.True(
-            SignedArea(shell) < 0,
-            "The outer ring is counter-clockwise. ArcGIS reads that as a hole, so the feature "
-            + "renders inside-out and nothing reports an error.");
+            polygonal > 0,
+            "No polygon layer on this server returned a feature, so winding was not checked at "
+            + "all. Publish one, or read this as an untested claim rather than a passing test.");
     }
 
     [Fact]
@@ -246,6 +275,38 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         }
 
         return sum / 2;
+    }
+
+    /// <summary>
+    /// Every layer's document and one page of its features.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two requests per layer, and a layer with no features is skipped rather than
+    /// failed.</b> An empty layer is a real thing to publish — a container waiting for an
+    /// upload — and it cannot answer a question about the features it does not have. The
+    /// caller asserts that at least one layer was examined, which is what stops the whole
+    /// check passing vacuously.
+    /// </remarks>
+    private async Task<IReadOnlyList<(string Name, JsonElement Layer, JsonElement Query)>>
+        EveryLayerAndQueryAsync()
+    {
+        List<(string, JsonElement, JsonElement)> pairs = [];
+
+        foreach (string name in await EveryServiceNameAsync())
+        {
+            JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
+
+            JsonElement query = await GetJsonAsync(
+                $"/rest/services/{name}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=1");
+
+            if (query.GetProperty("features").GetArrayLength() > 0)
+            {
+                pairs.Add((name, layer, query));
+            }
+        }
+
+        return pairs;
     }
 
     private async Task<(JsonElement Layer, JsonElement Query)> LayerAndQueryAsync()
