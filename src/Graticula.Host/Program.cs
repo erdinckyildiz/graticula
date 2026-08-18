@@ -155,6 +155,10 @@ public static class Program
         builder.Services.AddSingleton<IGroupDirectory>(services =>
             new PostgresGroupDirectory(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-037's job record. A singleton over the data source, like every other store here.
+        builder.Services.AddSingleton<Graticula.Platform.Jobs.IJobStore>(services =>
+            new PostgresJobStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>A second port over the same store, and the split is deliberate</b> — see
         // IMemberDirectory. Every request touches IIdentityStore to authenticate; only
         // admin:manageMembers touches this, so the login path has no route to member creation.

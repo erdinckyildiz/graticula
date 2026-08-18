@@ -28,7 +28,9 @@ consequence was withdrawn because of it.
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 import traceback
 from typing import Any
 
@@ -201,5 +203,139 @@ def _write(answer: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+# ------------------------------------------------------------------------------ the claiming loop
+
+
+def _serve(dsn: str, scratch: str, idle_seconds: float = 2.0) -> int:
+    """Claims jobs from the platform store and runs them until killed.
+
+    **ADR-011 §3.2's mechanism, from this side.** The worker claims its own work with
+    `SELECT … FOR UPDATE SKIP LOCKED`; the server never invokes it, which is what lets the two live in
+    separate containers (ADR-016 §2) without the server holding a Docker socket or the worker exposing
+    a listener.
+
+    **It touches the platform store and never the datastore.** ADR-037 §5: the job table is ours to
+    claim from, and the features are not ours to write — this writes GeoParquet and the server imports
+    it. The first version of that ADR said *never holds a database connection*, which contradicted
+    ADR-011 and has been corrected to name the store.
+
+    **Polling rather than `LISTEN`/`NOTIFY`, and the interval is a number rather than a detail.**
+    ADR-011 §3.3 chose push with polling as the fallback, and says the interval *"must be a documented
+    number, because it is the floor on how long an administrator waits after pressing a button."* Two
+    seconds is that floor. Push is the optimisation and is not built; correctness does not depend on it,
+    which §3.3 also requires.
+
+    **There is no lease.** A job this worker claims and then dies holding stays `running` for ever, and
+    nothing reclaims it. ADR-011 §3.3 names the reclaim sweep; this is not it, and the first stuck job
+    is the evidence a timeout would otherwise be guessed from.
+    """
+    import psycopg
+
+    print(f"worker {VERSION} claiming from the job table every {idle_seconds}s", file=sys.stderr)
+
+    with psycopg.connect(dsn, autocommit=False) as connection:
+        while True:
+            job = _claim(connection)
+
+            if job is None:
+                time.sleep(idle_seconds)
+                continue
+
+            job_id, kind, detail = job
+
+            print(f"took {job_id} ({kind})", file=sys.stderr)
+
+            try:
+                asked = json.loads(detail) if detail else {}
+
+                if kind == "geodatabase.inspect":
+                    answer = _layers(asked["archive"])
+                elif kind == "geodatabase.import":
+                    answer = _convert(asked["archive"], asked["layer"], asked["out"])
+                else:
+                    raise ValueError(f"'{kind}' is not a job this worker runs.")
+
+                _finish(connection, job_id, "done", json.dumps(answer), None)
+                print(f"done {job_id}", file=sys.stderr)
+            except Exception as failed:  # noqa: BLE001 — a job's failure is data, not a crash
+                traceback.print_exc(file=sys.stderr)
+
+                # <b>The reason is written to the row, because the store refuses a failure without
+                # one.</b> A job that says only *failed* is one nobody can act on.
+                _finish(
+                    connection, job_id, "failed", None, f"{type(failed).__name__}: {failed}")
+
+
+def _claim(connection: object) -> tuple[str, str, str | None] | None:
+    """Takes the oldest queued job this worker can run, or nothing.
+
+    The statement is the one `PostgresJobStore.ClaimAsync` uses, and it is here rather than called
+    through the server because the worker is a separate container with no route into it.
+    """
+    with connection.cursor() as cursor:  # type: ignore[attr-defined]
+        cursor.execute(
+            """
+            with taken as (
+                select id from job
+                 where status = 'queued' and kind in ('geodatabase.inspect', 'geodatabase.import')
+                 order by created_at
+                 limit 1
+                 for update skip locked
+            )
+            update job
+               set status = 'running', started_at = now()
+             where id in (select id from taken)
+            returning id::text, kind, detail
+            """)
+
+        row = cursor.fetchone()
+
+    connection.commit()  # type: ignore[attr-defined]
+
+    return row
+
+
+def _progress(connection: object, job_id: str, percent: int) -> None:
+    """Reports how far along, while running."""
+    with connection.cursor() as cursor:  # type: ignore[attr-defined]
+        cursor.execute(
+            "update job set progress = %s where id = %s and status = 'running'",
+            (max(0, min(100, percent)), job_id))
+
+    connection.commit()  # type: ignore[attr-defined]
+
+
+def _finish(
+    connection: object,
+    job_id: str,
+    status: str,
+    detail: str | None,
+    failure: str | None,
+) -> None:
+    """Records the ending, and completes the progress only on success."""
+    with connection.cursor() as cursor:  # type: ignore[attr-defined]
+        cursor.execute(
+            """
+            update job
+               set status      = %s,
+                   finished_at = now(),
+                   progress    = case when %s = 'done' then 100 else progress end,
+                   detail      = coalesce(%s, detail),
+                   failure     = %s
+             where id = %s and status in ('queued', 'running')
+            """,
+            (status, status, detail, failure, job_id))
+
+    connection.commit()  # type: ignore[attr-defined]
+
+
 if __name__ == "__main__":
+    # <b>Two modes, and the pipe one is not a convenience.</b> `--serve` is how the worker runs in a
+    # deployment; reading stdin is how it is tested and measured without a database, which is how
+    # every number in file-geodatabase-readers.md §8d was taken.
+    if "--serve" in sys.argv:
+        sys.exit(_serve(
+            os.environ["GRATICULA_PLATFORM_STORE"],
+            os.environ.get("GRATICULA_IMPORT_SCRATCH", "/import")))
+
     sys.exit(main())

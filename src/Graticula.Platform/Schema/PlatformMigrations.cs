@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(28);
+    public static SchemaVersion ComponentSchemaVersion => new(29);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -63,6 +63,7 @@ public static class PlatformMigrations
         GroupsV26,
         GroupSettingsV27,
         JobsV28,
+        JobInspectKindV29,
     ]);
 
     /// <summary>
@@ -447,6 +448,42 @@ public static class PlatformMigrations
     /// </para>
     /// <para><b>Expand.</b> One new table and two indexes. Nothing existing loses a value.</para>
     /// </remarks>
+    /// <summary>
+    /// A second job kind: looking inside a geodatabase before choosing what to take from it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two kinds because the operator cannot name a layer they have not seen.</b> A geodatabase holds
+    /// many feature classes — one of the owner's real archives holds 55 — so an upload cannot say which
+    /// one to import. The first job answers *what is in here*; the operator chooses; the second imports
+    /// the chosen layer. Squeezing both into one job would mean either importing everything, or asking
+    /// for a layer name before the archive has been read.
+    /// </para>
+    /// <para>
+    /// <b>`inspect` is cheap and `import` is not, which is why they are separate rows rather than two
+    /// phases of one.</b> Listing layers reads headers; importing reads features. A screen that has to
+    /// wait for the second to offer the first would make choosing a layer as slow as importing one.
+    /// </para>
+    /// <para>
+    /// <b>Migration 28's check constraint named one kind, and it was written knowing it would move.</b>
+    /// That is the shape [D-74](../../docs/architecture-debt.md) argues for: a closed set with one
+    /// value is cheap to widen and stops a typo becoming a job nobody can run. This is the widening.
+    /// </para>
+    /// <para><b>Expand.</b> One check constraint replaced by a wider one. No row loses a value.</para>
+    /// </remarks>
+    private static Migration JobInspectKindV29 => Migration.Expand(
+        new SchemaVersion(29),
+        "A second job kind, so a geodatabase can be looked into before a layer is chosen (ADR-037).",
+
+        """
+        alter table job drop constraint if exists job_kind_known
+        """,
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import'))
+        """);
+
     private static Migration JobsV28 => Migration.Expand(
         new SchemaVersion(28),
         "A record of long work, so an import can be answered later (ADR-037, ADR-011's first step).",

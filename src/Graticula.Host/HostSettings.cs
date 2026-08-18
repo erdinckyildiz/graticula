@@ -36,6 +36,8 @@ internal sealed record HostSettings(
     string? CertificatePassword,
     TimeSpan SessionLifetime,
     string StatePath,
+    string ImportScratchPath,
+    long ImportScratchBudgetBytes,
     string TileCachePath,
     long TileCacheBudgetBytes,
     long TileCacheLayerBudgetBytes,
@@ -128,6 +130,26 @@ internal sealed record HostSettings(
             // certificate.
             keys.Text("StatePath")
                 ?? Path.Combine(AppContext.BaseDirectory, "state"),
+
+            // <b>Where an uploaded archive waits for a worker, and it is not under StatePath.</b>
+            // Same reasoning as the tile cache below: this holds nothing that must survive a container
+            // replacement. An archive whose job never ran is a job that failed, and the honest recovery
+            // is to upload it again — not to back up somebody's geodatabase on the volume that carries
+            // the serving certificate.
+            //
+            // <b>Shared with the worker, which is why it is configurable at all.</b> ADR-016 §2 puts
+            // the worker in its own container, so this path is a volume both mount — the server writes,
+            // the worker reads. A default beside the process works for a local run and is wrong in a
+            // deployment, which is what the compose file is for.
+            keys.Text("ImportScratchPath")
+                ?? Path.Combine(AppContext.BaseDirectory, "import"),
+
+            // <b>ADR-037 condition 6, and the number is the format's rather than round.</b> The
+            // owner's three real geodatabases are 0.3, 3.9 and 0.06 MB compressed; 2 GB is three
+            // orders of magnitude above the largest and still below what would trouble a disk. It
+            // bounds **one upload at its transferred size** — the expansion is gone, because GDAL
+            // reads inside the archive and nothing unpacks here.
+            keys.Value("ImportScratchBudgetMB", 2048L) * 1024 * 1024,
 
             // <b>Not under StatePath, deliberately.</b> StatePath holds things
             // that must survive a container replacement — the serving

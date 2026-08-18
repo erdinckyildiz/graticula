@@ -259,6 +259,7 @@ public sealed class PostgresJobStore : IJobStore
 
     private static string Wire(JobKind kind) => kind switch
     {
+        JobKind.GeodatabaseInspect => "geodatabase.inspect",
         JobKind.GeodatabaseImport => "geodatabase.import",
 
         // enum-default-is-deliberate: refused rather than defaulted. A kind this build does not know
@@ -303,6 +304,7 @@ public sealed class PostgresJobStore : IJobStore
     // makes the second kind a compile-time question instead of a silent mis-read.
     private static JobKind ReadKind(string stored) => stored switch
     {
+        "geodatabase.inspect" => JobKind.GeodatabaseInspect,
         "geodatabase.import" => JobKind.GeodatabaseImport,
 
         _ => throw new InvalidOperationException(

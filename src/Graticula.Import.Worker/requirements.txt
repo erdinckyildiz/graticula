@@ -11,4 +11,5 @@
 pyogrio==0.11.1
 geopandas==1.1.1
 pyarrow==21.0.0
+psycopg[binary]==3.2.9
 shapely==2.1.2

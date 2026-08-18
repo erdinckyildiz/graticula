@@ -16,7 +16,18 @@ namespace Graticula.Platform.Jobs;
 public enum JobKind
 {
     /// <summary>
-    /// Reading a File Geodatabase into the datastore — [ADR-037]'s first job.
+    /// Looking inside a File Geodatabase to see what it holds.
+    /// </summary>
+    /// <remarks>
+    /// <b>Cheap, and separate from the import for that reason.</b> An operator cannot name a layer they
+    /// have not seen — one of the owner's real archives holds 55 — so this answers *what is in here* and
+    /// the import takes one of the answers. Listing reads headers; importing reads features, and making
+    /// a screen wait for the second before offering the first would make choosing as slow as importing.
+    /// </remarks>
+    GeodatabaseInspect,
+
+    /// <summary>
+    /// Reading one layer of a File Geodatabase into the datastore — [ADR-037]'s first job.
     /// </summary>
     GeodatabaseImport,
 }

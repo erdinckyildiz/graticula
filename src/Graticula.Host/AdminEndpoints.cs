@@ -15,6 +15,7 @@ using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Jobs;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -281,6 +282,14 @@ internal static class AdminEndpoints
         // with no privilege beyond being signed in.
         app.MapGet("/content/layers", ListMyContentAsync);
         app.MapGet("/content/items", ListContentItemsAsync);
+
+        // <b>ADR-037's surface, and it is a read only.</b> A job is created by the act that needs one —
+        // an upload — and never by asking for one, so there is no POST here. Cancelling is absent for
+        // the same reason `JobStatus.Cancelled` is unreachable: stopping a worker mid-write needs a
+        // decision about what it leaves behind, and offering the control before making that decision
+        // is how a half-written table gets created.
+        app.MapGet("/admin/jobs", ListJobsAsync);
+        app.MapGet("/admin/jobs/{id:guid}", DescribeJobAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -557,6 +566,98 @@ internal static class AdminEndpoints
     /// can change it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Jobs this caller may see, newest first.
+    /// </summary>
+    /// <remarks>
+    /// <b>Their own, or everybody's for an administrator</b> — the same two axes every other listing
+    /// here uses. `?running=true` narrows to what is queued or running, which is the question a screen
+    /// asks when it is deciding whether to keep polling.
+    /// </remarks>
+    private static async Task ListJobsAsync(
+        HttpContext context, IJobStore jobs, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "A job belongs to somebody, so this needs to know who you are.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        bool all = current.Authorization.Allows(Privilege.AdminManageAllContent);
+        bool running = context.Request.Query["running"] == "true";
+
+        IReadOnlyList<JobRecord> found = await jobs
+            .ListAsync(current.Principal.Id, all, running, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            jobs = found.Select(Wire),
+            listing = all ? "every job on the server" : "your jobs",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One job.
+    /// </summary>
+    /// <remarks>
+    /// <b>404 for somebody else's, not 403.</b> ADR-018's reasoning about private content applied to an
+    /// id: a 403 confirms the job exists, which turns this into a way to learn what other people are
+    /// doing. The store puts the ownership test in its `where` clause so the two cases are one answer.
+    /// </remarks>
+    private static async Task DescribeJobAsync(
+        HttpContext context, Guid id, IJobStore jobs, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "A job belongs to somebody, so this needs to know who you are.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        bool all = current.Authorization.Allows(Privilege.AdminManageAllContent);
+
+        JobRecord? found = await jobs
+            .FindAsync(id, current.Principal.Id, all, cancellation).ConfigureAwait(false);
+
+        if (found is null)
+        {
+            await Refuse(context, 404, $"No job '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(Wire(found)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>One job on the wire.</summary>
+    /// <remarks>
+    /// <b>`detail` is passed through as a string rather than re-parsed.</b> It is JSON the worker or the
+    /// endpoint wrote and nothing here reads inside it; parsing it to re-serialise it would be two
+    /// chances to change what it says and no chance to improve it.
+    /// </remarks>
+    private static object Wire(JobRecord job) => new
+    {
+        id = job.Id,
+        kind = job.Kind switch
+        {
+            JobKind.GeodatabaseInspect => "geodatabase.inspect",
+            JobKind.GeodatabaseImport => "geodatabase.import",
+            _ => "unknown",
+        },
+        status = job.Status.ToString().ToLowerInvariant(),
+        progress = job.Progress,
+        subject = job.Subject,
+        detail = job.Detail,
+        failure = job.Failure,
+        created = job.Created,
+        started = job.Started,
+        finished = job.Finished,
+    };
+
     private static async Task ListContentItemsAsync(
         HttpContext context,
         IAdminCatalog catalog,
