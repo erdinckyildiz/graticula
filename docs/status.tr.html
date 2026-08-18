@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>1111893</code> · 2026-08-18 04:50</p>
+<p class="stamp">Şu commit’ten üretildi: <code>2a666aa</code> · 2026-08-18 04:58</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">34</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">40/124</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">55</div><div class="kpi-l">açık soru</div><div class="kpi-n">61 yanıtlandı · 5 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">40</div><div class="kpi-l">açık borç</div><div class="kpi-n">23 ödendi · 5 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">39</div><div class="kpi-l">açık borç</div><div class="kpi-n">24 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1127</div><div class="kpi-l">test</div><div class="kpi-n">129 kaynak dosya, 45,961 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1138</div><div class="kpi-l">test</div><div class="kpi-n">129 kaynak dosya, 46,025 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">3 kapı</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">124 madde</span></div><p><b>80 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">123 madde</span></div><p><b>80 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>39 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -294,7 +294,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-19</td><td>There is no published image and no release.</td><td class="muted-t">The first release</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58 lands</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-21</td><td>Paging by resultOffset is not stable.</td><td class="muted-t">Before anyone syncs a large layer</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-22</td><td>where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">When the query AST exists</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-22</td><td>~~where accepts only 1=1, and that special case is load-bearing.</td><td class="muted-t">~~When the query AST exists~~ Done for the idiom; the AST is still owed.</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-24</td><td>layer.ishosted and layer.sharing are columns nobody reads, and writes still reach both.</td><td class="muted-t">When no supported release reads schema 6</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -416,7 +416,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">245</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:97.6%"></div></div><div class="bar-n">239</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:78.4%"></div></div><div class="bar-n">192</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:82.9%"></div></div><div class="bar-n">203</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:71.4%"></div></div><div class="bar-n">175</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">136</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">100</div></div>
@@ -425,6 +425,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">5</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>2a666aa</code><time>2026-08-18</time><span>every console screen is opened and asked whether it actually worked</span></li>
 <li><code>1111893</code><time>2026-08-18</time><span>the conformance suite stops asking one layer and asking it about everything</span></li>
 <li><code>e3a9367</code><time>2026-08-18</time><span>D-53 closes, and finding it uncovered a paging defect that skipped rows</span></li>
 <li><code>22d41a5</code><time>2026-08-18</time><span>a rule that hides source is a failed check now, and the clone was built</span></li>
@@ -438,7 +439,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d0c9618</code><time>2026-08-18</time><span>the service page loses its layer list, and a route goes with it</span></li>
 <li><code>fd377f9</code><time>2026-08-18</time><span>eight of nine services had no reachable limits, and the shortcut that hid them was mine</span></li>
 <li><code>067ce99</code><time>2026-08-17</time><span>the layer list is a list, because a Settings link on a layer row was the claim itself</span></li>
-<li><code>563edd4</code><time>2026-08-17</time><span>a service&#x27;s settings belong to the service, not to each of its layers</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

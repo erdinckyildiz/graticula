@@ -994,11 +994,30 @@ internal static class FeatureServerQueryParameters
 
     /// <summary>The attribute predicate, parsed rather than forwarded.</summary>
     /// <remarks>
-    /// <b><c>1=1</c> is stripped rather than parsed.</b> The grammar has no rule
-    /// for comparing two literals — deliberately, because it is the shape every
-    /// injection attempt starts with — and <c>1=1</c> is what every ArcGIS
-    /// client sends to mean "no filter". Recognising it here keeps the grammar
-    /// closed and the clients working.
+    /// <para>
+    /// <b>A comparison of two literals is answered here, not parsed.</b> The grammar has
+    /// no rule for comparing two constants — deliberately, because it is the shape every
+    /// injection attempt starts with — and it is also what ArcGIS clients send to mean
+    /// *everything* and *nothing*. Recognising the shape here keeps the grammar closed and
+    /// the clients working.
+    /// </para>
+    /// <para>
+    /// <b><c>1=0</c> was refused until 2026-08-18, and that was a real gap.</b> Only the
+    /// literal <c>1=1</c> was special-cased, so the other half of the same idiom answered
+    /// <em>400: '1' is not a field of this layer</em> — and <c>where=1=0</c> is how a
+    /// client asks for a layer's schema without its rows, which Esri's own documentation
+    /// uses and which is the cheapest possible metadata request. Measured on the running
+    /// server before the fix: <c>1=1</c> returned 12 features, <c>1=0</c>, <c>1=2</c> and
+    /// <c>1=0&amp;returnCountOnly=true</c> were all refused.
+    /// </para>
+    /// <para>
+    /// <b>Any two integers, compared with <c>=</c>, and nothing else.</b> Not general
+    /// constant folding: <c>1&lt;2</c>, <c>'a'='a'</c> and <c>1=1 or 1=1</c> stay refused,
+    /// because each one widens the shape the grammar exists to keep closed and none of them
+    /// is an idiom a client actually sends. A false constant becomes a predicate no row
+    /// satisfies rather than an empty filter, so the layer's fields still come back — which
+    /// is the whole point of the request.
+    /// </para>
     /// </remarks>
     private static bool TryWhere(
         IQueryCollection parameters,
@@ -1011,12 +1030,16 @@ internal static class FeatureServerQueryParameters
 
         string raw = First(parameters, "where").Trim();
 
-        if (raw.Length == 0
-            || string.Equals(
-                raw.Replace(" ", string.Empty, StringComparison.Ordinal),
-                "1=1",
-                StringComparison.Ordinal))
+        if (raw.Length == 0)
         {
+            return true;
+        }
+
+        if (ConstantPredicate(raw) is { } constant)
+        {
+            // True is no filter at all. False is a predicate nothing satisfies, expressed
+            // with no parameters, so it costs the database a constant-false plan.
+            where = constant ? null : new ParsedWhere("false", Array.Empty<object?>());
             return true;
         }
 
@@ -1033,6 +1056,47 @@ internal static class FeatureServerQueryParameters
 
         where = parsed;
         return true;
+    }
+
+    /// <summary>
+    /// Whether a where clause is two integers compared, and what it comes to.
+    /// </summary>
+    /// <param name="raw">The clause as the client sent it.</param>
+    /// <returns>
+    /// <see langword="true"/> or <see langword="false"/> for a constant comparison,
+    /// <see langword="null"/> when it is something the grammar should look at.
+    /// </returns>
+    /// <remarks>
+    /// <b>Whitespace removed first, then a single <c>=</c> with an integer either side.</b>
+    /// That is narrow on purpose: it admits <c>1=1</c>, <c>1=0</c>, <c>1=2</c> and
+    /// <c>0=0</c> — every form of the idiom clients use — and admits nothing that could
+    /// carry a field, a function, a string, or a second clause.
+    /// </remarks>
+    private static bool? ConstantPredicate(string raw)
+    {
+        string tight = raw.Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("\t", string.Empty, StringComparison.Ordinal);
+
+        int split = tight.IndexOf('=', StringComparison.Ordinal);
+
+        if (split <= 0 || split == tight.Length - 1)
+        {
+            return null;
+        }
+
+        // One `=` and no other operator, so `1=1=1` and `1=1or1=1` are not this shape.
+        if (tight.IndexOf('=', split + 1) >= 0)
+        {
+            return null;
+        }
+
+        return long.TryParse(
+                tight[..split], NumberStyles.Integer, CultureInfo.InvariantCulture, out long left)
+            && long.TryParse(
+                tight[(split + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out long right)
+            ? left == right
+            : null;
     }
 
     /// <summary>A comma-separated list of object ids.</summary>

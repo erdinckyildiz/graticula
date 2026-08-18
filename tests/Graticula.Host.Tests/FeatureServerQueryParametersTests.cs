@@ -383,11 +383,64 @@ public sealed class FeatureServerQueryParametersTests
     public void The_always_true_predicate_is_accepted_in_the_spellings_clients_use()
     {
         // Refusing this refuses every ArcGIS client for no safety gained.
-        foreach (string where in (string[])["1=1", "1 = 1", ""])
+        foreach (string where in (string[])["1=1", "1 = 1", "", "0=0"])
         {
-            Parse(("where", where));
+            Assert.Null(Parse(("where", where)).Where);
         }
     }
+
+    /// <summary>
+    /// The other half of the same idiom: two literals that do not match.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>where=1=0</c> answered 400 until 2026-08-18, and it is how a client asks for
+    /// a layer's schema without its rows.</b> Only the literal <c>1=1</c> was recognised,
+    /// so its opposite fell through to the grammar and was refused with <em>'1' is not a
+    /// field of this layer</em> — a true sentence about a request that was not asking for a
+    /// field. Esri's own documentation uses this form, and it is the cheapest metadata
+    /// request there is. Measured against the running server before the fix: <c>1=1</c>
+    /// returned twelve features and <c>1=0</c>, <c>1=2</c> and
+    /// <c>1=0&amp;returnCountOnly=true</c> were all refused.
+    /// </remarks>
+    [Fact]
+    public void The_always_false_predicate_is_a_predicate_rather_than_a_refusal()
+    {
+        foreach (string where in (string[])["1=0", "1 = 0", "1=2", "0=1"])
+        {
+            ParsedWhere? parsed = Parse(("where", where)).Where;
+
+            // Not null: null means *no filter*, which would return every row — the exact
+            // opposite of what was asked, and a far worse answer than the 400 it replaces.
+            Assert.NotNull(parsed);
+            Assert.Equal("false", parsed!.Value.Sql);
+            Assert.Empty(parsed.Value.Parameters);
+        }
+    }
+
+    /// <summary>
+    /// And the grammar stays closed to everything that is not that idiom.
+    /// </summary>
+    /// <remarks>
+    /// <b>The pair, and it is the one that matters.</b> Recognising a shape before the
+    /// grammar sees it is exactly how a parser gets widened by accident: the reason the
+    /// grammar has no rule for comparing two literals is that it is the shape every
+    /// injection attempt starts with. So this pins the boundary — one <c>=</c>, an integer
+    /// either side, nothing else — rather than trusting the implementation to be narrow.
+    /// </remarks>
+    [Theory]
+    [InlineData("1<2")]
+    [InlineData("1<>2")]
+    [InlineData("'a'='a'")]
+    [InlineData("1=1 or 1=1")]
+    [InlineData("1=1--")]
+    [InlineData("1=1; drop table x")]
+    [InlineData("1=1=1")]
+    [InlineData("1=1.0")]
+    [InlineData("=1")]
+    [InlineData("1=")]
+    public void Only_two_integers_compared_with_equals_are_answered_without_the_grammar(
+        string where) =>
+        Refuse(("where", where));
 
     [Fact]
     public void outFields_star_expands_to_every_column()
