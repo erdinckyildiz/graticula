@@ -447,6 +447,29 @@ internal static class HostedDataEndpoints
         IFormFile file,
         CancellationToken cancellation)
     {
+        // <b>Recognised before it is attempted, and the first version did it afterwards.</b> Putting
+        // this after the shapefile attempt failed twice over. A geodatabase is a *directory* named
+        // `x.gdb`, so `BoundedArchive` refuses it at the folder rule long before assembly is reached —
+        // and that refusal reads *"zip the shapefile's files directly rather than the folder holding
+        // them"*, which is advice that cannot be followed for a format whose whole shape is a folder.
+        // And the second `OpenReadStream()` came back unusable, so the recogniser silently answered
+        // *nothing recognised* for every archive. Measured, not reasoned: a `.gdb.zip`, a `.gpkg` in a
+        // zip and a `.kml` in a zip were all refused with the generic sentence.
+        //
+        // One open, at position zero, before anything consumes it.
+        string? recognised;
+
+        await using (System.IO.Stream looking = file.OpenReadStream())
+        {
+            recognised = RecogniseArchive(looking);
+        }
+
+        if (recognised is not null)
+        {
+            await Fail(context, 400, recognised).ConfigureAwait(false);
+            return (false, null!);
+        }
+
         await using System.IO.Stream archive = file.OpenReadStream();
 
         if (!BoundedArchive.TryRead(
@@ -845,6 +868,101 @@ internal static class HostedDataEndpoints
             result.StoredSrid,
             invalidGeometries = validity?.Invalid,
         });
+
+    /// <summary>
+    /// Names the format in an archive that is not a shapefile, when it is one we recognise.
+    /// </summary>
+    /// <param name="archive">The uploaded bytes, re-opened.</param>
+    /// <returns>A refusal that names the format, or null to let the generic one stand.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A recogniser for the refusal, not a step towards support.</b> It exists so that
+    /// *"this format is not imported yet"* is said by the product rather than found in an ADR. Each
+    /// arm points at the decision that owns it, because a refusal that names a question is a refusal
+    /// somebody can act on.
+    /// </para>
+    /// <para>
+    /// <b>Entry names only, and it runs before the shapefile attempt.</b> Nothing is decompressed,
+    /// so this cannot be turned into an attack by the content of the archive —
+    /// <see cref="ArchiveLimits.ForShapefile"/> guards the reading path and this one does no reading.
+    /// The scan stops after a bounded number of names for the same reason the reader bounds its member
+    /// count. Running first is what makes it work at all: a geodatabase is a folder, and the archive
+    /// reader refuses folders before it ever gets to assembling a bundle.
+    /// </para>
+    /// </remarks>
+    private static string? RecogniseArchive(System.IO.Stream archive)
+    {
+        const int Enough = 512;
+
+        HashSet<string> extensions = new(StringComparer.OrdinalIgnoreCase);
+        bool gdbFolder = false;
+
+        try
+        {
+            using System.IO.Compression.ZipArchive zip = new(
+                archive, System.IO.Compression.ZipArchiveMode.Read, leaveOpen: true);
+
+            int seen = 0;
+
+            foreach (System.IO.Compression.ZipArchiveEntry entry in zip.Entries)
+            {
+                if (++seen > Enough)
+                {
+                    break;
+                }
+
+                string name = entry.FullName.Replace('\\', '/');
+
+                extensions.Add(System.IO.Path.GetExtension(name));
+
+                // A geodatabase is a *directory* named `something.gdb`, so the giveaway is a path
+                // segment rather than a file extension.
+                foreach (string segment in name.Split('/'))
+                {
+                    if (segment.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        gdbFolder = true;
+                    }
+                }
+            }
+        }
+        catch (System.IO.InvalidDataException)
+        {
+            return null;
+        }
+
+        if (gdbFolder
+            || extensions.Contains(".gdbtable")
+            || extensions.Contains(".gdbtablx")
+            || extensions.Contains(".gdbindexes"))
+        {
+            return "This is a File Geodatabase, and this server does not import one yet. It is in "
+                + "scope for migration and it is not built: the open-source route is GDAL's "
+                + "OpenFileGDB driver in a separate worker, and there is no GDAL-free managed reader "
+                + "to adopt, so writing one is a project rather than a change — see Q-108 and "
+                + "docs/research/file-geodatabase-readers.md. What imports today is a zipped "
+                + "shapefile, or a GeoJSON FeatureCollection. ArcGIS Pro exports a feature class to "
+                + "either.";
+        }
+
+        if (extensions.Contains(".gpkg"))
+        {
+            return "This is a GeoPackage, and this server does not import one yet. ADR-024 "
+                + "condition 3 is deliberate about it: a second archive format does not reuse the "
+                + "shapefile exception without its own decision, because 'we already decompress' is "
+                + "not an argument. What imports today is a zipped shapefile, or a GeoJSON "
+                + "FeatureCollection.";
+        }
+
+        if (extensions.Contains(".kml") || extensions.Contains(".kmz"))
+        {
+            return "This looks like KML in an archive, and this server does not import one yet — "
+                + "ADR-024 condition 3. What imports today is a zipped shapefile, or a GeoJSON "
+                + "FeatureCollection.";
+        }
+
+        return null;
+    }
 
     private static Task Fail(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message } }, statusCode: code)

@@ -156,6 +156,19 @@ v1 work ([Q-108](open-questions.md)). The practical position is unchanged; what
 changed is that it is now a cost trade with a recorded recommendation instead of a
 constraint nobody could question.
 
+**Surveyed 2026-08-18**, and the library question has an answer: GDAL's
+`OpenFileGDB` driver, which carries **no proprietary dependency**, reads ArcGIS
+9.x, and writes 10+ since GDAL 3.6 — with relationships, domains, curves and
+raster layers. No public managed .NET reader was found; the two .NET routes that
+exist depend on Esri's closed SDK or are commercial. Details and the two format
+limits — **SDC and CDF compressed geodatabases cannot be read at all** — are in
+[Q-108](open-questions.md).
+
+**What is still missing is one sentence in the product**, not a decision: a
+`.gdb.zip` uploaded today is sniffed as a ZIP, enters the shapefile path, and is
+refused with *"no shapefile in this archive"*. The refusal is correct and the
+sentence is wrong — nothing says *this format is not imported yet*.
+
 ---
 
 ## 4. The consequence that needs its own section: this inverts ADR-005

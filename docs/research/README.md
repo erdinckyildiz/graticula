@@ -73,3 +73,8 @@ Sources: <https://github.com/opengeos/GeoLibre>, <https://geolibre.app/>
 **Clean-room constraint (§5):** publicly documented behaviour and published
 architectural reasoning only. Cite sources. Do not reproduce proprietary source
 or undocumented internals.
+
+## Written
+
+- [file-geodatabase-readers.md](file-geodatabase-readers.md) — whether a `.gdb` can be read without
+  GDAL, and what writing our own would cost. Answers [Q-108](../open-questions.md).
