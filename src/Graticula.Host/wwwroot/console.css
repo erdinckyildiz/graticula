@@ -1308,3 +1308,70 @@ pre.doc {
 .roleprivilege { display: flex; align-items: baseline; gap: var(--gap-3); padding: 3px 0; }
 .roleprivilege .mono { min-width: 22em; }
 .roleprivilege input[disabled] + .mono { color: var(--muted); }
+
+/* ---------------------------------------------------------------- the selected row
+
+   <b>Written 2026-08-18 after a design review, and it repairs two screens.</b> `loadGroups` and
+   `loadRoles` both write `class="pick on"` onto the row they have open and there was no rule for
+   it — so clicking a row changed nothing visible, and the panel it opens is below the fold on a
+   1366-wide window. The pair mirrors the hover rules above: a soft fill for the row, and a bar on
+   the leading edge, which is the one mark that survives a colour-blind reader and a printout. */
+tr.pick.on td { background: var(--accent-soft); }
+tr.pick.on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* ---------------------------------------------------------------- an editor's own head
+
+   The markup on the Groups and Roles editors was written expecting a flex row with its last child
+   pushed right — two sibling divs, actions and an exit — and used `class="head"`, which does not
+   exist. So the buttons stacked on two left-aligned lines. Named `editorhead` rather than `head`
+   because `pagehead` already owns the top of a screen and two classes one letter apart is how the
+   next person picks the wrong one. */
+.editorhead { display: flex; align-items: center; gap: var(--gap-3); margin-bottom: var(--gap-3); }
+.editorhead > :last-child { margin-left: auto; }
+.editorhead h3 { margin: 0; }
+
+/* ---------------------------------------------------------------- the groups editor
+
+   <b>Padding, because `.panel` has none and `.pad` would double-indent the tables.</b> `th`/`td`
+   carry their own 16px gutter, so a section label at x=0 sits sixteen pixels to the left of the
+   column it heads — which reads as a rendering fault rather than as a choice. Every non-table
+   child gets the same gutter instead. */
+#groupEditor > :not(.grouppair) { padding: 0 var(--gap-4); }
+#groupEditor .grouppair > div > h4 { padding: 0 var(--gap-4); }
+#groupEditor h4 { display: flex; align-items: baseline; gap: var(--gap-3); }
+
+/* Members beside services: the relation is the subject, so the two halves are read together.
+   Collapses to one column where there is not room for two three-column tables. */
+.grouppair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-5);
+             margin-top: var(--gap-4); }
+@media (max-width: 1100px) { .grouppair { grid-template-columns: 1fr; } }
+
+/* The facts, which were two paragraphs of grey hint carrying one word each. A label/value pair is
+   the reference's Details block reduced to what we have: the standing and what the group confers. */
+.facts2 { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--gap-4);
+          font-size: var(--t-small); margin: var(--gap-3) 0; }
+.facts2 dt { color: var(--muted); }
+.facts2 dd { margin: 0; font-weight: 600; }
+.facts2 dd .val { font-weight: 400; }
+
+/* ---------------------------------------------------------------- the inline picker
+
+   <b>Its own rules, because it was wearing `.setting`.</b> That class is a 620px flex row built for
+   a number and a unit: a 116px right-aligned monospace field. A listbox of `folder/service` paths
+   inherited the width and the right-alignment, where the meaning is on the left and so is the
+   truncation, and the checkbox inherited 116px as well. This is D-46's failure in reverse — not a
+   shape rebuilt because the old one was hard to find, but an old shape borrowed for a job it was
+   not built for. */
+.picker { border: 1px solid var(--rule); border-radius: var(--round-lg);
+          padding: var(--gap-3) var(--gap-4); background: var(--surface-2);
+          margin: var(--gap-3) 0; max-width: 620px; }
+.picker label { display: block; font-size: var(--t-small); color: var(--muted);
+                margin-bottom: 4px; }
+.picker input[type=search] { width: 100%; margin-bottom: var(--gap-2); }
+.picker select { width: 100%; text-align: left; font-family: var(--mono);
+                 font-size: var(--t-small); }
+.picker .row { display: flex; align-items: center; gap: var(--gap-3);
+               margin-top: var(--gap-3); }
+.picker .row label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.picker .row input[type=checkbox] { width: auto; }
+.picker .row > :last-child { margin-left: auto; }

@@ -75,6 +75,16 @@ public sealed record GroupSummary(
     int Items,
     GroupStanding Standing);
 
+/// <summary>A service shared with a group, and whether it actually reaches the members.</summary>
+/// <param name="Name">Its qualified name.</param>
+/// <param name="Sharing">
+/// The service's <em>own</em> sharing scope. **This is the field that makes the two-step trap
+/// visible.** Sharing a service into a group and setting its scope to `group` are separate acts, and
+/// either alone is a state that reads as done and is not — so the screen shows which shares reach
+/// anybody rather than warning in prose that some might not.
+/// </param>
+public sealed record GroupItem(string Name, string Sharing);
+
 /// <summary>Why a group operation was refused.</summary>
 public enum GroupChange
 {
@@ -261,5 +271,5 @@ public interface IGroupDirectory
     /// <param name="name">The group.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Qualified service names.</returns>
-    Task<IReadOnlyList<string>> ItemsAsync(string name, CancellationToken cancellationToken);
+    Task<IReadOnlyList<GroupItem>> ItemsAsync(string name, CancellationToken cancellationToken);
 }

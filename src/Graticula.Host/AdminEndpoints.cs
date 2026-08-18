@@ -2556,7 +2556,8 @@ internal static class AdminEndpoints
             members = (await groups.MembersAsync(found.Name, cancellation).ConfigureAwait(false))
                 .Select(m => new { name = m.Member, standing = m.Standing.ToString().ToLowerInvariant() }),
 
-            items = await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false),
+            items = (await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false))
+                .Select(i => new { name = i.Name, sharing = i.Sharing }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

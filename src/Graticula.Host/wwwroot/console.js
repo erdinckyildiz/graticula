@@ -219,15 +219,41 @@ async function loadGroups() {
       ? `${shown.length} of ${groups.length}`
       : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
 
+  // <b>Three empty states, not one — and the filtered case used to render nothing at all.</b> The
+  // branch was on `groups.length` while the rows came from `shown`, so a search matching nothing
+  // left a blank body under a live header with `0 of 71` beside it and no sentence. `loadServices`
+  // on this same screen already had it right; this is that shape copied.
+  // <b>Confers, in the column Description had.</b> A group's capability is its one irreversible
+  // property and it was buried in a paragraph below the table; the description had no way to be set
+  // at all until the create form gained a field for it, so that column was structurally empty on
+  // everything this console made.
+  //
+  // <b>Standing as words, not a badge.</b> `pill()` is for a state — whether a service answers, who
+  // may read it — and a standing is a relationship. All three values fell through to one grey pill
+  // with no colour family and no icon, so the border and the dot carried nothing the word did not,
+  // and a fourth meaningless pill weakens the ones that mean something.
+  //
+  // <b>Both of these were written as HTML comments inside the template literal, and one of them
+  // carried a backtick.</b> That closed the literal, the whole file stopped parsing, and the console
+  // showed its sign-in screen — a syntax error presenting as *not signed in*. `node --check` finds
+  // it in two seconds and now runs in the build.
   $("groupRows").innerHTML = groups.length === 0
-    ? `<tr><td colspan="6" class="empty">You are in no groups. <b>New group</b> makes one, and
-         whoever makes it owns it.</td></tr>`
-    : pageOf("groupRows", shown).map(g => `
+    ? `<tr><td colspan="6" class="empty">${answer.listing === "every group on the server"
+        ? `No groups on this server yet.`
+        : `You are in no groups.`} <b>New group</b> makes one, and whoever makes it owns it.</td></tr>`
+    : shown.length === 0
+      ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(groupFilter)}</b>. The search reads
+           a group's name, title, description and owner.</td></tr>`
+      : pageOf("groupRows", shown).map(g => `
       <tr class="pick${g.name === groupOpen ? " on" : ""}" data-group="${h(g.name)}">
-        <td class="name">${h(g.title || g.name)}${g.title
+        <td class="name">${h(g.title || g.name)}${g.title && g.title !== g.name
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
-        <td class="val">${h(g.description || "")}</td>
-        <td>${pill(g.standing)}</td>
+        <td class="val">${g.itemUpdate === "allItems"
+          ? "edit all"
+          : g.itemUpdate === "ownItems" ? "edit own" : "read"}</td>
+        <td>${g.standing === "member"
+          ? `<span class="val">member</span>`
+          : `<b>${h(g.standing)}</b>`}</td>
         <td class="val">${h(g.owner || "—")}</td>
         <td class="num">${num(g.members)}</td>
         <td class="num">${num(g.items)}</td>
@@ -235,7 +261,11 @@ async function loadGroups() {
 
   $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
 
-  const chosen = groups.find(g => g.name === groupOpen) || null;
+  // <b>Chosen from what is on screen.</b> It was taken from the unfiltered list, so filtering to
+  // exclude the open group left the panel describing a group with no row above it.
+  const chosen = shown.find(g => g.name === groupOpen)
+    || groups.find(g => g.name === groupOpen)
+    || null;
 
   if (!chosen) { $("groupEditor").hidden = true; return; }
 
@@ -243,27 +273,46 @@ async function loadGroups() {
 
   const one = await api(`/admin/groups/${encodeURIComponent(chosen.name)}`) || {};
 
-  $("groupEditorName").innerHTML = `<b>${h(one.title || one.name || chosen.name)}</b>
-    <span class="val">${h(chosen.standing)}</span>`;
+  $("groupEditorName").innerHTML = h(one.title || one.name || chosen.name);
 
-  // <b>What the group confers, said in words rather than as a code.</b> `none` is the ordinary case
-  // and an operator reading *none* beside a group of forty people should not have to look it up.
-  $("groupCapability").innerHTML = `<p class="hint"><b>${
-    one.itemUpdate === "allItems"
-      ? "Members may edit every service shared with this group"
-      : one.itemUpdate === "ownItems"
-        ? "Members may edit services they shared with this group themselves"
-        : "Members read what is shared with this group and nothing more"
-    }.</b> This was fixed when the group was created and cannot be changed — widening it would make
-    every service already shared with the group editable by every member, retroactively (ADR-036
-    §4c). To change it, make another group and move the shares.</p>`;
+  // <b>Facts as a fact list, which is the reference's Details block reduced to what we have.</b>
+  // Standing and capability were two paragraphs of grey `hint` — the same weight as a footnote, and
+  // fifty-five words to deliver one. The irreversibility keeps a sentence, because it is the only
+  // part a reader has to be persuaded of rather than told.
+  $("groupStanding").innerHTML = `
+    <dl class="facts2">
+      <dt>You are</dt><dd>${chosen.standing === "owner"
+        ? `its owner <span class="val">— you may delete it; you cannot leave it</span>`
+        : chosen.standing === "manager"
+          ? `a manager <span class="val">— you may add members and share services</span>`
+          : `a member <span class="val">— you read what is shared with it</span>`}</dd>
+      <dt>Owner</dt><dd>${h(one.owner || "—")}</dd>
+      <dt>Confers</dt><dd>${one.itemUpdate === "allItems"
+        ? `editing every service shared with it`
+        : one.itemUpdate === "ownItems"
+          ? `editing the services a member shared themselves`
+          : `reading only`}<span class="val"> — fixed when the group was created</span></dd>
+    </dl>
+    <p class="hint">The capability cannot be changed: widening it would make every service already
+      shared with the group editable by every member, retroactively (ADR-036 §4c). To change it, make
+      another group and move the shares.</p>`;
 
-  $("groupMembers").innerHTML = (one.members || []).length === 0
-    ? `<tr><td colspan="3" class="empty">Nobody yet.</td></tr>`
-    : one.members.map(m => `
+  $("groupCapability").innerHTML = "";
+
+  const members = one.members || [];
+  const items = one.items || [];
+
+  $("groupMemberCount").textContent = members.length === 0 ? "" : `${members.length}`;
+
+  $("groupMembers").innerHTML = members.length === 0
+    ? `<tr><td colspan="3" class="empty">Nobody yet. <b>Add member</b> offers everybody who is not
+         in it — they will read whatever is shared with the group.</td></tr>`
+    : members.map(m => `
       <tr>
         <td class="name">${h(m.name)}</td>
-        <td>${pill(m.standing)}</td>
+        <td>${m.standing === "member"
+          ? `<span class="val">member</span>`
+          : `<b>${h(m.standing)}</b>`}</td>
         <td style="text-align:right">${chosen.mayManage && m.standing !== "owner" ? `
           <button class="tiny" data-group-grade="${h(m.name)}"
             data-to="${m.standing === "manager" ? "member" : "manager"}"
@@ -274,13 +323,32 @@ async function loadGroups() {
           <button class="tiny danger" data-group-drop="${h(m.name)}">Remove</button>` : ""}</td>
       </tr>`).join("");
 
-  $("groupItems").innerHTML = (one.items || []).length === 0
-    ? `<tr><td colspan="2" class="empty">Nothing shared with it yet.</td></tr>`
-    : one.items.map(i => `
+  // <b>Which shares actually reach anybody, shown rather than warned about.</b> A service reaches a
+  // group's members only when its own scope is `group` as well, and that was prose in two places —
+  // a per-service fact delivered as a per-screen caveat, which the operator then has to carry to
+  // another page and check one at a time. The server already knows: `items` carries each service's
+  // own scope.
+  const reaching = items.filter(i => i.sharing === "group").length;
+
+  $("groupItemCount").textContent = items.length === 0
+    ? ""
+    : reaching === items.length
+      ? `${items.length}`
+      : `${reaching} of ${items.length} reaching members`;
+
+  $("groupItems").innerHTML = items.length === 0
+    ? `<tr><td colspan="3" class="empty">Nothing shared with it yet. <b>Share a service</b> offers
+         what you have published — and a service reaches these members only once its own sharing
+         scope is <b>group</b>, which is set on the service's Sharing page.</td></tr>`
+    : items.map(i => `
       <tr>
-        <td class="name">${h(i)}</td>
+        <td class="name">${h(i.name)}</td>
+        <td>${i.sharing === "group"
+          ? `<span class="val">reaching members</span>`
+          : `${pill(i.sharing)} <span class="val">inert here</span>`}</td>
         <td style="text-align:right">${chosen.mayManage
-          ? `<button class="tiny danger" data-group-unshare="${h(i)}">Stop sharing</button>` : ""}</td>
+          ? `<button class="tiny danger" data-group-unshare="${h(i.name)}">Stop sharing</button>`
+          : ""}</td>
       </tr>`).join("");
 
   // <b>Only what a manager may act on gets controls.</b> ADR-034 condition 1: a screen must not
@@ -289,14 +357,8 @@ async function loadGroups() {
   $("groupDelete").hidden = !chosen.mayDelete;
   $("groupPicker").hidden = true;
 
-  // <b>*You are a member* and a way out, taken from the reference's group page.</b> Absent for the
-  // owner: the store refuses to remove them — they would keep owning a group that a
-  // membership-filtered list omits — so the button would be a refusal waiting to happen.
-  $("groupStanding").innerHTML = chosen.standing === "owner"
-    ? `<p class="hint"><b>You own this group.</b> Transfer it or delete it; you cannot leave it,
-         because a group whose owner is not in it is one no membership list shows.</p>`
-    : `<p class="hint"><b>You are a ${h(chosen.standing)} of this group.</b></p>`;
-
+  // <b>Absent for the owner.</b> The store refuses to remove them — they would keep owning a group
+  // that a membership-filtered list omits — so the button would be a refusal waiting to happen.
   $("groupLeave").hidden = chosen.standing === "owner";
 }
 
@@ -688,6 +750,13 @@ const SCREEN_SURFACE = {
   anonymous: "studio",
   sources: "server",
   members: "server",
+
+  // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
+  // through to the surface's home — so `/server/#/groups` landed an administrator on Services with
+  // no explanation, which is exactly the *"a screen asked for in the wrong surface is a navigation,
+  // not a 404"* promise above, unkept for the two newest screens.
+  roles: "server",
+  groups: "studio",
 };
 
 let privileges = new Set();
@@ -4267,38 +4336,78 @@ async function handleClick(event) {
   if (groupRow) {
     groupOpen = groupRow.dataset.group;
     await section("groups", loadGroups, "groupRows");
+
+    // <b>Because the panel it opens is below the fold.</b> Ten rows at ~51px each put the editor's
+    // heading near 780px, so on a 1366×768 window the operator clicks a row and nothing visible
+    // changes. `nearest` rather than `start`: if it is already on screen, do not move the page.
+    $("groupEditor")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return;
   }
 
+  // <b>A form, not two chained prompts — and the prompts cost more than looks.</b> A design review
+  // on 2026-08-18 counted what they lost: the name was sent as the title as well and the description
+  // was never sent at all, so **two of a group's four fields could not be filled from this console
+  // and there is no endpoint to set them afterwards**. The capability was free text against a
+  // case-sensitive enum, and a refusal threw away both prompts' input because there was no form to
+  // return to. And a browser that has offered *"prevent this page from creating additional
+  // dialogs"* makes New group silently do nothing for the rest of the session.
   if (t.id === "groupNew") {
-    const name = prompt("Name for the new group:");
-    if (!name) return;
+    $("groupPicker").innerHTML = `
+      <div class="picker">
+        <label for="newGroupName">Name</label>
+        <input id="newGroupName" type="text" placeholder="planning" autocomplete="off">
 
-    // <b>The capability is asked for here and nowhere else, because it cannot be changed.</b>
-    // ADR-036 §4c. Offering it later on an editor screen would be offering something the server
-    // refuses.
-    const capability = prompt(
-      "What may its members do with the services shared into it?\n"
-      + "  none      — read them (the default)\n"
-      + "  ownItems  — edit the ones they shared themselves\n"
-      + "  allItems  — edit every service shared with the group\n\n"
-      + "This is fixed now and cannot be changed afterwards.",
-      "none");
+        <label for="newGroupTitle">Title <span class="val">shown in the list</span></label>
+        <input id="newGroupTitle" type="text" placeholder="Planning team" autocomplete="off">
 
-    if (capability === null) return;
+        <label for="newGroupWhy">What it is for</label>
+        <input id="newGroupWhy" type="text" autocomplete="off">
+
+        <label for="newGroupUpdate">What members may do with the services shared into it</label>
+        <select id="newGroupUpdate">
+          <option value="none">none — read them</option>
+          <option value="ownItems">ownItems — edit the ones they shared themselves</option>
+          <option value="allItems">allItems — edit every service shared with the group</option>
+        </select>
+
+        <p class="hint"><b>This one cannot be changed afterwards.</b> Widening it would make every
+          service already shared with the group editable by every member, retroactively — so the
+          server has no way to change it and neither does this screen (ADR-036 §4c). To change it,
+          make another group and move the shares.</p>
+
+        <div class="row">
+          <button class="primary" id="newGroupSave">Create group</button>
+          <button class="ghost" id="groupPickCancel">Cancel</button>
+        </div>
+      </div>`;
+
+    $("groupPicker").hidden = false;
+    $("newGroupName")?.focus();
+    return;
+  }
+
+  if (t.id === "newGroupSave") {
+    const name = ($("newGroupName")?.value || "").trim();
+
+    if (!name) { toast("A group needs a name."); $("newGroupName")?.focus(); return; }
 
     try {
       await api("/admin/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          title: name.trim(),
-          itemUpdate: capability.trim() || "none",
+          name,
+          // <b>Sent only when it differs.</b> A title equal to the name made every row print its
+          // own name twice — once bold, once in grey underneath — because the renderer shows both
+          // when they are not the same.
+          title: ($("newGroupTitle")?.value || "").trim() || null,
+          description: ($("newGroupWhy")?.value || "").trim() || null,
+          itemUpdate: $("newGroupUpdate")?.value || "none",
         }),
       });
-      groupOpen = name.trim();
-      toast(`${name.trim()}: created. You own it.`, true);
+      groupOpen = name;
+      toast(`${name}: created. You own it.`, true);
+      $("groupPicker").hidden = true;
     } catch (e) { toast(e.message); }
 
     await section("groups", loadGroups, "groupRows");
@@ -4328,18 +4437,23 @@ async function handleClick(event) {
     }
 
     $("groupPicker").innerHTML = `
-      <div class="setting"><span class="q">Add a member:</span>
+      <div class="picker">
+        <label for="groupPickFilter">Add a member</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
-        <select id="groupPickWho" size="8">${names.map(n =>
+        <select id="groupPickWho" size="8" aria-label="Members who could join">${names.map(n =>
           `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
-        <label><input type="checkbox" id="groupPickManager"> as a manager</label>
-        <button class="primary" id="groupPickAdd">Add</button>
-        <button class="ghost" id="groupPickCancel">Cancel</button></div>
-      <p class="hint">A <b>manager</b> may add members and share services, and may not delete the
-        group or transfer it — ADR-036 §3, which is the difference between delegating work and
-        delegating control.</p>`;
+        <div class="row">
+          <label><input type="checkbox" id="groupPickManager"> as a manager</label>
+          <button class="primary" id="groupPickAdd">Add</button>
+          <button class="ghost" id="groupPickCancel">Cancel</button>
+        </div>
+        <p class="hint">A <b>manager</b> may add members and share services, and may not delete the
+          group — ADR-036 §3, which is the difference between delegating work and delegating
+          control.</p>
+      </div>`;
 
     $("groupPicker").hidden = false;
+    $("groupPickFilter")?.focus();
     return;
   }
 
@@ -4388,17 +4502,19 @@ async function handleClick(event) {
     }
 
     $("groupPicker").innerHTML = `
-      <div class="setting"><span class="q">Share a service:</span>
+      <div class="picker">
+        <label for="groupPickFilter">Share a service</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
-        <select id="groupPickWhat" size="8">${services.map(n =>
+        <select id="groupPickWhat" size="8" aria-label="Services you could share">${services.map(n =>
           `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
-        <button class="primary" id="groupPickShare">Share</button>
-        <button class="ghost" id="groupPickCancel">Cancel</button></div>
-      <p class="hint">Sharing it here is one of two steps: its own sharing scope must also be
-        <b>group</b>, which is set on the service's Sharing page. Either alone is a state that reads
-        as done and is not.</p>`;
+        <div class="row">
+          <button class="primary" id="groupPickShare">Share</button>
+          <button class="ghost" id="groupPickCancel">Cancel</button>
+        </div>
+      </div>`;
 
     $("groupPicker").hidden = false;
+    $("groupPickFilter")?.focus();
     return;
   }
 
@@ -4469,12 +4585,22 @@ async function handleClick(event) {
   const drop = t.closest?.("[data-group-drop]");
 
   if (drop && groupOpen) {
+    // <b>Asked, because Leave asks and this is the same act done to somebody else.</b> A manager
+    // sees Remove on their own row too, so without this they can drop themselves out of a group they
+    // manage with one unconfirmed click while the labelled exit beside it asks twice.
+    if (!confirm(
+      `Remove ${drop.dataset.groupDrop} from '${groupOpen}'? They will stop seeing the services `
+      + "shared with it.")) return;
+
     try {
       await api(
         `/admin/groups/${encodeURIComponent(groupOpen)}`
         + `/members/${encodeURIComponent(drop.dataset.groupDrop)}`,
         { method: "DELETE" });
-      toast(`${drop.dataset.groupDrop} left ${groupOpen}`, true);
+      // <b>*Removed*, not *left*.</b> The screen separates Leave — the member's own act — from
+      // Remove, which a manager performs on somebody else, and the toast collapsed them into the
+      // member's voice. A manager reading *"X left"* about their own click learns the wrong thing.
+      toast(`${drop.dataset.groupDrop} removed from ${groupOpen}`, true);
     } catch (e) { toast(e.message); }
 
     await section("groups", loadGroups, "groupRows");
@@ -4526,6 +4652,7 @@ async function handleClick(event) {
   if (roleRow && !t.closest?.("[data-role-delete]")) {
     roleOpen = roleRow.dataset.role;
     await section("roles", loadRoles, "roleRows");
+    $("roleEditor")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return;
   }
 
@@ -4803,21 +4930,6 @@ document.addEventListener("change", async event => {
   // <b>Set from existing role: copies the ticks and does not save.</b> Applying it immediately
   // would make *look at what publisher has* into *become publisher*, and the whole point is to then
   // narrow it.
-  // The picker's own filter, which is why the reference has a search box over a list of seventy.
-  if (event.target.id === "groupPickFilter") {
-    const needle = event.target.value.trim().toLowerCase();
-
-    for (const list of [$("groupPickWho"), $("groupPickWhat")]) {
-      if (!list) continue;
-
-      for (const option of list.options) {
-        option.hidden = needle.length > 0
-          && !option.value.toLowerCase().includes(needle);
-      }
-    }
-
-    return;
-  }
 
   if (event.target.id === "roleFromPick") {
     const from = event.target.value;
@@ -4939,6 +5051,25 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("input", event => {
+  // <b>On `input`, and it was on `change` — so typing in it did nothing.</b> A `<input
+  // type=search>` reports `change` on blur or Enter only, and `#groupFilter` twenty lines below was
+  // already on `input`: two search boxes on one screen with two behaviours, which is worse than
+  // either.
+  if (event.target.id === "groupPickFilter") {
+    const needle = event.target.value.trim().toLowerCase();
+
+    for (const list of [$("groupPickWho"), $("groupPickWhat")]) {
+      if (!list) continue;
+
+      for (const option of list.options) {
+        option.hidden = needle.length > 0
+          && !option.value.toLowerCase().includes(needle);
+      }
+    }
+
+    return;
+  }
+
   if (event.target.id === "groupFilter") {
     groupFilter = event.target.value;
     resetPage("groupRows");
@@ -4978,6 +5109,22 @@ document.addEventListener("keydown", event => {
     // is the thing you are most likely to be holding when you press it. It does not
     // leave the layer's page: Escape dismisses something floating, and a page you
     // navigated to is left with Back or Cancel.
+    // <b>An open picker closes first.</b> It is the innermost thing on screen and Escape means *out
+    // of this*, so a chain that skipped it would send the reader out of the screen instead.
+    if ($("groupPicker") && !$("groupPicker").hidden) {
+      $("groupPicker").hidden = true;
+      return;
+    }
+
+    if (document.activeElement && document.activeElement.id === "groupFilter"
+        && $("groupFilter").value !== "") {
+      $("groupFilter").value = "";
+      groupFilter = "";
+      resetPage("groupRows");
+      section("groups", loadGroups, "groupRows");
+      return;
+    }
+
     if (document.activeElement && document.activeElement.id === "serviceFilter"
         && $("serviceFilter").value !== "") {
       $("serviceFilter").value = "";

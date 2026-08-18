@@ -675,10 +675,10 @@
   -->
   <!-- Groups — ADR-036. Studio's, because a group is about who may read somebody's content. -->
   <section class="view" id="view-groups">
-    <div class="head">
+    <div class="pagehead">
       <div>
         <h2>Groups</h2>
-        <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else — a group confers reading, not editing.</p>
+        <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else.</p>
       </div>
     </div>
 
@@ -692,7 +692,7 @@
     <div class="panel">
       <table>
         <thead><tr>
-          <th>Group</th><th>Description</th><th>You are</th><th>Owner</th>
+          <th>Group</th><th>Confers</th><th>You are</th><th>Owner</th>
           <th class="num">Members</th><th class="num">Services</th>
         </tr></thead>
         <tbody id="groupRows"></tbody>
@@ -701,7 +701,7 @@
     <div id="groupsPager"></div>
 
     <div class="panel" id="groupEditor" hidden>
-      <div class="head">
+      <div class="editorhead">
         <div><h3 id="groupEditorName"></h3></div>
         <div id="groupActions" hidden>
           <button class="tiny" id="groupAdd">Add member</button>
@@ -717,18 +717,27 @@
       <div id="groupCapability"></div>
       <div id="groupPicker" hidden></div>
 
-      <h4>Members</h4>
-      <table>
-        <thead><tr><th>Member</th><th>Standing</th><th></th></tr></thead>
-        <tbody id="groupMembers"></tbody>
-      </table>
-
-      <h4>Services shared with it</h4>
-      <table>
-        <thead><tr><th>Service</th><th></th></tr></thead>
-        <tbody id="groupItems"></tbody>
-      </table>
-      <p class="hint">A service reaches this group's members only when its own sharing scope is <b>group</b> as well — set on the service's Sharing page. Sharing it here and leaving the scope alone is the step people miss.</p>
+      <!--
+        Side by side, because *who is in it* and *what they can therefore read* is the one comparison
+        this screen exists to support. The reference tabs them apart; tabs would hide half of the
+        relation while you read the other half.
+      -->
+      <div class="grouppair">
+        <div>
+          <h4>Members <span class="val" id="groupMemberCount"></span></h4>
+          <table>
+            <thead><tr><th>Member</th><th>Standing</th><th></th></tr></thead>
+            <tbody id="groupMembers"></tbody>
+          </table>
+        </div>
+        <div>
+          <h4>Services shared with it <span class="val" id="groupItemCount"></span></h4>
+          <table>
+            <thead><tr><th>Service</th><th>Scope</th><th></th></tr></thead>
+            <tbody id="groupItems"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -804,7 +813,7 @@
   -->
   <!-- Roles — ADR-035. Two sections, per-category counts, and set-from-existing-role. -->
   <section class="view" id="view-roles">
-    <div class="head">
+    <div class="pagehead">
       <div>
         <h2>Roles</h2>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
@@ -829,7 +838,7 @@
     <div id="rolesPager"></div>
 
     <div class="panel" id="roleEditor" hidden>
-      <div class="head">
+      <div class="editorhead">
         <div><h3 id="roleEditorName"></h3></div>
         <div id="roleFrom"></div>
       </div>
@@ -1107,7 +1116,7 @@
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <!--
   The preview drawer, in its own file for the same reason console.js is: the policy on

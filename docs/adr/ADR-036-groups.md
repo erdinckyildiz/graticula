@@ -226,6 +226,51 @@ authorization axis quietly is what §3 spent a section refusing to do:
 | **Featured groups**, **My organization's groups** as separate tabs | Both are discovery over groups you are not in, which needs the visibility above to mean anything |
 | **Special groups** — Shared Update, Distributed, Administrative, Organization Settings | Product features of theirs that have no counterpart here, and adopting a tab because it exists is what §82 refuses |
 
+### 4f. What a design review found, 2026-08-18
+
+The owner asked for the screen to be read by a UX reviewer. Nine findings, all verified against the
+source before being acted on, and **the headline was one fact showing up in five places: the screen
+was written and its stylesheet was not.**
+
+- **Two classes the markup used do not exist.** `tr.pick.on` — which both this renderer and Roles'
+  write onto the open row — had no rule, so **clicking a row changed nothing visible**, and the panel
+  it opens is below the fold on a 1366-wide window. `class="head"` had none either, so the title
+  rendered at browser default against every other page's, and the editor's buttons stacked instead of
+  forming a row. Both repairs fix Roles too.
+- **`prompt()` was not a style problem, it was a data-loss one.** Creating a group used two chained
+  dialogs; the name was sent as the title as well and the description was never sent — and **there is
+  no endpoint to set either afterwards**, so two of a group's four fields could not be filled from
+  this console at all, and the Description column was structurally always empty. The capability was
+  free text against a case-sensitive enum, and a refusal discarded both prompts' input. A browser that
+  has offered *"prevent this page from creating additional dialogs"* made New group silently do
+  nothing. Replaced with an in-page form using the panel pattern already on the screen.
+- **The two-step trap is now shown rather than warned about.** A service reaches a group's members
+  only when its own scope is `group` as well; that was prose in two places — a *per-service* fact
+  delivered as a *per-screen* caveat, which the operator then carries to another page and checks one
+  at a time. `ItemsAsync` already joined `service`, so the scope is one more column: each share reads
+  *reaching members* or *inert here*, and the heading says *n of N reaching members*. Both paragraphs
+  deleted.
+- **A standing is not a state, so it stopped being a badge.** `owner` / `manager` / `member` all fell
+  through to the same grey `pill` with no colour family and no icon — three values, one visual, and
+  the border and dot carried nothing the word did not. A fourth meaningless pill also weakens the ones
+  that do mean something. Now weight: `owner` and `manager` bold, `member` muted.
+- **The filtered-empty state rendered nothing at all.** The empty branch tested the unfiltered count
+  while the rows came from the filtered list, so a search matching nothing left a blank body under a
+  live header. Three states now, and the *"nothing shared yet"* one carries the two-step rule, which
+  is where the operator is standing when it applies.
+- **The picker's filter was wired to `change`, so typing in it did nothing.** A `<input type=search>`
+  reports `change` on blur or Enter; `#groupFilter` twenty lines away was already on `input`.
+
+**Two things the review recommended and this decision declined.** Adopting the reference's
+*Overview / Content / Members / Settings* tabs: rejected on subject rather than scale — the whole
+point of the screen is the relation between *who is in it* and *what they can therefore read*, and
+tabs would hide half of the comparison. The two tables are side by side instead. And *Viewable by*
+with a lock icon: that is [Q-118](../open-questions.md), and copying it to match a screenshot is
+exactly the invented-concept failure the memory of this project warns about.
+
+**One finding was a promise with nothing behind it:** the standing line said *"Transfer it or delete
+it"* and there is no transfer — no route, no method. Cut until there is one.
+
 ## 5. Consequences
 
 - **The sharing check gains a fourth value** on `layer`, `service` and `system_service`. Expand-only.

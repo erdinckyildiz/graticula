@@ -162,7 +162,12 @@ public sealed class GroupsPageTests : ConsoleTest
             string standing = Flat(await Browser.EvaluateAsync<string>(
                 "document.getElementById('groupStanding')?.textContent || ''"));
 
-            Assert.Contains("You own this group", standing, StringComparison.OrdinalIgnoreCase);
+            // <b>Asserted on substance, not on a phrase.</b> The copy moved from a paragraph to a
+            // fact list during a design review; a test pinned to the old sentence would have failed
+            // for a screen that got better. What must survive any rewording is that an owner is told
+            // they own it and that they cannot leave.
+            Assert.Contains("owner", standing, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("cannot leave", standing, StringComparison.OrdinalIgnoreCase);
 
             bool leave = await Browser.EvaluateAsync<bool>(
                 "!!document.getElementById('groupLeave')"
@@ -216,13 +221,47 @@ public sealed class GroupsPageTests : ConsoleTest
 
             Assert.True(offers, "There is no way to create a group from the Groups screen.");
 
+            // <b>And it opens a form, not a `prompt()`.</b> The prompts cost two of a group's four
+            // fields permanently — the name was sent as the title and the description was never sent
+            // — and there is no endpoint to set either afterwards. A headless browser cannot answer
+            // an OS dialog either, so this assertion is also what makes the act testable at all.
+            await ClickAsync("#groupNew");
+
+            await WaitForAsync(
+                "!!document.getElementById('newGroupName')"
+                + " && !!document.getElementById('newGroupWhy')"
+                + " && !!document.getElementById('newGroupUpdate')",
+                "New group did not open an in-page form with a name, a description and a capability "
+                + "select. It used to be two chained prompts, which could not set the description at "
+                + "all.");
+
+            // The capability is a select over the three values the server accepts, not free text
+            // against a case-sensitive enum.
+            int capabilities = await Browser.EvaluateAsync<int>(
+                "document.getElementById('newGroupUpdate')?.options.length || 0");
+
+            Assert.Equal(3, capabilities);
+
             // The standing is shown, because *which of these am I responsible for* is the first
             // question somebody has about a list of groups.
-            string standing = await Browser.EvaluateAsync<string>(
-                $"document.querySelector('#groupRows tr[data-group={Probe}] .pill')"
-                + "?.textContent?.trim() || ''") ?? string.Empty;
+            // <b>A word at weight, not a badge.</b> `pill()` is for a state — whether a service
+            // answers, who may read it — and a standing is a relationship; all three values fell
+            // through to one grey pill with no colour family, so the border and the dot carried
+            // nothing the word did not. Asserted here so a fourth grey badge cannot come back.
+            string standing = Flat(await Browser.EvaluateAsync<string>(
+                $"document.querySelector('#groupRows tr[data-group={Probe}] td:nth-child(3)')"
+                + "?.textContent || ''"));
 
             Assert.Equal("owner", standing);
+
+            bool badge = await Browser.EvaluateAsync<bool>(
+                $"!!document.querySelector('#groupRows tr[data-group={Probe}] td:nth-child(3) .pill')");
+
+            Assert.False(
+                badge,
+                "A standing is rendered as a pill again. Three values fall through to one grey badge "
+                + "with no colour and no icon, and a fourth meaningless pill weakens the ones that "
+                + "mean something.");
 
             string[] errors = await PageErrorsAsync();
             Assert.Empty(errors);
@@ -276,22 +315,32 @@ public sealed class GroupsPageTests : ConsoleTest
 
             Assert.Contains("owner", members, StringComparison.Ordinal);
 
-            // And the capability is said in words rather than as a code.
-            string capability = Flat(await Browser.EvaluateAsync<string>(
-                "document.getElementById('groupCapability')?.textContent || ''"));
+            // <b>The capability is said in words, and the facts are facts rather than footnotes.</b>
+            // They were two paragraphs of grey `hint` — the same weight as a caveat — carrying one
+            // word each; a design review called that fifty-five words to deliver *none*.
+            string facts = Flat(await Browser.EvaluateAsync<string>(
+                "document.getElementById('groupStanding')?.textContent || ''"));
 
-            Assert.Contains("read what is shared", capability, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("reading only", facts, StringComparison.OrdinalIgnoreCase);
 
-            Assert.Contains(
-                "cannot be changed",
-                capability,
-                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("fixed when the group was created", facts, StringComparison.OrdinalIgnoreCase);
+
+            // The irreversibility keeps a sentence, because it is the one part a reader has to be
+            // persuaded of rather than told.
+            Assert.Contains("cannot be changed", facts, StringComparison.OrdinalIgnoreCase);
 
             // The sentence that stops the step people miss: sharing here is not enough.
             string hint = Flat(await Browser.EvaluateAsync<string>(
                 "document.getElementById('view-groups')?.textContent || ''"));
 
             Assert.Contains("its own sharing scope", hint, StringComparison.OrdinalIgnoreCase);
+
+            // <b>Members beside services, because the relation is the subject.</b> The reference tabs
+            // them apart; tabs would hide half of what the screen exists to compare.
+            bool paired = await Browser.EvaluateAsync<bool>(
+                "!!document.querySelector('#groupEditor .grouppair')");
+
+            Assert.True(paired, "The members and services tables are no longer shown together.");
 
             string[] errors = await PageErrorsAsync();
             Assert.Empty(errors);

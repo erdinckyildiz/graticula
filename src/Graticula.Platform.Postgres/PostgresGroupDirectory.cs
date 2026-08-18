@@ -419,13 +419,17 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<string>> ItemsAsync(
+    public async Task<IReadOnlyList<GroupItem>> ItemsAsync(
         string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
+        // <b>The service's own scope comes back with it, and the join was already here.</b> A share
+        // reaches the group's members only when the service is `group`-scoped as well; reporting the
+        // scope turns that from a caveat the operator carries to another screen into a column.
         const string Sql = """
-            select case when s.folder is null then s.name else s.folder || '/' || s.name end
+            select case when s.folder is null then s.name else s.folder || '/' || s.name end,
+                   s.sharing
               from sharing_group g
               join sharing_group_item i on i.group_id = g.id
               join service s on s.id = i.service_id
@@ -436,14 +440,14 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
 
-        List<string> answer = [];
+        List<GroupItem> answer = [];
 
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            answer.Add(reader.GetString(0));
+            answer.Add(new GroupItem(reader.GetString(0), reader.GetString(1)));
         }
 
         return answer;
