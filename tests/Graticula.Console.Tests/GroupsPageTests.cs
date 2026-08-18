@@ -46,7 +46,7 @@ public sealed class GroupsPageTests : ConsoleTest
     /// <remarks>
     /// <para>
     /// <b>Reported by the owner, 2026-08-18: *"new group düğmesi çalışmıyor"*.</b> The create form was
-    /// written into <c>#groupPicker</c>, which sits inside <c>#groupEditor</c> — a panel that is
+    /// written into <c>#groupPicker</c>, which sat inside the group editor's panel — one that was
     /// <c>hidden</c> until a group is chosen. So the button wrote its form into a hidden container and
     /// appeared to do nothing, **and the only reader who hits that is somebody with no groups yet**:
     /// the first-run case, which is the one state the three earlier tests could not be in, because each
@@ -70,17 +70,31 @@ public sealed class GroupsPageTests : ConsoleTest
 
         await OpenAsync("/studio/#/groups", token);
 
+        // <b>Waited on the screen being *shown*, not on the button existing.</b> `#groupNew` is static
+        // markup: it is in the document before the router has decided which screen is on, so waiting
+        // for it is a tautology that clicks through the boot. The diagnostic when this was wrong said
+        // `on: ["view-services"]` with `hash: "#/groups"` — the click landed while Server's default
+        // screen was still showing, and the form rendered correctly into a container nobody could see.
+        // Third tautological wait found in this file today, all the same shape: assert the thing that
+        // is false before the thing you are testing happens.
         await WaitForAsync(
-            "!!document.getElementById('groupNew')",
-            "The Groups screen has no New group button.");
+            "document.getElementById('view-groups').classList.contains('on')",
+            "The Groups screen never became the one showing.");
 
         // <b>The editor is closed, which is the condition under which this broke.</b> If the server
         // this suite runs against happens to have groups, the editor opens on the first one and the
         // defect is masked — so the state is asserted rather than assumed, and the test says which
         // state it is in when it cannot get the interesting one.
-        bool editorOpen = await Browser.EvaluateAsync<bool>(
-            "!!document.getElementById('groupEditor')"
-            + " && !document.getElementById('groupEditor').hidden");
+        // <b>Nothing is open, which is the condition under which this broke.</b> The editor became
+        // its own page (ADR-036 §4g), so the state to assert is that the list is what is showing —
+        // if this suite's server has groups, the list still shows only the list until a row is
+        // clicked, so the interesting state is no longer reachable only by luck.
+        // <b>`.on`, not `hidden`, and reading the wrong one made three waits into no-ops.</b>
+        // `showView` toggles a class; every `.view` section's `hidden` property is permanently false,
+        // so `!view.hidden` is a tautology that passes before the router has run. A test that goes
+        // green with its subject absent is the trap this repository has now written four times.
+        bool pageOpen = await Browser.EvaluateAsync<bool>(
+            "document.getElementById('view-group').classList.contains('on')");
 
         await ClickAsync("#groupNew");
 
@@ -96,10 +110,10 @@ public sealed class GroupsPageTests : ConsoleTest
         Assert.True(
             visible,
             "The create form rendered into something hidden"
-            + (editorOpen
-                ? "."
-                : " — and the group editor was closed, which is the state a deployment with no "
-                  + "groups is always in, so New group did nothing for a first-time reader."));
+            + (pageOpen
+                ? ", and a group's page is what is showing rather than the list."
+                : " — and no group's page was open, which is the state a deployment with no groups is "
+                  + "always in, so New group did nothing for a first-time reader."));
 
         string[] errors = await PageErrorsAsync();
         Assert.Empty(errors);
@@ -145,8 +159,17 @@ public sealed class GroupsPageTests : ConsoleTest
             await ClickAsync($"#groupRows tr[data-group={Probe}] td.name");
 
             await WaitForAsync(
-                "!document.getElementById('groupActions').hidden",
-                "The owner was not offered the group's controls.");
+                "document.getElementById('view-group').classList.contains('on')",
+                "Clicking a group did not open its page.");
+
+            // <b>Add member lives on the Members tab.</b> The owner, 2026-08-18: *"add member shall
+            // be inside members section"* — a verb belongs on the tab whose subject it changes, and it
+            // was in the page head above all four.
+            await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/members'");
+
+            await WaitForAsync(
+                "document.getElementById('groupAdd')?.offsetParent !== null",
+                "The owner was not offered Add member on the Members tab.");
 
             await ClickAsync("#groupAdd");
 
@@ -221,11 +244,15 @@ public sealed class GroupsPageTests : ConsoleTest
             await ClickAsync($"#groupRows tr[data-group={Probe}] td.name");
 
             await WaitForAsync(
-                "(document.getElementById('groupStanding')?.textContent || '').length > 0",
-                "The editor does not say where the reader stands in this group.");
+                "document.getElementById('view-group').classList.contains('on')",
+                "Clicking a group did not open its page.");
+
+            await WaitForAsync(
+                "(document.getElementById('groupFacts')?.textContent || '').length > 0",
+                "Overview does not say where the reader stands in this group.");
 
             string standing = Flat(await Browser.EvaluateAsync<string>(
-                "document.getElementById('groupStanding')?.textContent || ''"));
+                "document.getElementById('groupFacts')?.textContent || ''"));
 
             // <b>Asserted on substance, not on a phrase.</b> The copy moved from a paragraph to a
             // fact list during a design review; a test pinned to the old sentence would have failed
@@ -338,15 +365,25 @@ public sealed class GroupsPageTests : ConsoleTest
     }
 
     /// <summary>
-    /// Choosing a group opens it and shows its members and what is shared with it.
+    /// Choosing a group opens its page, and each of its four tabs shows its own subject.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Clicking a cell, not the row.</b> D-73 was exactly this defect on the Roles screen — the
     /// handler read the click target's own dataset and the target is the cell — and a test that
     /// clicked the row element would have passed against it.
+    /// </para>
+    /// <para>
+    /// <b>Four tabs by owner decision, ADR-036 §4g</b>, overruling §4f's refusal. This test is the
+    /// half of that decision a screenshot cannot give: that each tab is separately addressable, that
+    /// the strip marks the one showing, and that the comparison the tabs took away — who is in the
+    /// group against what they can therefore read — is given back by Overview's tally. If that
+    /// sentence ever stops being rendered, the tabs have cost the screen its subject for nothing, and
+    /// this is the assertion that says so.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task Choosing_a_group_shows_its_members_and_its_services()
+    public async Task Each_of_a_groups_four_tabs_shows_its_own_subject()
     {
         (string token, _) = await SignInAsync();
 
@@ -368,44 +405,200 @@ public sealed class GroupsPageTests : ConsoleTest
             await ClickAsync($"#groupRows tr[data-group={Probe}] td.name");
 
             await WaitForAsync(
-                "(document.getElementById('groupEditorName')?.textContent || '')"
+                "(document.getElementById('groupTitle')?.textContent || '')"
                 + ".includes('Probe group')",
-                "Clicking a group's cell did not open it — the defect D-73 records for the Roles "
-                + "screen, on a second screen.");
+                "Clicking a group's cell did not open its page — the defect D-73 records for the "
+                + "Roles screen, on a second screen.");
 
-            // <b>The creator is in it, as its owner.</b> Otherwise a membership-filtered list omits
-            // a group somebody owns, and every screen has to special-case that.
-            string members = Flat(await Browser.EvaluateAsync<string>(
-                "document.getElementById('groupMembers')?.textContent || ''"));
+            // <b>A row click has to reach the address, not just the render.</b> The page is
+            // addressable and that is the difference between it and the panel it replaced; a handler
+            // that drew the page without moving the hash would leave Back on the previous screen and
+            // a copied link on the wrong one.
+            string where = await Browser.EvaluateAsync<string>("location.hash") ?? string.Empty;
 
-            Assert.Contains("owner", members, StringComparison.Ordinal);
+            Assert.Contains($"group/{Probe}", where, StringComparison.Ordinal);
 
-            // <b>The capability is said in words, and the facts are facts rather than footnotes.</b>
-            // They were two paragraphs of grey `hint` — the same weight as a caveat — carrying one
-            // word each; a design review called that fifty-five words to deliver *none*.
+            // ---------------------------------------------------------------- Overview
+            // <b>The tally is what §4f's argument was traded for.</b> Tabs hide *who is in the group*
+            // while you read *what they can therefore read*; this sentence is the only place that
+            // relation is still counted, so its absence is a regression in the decision rather than
+            // in the markup.
+            string tally = Flat(await Browser.EvaluateAsync<string>(
+                "document.getElementById('groupReach')?.textContent || ''"));
+
+            Assert.Contains("read nothing through it", tally, StringComparison.OrdinalIgnoreCase);
+
+            // The facts, which were two paragraphs of grey `hint` carrying one word each.
             string facts = Flat(await Browser.EvaluateAsync<string>(
-                "document.getElementById('groupStanding')?.textContent || ''"));
+                "document.getElementById('groupFacts')?.textContent || ''"));
 
+            Assert.Contains("its owner", facts, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("reading only", facts, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("fixed at creation", facts, StringComparison.OrdinalIgnoreCase);
 
-            Assert.Contains("fixed when the group was created", facts, StringComparison.OrdinalIgnoreCase);
+            // <b>The strip marks the tab showing, and only that one.</b> `aria-current` is the whole
+            // accessible affordance here — these are links rather than `role="tab"`, deliberately, so
+            // nothing else tells a screen reader which of the four it is on.
+            int current = await Browser.EvaluateAsync<int>(
+                "document.querySelectorAll('#groupTabs a[aria-current]').length");
 
-            // The irreversibility keeps a sentence, because it is the one part a reader has to be
-            // persuaded of rather than told.
-            Assert.Contains("cannot be changed", facts, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, current);
 
-            // The sentence that stops the step people miss: sharing here is not enough.
-            string hint = Flat(await Browser.EvaluateAsync<string>(
-                "document.getElementById('view-groups')?.textContent || ''"));
+            // ---------------------------------------------------------------- each tab, by address
+            foreach ((string tab, string element) in new (string, string)[]
+            {
+                ("content", "groupItems"),
+                ("members", "groupMembers"),
+                ("settings", "groupSettings"),
+                ("overview", "groupReach"),
+            })
+            {
+                await Browser.EvaluateAsync<string>(
+                    $"location.hash = '#/group/{Probe}/{tab}'");
 
-            Assert.Contains("its own sharing scope", hint, StringComparison.OrdinalIgnoreCase);
+                await WaitForAsync(
+                    $"!document.getElementById('tab-{tab}').hidden",
+                    $"The address #/group/{Probe}/{tab} did not open the {tab} tab.");
 
-            // <b>Members beside services, because the relation is the subject.</b> The reference tabs
-            // them apart; tabs would hide half of what the screen exists to compare.
-            bool paired = await Browser.EvaluateAsync<bool>(
-                "!!document.querySelector('#groupEditor .grouppair')");
+                // <b>The other three are hidden, which is the assertion that catches a strip that
+                // shows and a body that does not switch.</b> Four visible bodies would read as one
+                // long page and pass any test that only asked whether the right one was present.
+                int showing = await Browser.EvaluateAsync<int>(
+                    "document.querySelectorAll('#view-group .grouptab:not([hidden])').length");
 
-            Assert.True(paired, "The members and services tables are no longer shown together.");
+                Assert.Equal(1, showing);
+
+                bool marked = await Browser.EvaluateAsync<bool>(
+                    $"(document.querySelector('#groupTabs a[aria-current]')?.getAttribute('href')"
+                    + $" || '').endsWith('/{tab}')");
+
+                Assert.True(marked, $"The strip does not mark {tab} while {tab} is showing.");
+
+                Assert.True(
+                    await Browser.EvaluateAsync<bool>($"!!document.getElementById('{element}')"),
+                    $"The {tab} tab rendered nothing into #{element}.");
+            }
+
+            // ---------------------------------------------------------------- Content's own sentence
+            await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/content'");
+
+            await WaitForAsync(
+                "!document.getElementById('tab-content').hidden",
+                "The Content tab did not open.");
+
+            // The sentence that stops the step people miss: sharing here is not enough. It moved from
+            // the screen's prose onto the tab that is about the shares, which is the one place a
+            // reader is looking at an inert one.
+            string content = Flat(await Browser.EvaluateAsync<string>(
+                "document.getElementById('groupItems')?.textContent || ''"));
+
+            Assert.Contains("its own sharing scope", content, StringComparison.OrdinalIgnoreCase);
+
+            string[] errors = await PageErrorsAsync();
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Probe}");
+        }
+    }
+
+    /// <summary>
+    /// An owner sees the group's controls, and *sees* is asserted rather than *has*.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written because the whole write surface of this page was invisible to its owner for a
+    /// day.</b> <c>GET /admin/groups/{name}</c> did not return <c>mayManage</c> or <c>mayDelete</c> —
+    /// the two lines that compute them live in the listing handler and were never copied into the
+    /// describe one — so the page read <c>undefined</c> seven times. An unrestricted administrator who
+    /// owned the group was shown a Settings tab saying *"these are the owner's and its managers' to
+    /// set"* and no controls at all, while a **plain member's** view was accidentally correct. The bug
+    /// hit exactly the people the page was built for.
+    /// </para>
+    /// <para>
+    /// <b>Third time in this project, and the lesson is one word: `offsetParent`.</b> The groups
+    /// screen's first-run form and *New group* writing into a hidden container were the first two, and
+    /// both were found by the owner pressing a button rather than by a suite. A control's existence is
+    /// not its availability, and <c>getElementById</c> cannot tell the two apart —
+    /// <c>offsetParent === null</c> is the cheapest question that can.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_owner_can_see_and_not_merely_have_the_groups_controls()
+    {
+        (string token, _) = await SignInAsync();
+
+        (int made, string why) = await AdminAsync(
+            HttpMethod.Post,
+            "/admin/groups",
+            JsonSerializer.Serialize(new { name = Probe, title = "Probe group" }));
+
+        Assert.True(made is 200 or 201, $"{made} {why}");
+
+        try
+        {
+            await OpenAsync($"/studio/#/group/{Probe}/overview", token);
+
+            await WaitForAsync(
+                "(document.getElementById('groupTitle')?.textContent || '').includes('Probe group')",
+                "The group's page never rendered.");
+
+            // <b>Visible, not present, and each on the tab that owns it.</b> Both existed
+            // throughout the defect; both now live on the tab whose subject they change, which is the
+            // owner's correction of 2026-08-18 — so a test that looked for them on Overview would
+            // report the page broken for the wrong reason.
+            foreach ((string tab, string control) in new (string, string)[]
+            {
+                ("members", "groupAdd"),
+                ("content", "groupShare"),
+            })
+            {
+                await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/{tab}'");
+
+                await WaitForAsync(
+                    $"!document.getElementById('tab-{tab}').hidden",
+                    $"The {tab} tab did not open.");
+
+                await WaitForAsync(
+                    $"document.getElementById('{control}')?.offsetParent !== null",
+                    $"#{control} is not visible to the owner on the {tab} tab. It may still exist in "
+                    + "the document — that was the whole defect, and asserting presence passes "
+                    + "against it.");
+            }
+
+            // Settings is the tab that lost everything, because its member branch swallowed the
+            // manager one.
+            await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/settings'");
+
+            await WaitForAsync(
+                "!document.getElementById('tab-settings').hidden",
+                "The Settings tab did not open.");
+
+            foreach (string control in new[] { "gsVisibility", "gsJoin", "gsContribute", "gsLock" })
+            {
+                bool seen = await Browser.EvaluateAsync<bool>(
+                    $"!!document.getElementById('{control}')"
+                    + $" && document.getElementById('{control}').offsetParent !== null");
+
+                Assert.True(
+                    seen,
+                    $"#{control} is not visible on the Settings tab to the group's owner. The tab "
+                    + "rendered its plain-member text instead, which is what a missing mayManage "
+                    + "produces.");
+            }
+
+            // <b>And every one of them has an accessible name.</b> All four read as `combobox: \"\"`
+            // when the questions were `<span class="q">` rather than `<label for>` — four unlabelled
+            // dropdowns on the one tab that is nothing but form controls.
+            string[] unnamed = await Browser.EvaluateAsync<string[]>(
+                "Array.from(document.querySelectorAll('#groupSettings select, #groupSettings input'))"
+                + ".filter(e => !(e.getAttribute('aria-label')"
+                + " || (e.labels && e.labels.length)))"
+                + ".map(e => e.id || e.tagName)")
+                ?? Array.Empty<string>();
+
+            Assert.Empty(unnamed);
 
             string[] errors = await PageErrorsAsync();
             Assert.Empty(errors);
@@ -448,23 +641,37 @@ public sealed class GroupsPageTests : ConsoleTest
             await ClickAsync($"#groupRows tr[data-group={Probe}] td.name");
 
             await WaitForAsync(
-                "!document.getElementById('groupEditor').hidden",
-                "The group editor never opened.");
+                "document.getElementById('view-group').classList.contains('on')",
+                "Clicking a group did not open its page.");
 
             // The signed-in account owns this group, so it *is* offered the controls — which is the
-            // half that proves the flags are read rather than hard-coded off.
-            bool actions = await Browser.EvaluateAsync<bool>(
-                "!document.getElementById('groupActions').hidden");
+            // half that proves the flags are read rather than hard-coded off. `offsetParent`, not
+            // `hidden`: a control inside a hidden ancestor is not hidden itself, and that distinction
+            // is the whole of the defect this suite has now been written around three times.
+            //
+            // <b>Waited for rather than asserted, because `#view-group` becomes visible before the
+            // group is read.</b> The router shows the page, then fetches; a bare assertion here caught
+            // the instant in between and failed against a working console — the same one-tick race
+            // `ClickAsync` was written to remove.
+            await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/members'");
 
-            Assert.True(
-                actions,
+            await WaitForAsync(
+                "document.getElementById('groupAdd')?.offsetParent !== null",
                 "The owner of a group is not offered its controls, so the screen is read-only for "
                 + "everybody and the `mayManage` flag is being ignored.");
 
-            bool delete = await Browser.EvaluateAsync<bool>(
-                "!document.getElementById('groupDelete').hidden");
+            // <b>Delete moved to the Settings tab and is not rendered at all without `mayDelete`.</b>
+            // Absent rather than disabled is the rule (ADR-036 condition 5), so the assertion has to
+            // open the tab and then ask — the old one read a `hidden` property off `null`.
+            await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/settings'");
 
-            Assert.True(delete, "The owner is not offered Delete, which only they may do.");
+            await WaitForAsync(
+                "!document.getElementById('tab-settings').hidden",
+                "The Settings tab did not open.");
+
+            await WaitForAsync(
+                "document.getElementById('groupDelete')?.offsetParent !== null",
+                "The owner is not offered Delete on the Settings tab, which only they may do.");
 
             string[] errors = await PageErrorsAsync();
             Assert.Empty(errors);

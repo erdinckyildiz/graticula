@@ -691,7 +691,7 @@
 
     <!--
       <b>The create form lives here, not inside the editor.</b> It was in `#groupPicker`, which sits
-      inside `#groupEditor` — a panel that is `hidden` until a group is chosen. So on a server with no
+      inside the group editor's panel, which was `hidden` until a group was chosen. So on a server with no
       groups, New group wrote its form into a hidden container and appeared to do nothing, which is
       exactly the state a first-time reader is in. Creating a group is also not an operation *on* a
       group, so it does not belong on a group's panel.
@@ -709,44 +709,154 @@
     </div>
     <div id="groupsPager"></div>
 
-    <div class="panel" id="groupEditor" hidden>
-      <div class="editorhead">
-        <div><h3 id="groupEditorName"></h3></div>
-        <div id="groupActions" hidden>
-          <button class="tiny" id="groupAdd">Add member</button>
-          <button class="tiny" id="groupShare">Share a service</button>
-          <button class="tiny danger" id="groupDelete" hidden>Delete group</button>
-        </div>
-        <div>
-          <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
-        </div>
+  </section>
+
+  <!--
+    <b>A group is a page now, and that is ADR-036 §4g.</b> It was a panel under this list, and four
+    tabs cannot live in a panel that begins below ten rows of table: the strip would scroll out from
+    under the pointer, Content would be boxed at half the viewport, and two headings would compete —
+    the list's *Groups* against the panel's group name. The click handler already had to
+    `scrollIntoView` to make the panel visible, which was the symptom.
+
+    <b>Addressed `#/group/{name}/{tab}`</b>, so a tab is a place you can link somebody to. That works
+    for a group and not for a service because `route()` splits on `/` before decoding, and a group's
+    name may contain a slash — `encodeURIComponent` survives the split where a service's
+    `folder/name` deliberately does not.
+  -->
+  <section class="view" id="view-group">
+    <div class="crumbs" id="groupCrumb"></div>
+
+    <div class="pagehead">
+      <div>
+        <h2 id="groupTitle"></h2>
+        <!--
+          <b>The summary is the page's subtitle, not a block on Overview.</b> The reference puts it on
+          one tab with an empty state saying it *"is not available"*; a one-line summary is for being
+          read while you do something else, so it sits here and is present on all four tabs. It also
+          stops being an absence that needs a placeholder.
+        -->
+        <p id="groupSummary"></p>
       </div>
-
-      <div id="groupStanding"></div>
-      <div id="groupCapability"></div>
-      <div id="groupPicker" hidden></div>
-
       <!--
-        Side by side, because *who is in it* and *what they can therefore read* is the one comparison
-        this screen exists to support. The reference tabs them apart; tabs would hide half of the
-        relation while you read the other half.
+        <b>Only what applies to the group as a whole.</b> The owner, 2026-08-18: *"add member shall be
+        inside members section. share a service is not like that. it shall be add item."* Both were
+        here, above four tabs, so the page head carried two verbs that each act on one tab's subject —
+        which is the panel's habit surviving into a page that has somewhere better to put them. A verb
+        belongs on the tab it changes; *Leave group* is about the group itself and stays.
       -->
+      <div class="right" id="groupActions" hidden>
+        <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
+      </div>
+    </div>
+
+    <!--
+      <b>Links in a `<nav>`, and deliberately not `role="tablist"`.</b> That role owes the reader
+      arrow keys, Home/End, one tab stop across the set and `aria-controls` on four `role="tabpanel"`
+      elements — a contract a screen reader will then hold us to. These are addresses, so they are
+      navigation: Back, middle-click and copy-link all work, and `role="tab"` would quietly break all
+      three.
+    -->
+    <nav class="tabstrip" id="groupTabs" aria-label="Group"></nav>
+
+    <div id="groupPicker" hidden></div>
+
+    <!-- ─── Overview ─────────────────────────────────────────────────────────────────────── -->
+    <div class="grouptab" id="tab-overview" hidden>
+      <!--
+        <b>The reachability tally, and it is the compensation for the tabs.</b> §4f declined tabs
+        because they hide *who is in the group* while you read *what they can therefore read*. This
+        is that relation as a sentence with numbers, on the tab you land on — a share reaches nobody
+        unless the group share and the service's own scope agree, and this is the only place that
+        counts how many currently do.
+      -->
+      <p id="groupReach" class="reach"></p>
+
       <div class="grouppair">
         <div>
-          <h4>Members <span class="val" id="groupMemberCount"></span></h4>
-          <table>
-            <thead><tr><th>Member</th><th>Standing</th><th></th></tr></thead>
-            <tbody id="groupMembers"></tbody>
-          </table>
+          <h4>What it is for</h4>
+          <div id="groupAbout"></div>
+
+          <h4>Recently shared</h4>
+          <div id="groupRecent"></div>
         </div>
         <div>
-          <h4>Services shared with it <span class="val" id="groupItemCount"></span></h4>
-          <table>
-            <thead><tr><th>Service</th><th>Scope</th><th></th></tr></thead>
-            <tbody id="groupItems"></tbody>
-          </table>
+          <h4>Facts</h4>
+          <div class="facts2" id="groupFacts"></div>
         </div>
       </div>
+    </div>
+
+    <!-- ─── Content ──────────────────────────────────────────────────────────────────────── -->
+    <!--
+      <b>One grid column, and the second one is reserved by not being built.</b> When maps arrive with
+      types worth filtering, `grid-template-columns` becomes `232px minmax(0, 1fr)` and a
+      `.rail-item` list goes in the gap — the same shape as `#serverGrid`. Building the rail now would
+      mean a *Group categories* heading over an empty state linking to a feature that does not exist,
+      which is the rule this console already applied when it dropped the notification bell.
+    -->
+    <div class="grouptab" id="tab-content" hidden>
+      <div class="toolbar">
+        <!--
+          <b>*Add item*, not *Share a service*</b> — the owner, 2026-08-18. Two reasons and the second
+          is the durable one: what the button does is put something into this group, which is *adding*
+          rather than *sharing* from the group's side; and a service is the only kind of item there is
+          today, so naming the kind in the verb is a label that has to change when maps arrive. *Item*
+          is the word this tab is already built around.
+        -->
+        <button class="tiny primary" id="groupShare" hidden>Add item</button>
+        <input type="search" id="groupItemFilter" placeholder="Search shared services&hellip;"
+               autocomplete="off" hidden>
+        <span class="val" id="groupItemCount"></span>
+        <span style="flex:1"></span>
+        <label class="q" for="groupItemSort">Order</label>
+        <select id="groupItemSort">
+          <option value="shared">Most recently shared</option>
+          <option value="name">Name</option>
+        </select>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr>
+            <th>Service</th><th>Kind</th><th>Reaches members</th><th>Shared</th><th></th>
+          </tr></thead>
+          <tbody id="groupItems"></tbody>
+        </table>
+      </div>
+      <div id="groupItemsPager"></div>
+    </div>
+
+    <!-- ─── Members ──────────────────────────────────────────────────────────────────────── -->
+    <div class="grouptab" id="tab-members" hidden>
+      <div class="toolbar">
+        <button class="tiny primary" id="groupAdd" hidden>Add member</button>
+        <input type="search" id="groupMemberFilter" placeholder="Search members&hellip;"
+               autocomplete="off" hidden>
+        <span class="val" id="groupMemberCount"></span>
+      </div>
+      <!--
+        <b>No filter rail, and the omission is about scale rather than taste.</b> The reference filters
+        by group role and by *joined today / yesterday / last 7 days*, which is an audit tool over
+        hundreds of members. Ours sorts owner, then managers, then members already — so the set the
+        role filter would select is drawn as a boundary in the table instead, and at nine rows that is
+        the whole value of the filter without the chrome.
+      -->
+      <div class="panel">
+        <table>
+          <thead><tr><th>Member</th><th>Standing</th><th>Joined</th><th></th></tr></thead>
+          <tbody id="groupMembers"></tbody>
+        </table>
+      </div>
+      <div id="groupMembersPager"></div>
+    </div>
+
+    <!-- ─── Settings ─────────────────────────────────────────────────────────────────────── -->
+    <!--
+      <b>Membership first and deletion last</b>, the opposite of the reference, which leads with
+      *Deletion management*. Destructive last is this console's own rule and is why Delete moved into
+      the Services overflow menu.
+    -->
+    <div class="grouptab" id="tab-settings" hidden>
+      <div id="groupSettings"></div>
     </div>
   </section>
 

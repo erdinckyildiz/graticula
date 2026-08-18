@@ -271,6 +271,283 @@ exactly the invented-concept failure the memory of this project warns about.
 **One finding was a promise with nothing behind it:** the standing line said *"Transfer it or delete
 it"* and there is no transfer — no route, no method. Cut until there is one.
 
+### 4g. The four tabs, and the settings §4e deferred — owner decision, 2026-08-18
+
+**The owner overruled §4f's refusal, and their reason defeats the argument it was made on.** Four
+screenshots of Portal's group — *Overview*, *Content*, *Members*, *Settings* — with: *"arcgis portal
+da grup seçenekleri böyle. yakında sistemde harita ekleme, icon ekleme gibi özellikler de olacak. o
+mantıkta … bizim ekranımız yetersiz ve basit kalıyor."*
+
+§4f declined the tabs on subject rather than scale: *the screen exists to compare who is in a group
+with what they can therefore read, and tabs would hide half of the comparison*. **That holds for two
+short tables and stops holding the moment Content becomes a page of its own** — which is what maps
+and icons make it. A gallery with thumbnails, item types and its own filters is not a column beside a
+member list; it is a screen. The refusal was right about today and wrong about the product, and the
+owner was arguing about the product.
+
+**Recorded rather than quietly reversed**, because §4f's argument is still the correct argument for a
+two-table screen and somebody will meet it again on a different one.
+
+#### The structure adopted
+
+| Tab | What it holds |
+|---|---|
+| **Overview** | Summary and description, recently added content, and a facts rail: owner, your membership with *Leave group*, member count, created, and the three settings below stated as facts |
+| **Content** | What is shared with the group, with its own search, item-type filter and per-item type and date — the tab that has to exist before maps arrive |
+| **Members** | Members with their standing and when they joined, with its own search and a standing filter |
+| **Settings** | The four editable policies, and deletion |
+
+#### And Q-118 is answered by the owner, with a fourth setting it had not recorded
+
+The Settings tab shows exactly the three axes [Q-118](../open-questions.md) held open, and one more:
+
+- **Who can view this group?** — *only group members* / *all organization members* / *everyone
+  (public)*. The group's own visibility, which answers *who may discover that this group exists* and
+  is a different question from who may read its items. **Default: only group members**, which is what
+  ours does today by construction.
+- **How can people join?** — *by invitation* / *by request* / *by adding themselves*. **Q-118 did not
+  have this at all.** It is the axis that turns a group from a thing done *to* people into one they
+  can approach, and *by request* implies a queue of pending requests — which is a table and a screen
+  and is **deferred**, with the column carrying the value so the decision is recorded rather than
+  re-opened. **Default: by invitation**, and `request` is refused on write until the queue exists,
+  because a policy the server accepts and does not honour is [D-67](../architecture-debt.md) again.
+- **Who can contribute content?** — *all group members* / *group owner and managers*. **Distinct from
+  §4b's `item_update`**, which governs editing what is *already* shared and stays immutable — and the
+  reference's own Settings page not offering it is the evidence that they draw the same line.
+  **Default: owner and managers**, which is what ours enforces today.
+- **Prevent this group from being accidentally deleted** — a lock beside the delete. Ours has a
+  confirmation and no lock, and a confirmation is dismissed by habit.
+
+**Every default above is what this server already does**, so migration 27 changes no behaviour: it
+gives an operator the ability to say otherwise. That is the same shape as ADR-035's seed and for the
+same reason — an upgrade that quietly widened who may see a group would be the worst outcome
+available.
+
+#### What is deliberately still not taken
+
+- **Group categories** (*"Set up group categories"*) — a taxonomy for organising items inside a group.
+  It needs items worth organising, which is after maps rather than before.
+- **A thumbnail.** It is a file, and where files live is ADR territory this decision should not settle
+  in passing.
+- **`Create web app`** — a product feature of theirs with nothing behind it here.
+- **`Owner + Groups (n)`** on each item, which reports every group an item is in. Ours cannot: the
+  item listing is per group. It is a read, it is useful, and it is a query rather than a decision.
+
+### 4h. Built and measured, and one defect caught before it could destroy anything
+
+**2026-08-18.** The page, the four tabs and the settings write exist and were exercised against a
+running server on the throwaway schema.
+
+#### The tabs
+
+`#/group/{name}/{tab}` — four addresses, one `.tabstrip` component, links in a `<nav>` with
+`aria-current` rather than `role="tablist"`. That role would owe a screen reader arrow keys, Home/End,
+one tab stop across the set and `aria-controls` on four `role="tabpanel"` elements; these are
+addresses, so they are navigation, and Back, middle-click and copy-link all work as a result.
+
+**A group's page is addressable where a service's is not, and the difference is real rather than an
+oversight.** `route()` splits the hash on `/` before decoding, so a service's `folder/name` cannot
+survive a third segment — the inconsistency ADR-034 §5c records. A group's name is one encoded
+segment and can, *including* when it contains a slash, which nothing currently prevents.
+
+#### What §4f's argument was traded for
+
+§4f declined the tabs because the screen existed to compare *who is in a group* with *what they can
+therefore read*. **That comparison is now the first thing on Overview**, as a sentence with the
+numbers set strongly: *8 services shared with this group. 3 reach its members; 5 are inert — their own
+sharing scope is not `group`, and both halves have to agree.* Nowhere else counts it. If that sentence
+ever stops being rendered, the tabs have cost the screen its subject for nothing, and
+`Each_of_a_groups_four_tabs_shows_its_own_subject` is the assertion that says so.
+
+#### Three fields that were in the schema and unread
+
+`sharing_group_item.shared_at` and `shared_by`, and `service.kind`, all present since the tables were
+created and none of them reaching a screen. `shared_by` is worth more here than the reference's *owner*
+column: with `contribute: members` any member may share their own service in, so when one of thirty is
+inert, *who put it here* names the person to talk to. And `sharing_group_member.added_at` for Members —
+a group's member list is an access-control list, and *when did this person gain access to everything
+shared here* is an audit question nothing could answer.
+
+#### The defect: the settings write replaces every field, and its documentation said the opposite
+
+**Caught by a design review before either screen existed, and it would have destroyed data an operator
+typed.** The port described `title`, `summary` and `description` as *"or null to leave it"* while the
+statement writes `set title = @title`. So:
+
+- a Settings tab posting only its four policies would have **erased the title, the summary and the
+  description**;
+- an Overview summary editor posting only a summary would have **silently unlocked a delete-locked
+  group** and erased the description.
+
+Both halves were then measured rather than reasoned about, because a claim about data loss is exactly
+the kind that reads as true and is not:
+
+| Sent | Result |
+|---|---|
+| Whole object, overlaid on the last read — three policies changed | `title` and `description` **kept**, `visibility organization`, `joinPolicy self`, `contribute members` |
+| Policies only, nothing else — what a naive caller sends | `title` **null**, `description` **null** |
+
+**Left as a replace rather than made into a `coalesce` patch**, because *clearing* a description has to
+be expressible and a store where null means *leave* cannot express it. The fix is therefore on both
+sides: the port's documentation now says what the code does and why a partial caller is a bug, and the
+console has exactly one function that builds that body, overlaying a patch on what it last read.
+`Writing_settings_replaces_the_text_fields_too` pins the behaviour so that helper stays necessary
+rather than decorative.
+
+#### The four refusals, measured
+
+| Act | Answer |
+|---|---|
+| `joinPolicy: request` | **400**, naming what is missing — a queue of pending requests, a table, a screen and a decision about who reviews them, and that accepting it anyway would be D-67 again |
+| Delete a locked group, **as `root`** | **409**, and the group is still there on the next read |
+| Same after unlocking | **200**, then **404** |
+| Settings on a group you neither own nor manage | refused on the membership axis, not on a privilege |
+
+**The lock binding an administrator is the decision, not an oversight.** Every other refusal in the
+store yields to `administrator: true`. A protection the most privileged caller passes through is a
+protection against typing rather than against deleting, and the operator who sets the lock is usually
+the one who would fat-finger it. `A_delete_lock_binds_an_administrator` exists to stop that being
+'fixed' into consistency with its neighbours.
+
+#### The second defect: the setting this decision is about did nothing, for an hour
+
+**`visibility` was stored, reported by two endpoints, and read by no `where` clause.** `ListAsync`'s
+condition was `@all or owner or member`. So a group set to *everybody, including anonymous callers* was
+discoverable by exactly the people who could already see it — while the console offered the control and
+the endpoint's own note said *"it can now be found by anybody"*.
+
+**That is [D-67](../architecture-debt.md) precisely, and it shipped in the same change that refuses
+`join_policy = 'request'` on the ground that a policy stored and unenforced is D-67 over again.** One of
+the two had to move, and the inconsistency was mine rather than the design's. Found by asking what reads
+the column, which is a question worth asking of every setting on the day it is added.
+
+**Enforced rather than refused, because enforcing was one disjunct.** `or g.visibility in
+('organization', 'public')`, and then the part that matters: a caller who reaches a group only that way
+comes back `GroupStanding.Outside`, and the describe endpoint **withholds** the member and item lists on
+that standing rather than filtering them — a filtered list of nine members rendering as zero reads as an
+empty group, which is a different false statement rather than none. It reports `inside: false` so a
+reader and a script both know the lists are withheld and not empty. That is where §4g's *"being able to
+see that a group exists is not being able to read what is in it"* is actually kept.
+
+| Visibility | An outsider lists it | Describe | Member list |
+|---|---|---|---|
+| `members` | no | **404** | — |
+| `organization` | yes | 200, `inside: false` | **withheld** |
+| A member, same group | yes | 200, `inside: true` | 2 members |
+
+#### And `public` is now refused, for the reason that refused `request`
+
+`public` would mean *discoverable by anybody, including an anonymous caller*, and **there is nowhere for
+that to happen**: `/admin/groups` refuses an anonymous caller outright, so `public` and `organization`
+are enforced identically. Accepting it reports a discovery this server does not perform.
+
+So it is refused on write and still read correctly — the same shape as `request`, and the same argument.
+Two identical situations treated differently on one screen is the inconsistency an operator notices, and
+the console renders both as disabled options carrying their reason. **Where a public group is actually
+discovered is [Q-119](../open-questions.md)**, and it is a decision about anonymous surfaces rather than
+about groups.
+
+#### Every guard was falsified before being believed
+
+Six store guards, six surgical breaks, six failures and every other test unaffected: the replace turned
+into a `coalesce` patch, the lock made to yield to an administrator, the `request` refusal moved to
+*after* the write, an unknown stored visibility made to read as `public`, the visibility disjunct removed
+from the listing, and the `public` refusal removed. That
+last one is the direction rather than the mapping — a row written by a newer build carrying a
+visibility this one does not know must not make a group public by accident, because the safe reading of
+*"I do not understand this"* is the one that shows it to fewer people.
+
+#### What is still not built, and is recorded rather than implied
+
+- **No pictures on Overview.** `drawPreview` can draw a service from one query, but group items do not
+  carry a service's cover and this pass did not add it to the query. *Recently shared* is four rows of
+  name, kind and date. Rendering `.thumb.empty` for each instead would be worse: on the Services screen
+  that hatching means *this service has nothing to draw*, and here it would mean *this screen did not
+  ask*.
+- **Content's filter rail is reserved by not being built.** One grid column today; `232px minmax(0,
+  1fr)` and a `.rail-item` list when there is something to put in it. A *Group categories* heading over
+  an empty state linking to a feature that does not exist is the thing this console already refused
+  once, when it dropped the notification bell.
+- **`joinPolicy: request` is rendered disabled rather than omitted**, and the harder reason is not
+  honesty: the column stores three values and only the write path refuses the third, so a group can
+  already *hold* `request`. Render two options and such a group reads as *by invitation* while the store
+  says otherwise — the console lying about a policy. You can save away from it and not back to it.
+
+### 4i. What the design review found, and it was more than the page
+
+**The page was reviewed by a design pass on the day it was built, per the owner's standing
+instruction** — *"bundan sonra yapacağın tüm tasarımlarda ui-ux designer'i de kullan."* It found three
+defects that made the feature unusable and could not have been found by reading the code, because each
+of them looked correct in the source.
+
+- **[D-81] The whole write surface was invisible to its owner.** `mayManage` and `mayDelete` were
+  computed in the listing handler and never in the describe one, so the page read `undefined` seven
+  times. An administrator who owned the group was told, on the Settings tab, that these were *"the
+  owner's and its managers' to set"*. A plain member's view was accidentally correct. **Seven console
+  tests passed**, all of them about shape.
+- **[D-82] The members sort did the opposite of its own comment**, and the tab's manager/member divider
+  was built from the comment.
+- **[D-83] `SCOPES` had three values where the server takes four**, so the one instruction this page
+  gives could not be followed anywhere in the console.
+
+Two more, repaired in the review itself: the *Share a service* picker doubled the folder, so it
+answered 404 for every service on a server where every service is in a folder — the page's Content tab
+had therefore never held a row; and both of the page's pagers were absent from the click handler's list,
+so on a fourteen-member group four rows were unreachable. **Together those two mean the page's entire
+write surface had never once run** before it was reviewed.
+
+#### And one thing the review changed my mind about
+
+**Overview as built was not worth landing on.** Four blocks, three of them restatements: the tally
+restated the tab count in three of its four states, *Recently shared* was Content's first page minus its
+verb, and four of the ten facts were Settings read twice. The review put the choice as *make Overview
+the repair desk or delete it and land on Content*.
+
+**It is the repair desk.** It now leads with the number nowhere else says — *"9 of the 11 services
+shared here reach nobody"* — and lists exactly those services with the verb that fixes each. That is
+only possible because D-83 was fixed in the same pass: before it, the console could not set a service's
+scope at all. So the tab holds the one thing no other tab does, which is what is wrong with this group
+and how to clear it, and the both-sides count moved to Content where the shares are: *"2 of 11 reach the
+14 people in this group."*
+
+#### Three accessibility failures, all in the new work
+
+- **Four unlabelled comboboxes.** The Settings tab's questions were `<span class="q">`, so every select
+  on the one tab that is nothing but form controls had an empty accessible name. `<label for>` now, and
+  a test asserts that nothing on the tab lacks a name.
+- **The lock was named by its state**, `" Locked"`, rather than its subject.
+- **`--faint` was 2.99:1 on white, below AA** — found on two new uses that carry information, and then
+  true of all twenty, nearly every one of them text. Darkened to `#6b7787` (4.55:1), same hue, one step
+  lighter than `--muted` as it was always meant to be. It was never a decoration token; it was a second
+  muted grey that happened to be too light to read.
+
+#### The copy that was explaining itself
+
+The review read every string cold, which nobody had. The ones that were the build log talking to the
+operator: a lock toast that appended a lecture about who can discover the group (the endpoint returns a
+visibility note on every call, because the write is whole-object — now shown only when visibility
+actually moved); a share toast carrying `PUT /admin/services/{name}/sharing`; a three-line hint under a
+closed select explaining an option nobody had seen. And a promise the page could not keep: *"No summary.
+**Settings** takes one"*, pointing at a field that existed nowhere in this console — `title` and
+`description` were create-only and `summary` was unreachable. Settings has all three now, which the
+overlay made safe to add.
+
+### 4j. Where a verb lives — owner correction, 2026-08-18
+
+*"add member shall be inside members section. share a service is not like that. it shall be add
+item."*
+
+Both managing verbs were in the page head, above all four tabs — the panel's habit surviving into a page
+that has somewhere better to put them. **A verb belongs on the tab whose subject it changes**: *Add
+member* on Members, *Add item* on Content. The head keeps only what applies to the group as a whole,
+which is *Leave group*.
+
+**And the rename is the more durable half.** *Share a service* named the kind of thing being added, and
+a service is the only kind there is today — so the label would have had to change the moment maps and
+icons arrive, which is the change §4g adopted the tabs for. *Add item* is the word the tab is already
+built around. It also reads from the group's side: what the button does is put something *into* this
+group.
+
 ## 5. Consequences
 
 - **The sharing check gains a fourth value** on `layer`, `service` and `system_service`. Expand-only.

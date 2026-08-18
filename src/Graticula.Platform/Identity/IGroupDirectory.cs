@@ -27,6 +27,61 @@ public enum GroupItemUpdate
     AllItems,
 }
 
+/// <summary>Who may discover that a group exists — ADR-036 §4g.</summary>
+/// <remarks>
+/// <b>A different question from who may read its items.</b> A group's items are readable by its
+/// members and by nobody else, whatever this says; this answers whether somebody outside it can find
+/// it in a list and ask to join. The reference calls it *"Who can view this group?"*.
+/// </remarks>
+public enum GroupVisibility
+{
+    /// <summary>Only its members see it. The default, and what this server did before the setting.</summary>
+    Members,
+
+    /// <summary>Any signed-in member of the organisation can find it.</summary>
+    Organization,
+
+    /// <summary>Anybody, including an anonymous caller.</summary>
+    Public,
+}
+
+/// <summary>How somebody comes to be in a group — ADR-036 §4g.</summary>
+public enum GroupJoinPolicy
+{
+    /// <summary>An owner or manager adds them. The default.</summary>
+    Invitation,
+
+    /// <summary>
+    /// They ask and somebody approves — <b>stored and refused on write until the queue exists</b>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A queue of pending requests is a table, a screen and a decision about who reviews them</b>,
+    /// and none of that is built. The value is in the schema so the column does not have to be
+    /// widened later; the write path refuses it, because a policy the server stores and does not
+    /// honour is <see href="../../docs/architecture-debt.md">D-67</see> over again — that debt was a
+    /// setting reported and unenforced for two days.
+    /// </remarks>
+    Request,
+
+    /// <summary>Anybody who can see the group adds themselves.</summary>
+    Self,
+}
+
+/// <summary>Who may add services to a group — ADR-036 §4g.</summary>
+/// <remarks>
+/// <b>Not <see cref="GroupItemUpdate"/>.</b> That governs editing what is already shared and is fixed
+/// at creation; this governs who may share something in, and is editable. The reference's Settings
+/// page offers this and not the other, which is the evidence they draw the same line.
+/// </remarks>
+public enum GroupContribute
+{
+    /// <summary>Every member may share their own services with the group.</summary>
+    Members,
+
+    /// <summary>Only the owner and its managers. The default, and what this server enforced.</summary>
+    Managers,
+}
+
 /// <summary>Where a principal stands in relation to one group — ADR-036 §3's second axis.</summary>
 public enum GroupStanding
 {
@@ -64,6 +119,12 @@ public enum GroupStanding
 /// <param name="Members">How many principals belong.</param>
 /// <param name="Items">How many services are shared with it.</param>
 /// <param name="Standing">Where the asking principal stands, if one was named.</param>
+/// <param name="Summary">A one-line summary, or null.</param>
+/// <param name="Visibility">Who may discover it.</param>
+/// <param name="JoinPolicy">How somebody comes to be in it.</param>
+/// <param name="Contribute">Who may share services with it.</param>
+/// <param name="DeleteLocked">Whether it is protected from deletion.</param>
+/// <param name="CreatedAt">When it was made.</param>
 public sealed record GroupSummary(
     Guid Id,
     string Name,
@@ -73,7 +134,13 @@ public sealed record GroupSummary(
     GroupItemUpdate ItemUpdate,
     int Members,
     int Items,
-    GroupStanding Standing);
+    GroupStanding Standing,
+    string? Summary = null,
+    GroupVisibility Visibility = GroupVisibility.Members,
+    GroupJoinPolicy JoinPolicy = GroupJoinPolicy.Invitation,
+    GroupContribute Contribute = GroupContribute.Managers,
+    bool DeleteLocked = false,
+    DateTimeOffset CreatedAt = default);
 
 /// <summary>A service shared with a group, and whether it actually reaches the members.</summary>
 /// <param name="Name">Its qualified name.</param>
@@ -83,7 +150,37 @@ public sealed record GroupSummary(
 /// either alone is a state that reads as done and is not — so the screen shows which shares reach
 /// anybody rather than warning in prose that some might not.
 /// </param>
-public sealed record GroupItem(string Name, string Sharing);
+/// <param name="Kind">What sort of service it is — the slot a map arrives into.</param>
+/// <param name="Shared">When it was shared with the group, or null for a row older than the column.</param>
+/// <param name="SharedBy">
+/// Who shared it. <b>More useful here than an owner would be:</b> with
+/// <see cref="GroupContribute.Members"/> any member may share their own service in, so when one of
+/// thirty is inert this names the person to talk to.
+/// </param>
+public sealed record GroupItem(
+    string Name,
+    string Sharing,
+    string? Kind = null,
+    DateTimeOffset? Shared = null,
+    string? SharedBy = null);
+
+/// <summary>Somebody in a group, and how they came to be there.</summary>
+/// <param name="Name">Their sign-in name.</param>
+/// <param name="DisplayName">Their display name, or null if they have none.</param>
+/// <param name="Standing">What they are in the group.</param>
+/// <param name="Joined">When they were added, or null for a row older than the column.</param>
+/// <param name="AddedBy">Who added them, or null for the owner and for pre-migration rows.</param>
+/// <remarks>
+/// <b><see cref="Joined"/> is an access-control fact, not a decoration.</b> A group's member list is
+/// an access-control list, and *when did this person gain access to everything shared here* is an
+/// audit question the console could not answer while the column sat unread.
+/// </remarks>
+public sealed record GroupMember(
+    string Name,
+    string? DisplayName,
+    GroupStanding Standing,
+    DateTimeOffset? Joined = null,
+    string? AddedBy = null);
 
 /// <summary>Why a group operation was refused.</summary>
 public enum GroupChange
@@ -117,6 +214,21 @@ public enum GroupChange
     /// The capability cannot be changed after creation — ADR-036 §4c.
     /// </summary>
     Immutable,
+
+    /// <summary>
+    /// The group is locked against deletion — ADR-036 §4g.
+    /// </summary>
+    /// <remarks>
+    /// <b>A lock rather than a confirmation, and the difference is the point.</b> A confirmation is
+    /// dismissed by habit; a lock has to be turned off deliberately, on the screen that shows what the
+    /// group holds.
+    /// </remarks>
+    Locked,
+
+    /// <summary>
+    /// A join policy the schema admits and the application does not honour yet.
+    /// </summary>
+    NotBuilt,
 }
 
 /// <summary>
@@ -231,11 +343,60 @@ public interface IGroupDirectory
         bool wanted,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Changes a group's editable policies.
+    /// </summary>
+    /// <param name="acting">Who is asking.</param>
+    /// <param name="administrator">Whether they hold <c>admin:manageAllContent</c>.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="title">A display title, or null to clear it.</param>
+    /// <param name="summary">A one-line summary, or null to clear it.</param>
+    /// <param name="description">What it is for, or null to clear it.</param>
+    /// <param name="visibility">Who may discover it.</param>
+    /// <param name="joinPolicy">How people join.</param>
+    /// <param name="contribute">Who may share services with it.</param>
+    /// <param name="deleteLocked">Whether it is protected from deletion.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's or a manager's, and it replaces every field — including the three that are
+    /// text.</b> Same shape as <see cref="IRoleDirectory.SetPrivilegesAsync"/>, and the same argument:
+    /// a patch API would make *"set visibility"* and *"set everything, with visibility changed"* two
+    /// requests with one intent, which is where a race lives.
+    /// </para>
+    /// <para>
+    /// <b>Which makes a partial caller a data-loss bug, and the first version of this documentation
+    /// said the opposite.</b> These three parameters were described as *"or null to leave it"* while
+    /// the statement writes `set title = @title` — so a screen that posted only the policies would
+    /// have erased the title, the summary and the description, and one that posted only a summary
+    /// would have silently unlocked a delete-locked group. Caught by a design review before either
+    /// screen existed. **A caller must send the whole object**, overlaid on what it last read; the
+    /// console has one helper for that and nothing else may assemble the body.
+    /// </para>
+    /// <para>
+    /// <b>`item_update` is not a parameter, and its absence is the decision.</b> §4c: there is no
+    /// write path for it at all, which is a stronger form of immutable than a refusal in one.
+    /// </para>
+    /// </remarks>
+    Task<GroupChange> SetSettingsAsync(
+        Guid acting,
+        bool administrator,
+        string name,
+        string? title,
+        string? summary,
+        string? description,
+        GroupVisibility visibility,
+        GroupJoinPolicy joinPolicy,
+        GroupContribute contribute,
+        bool deleteLocked,
+        CancellationToken cancellationToken);
+
     /// <summary>Which members a group has, and what each is.</summary>
     /// <param name="name">The group.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Member name to standing, empty when there is no such group.</returns>
-    Task<IReadOnlyList<(string Member, GroupStanding Standing)>> MembersAsync(
+    Task<IReadOnlyList<GroupMember>> MembersAsync(
         string name, CancellationToken cancellationToken);
 
     /// <summary>

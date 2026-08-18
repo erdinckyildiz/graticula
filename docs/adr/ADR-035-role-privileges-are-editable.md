@@ -331,9 +331,16 @@ is that *"0 errors"* from a filtered build log is not a build result.
    or a test notices when it changes.** A removed or renamed
    privilege silently changes what existing roles confer. Cheapest form: a test carrying the
    expected list of names, so removing one is a deliberate act with a failing build in front of it.
-4. **The group-manager axis is decided before the authorization check is written**, per §4d's
-   closing paragraph. Recorded as a condition rather than left to sequencing, because it is
-   invisible until it is expensive.
+4. **DISCHARGED 2026-08-18** — decided in
+   [ADR-036](ADR-036-groups.md) §3 and built before any group check was written: the axis is
+   `sharing_group_member.membership`, and it is **per group rather than global**. Every write in
+   `PostgresGroupDirectory` resolves the caller's standing in *that* group first and refuses
+   `NotYours` otherwise, so managing one group never becomes managing every group — which is the
+   escalation this condition existed to make somebody decide about rather than discover.
+   `Only_an_owner_a_manager_or_an_administrator_manages_a_groups_members` is the assertion, and it
+   fails against a store that trusts its caller. **Recorded as a condition rather than left to
+   sequencing, because it is invisible until it is expensive** — and it was: ADR-036's whole
+   authorization shape depends on the answer.
 5. **No screen appears that its reader cannot use** — [ADR-034](ADR-034-server-and-studio.md)
    condition 1, restated because the roles screen is the first one whose whole subject is who may
    see which screens.

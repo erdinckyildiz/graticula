@@ -93,6 +93,37 @@ internal sealed record ServiceRequest(
 internal sealed record NewGroupRequest(
     string? Name, string? Title, string? Description, string? ItemUpdate);
 
+/// <summary>A group's editable policies — ADR-036 §4g.</summary>
+/// <param name="Title">A display title, or null.</param>
+/// <param name="Summary">One line, shown on the group's Overview.</param>
+/// <param name="Description">What it is for.</param>
+/// <param name="Visibility">
+/// Who may discover it: `members` (the default), `organization` or `public`. **Not who may read its
+/// items** — that is its members and nobody else, whatever this says.
+/// </param>
+/// <param name="JoinPolicy">
+/// `invitation` (the default), `request` or `self`. **`request` is refused**: it needs a queue of
+/// pending requests, and a policy the server stores without honouring is D-67 over again.
+/// </param>
+/// <param name="Contribute">
+/// `managers` (the default) or `members` — who may share a service with the group. Distinct from the
+/// item-update capability, which is fixed at creation and has no write path at all.
+/// </param>
+/// <param name="DeleteLocked">Whether the group is protected from deletion.</param>
+/// <remarks>
+/// <b>The whole set at once, not a patch.</b> Four radio groups on one screen; a patch API would make
+/// *"set visibility"* and *"set everything, with visibility changed"* two requests with one intent,
+/// which is where a race lives.
+/// </remarks>
+internal sealed record GroupSettingsRequest(
+    string? Title,
+    string? Summary,
+    string? Description,
+    string? Visibility,
+    string? JoinPolicy,
+    string? Contribute,
+    bool DeleteLocked);
+
 /// <summary>Whether a member is a manager of the group.</summary>
 /// <param name="Manager">
 /// True to make them a manager — ADR-036 §3's second axis. A manager holds the group's operations
@@ -330,6 +361,7 @@ internal static class AdminEndpoints
         app.MapGet("/admin/groups", ListGroupsAsync);
         app.MapPost("/admin/groups", CreateGroupAsync);
         app.MapDelete("/admin/groups/{name}", DeleteGroupAsync);
+        app.MapPut("/admin/groups/{name}/settings", SetGroupSettingsAsync);
         app.MapGet("/admin/groups/{name}", DescribeGroupAsync);
         // <b>Who could be added, for the picker.</b> Names only, and only to somebody who already
         // manages the group — the alternative was granting `admin:manageMembers` so a dropdown could
@@ -2540,6 +2572,12 @@ internal static class AdminEndpoints
                 description = g.Description,
                 owner = g.Owner,
                 itemUpdate = Wire(g.ItemUpdate),
+                summary = g.Summary,
+                visibility = Wire(g.Visibility),
+                joinPolicy = Wire(g.JoinPolicy),
+                contribute = Wire(g.Contribute),
+                deleteLocked = g.DeleteLocked,
+                createdAt = g.CreatedAt,
                 members = g.Members,
                 items = g.Items,
                 standing = g.Standing.ToString().ToLowerInvariant(),
@@ -2590,20 +2628,74 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>An outsider reached this group through its visibility, and gets its identity and not its
+        // contents.</b> ADR-036 §4g: being able to see that a group exists is not being able to read
+        // what is in it. So the member list and the item list are withheld on standing rather than
+        // filtered — a filtered list of nine members that renders as zero reads as an empty group,
+        // which is a different false statement rather than none.
+        //
+        // <b>An administrator is not an outsider here even when they are outside the group</b>, which
+        // is the same exception every other group act makes: a group whose owner has left still has to
+        // be administrable.
+        bool inside = all || found.Standing != GroupStanding.Outside;
+
         await Results.Json(new
         {
             name = found.Name,
             title = found.Title,
+            summary = found.Summary,
             description = found.Description,
             owner = found.Owner,
             itemUpdate = Wire(found.ItemUpdate),
+
+            // <b>These two were in the listing and not here, and the group's page reads them seven
+            // times.</b> So `undefined` was falsy for every caller: the owner of a group, and an
+            // unrestricted administrator, were shown a Settings tab saying *"these are the owner's and
+            // its managers' to set"* and no controls at all, while a plain member's view was
+            // accidentally correct. **The page's whole write surface was invisible to exactly the
+            // people it was built for.**
+            //
+            // <b>Third time in this project that a control has been present and unseeable</b> — after
+            // the groups screen's first-run form and *New group* writing into a hidden container — and
+            // the lesson from those is the cheap one: assert `offsetParent`, not presence. Found by a
+            // design review that could not review the page until it worked around this.
+            mayManage = all || found.Standing is GroupStanding.Owner or GroupStanding.Manager,
+            mayDelete = all || found.Standing == GroupStanding.Owner,
+
+            visibility = Wire(found.Visibility),
+            joinPolicy = Wire(found.JoinPolicy),
+            contribute = Wire(found.Contribute),
+            deleteLocked = found.DeleteLocked,
+            createdAt = found.CreatedAt,
             standing = found.Standing.ToString().ToLowerInvariant(),
 
-            members = (await groups.MembersAsync(found.Name, cancellation).ConfigureAwait(false))
-                .Select(m => new { name = m.Member, standing = m.Standing.ToString().ToLowerInvariant() }),
+            members = inside
+                ? (await groups.MembersAsync(found.Name, cancellation).ConfigureAwait(false))
+                    .Select(m => new
+                    {
+                        name = m.Name,
+                        displayName = m.DisplayName,
+                        standing = m.Standing.ToString().ToLowerInvariant(),
+                        joined = m.Joined,
+                        addedBy = m.AddedBy,
+                    })
+                : null,
 
-            items = (await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false))
-                .Select(i => new { name = i.Name, sharing = i.Sharing }),
+            items = inside
+                ? (await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false))
+                    .Select(i => new
+                    {
+                        name = i.Name,
+                        sharing = i.Sharing,
+                        kind = i.Kind,
+                        shared = i.Shared,
+                        sharedBy = i.SharedBy,
+                    })
+                : null,
+
+            // <b>Said rather than implied by an absence.</b> A reader outside the group needs to know
+            // that the lists are withheld and not empty, and so does a script.
+            inside,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -2753,6 +2845,172 @@ internal static class AdminEndpoints
             note = "The services that were shared with it still exist and are read under their own "
                 + "sharing scope. Deleting a group never unpublishes anybody's data.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Changes a group's editable policies.</summary>
+    /// <remarks>
+    /// <b>Guarded by managing the group, not by a privilege.</b> ADR-036 §3's second axis: these are
+    /// settings on one object, and the person who owns or manages it is the one who decides. An
+    /// administrator passes through, as everywhere else, because a group whose owner has left still
+    /// has to be administrable.
+    /// </remarks>
+    private static async Task SetGroupSettingsAsync(
+        HttpContext context,
+        string name,
+        GroupSettingsRequest request,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryReadVisibility(request.Visibility, out GroupVisibility visibility, out string? bad)
+            || !TryReadJoinPolicy(request.JoinPolicy, out GroupJoinPolicy join, out bad)
+            || !TryReadContribute(request.Contribute, out GroupContribute contribute, out bad))
+        {
+            await Refuse(context, 400, bad!).ConfigureAwait(false);
+            return;
+        }
+
+        GroupChange outcome = await groups.SetSettingsAsync(
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            name,
+            request.Title?.Trim(),
+            request.Summary?.Trim(),
+            request.Description?.Trim(),
+            visibility,
+            join,
+            contribute,
+            request.DeleteLocked,
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            // Which of the two unbuilt settings was asked for, so the refusal names the right control.
+            string? offender = outcome == GroupChange.NotBuilt && visibility == GroupVisibility.Public
+                ? "public"
+                : request.JoinPolicy;
+
+            await RefuseGroupChangeAsync(context, name, outcome, offender).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "group.settings", name,
+            Detail(new
+            {
+                visibility = request.Visibility,
+                joinPolicy = request.JoinPolicy,
+                contribute = request.Contribute,
+                deleteLocked = request.DeleteLocked,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            group = name,
+            visibility = Wire(visibility),
+            joinPolicy = Wire(join),
+            contribute = Wire(contribute),
+            deleteLocked = request.DeleteLocked,
+            // <b>The note said 'it can now be found by anybody' while nothing read the column.</b>
+            // `public` is refused above, so the only widening this can report is `organization`, and
+            // it is now a claim the listing actually keeps: the disjunct is in the `where`, and the
+            // reader who arrives through it is `Outside` and gets no member or item list.
+            note = visibility == GroupVisibility.Members
+                ? "Only its members can find it. What is shared with it was already readable by them "
+                  + "and by nobody else, and that has not changed."
+                : "Any signed-in member can now find it. What is shared with it is still readable "
+                  + "only by its members — being able to see that a group exists is not being able "
+                  + "to read what is in it, and the member and item lists are withheld from anybody "
+                  + "outside it.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static string Wire(GroupVisibility visibility) => visibility switch
+    {
+        GroupVisibility.Organization => "organization",
+        GroupVisibility.Public => "public",
+        _ => "members",
+    };
+
+    private static string Wire(GroupJoinPolicy policy) => policy switch
+    {
+        GroupJoinPolicy.Request => "request",
+        GroupJoinPolicy.Self => "self",
+        _ => "invitation",
+    };
+
+    private static string Wire(GroupContribute contribute) =>
+        contribute == GroupContribute.Members ? "members" : "managers";
+
+    private static bool TryReadVisibility(
+        string? said, out GroupVisibility visibility, out string? error)
+    {
+        visibility = GroupVisibility.Members;
+        error = null;
+
+        switch (said?.Trim())
+        {
+            case null or "" or "members": return true;
+            case "organization": visibility = GroupVisibility.Organization; return true;
+            case "public": visibility = GroupVisibility.Public; return true;
+
+            default:
+                error = $"'{said}' is not a group visibility. Use 'members' (the default), "
+                    + "'organization' or 'public'. It says who may find the group, not who may read "
+                    + "what is shared with it — that is always its members and nobody else.";
+                return false;
+        }
+    }
+
+    private static bool TryReadJoinPolicy(
+        string? said, out GroupJoinPolicy policy, out string? error)
+    {
+        policy = GroupJoinPolicy.Invitation;
+        error = null;
+
+        switch (said?.Trim())
+        {
+            case null or "" or "invitation": return true;
+            case "self": policy = GroupJoinPolicy.Self; return true;
+
+            // Accepted here and refused by the store, which is where the reason lives.
+            case "request": policy = GroupJoinPolicy.Request; return true;
+
+            default:
+                error = $"'{said}' is not a join policy. Use 'invitation' (the default) or 'self'.";
+                return false;
+        }
+    }
+
+    private static bool TryReadContribute(
+        string? said, out GroupContribute contribute, out string? error)
+    {
+        contribute = GroupContribute.Managers;
+        error = null;
+
+        switch (said?.Trim())
+        {
+            case null or "" or "managers": return true;
+            case "members": contribute = GroupContribute.Members; return true;
+
+            default:
+                error = $"'{said}' is not a contributor policy. Use 'managers' (the default) or "
+                    + "'members'. It says who may share a service with the group; what a share lets "
+                    + "them do with it afterwards is the group's item-update capability, which was "
+                    + "fixed when the group was created.";
+                return false;
+        }
     }
 
     /// <summary>Adds a member, or makes one a manager.</summary>
@@ -2909,9 +3167,12 @@ internal static class AdminEndpoints
             // <b>Said every time, because it is the step people miss.</b> Sharing into a group and
             // setting the service's scope to `group` are two acts; either alone is a state that
             // reads as done and is not.
+            // <b>And said without a route in it.</b> This reaches an operator as a toast; an HTTP
+            // method and a path template there is the server explaining its own API to somebody who
+            // pressed a button. A design review read it cold and flagged exactly that.
             note = wanted
-                ? "The service's own sharing scope must also be 'group' for its members to read it "
-                  + "— PUT /admin/services/{name}/sharing."
+                ? "Its own sharing scope must be 'group' as well before the group's members can read "
+                  + "it — that is set on the service, not here."
                 : "Its scope is unchanged. If no group is left, a 'group'-scoped service is readable "
                   + "by its owner and administrators only.",
         }).ExecuteAsync(context).ConfigureAwait(false);
@@ -2938,6 +3199,29 @@ internal static class AdminEndpoints
 
         GroupChange.NoSuchTarget => Refuse(context, 404,
             $"'{target}' is not something this server has, or is disabled."),
+
+        GroupChange.Locked => Refuse(context, 409,
+            $"'{name}' is locked against deletion. Turn that off on its Settings tab first — the lock "
+            + "exists because a confirmation is dismissed by habit, and it binds an administrator too: "
+            + "a protection the most privileged caller passes through is a protection against typing "
+            + "rather than against deleting."),
+
+        // <b>Two settings share this outcome and the message says which.</b> A refusal naming the
+        // wrong one of them is worse than a generic refusal: it sends the operator to change a control
+        // that was not the problem.
+        GroupChange.NotBuilt => Refuse(context, 400, target == "public"
+            ? "'public' is a group visibility this server stores and does not honour yet. It would "
+              + "mean 'discoverable by anybody, including an anonymous caller', and there is nowhere "
+              + "for that to happen: the group listing requires a signed-in caller, so 'public' and "
+              + "'organization' would be enforced identically while the setting claimed otherwise. "
+              + "Accepting it would report a discovery this server does not perform (D-67, Q-119). "
+              + "Use 'members' or 'organization' — 'organization' already makes the group findable by "
+              + "every signed-in member without letting any of them read what is in it."
+            : $"'{target}' is a join policy this server stores and does not honour yet. Joining by "
+              + "request needs a queue of pending requests — a table, a screen, and a decision about "
+              + "who reviews them — and none of that is built. Accepting the setting anyway would make "
+              + "it a policy reported and unenforced, which this project has already had to correct "
+              + "once (D-67). Use 'invitation' or 'self'."),
 
         GroupChange.Immutable => Refuse(context, 409,
             $"What '{name}' confers on its items was fixed when it was created and cannot be "

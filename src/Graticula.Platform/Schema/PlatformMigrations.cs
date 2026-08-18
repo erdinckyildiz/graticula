@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(26);
+    public static SchemaVersion ComponentSchemaVersion => new(27);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -61,6 +61,7 @@ public static class PlatformMigrations
         ServiceRequestDeadlineV24,
         RolePrivilegesV25,
         GroupsV26,
+        GroupSettingsV27,
     ]);
 
     /// <summary>
@@ -371,6 +372,68 @@ public static class PlatformMigrations
     /// <b>Expand.</b> Three new tables, and three widened checks. Nothing existing loses a value.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A group's four editable policies, and a summary.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-036] §4g, by owner decision 2026-08-18</b> — the reference's group Settings tab, sent
+    /// with *"bizim ekranımız yetersiz ve basit kalıyor"*. Four axes an operator may set and could
+    /// not: who may see the group exists, how people join it, who may add items to it, and whether
+    /// it is protected from deletion.
+    /// </para>
+    /// <para>
+    /// <b>Every default is what this server already did, so this migration changes no behaviour.</b>
+    /// A group was discoverable only by its members, joinable only by invitation, contributed to only
+    /// by its owner and managers, and deletable with a confirmation — so the columns record what was
+    /// true and give somebody the ability to say otherwise. The same shape as migration 25's seed and
+    /// for the same reason: an upgrade that quietly widened who may see a group is the worst outcome
+    /// available here and the one nobody would notice.
+    /// </para>
+    /// <para>
+    /// <b>`join_policy` admits a value the application refuses.</b> `request` needs a queue of
+    /// pending requests — a table, a screen and a decision about who reviews them — and none of that
+    /// exists. The check permits it so the column does not have to be widened later; the write path
+    /// refuses it, because a policy the server stores and does not honour is
+    /// [D-67](../../docs/architecture-debt.md) over again, and that debt was about exactly this:
+    /// a setting reported and unenforced for two days.
+    /// </para>
+    /// <para>
+    /// <b>`item_update` is not here and stays immutable.</b> §4c: widening it would make every service
+    /// already shared with the group editable by every member, retroactively. The reference's own
+    /// Settings page does not offer it either, which is the evidence that they draw the same line —
+    /// *who may contribute* and *what a share confers* are different questions.
+    /// </para>
+    /// <para><b>Expand.</b> Five nullable-or-defaulted columns and three checks. Nothing loses a value.</para>
+    /// </remarks>
+    private static Migration GroupSettingsV27 => Migration.Expand(
+        new SchemaVersion(27),
+        "A group's visibility, join policy, contributor policy and delete lock (ADR-036 §4g).",
+
+        """
+        alter table sharing_group
+            add column visibility   text        not null default 'members',
+            add column join_policy  text        not null default 'invitation',
+            add column contribute   text        not null default 'managers',
+            add column delete_locked boolean    not null default false,
+            add column summary      text
+        """,
+
+        """
+        alter table sharing_group add constraint sharing_group_visibility_known
+          check (visibility in ('members', 'organization', 'public'))
+        """,
+
+        """
+        alter table sharing_group add constraint sharing_group_join_policy_known
+          check (join_policy in ('invitation', 'request', 'self'))
+        """,
+
+        """
+        alter table sharing_group add constraint sharing_group_contribute_known
+          check (contribute in ('members', 'managers'))
+        """);
+
     private static Migration GroupsV26 => Migration.Expand(
         new SchemaVersion(26),
         "Groups, their members, what is shared with them, and the group sharing scope (ADR-036).",

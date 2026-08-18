@@ -51,7 +51,18 @@
   --surface-3: #e7ecf3;
   --ink: #101826;
   --muted: #566275;
-  --faint: #8b96a7;
+  /*
+    <b>Darkened 2026-08-18 from #8b96a7, which was 2.99:1 on white and below AA.</b> A design review
+    caught it on two *new* uses that carry information — a tab's item count and the *by whom* under a
+    date — and then it turned out to be twenty uses, nearly all of them text: rail counts, meter
+    labels, menu notes, the crossing-surface hint under a layer page. So it was never a decoration
+    token; it was a second muted grey that happened to be too light to read.
+
+    <b>#6b7787 is 4.55:1 and the same hue.</b> Nothing structural moves — it stays a step lighter than
+    `--muted` (#566275, 5.89:1), which is what it is for: a second fact inside a cell whose first fact
+    is already muted. A token that cannot be read is not a lighter shade of a token that can.
+  */
+  --faint: #6b7787;
   --rule: #e3e8ef;
   --rule-strong: #cfd7e3;
 
@@ -547,7 +558,15 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
   margin: 0; font-size: 33px; font-weight: 650; letter-spacing: -.028em; line-height: 1.1;
 }
 .pagehead p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px; }
-.pagehead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
+.pagehead .right {
+  margin-left: auto; display: flex; align-items: center; gap: var(--gap-2);
+
+  /* <b>`flex: none`, because the default let a verb break in half.</b> The title block beside it is
+     `flex: 0 1 auto` too, so a long subtitle shrank this slot below its buttons' natural width and
+     a group's page printed *Add / member* and *Share a / service* on two lines each at 1366px. The
+     title is the thing with a good line break in it; a button label is not. */
+  flex: none;
+}
 
 .lede { color: var(--muted); max-width: 88ch; margin: 0 0 var(--gap-4); }
 
@@ -1330,15 +1349,33 @@ tr.pick.on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .editorhead > :last-child { margin-left: auto; }
 .editorhead h3 { margin: 0; }
 
-/* ---------------------------------------------------------------- the groups editor
+/* ---------------------------------------------------------------- a group's page
 
-   <b>Padding, because `.panel` has none and `.pad` would double-indent the tables.</b> `th`/`td`
-   carry their own 16px gutter, so a section label at x=0 sits sixteen pixels to the left of the
-   column it heads — which reads as a rendering fault rather than as a choice. Every non-table
-   child gets the same gutter instead. */
-#groupEditor > :not(.grouppair) { padding: 0 var(--gap-4); }
-#groupEditor .grouppair > div > h4 { padding: 0 var(--gap-4); }
-#groupEditor h4 { display: flex; align-items: baseline; gap: var(--gap-3); }
+   <b>The `#groupEditor` rules that were here are gone with the panel.</b> They existed to give a
+   panel's non-table children the 16px gutter that `th`/`td` carry themselves — a problem a page does
+   not have, because a page's children are already inside the workspace padding.
+
+   Two small additions, both needed by the tabs and both general:
+     `.faint` for a second fact inside a cell that already carries one — *by whom* under a date, where
+       `.val` is already spent on the date itself.
+     `tr.after` for the line between the members who can manage a group and the members who cannot. It
+       is the reference's *Group role* filter drawn as a boundary, which is what nine rows want
+       instead of a filter. */
+
+/* The second fact in a cell whose first fact is already `.val` — *by whom* under a date. `--faint`
+   rather than `--muted` so the two are distinguishable, which is only defensible now that `--faint`
+   can be read. */
+.faint { color: var(--faint); font-size: var(--t-small); }
+
+/* <b>A labelled band where a hairline was.</b> `tr.after` drew `border-top: 1px solid var(--rule)`
+   directly against the bottom rule every `td` already carries — two near-identical hairlines stacked,
+   which is invisible. And it depended on a sort that put the managers last, so it landed on the first
+   row of page two and nowhere near the boundary. A row that says what it separates survives a page
+   break, which a rule does not. */
+tr.groupband > td {
+  padding: 10px var(--gap-4) 5px; border-top: 1px solid var(--rule);
+  color: var(--muted); font-size: var(--t-small); background: var(--surface-2);
+}
 
 /* Members beside services: the relation is the subject, so the two halves are read together.
    Collapses to one column where there is not room for two three-column tables. */
@@ -1353,6 +1390,60 @@ tr.pick.on td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .facts2 dt { color: var(--muted); }
 .facts2 dd { margin: 0; font-weight: 600; }
 .facts2 dd .val { font-weight: 400; }
+
+/* ---------------------------------------------------------------- the tab strip
+
+   <b>The one new component a group's page needed</b>, and the budget was one. Everything else on
+   that page has an owner already: `.crumbs` and `.pagehead` for the frame, `.facts2` for Overview,
+   `.setting` for Settings, `.picker` for both pickers, `pagerFor` for paging.
+
+   <b>Not the surface strip and not the editor's left column.</b> `#surfaces` fills its current pill
+   because filled means *environment*, and these four are not four environments. `#editNav` was the
+   near miss: free CSS and consistent with both editors, but it spends 196px of the left edge on the
+   tab that most needs width, and that left edge is exactly where Content's filter rail goes when
+   maps arrive. Two nested left rails is the shape to avoid.
+
+   An underline rather than a box, because the strip sits under a title and a boxed tab would compete
+   with the panel below it for the same edge. */
+
+.tabstrip {
+  display: flex; gap: var(--gap-5); align-items: stretch;
+  border-bottom: 1px solid var(--rule); margin-bottom: var(--gap-5);
+}
+.tabstrip a {
+  padding: 8px 1px 9px; color: var(--muted); text-decoration: none;
+  font-size: var(--t-body); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabstrip a:hover { color: var(--ink); }
+.tabstrip a[aria-current="page"] {
+  color: var(--ink); font-weight: 600; border-bottom-color: var(--accent);
+}
+.tabstrip .count { color: var(--faint); font-family: var(--mono); font-size: var(--t-small); }
+.tabstrip a[aria-current="page"] .count { color: var(--muted); }
+
+/* Overview's reachability sentence: a comparison of two numbers, so prose with the numbers set
+   strongly — not a donut, which is the Services screen's idiom for a distribution of states.
+
+   <b>Named `.reach`, because `.tally` is already taken and taking it broke the sentence.</b> The
+   Server overview's big-number stat is `.tally`, and its rule at line 986 is `.tally b { display:
+   block; font-size: 33px }`. Wearing that class turned every strong number *and the word* `group`
+   into a 33-pixel block on its own line: six lines of poster where a sentence was written. Found in
+   the design review of 2026-08-18, which is also the first time anybody read the sentence. */
+.reach { margin: 0 0 var(--gap-5); font-size: 15.5px; max-width: 88ch; }
+.reach b { font-weight: 650; }
+.reach .off { color: var(--warn); }
+
+/* A sentence does not fit a 116px right-aligned number field.
+
+   <b>258px did not fit either, and the house rule depended on it.</b> This console puts the
+   consequence in the option's own text, so a box that clips its options defeats the rule that
+   justifies them: measured, half the labels — including two of the three defaults — rendered as
+   `By invitation — an owner or m▾`. Fixed on both sides. The box is wider, and the labels are shorter
+   with the consequence moved into the row's hint where it can wrap. */
+.setting.wide { max-width: 760px; }
+.setting.wide select, .setting.wide input { width: 300px; text-align: left; }
+.setting.wide .u { width: auto; flex: 0 0 auto; }
+.setting.wide .q { max-width: 400px; }
 
 /* ---------------------------------------------------------------- the inline picker
 

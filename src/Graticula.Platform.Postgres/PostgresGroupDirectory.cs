@@ -36,19 +36,38 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         // <b>One statement, with the counts and the standing as subqueries.</b> The alternative is a
         // round trip per group to say how many members it has, which is the shape that makes a list
         // screen slow in exactly the deployment that has many groups.
+        //
+        // <b>`visibility` is in the `where`, and it was not for the first hour after it existed.</b>
+        // The column was stored, reported by two endpoints and read by nothing — so a group set to
+        // *everybody, including anonymous callers* was discoverable by exactly the people who could
+        // already see it, while the console said otherwise and the endpoint's own note said *"it can
+        // now be found by anybody"*. That is [D-67](../../docs/architecture-debt.md) precisely, and it
+        // shipped in the same change that **refuses** `join_policy = 'request'` on the ground that a
+        // policy stored and unenforced is D-67 over again. One of the two had to move, and enforcing is
+        // cheaper than refusing here: it is a disjunct in one statement.
+        //
+        // <b>Seeing a group is not reading it, and the boundary is upstream of this method.</b> A
+        // caller who reaches a group only through this disjunct comes back with
+        // `GroupStanding.Outside`, so nothing here confers membership; the endpoint withholds the
+        // member and item lists on that standing, which is where ADR-036 §4g's *"being able to see
+        // that a group exists is not being able to read what is in it"* is actually kept.
         const string Sql = """
             select g.id, g.name, g.title, g.description, p.name, g.item_update,
                    (select count(*) from sharing_group_member m where m.group_id = g.id),
                    (select count(*) from sharing_group_item i where i.group_id = g.id),
                    coalesce(
                      (select m.membership from sharing_group_member m
-                       where m.group_id = g.id and m.principal_id = @who), '')
+                       where m.group_id = g.id and m.principal_id = @who), ''),
+                   g.summary, g.visibility, g.join_policy, g.contribute, g.delete_locked,
+                   g.created_at,
+                   g.owner_principal_id = @who as owns
               from sharing_group g
               left join principal p on p.id = g.owner_principal_id
              where @all
                 or g.owner_principal_id = @who
                 or exists (select 1 from sharing_group_member m
                             where m.group_id = g.id and m.principal_id = @who)
+                or g.visibility in ('organization', 'public')
              order by g.name
             """;
 
@@ -64,18 +83,12 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             Guid id = reader.GetGuid(0);
-            bool owns = false;
 
-            // Owner beats manager beats member: the standing reported is the highest one held.
-            await using (NpgsqlCommand owner = _dataSource.CreateCommand(
-                "select owner_principal_id = @who from sharing_group where id = @id"))
-            {
-                owner.Parameters.AddWithValue("who", principal);
-                owner.Parameters.AddWithValue("id", id);
-
-                owns = await owner.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-                    is true;
-            }
+            // <b>Ownership comes back with the row now, and it used to be a query per group.</b> The
+            // reader issued a second statement for every row while the first reader was still open —
+            // one round trip per group to answer what the same row could carry. Owner beats manager
+            // beats member: the standing reported is the highest one held.
+            bool owns = reader.GetBoolean(reader.GetOrdinal("owns"));
 
             string membership = reader.GetString(8);
 
@@ -95,7 +108,15 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                         "manager" => GroupStanding.Manager,
                         "member" => GroupStanding.Member,
                         _ => GroupStanding.Outside,
-                    }));
+                    },
+                reader.IsDBNull(reader.GetOrdinal("summary"))
+                    ? null
+                    : reader.GetString(reader.GetOrdinal("summary")),
+                ReadVisibility(reader.GetString(reader.GetOrdinal("visibility"))),
+                ReadJoinPolicy(reader.GetString(reader.GetOrdinal("join_policy"))),
+                ReadContribute(reader.GetString(reader.GetOrdinal("contribute"))),
+                reader.GetBoolean(reader.GetOrdinal("delete_locked")),
+                reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("created_at"))));
         }
 
         return answer;
@@ -177,6 +198,20 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         if (!administrator && standing != GroupStanding.Owner)
         {
             return GroupChange.OwnerOnly;
+        }
+
+        // <b>The lock, and it binds an administrator too — ADR-036 §4g.</b> A protection the most
+        // privileged caller passes through is a protection against typing rather than against
+        // deleting, and the operator who set it is usually the one who would fat-finger it.
+        await using (NpgsqlCommand locked = _dataSource.CreateCommand(
+            "select delete_locked from sharing_group where id = @id"))
+        {
+            locked.Parameters.AddWithValue("id", id);
+
+            if (await locked.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true)
+            {
+                return GroupChange.Locked;
+            }
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
@@ -342,37 +377,148 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<(string Member, GroupStanding Standing)>> MembersAsync(
+    public async Task<GroupChange> SetSettingsAsync(
+        Guid acting,
+        bool administrator,
+        string name,
+        string? title,
+        string? summary,
+        string? description,
+        GroupVisibility visibility,
+        GroupJoinPolicy joinPolicy,
+        GroupContribute contribute,
+        bool deleteLocked,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>Refused here rather than at the endpoint, because it is a rule about the store.</b> The
+        // schema admits `request` so the column never has to be widened; nothing honours it, and a
+        // policy stored and unenforced is D-67 over again.
+        if (joinPolicy == GroupJoinPolicy.Request)
+        {
+            return GroupChange.NotBuilt;
+        }
+
+        // <b>And `public` too, for the same reason and after almost getting the opposite
+        // treatment.</b> `organization` and `public` are enforced identically — the listing's disjunct
+        // does not distinguish them — because `/admin/groups` refuses an anonymous caller outright, so
+        // there is nowhere for *everybody, including anonymous callers* to mean anything. Accepting it
+        // would report a discovery this server does not perform, which is exactly what the line above
+        // refuses `request` for. Two identical situations treated differently on one screen is the
+        // inconsistency an operator notices; [Q-119](../../docs/open-questions.md) holds the decision
+        // about where a public group is actually discovered, and it is a decision about anonymous
+        // surfaces rather than about groups.
+        //
+        // <b>Readable, and only unwritable</b> — same shape as `request`. Nothing in the store today
+        // holds `public`, and if a future build writes one, this one still reads it correctly.
+        if (visibility == GroupVisibility.Public)
+        {
+            return GroupChange.NotBuilt;
+        }
+
+        (Guid id, GroupStanding standing) = await FindAsync(name, acting, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (id == Guid.Empty)
+        {
+            return GroupChange.Absent;
+        }
+
+        if (!administrator && standing is not (GroupStanding.Owner or GroupStanding.Manager))
+        {
+            return GroupChange.NotYours;
+        }
+
+        // <b>Every column, every time — a replace and not a patch.</b> The port documents it now; it
+        // documented the opposite for an hour, which would have made the Settings tab erase the title
+        // and the description on its first save. Left as a replace rather than made into a
+        // `coalesce` patch because *clearing* a description has to be expressible, and a store where
+        // null means *leave* cannot express it.
+        const string Sql = """
+            update sharing_group
+               set title = @title,
+                   summary = @summary,
+                   description = @description,
+                   visibility = @visibility,
+                   join_policy = @join,
+                   contribute = @contribute,
+                   delete_locked = @locked,
+                   updated_at = now()
+             where id = @id
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("title", (object?)title ?? DBNull.Value);
+        command.Parameters.AddWithValue("summary", (object?)summary ?? DBNull.Value);
+        command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
+        command.Parameters.AddWithValue("visibility", Wire(visibility));
+        command.Parameters.AddWithValue("join", Wire(joinPolicy));
+        command.Parameters.AddWithValue("contribute", Wire(contribute));
+        command.Parameters.AddWithValue("locked", deleteLocked);
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return GroupChange.Done;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<GroupMember>> MembersAsync(
         string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
+        // <b>Ranked explicitly, because `order by 2 desc` did not mean what its comment claimed.</b>
+        // That was a descending *text* sort over `owner | manager | member`, and `'member' > 'manager'`
+        // on the third letter — so the real order was owner, then members, then **managers**, and the
+        // managers sat at the bottom of the last page. The comment said the opposite and was believed,
+        // which is worse than no comment: the screen drew its manager/member divider from a sort that
+        // did not produce that grouping, so the line landed on the first row of page two and there was
+        // none where the boundary actually was. Found in the design review of 2026-08-18, which could
+        // only see it after the pagers were repaired.
+        //
+        // Owner, then managers, then members, then by name — so the screen can draw the boundary the
+        // reference draws with a *Group role* filter, and at nine rows a filter is chrome.
+        //
+        // `added_by` is a left join because it is null for the owner and for every row written before
+        // the column existed.
         const string Sql = """
             select p.name,
-                   case when g.owner_principal_id = p.id then 'owner' else m.membership end
+                   case when g.owner_principal_id = p.id then 'owner' else m.membership end,
+                   p.display_name, m.added_at, addedby.name
               from sharing_group g
               join sharing_group_member m on m.group_id = g.id
               join principal p on p.id = m.principal_id
+              left join principal addedby on addedby.id = m.added_by
              where lower(g.name) = lower(@name)
-             order by 2 desc, p.name
+             order by case when g.owner_principal_id = p.id then 0
+                           when m.membership = 'manager'    then 1
+                           else 2 end,
+                      p.name
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
 
-        List<(string, GroupStanding)> answer = [];
+        List<GroupMember> answer = [];
 
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            answer.Add((reader.GetString(0), reader.GetString(1) switch
-            {
-                "owner" => GroupStanding.Owner,
-                "manager" => GroupStanding.Manager,
-                _ => GroupStanding.Member,
-            }));
+            answer.Add(new GroupMember(
+                reader.GetString(0),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetString(1) switch
+                {
+                    "owner" => GroupStanding.Owner,
+                    "manager" => GroupStanding.Manager,
+                    _ => GroupStanding.Member,
+                },
+                reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
         }
 
         return answer;
@@ -429,10 +575,11 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         // scope turns that from a caveat the operator carries to another screen into a column.
         const string Sql = """
             select case when s.folder is null then s.name else s.folder || '/' || s.name end,
-                   s.sharing
+                   s.sharing, s.kind, i.shared_at, sharedby.name
               from sharing_group g
               join sharing_group_item i on i.group_id = g.id
               join service s on s.id = i.service_id
+              left join principal sharedby on sharedby.id = i.shared_by
              where lower(g.name) = lower(@name)
              order by 1
             """;
@@ -447,7 +594,12 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            answer.Add(new GroupItem(reader.GetString(0), reader.GetString(1)));
+            answer.Add(new GroupItem(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
         }
 
         return answer;
@@ -513,6 +665,46 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         GroupItemUpdate.AllItems => "allItems",
         _ => "none",
     };
+
+    private static string Wire(GroupVisibility visibility) => visibility switch
+    {
+        GroupVisibility.Organization => "organization",
+        GroupVisibility.Public => "public",
+        _ => "members",
+    };
+
+    private static string Wire(GroupJoinPolicy policy) => policy switch
+    {
+        GroupJoinPolicy.Request => "request",
+        GroupJoinPolicy.Self => "self",
+        _ => "invitation",
+    };
+
+    private static string Wire(GroupContribute contribute) =>
+        contribute == GroupContribute.Members ? "members" : "managers";
+
+    // enum-default-is-deliberate: the narrowest value of each
+    //
+    // <b>An unrecognised stored value reads as the closed end, never the open one.</b> A row written
+    // by a newer version carrying a visibility this build does not know must not make a group public
+    // by accident; the safe reading of *"I do not understand this"* is the one that shows it to fewer
+    // people. The opposite direction is how a private group becomes discoverable during an upgrade.
+    private static GroupVisibility ReadVisibility(string stored) => stored switch
+    {
+        "organization" => GroupVisibility.Organization,
+        "public" => GroupVisibility.Public,
+        _ => GroupVisibility.Members,
+    };
+
+    private static GroupJoinPolicy ReadJoinPolicy(string stored) => stored switch
+    {
+        "request" => GroupJoinPolicy.Request,
+        "self" => GroupJoinPolicy.Self,
+        _ => GroupJoinPolicy.Invitation,
+    };
+
+    private static GroupContribute ReadContribute(string stored) =>
+        stored == "members" ? GroupContribute.Members : GroupContribute.Managers;
 
     private static GroupItemUpdate ReadUpdate(string stored) => stored switch
     {

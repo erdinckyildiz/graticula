@@ -15,7 +15,14 @@
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem("gis-token") || null;
 
-const SCOPES = ["private", "organization", "public"];
+// <b>Four, and the fourth was missing for a day while the server took it.</b> `group` is
+// ADR-036's scope: the store holds it, `TryReadScope` accepts it, and it is the *only* way a service
+// shared with a group actually reaches that group's members. With three here, the one instruction the
+// groups page gives — *set the service's own scope to `group`* — could not be followed anywhere in
+// this console, so every share made from the screen was inert and the screen said so without offering
+// a remedy. Found in the design review of 2026-08-18, which had to set the scope over the API to see
+// a reaching share at all. D-74's family: a value added to an enumeration leaves its readers wrong.
+const SCOPES = ["private", "organization", "public", "group"];
 
 // <b>A fallback, not a palette.</b> This list used to be where a layer's colour came
 // from; since ADR-033 the server publishes one in the layer document and this console
@@ -263,107 +270,558 @@ async function loadGroups() {
 
   // <b>Chosen from what is on screen.</b> It was taken from the unfiltered list, so filtering to
   // exclude the open group left the panel describing a group with no row above it.
-  const chosen = shown.find(g => g.name === groupOpen)
-    || groups.find(g => g.name === groupOpen)
-    || null;
+}
 
-  if (!chosen) { $("groupEditor").hidden = true; return; }
+/**
+ * The tabs of a group's page, in order.
+ *
+ * <b>Four, by owner decision — ADR-036 §4g.</b> §4f declined them on subject rather than scale: the
+ * screen existed to compare *who is in a group* with *what they can therefore read*, and tabs hide
+ * half of that. The owner's counter defeated it — maps and icons are coming, and Content stops being
+ * two rows of a table the moment it holds items with pictures. The refusal was right about today and
+ * wrong about the product.
+ *
+ * <b>What the tabs cost is paid on Overview.</b> The comparison §4f protected is now the reachability
+ * tally, first thing on the landing tab. Without it the tabs would have taken the relation away and
+ * given nothing back.
+ */
+const GROUP_TABS = [
+  ["overview", "Overview"],
+  ["content", "Content"],
+  ["members", "Members"],
+  ["settings", "Settings"],
+];
 
-  $("groupEditor").hidden = false;
+/**
+ * The group as the server last described it.
+ *
+ * <b>This is what makes the settings write safe, and without it the screen destroys data.</b>
+ * `PUT /admin/groups/{name}/settings` replaces every field including the three that are text — so a
+ * Settings tab that posted only its four policies would erase the title, the summary and the
+ * description, and an Overview summary editor that posted only a summary would silently unlock a
+ * delete-locked group. Every write goes through `saveGroupSettings`, which overlays a patch on this.
+ */
+let groupNow = null;
 
-  const one = await api(`/admin/groups/${encodeURIComponent(chosen.name)}`) || {};
+/** Which tab of the open group's page is showing. */
+let groupTab = "overview";
 
-  $("groupEditorName").innerHTML = h(one.title || one.name || chosen.name);
+/** A date as an operator reads it: the day, and the time only where it disambiguates. */
+function day(value) {
+  if (!value) return "—";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
 
-  // <b>Facts as a fact list, which is the reference's Details block reduced to what we have.</b>
-  // Standing and capability were two paragraphs of grey `hint` — the same weight as a footnote, and
-  // fifty-five words to deliver one. The irreversibility keeps a sentence, because it is the only
-  // part a reader has to be persuaded of rather than told.
-  $("groupStanding").innerHTML = `
-    <dl class="facts2">
-      <dt>You are</dt><dd>${chosen.standing === "owner"
-        ? `its owner <span class="val">— you may delete it; you cannot leave it</span>`
-        : chosen.standing === "manager"
-          ? `a manager <span class="val">— you may add members and share services</span>`
-          : `a member <span class="val">— you read what is shared with it</span>`}</dd>
-      <dt>Owner</dt><dd>${h(one.owner || "—")}</dd>
-      <dt>Confers</dt><dd>${one.itemUpdate === "allItems"
-        ? `editing every service shared with it`
-        : one.itemUpdate === "ownItems"
-          ? `editing the services a member shared themselves`
-          : `reading only`}<span class="val"> — fixed when the group was created</span></dd>
-    </dl>
-    <p class="hint">The capability cannot be changed: widening it would make every service already
-      shared with the group editable by every member, retroactively (ADR-036 §4c). To change it, make
-      another group and move the shares.</p>`;
+/**
+ * A group's page.
+ *
+ * <b>A page and not a panel, which the four tabs forced.</b> The editor was a `.panel` below a
+ * ten-row table, far enough down that opening it needed `scrollIntoView` to be visible at all. A tab
+ * strip there would scroll out from under the pointer and Content would be boxed at half the
+ * viewport. Addressed `#/group/{name}/{tab}`, so a tab is somewhere you can send somebody.
+ */
+async function showGroup(name, tab) {
+  groupOpen = name;
+  groupTab = GROUP_TABS.some(([id]) => id === tab) ? tab : "overview";
+  showView("view-group", "groups");
 
-  $("groupCapability").innerHTML = "";
-
-  const members = one.members || [];
-  const items = one.items || [];
-
-  $("groupMemberCount").textContent = members.length === 0 ? "" : `${members.length}`;
-
-  $("groupMembers").innerHTML = members.length === 0
-    ? `<tr><td colspan="3" class="empty">Nobody yet. <b>Add member</b> offers everybody who is not
-         in it — they will read whatever is shared with the group.</td></tr>`
-    : members.map(m => `
-      <tr>
-        <td class="name">${h(m.name)}</td>
-        <td>${m.standing === "member"
-          ? `<span class="val">member</span>`
-          : `<b>${h(m.standing)}</b>`}</td>
-        <td style="text-align:right">${chosen.mayManage && m.standing !== "owner" ? `
-          <button class="tiny" data-group-grade="${h(m.name)}"
-            data-to="${m.standing === "manager" ? "member" : "manager"}"
-            title="${m.standing === "manager"
-              ? "A manager may add members and share services; make them a plain member"
-              : "A manager may add members and share services, and may not delete the group"}"
-            >Make ${m.standing === "manager" ? "member" : "manager"}</button>
-          <button class="tiny danger" data-group-drop="${h(m.name)}">Remove</button>` : ""}</td>
-      </tr>`).join("");
-
-  // <b>Which shares actually reach anybody, shown rather than warned about.</b> A service reaches a
-  // group's members only when its own scope is `group` as well, and that was prose in two places —
-  // a per-service fact delivered as a per-screen caveat, which the operator then has to carry to
-  // another page and check one at a time. The server already knows: `items` carries each service's
-  // own scope.
-  const reaching = items.filter(i => i.sharing === "group").length;
-
-  $("groupItemCount").textContent = items.length === 0
-    ? ""
-    : reaching === items.length
-      ? `${items.length}`
-      : `${reaching} of ${items.length} reaching members`;
-
-  $("groupItems").innerHTML = items.length === 0
-    ? `<tr><td colspan="3" class="empty">Nothing shared with it yet. <b>Share a service</b> offers
-         what you have published — and a service reaches these members only once its own sharing
-         scope is <b>group</b>, which is set on the service's Sharing page.</td></tr>`
-    : items.map(i => `
-      <tr>
-        <td class="name">${h(i.name)}</td>
-        <td>${i.sharing === "group"
-          ? `<span class="val">reaching members</span>`
-          : `${pill(i.sharing)} <span class="val">inert here</span>`}</td>
-        <td style="text-align:right">${chosen.mayManage
-          ? `<button class="tiny danger" data-group-unshare="${h(i.name)}">Stop sharing</button>`
-          : ""}</td>
-      </tr>`).join("");
-
-  // <b>Only what a manager may act on gets controls.</b> ADR-034 condition 1: a screen must not
-  // offer what its reader cannot do, and a plain member of a group is a reader here.
-  $("groupActions").hidden = !chosen.mayManage;
-  $("groupDelete").hidden = !chosen.mayDelete;
-
-  // <b>The pickers close on a re-render and the create form does not.</b> A picker belongs to the
-  // group that was open; the create form belongs to nobody, and closing it because the list refreshed
-  // would throw away what somebody was typing.
+  $("groupCrumb").innerHTML = `<a href="#/groups">Groups</a> › <b>${h(name)}</b>`;
   $("groupPicker").hidden = true;
 
-  // <b>Absent for the owner.</b> The store refuses to remove them — they would keep owning a group
-  // that a membership-filtered list omits — so the button would be a refusal waiting to happen.
-  $("groupLeave").hidden = chosen.standing === "owner";
+  let one;
+  try {
+    one = await api(`/admin/groups/${encodeURIComponent(name)}`);
+  } catch (e) {
+    $("groupTitle").textContent = name;
+    $("groupSummary").innerHTML =
+      `<span class="bad">${h(e.message || e)}</span> — <a href="#/groups">back to the list</a>`;
+    $("groupTabs").innerHTML = "";
+    for (const [id] of GROUP_TABS) $(`tab-${id}`).hidden = true;
+    return;
+  }
+
+  groupNow = one;
+
+  $("groupTitle").textContent = one.title || one.name || name;
+
+  // The summary as the page's subtitle. Absent for everybody, invitingly absent for a manager only:
+  // ADR-034 condition 1 — do not show a reader an absence they cannot fill.
+  // <b>Not in `.val`, which is the 13.5px monospace value font.</b> A whole sentence set in it
+  // dominated the page head and read as data. Prose gets prose type.
+  $("groupSummary").innerHTML = one.summary
+    ? h(one.summary)
+    : one.mayManage
+      ? `No summary yet — <a href="#/group/${encodeURIComponent(name)}/settings">Settings</a> takes
+         one. It is the line somebody reads while deciding whether to share into this group.`
+      : "";
+
+  const items = one.items || [];
+  const members = one.members || [];
+  const counts = { overview: null, content: items.length, members: members.length, settings: null };
+
+  $("groupTabs").innerHTML = GROUP_TABS.map(([id, label]) => `
+    <a href="#/group/${encodeURIComponent(name)}/${id}"${id === groupTab
+      ? ' aria-current="page"' : ""}>${label}${counts[id] === null
+        ? "" : ` <span class="count">${num(counts[id])}</span>`}</a>`).join("");
+
+  // <b>Only what this reader may act on.</b> ADR-034 condition 1, and a plain member of a group is a
+  // reader here. *Leave group* is absent for the owner because the store refuses it — they would keep
+  // owning a group a membership-filtered list omits.
+  // <b>The head holds one verb now, so it is shown exactly when that verb is available.</b> It used
+  // to hold three and its own visibility was a compound of two flags, which is how an owner with no
+  // `mayManage` ended up with no head at all.
+  $("groupLeave").hidden = one.standing === "owner";
+  $("groupActions").hidden = one.standing === "owner";
+
+  // <b>The two managing verbs live on the tabs they act on</b> — the owner's correction, 2026-08-18 —
+  // so each is drawn by its own tab and only when that tab is the one showing.
+  if ($("groupAdd")) $("groupAdd").hidden = !one.mayManage;
+  if ($("groupShare")) $("groupShare").hidden = !one.mayManage;
+
+  for (const [id] of GROUP_TABS) $(`tab-${id}`).hidden = id !== groupTab;
+
+  if (groupTab === "overview") drawGroupOverview(one);
+  if (groupTab === "content") drawGroupContent(one);
+  if (groupTab === "members") drawGroupMembers(one);
+  if (groupTab === "settings") drawGroupSettings(one);
+}
+
+/** Re-reads the open group and redraws whichever tab is showing. */
+async function refreshGroup() {
+  if (groupOpen) await section("group", () => showGroup(groupOpen, groupTab), null);
+}
+
+/**
+ * Overview: what the group is, and whether its shares reach anybody.
+ *
+ * <b>The tally is the tab's reason to exist.</b> A share reaches a group's members only when the
+ * group share and the service's own scope agree, and either alone is a state that reads as done and
+ * is not. Nowhere else counts how many currently do.
+ */
+function drawGroupOverview(one) {
+  const items = one.items || [];
+  const inert = items.filter(i => i.sharing !== "group");
+  const reaching = items.length - inert.length;
+  const people = (one.members || []).length;
+
+  // <b>Leads with the number nowhere else says.</b> The total is already in the tab strip and in the
+  // facts below; *how many reach nobody* is this tab's own fact, and a design review found the first
+  // version restating the tab count in three of its four states. `inert` is also gone as a word — it
+  // was a coinage the sentence had to define in the same breath.
+  $("groupReach").innerHTML = items.length === 0
+    ? `Nothing is shared with this group yet, so its ${num(people)}
+       member${people === 1 ? "" : "s"} can read nothing through it.`
+    : inert.length === 0
+      ? `All <b>${num(items.length)}</b> service${items.length === 1 ? "" : "s"} shared here
+         reach${items.length === 1 ? "es" : ""} the ${num(people)}
+         ${people === 1 ? "person" : "people"} in this group.`
+      : `<b>${num(inert.length)} of the ${num(items.length)} services shared here reach nobody.</b>
+         Sharing into a group and setting a service's own scope to <b>group</b> are two acts, and
+         these have only the first.`;
+
+  $("groupAbout").innerHTML = one.description
+    ? `<p class="lede">${h(one.description)}</p>`
+    : one.mayManage
+      ? `<p class="hint">No description. Say what this group is for — it is what somebody deciding
+           whether to share into it reads. <b>Settings</b> takes one.</p>`
+      : "";
+
+  // <b>The faults, and the verb that clears them — not a second copy of Content.</b> This block was
+  // *Recently shared*: the same rows, the same order and the same columns as Content's first page
+  // minus its verb, which is a worse Content tab and becomes a worse gallery when maps arrive. A
+  // design review put the choice as *make Overview the repair desk or delete it*, and the repair desk
+  // is the version that earns being landed on: it holds the one thing no other tab does, which is
+  // what is wrong with this group and how to fix it.
+  //
+  // <b>The verb writes the service's own scope</b>, which is the act the sentence above names. It is
+  // the service's setting and not the group's, so it is stated as such rather than hidden behind
+  // *"fix"* — an operator who does not know these are two acts has to learn it here, once.
+  $("groupRecent").innerHTML = items.length === 0
+    ? `<p class="hint">Nothing yet. <b>Add item</b>, on Content, offers what you have published.</p>`
+    : inert.length === 0
+      ? `<p class="hint">Nothing to repair: every service shared with this group is
+           <b>group</b>-scoped, so all ${num(reaching)} of them reach its members.</p>`
+      : `<table><tbody>${inert.map(i => `
+          <tr>
+            <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+              >${h(i.name)}</a></td>
+            <td class="val">its scope is ${pill(i.sharing)}</td>
+            <td style="text-align:right">${one.mayManage
+              ? `<button class="tiny" data-group-reach="${h(i.name)}">Set scope to group</button>`
+              : ""}</td>
+          </tr>`).join("")}</tbody></table>
+         <p class="hint">Each of these is shared with the group and readable by nobody through it.
+           ${one.mayManage
+             ? `Setting the scope makes it readable by this group's members and by nobody else.`
+             : `Their owner or an administrator sets the scope.`}</p>`;
+
+  $("groupFacts").innerHTML = `
+    <dt>You are</dt><dd>${one.standing === "owner"
+      ? `its owner <span class="val">— you may delete it; you cannot leave it</span>`
+      : one.standing === "manager"
+        ? `a manager <span class="val">— you may add members and share services</span>`
+        : `a member <span class="val">— you read what is shared with it</span>`}</dd>
+    <dt>Owner</dt><dd>${h(one.owner || "—")}</dd>
+    <dt>Created</dt><dd>${day(one.createdAt)}</dd>
+    <dt>Members</dt><dd>${num((one.members || []).length)}</dd>
+    <dt>Services</dt><dd>${num(items.length)}</dd>
+    <dt>Visible to</dt><dd>${one.visibility === "public"
+      ? `anybody`
+      : one.visibility === "organization" ? `any signed-in member` : `its members only`}</dd>
+    <dt>Joining</dt><dd>${one.joinPolicy === "self" ? `anyone who can see it` : `by invitation`}</dd>
+    <dt>Contributing</dt><dd>${one.contribute === "members"
+      ? `any member`
+      : `the owner and its managers`}</dd>
+    <dt>Confers</dt><dd>${one.itemUpdate === "allItems"
+      ? `editing every service shared with it`
+      : one.itemUpdate === "ownItems"
+        ? `editing the services a member shared themselves`
+        : `reading only`}<span class="val"> — fixed at creation</span></dd>
+    ${one.deleteLocked ? `<dt>Deletion</dt><dd>locked <span class="val">— including for an
+      administrator</span></dd>` : ""}`;
+}
+
+/**
+ * Content: what is shared with the group.
+ *
+ * <b>Built as the Services row is built, which is what makes a map an addition rather than a
+ * redesign.</b> Name, kind, state, date, one verb. When a map arrives it is a new value in the kind
+ * column and a picture in a slot that already exists; nothing about the row changes. What is
+ * deliberately absent is the reference's category rail (a heading over an empty state linking to a
+ * feature that does not exist), its item-type tree (three leaves is not a tree), its checkbox column
+ * (there is no bulk operation) and its List/Grid toggle (there is no grid).
+ */
+function drawGroupContent(one) {
+  const all = one.items || [];
+  const needle = ($("groupItemFilter")?.value || "").trim().toLowerCase();
+
+  // Search only above one page — the same rule the pager follows, so neither appears for a list you
+  // can read at a glance.
+  $("groupItemFilter").hidden = all.length <= PAGE_SIZE && !needle;
+
+  const shown = needle
+    ? all.filter(i => [i.name, i.kind, i.sharedBy].some(v => (v || "").toLowerCase().includes(needle)))
+    : [...all];
+
+  if (($("groupItemSort")?.value || "shared") === "name") {
+    shown.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    shown.sort((a, b) => String(b.shared || "").localeCompare(String(a.shared || "")));
+  }
+
+  const reaching = all.filter(i => i.sharing === "group").length;
+
+  // <b>Both sides named, on the tab where the shares are.</b> This is what §4f's argument was
+  // really about: services against *people*, not services against a row count. `showing` when
+  // filtering, because `2 of 11` meant two different things in two places three inches apart.
+  const people = (one.members || []).length;
+
+  $("groupItemCount").textContent = all.length === 0
+    ? ""
+    : needle
+      ? `showing ${shown.length} of ${all.length}`
+      : `${reaching} of ${all.length} reach the ${people} ${people === 1 ? "person" : "people"} `
+        + `in this group`;
+
+  $("groupItems").innerHTML = all.length === 0
+    ? `<tr><td colspan="5" class="empty">Nothing in it yet. <b>Add item</b> offers what you have
+         published — and an item reaches these members only once its own sharing scope is
+         <b>group</b> as well. Overview lists the ones that do not and sets it.</td></tr>`
+    : shown.length === 0
+      ? `<tr><td colspan="5" class="empty">Nothing matches <b>${h(needle)}</b>. The search reads a
+           service's name, its kind and who shared it.</td></tr>`
+      : pageOf("groupItems", shown).map(i => `
+        <tr>
+          <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+            >${h(i.name)}</a></td>
+          <td class="val">${h(i.kind || "service")}</td>
+          <td>${i.sharing === "group"
+            ? `yes`
+            : `<b>no</b> <span class="val">— its own scope is ${h(i.sharing)}</span>`}</td>
+          <td class="val">${day(i.shared)}${i.sharedBy
+            ? ` <span class="faint">by ${h(i.sharedBy)}</span>` : ""}</td>
+          <td style="text-align:right">${one.mayManage
+            ? `<button class="tiny danger" data-group-unshare="${h(i.name)}"
+                 title="Removes it from the group. Everybody in the group loses it; the service itself
+                        keeps existing.">Stop sharing</button>`
+            : ""}</td>
+        </tr>`).join("");
+
+  $("groupItemsPager").innerHTML = pagerFor("groupItems", shown.length);
+}
+
+/**
+ * Members: who is in it, and since when.
+ *
+ * <b>`Joined` is an access-control fact.</b> A group's member list is an access-control list, and
+ * *when did this person gain access to everything shared here* is an audit question the column could
+ * answer and nothing asked. No avatar and no e-mail: neither exists on a principal, and the member
+ * form already says on screen that this server cannot send a message at all — a column for an address
+ * would contradict a sentence the console shows.
+ */
+function drawGroupMembers(one) {
+  const all = one.members || [];
+  const needle = ($("groupMemberFilter")?.value || "").trim().toLowerCase();
+
+  $("groupMemberFilter").hidden = all.length <= PAGE_SIZE && !needle;
+
+  const shown = needle
+    ? all.filter(m => [m.name, m.displayName, m.standing]
+        .some(v => (v || "").toLowerCase().includes(needle)))
+    : all;
+
+  $("groupMemberCount").textContent = all.length === 0
+    ? ""
+    : needle
+      ? `${shown.length} of ${all.length}`
+      : `${all.length} member${all.length === 1 ? "" : "s"}, ${
+          all.filter(m => m.standing !== "member").length} of them able to manage it`;
+
+  const page = pageOf("groupMembers", shown);
+  let drawnPlain = false;
+
+  $("groupMembers").innerHTML = all.length === 0
+    ? `<tr><td colspan="4" class="empty">Nobody yet. <b>Add member</b> offers everybody who is not
+         in it — they will read whatever is shared with the group.</td></tr>`
+    : shown.length === 0
+      ? `<tr><td colspan="4" class="empty">Nothing matches <b>${h(needle)}</b>. The search reads a
+           member's name, the name they sign in with, and their standing — so <b>manager</b> finds
+           the people who can manage this group.</td></tr>`
+      : page.map(m => {
+        // <b>A labelled row rather than a hairline, and the hairline was invisible anyway.</b> Every
+        // `td` already carries a bottom rule, so `tr.after` stacked a second near-identical 1px line
+        // against it. And the sort it depended on was wrong — `order by 2 desc` over text put the
+        // managers *last*, so the line landed on the first row of page two and nowhere near the
+        // boundary. The sort is ranked explicitly now, and the boundary says what it separates, which
+        // survives a page break where a rule does not.
+        const first = m.standing === "member" && !drawnPlain && page.some(o => o.standing !== "member");
+        if (m.standing === "member") drawnPlain = true;
+
+        return `${first ? `<tr class="groupband"><td colspan="4">Members, who read what is shared
+          with the group</td></tr>` : ""}
+        <tr>
+          <td class="name">${h(m.displayName || m.name)}${m.displayName && m.displayName !== m.name
+            ? `<div class="val" style="font-weight:400">${h(m.name)}</div>` : ""}</td>
+          <td>${m.standing === "member"
+            ? `<span class="val">member</span>`
+            : `<b>${h(m.standing)}</b>`}</td>
+          <td class="val">${day(m.joined)}${m.addedBy
+            ? ` <span class="faint">by ${h(m.addedBy)}</span>` : ""}</td>
+          <td style="text-align:right">${one.mayManage && m.standing !== "owner" ? `
+            <button class="tiny" data-group-grade="${h(m.name)}"
+              data-to="${m.standing === "manager" ? "member" : "manager"}"
+              title="${m.standing === "manager"
+                ? "A manager may add members and share services; make them a plain member"
+                : "A manager may add members and share services, and may not delete the group"}"
+              >Make ${m.standing === "manager" ? "member" : "manager"}</button>
+            <button class="tiny danger" data-group-drop="${h(m.name)}">Remove</button>` : ""}</td>
+        </tr>`;
+      }).join("");
+
+  $("groupMembersPager").innerHTML = pagerFor("groupMembers", shown.length);
+}
+
+/**
+ * Settings: the four editable policies, and deletion.
+ *
+ * <b>Selects and not radios, and that is a house rule rather than a preference.</b> There is not one
+ * radio input in this console; every either/or is a `.setting` row with a select, and the nearest
+ * precedent is on this very subject — the create form's capability select carries the consequence in
+ * each option's text. Three radio groups here would introduce a fifth visual dialect on the screen
+ * most at risk of one.
+ *
+ * <b>Membership first, deletion last</b> — the opposite of the reference's order, and this console's
+ * own rule about destructive controls.
+ */
+function drawGroupSettings(one) {
+  // <b>*By request* is rendered disabled rather than omitted, and the harder reason is not
+  // honesty.</b> The column stores three values and only the write path refuses the third, so a group
+  // can already *hold* `request`. Render two options and such a group reads as *by invitation* on
+  // screen while the store says otherwise — the console lying about a policy. Showing it means the
+  // current value is always displayable: you can save away from it and not back to it.
+  //
+  // <b>The capability is stated here although Overview states it too</b>, because Settings is where
+  // somebody arrives wanting to change it, and finding it fixed *there* answers the question they came
+  // with. The two rows are worded so they cannot be confused: who may share something *into* the group
+  // is editable, what may be done with what is *already* in it is not.
+  //
+  // <b>Both of these were HTML comments inside the template literal below, and one carried a
+  // backtick.</b> That is D-77 exactly — it closed the literal and the file stopped parsing. The fix
+  // is not to escape it: an explanation does not belong inside a string whose delimiter appears in the
+  // language being explained.
+  if (!one.mayManage) {
+    $("groupSettings").innerHTML = `
+      <p class="hint">These are the owner's and its managers' to set. You are a member of this group,
+        so what it does is <a href="#/group/${encodeURIComponent(one.name)}/overview">on Overview</a>
+        as facts.</p>`;
+    return;
+  }
+
+  // <b>`<label for>`, because `<span class="q">` gives a combobox no accessible name.</b> A design
+  // review's snapshot read all four of this tab's selects as `combobox: ""` — the one tab that is
+  // nothing but form controls, and a screen reader got four unlabelled dropdowns.
+  const pick = (id, value, options) => `<select id="${id}">${options.map(([v, label, off]) =>
+    `<option value="${v}"${v === value ? " selected" : ""}${off ? " disabled" : ""}>${label}</option>`)
+    .join("")}</select>`;
+
+  // <b>Three text rows that existed nowhere in this console.</b> `title` and `description` were
+  // create-only and `summary` was unreachable altogether, while the endpoint accepted all three and
+  // the overlay already sent them — so the page's most persistent string, *"No summary. Settings takes
+  // one"*, pointed at a field that did not exist. A design review read it cold and called it a promise
+  // the page cannot keep. It can now.
+  //
+  // <b>And this comment is out here rather than in the template, which is the third time today.</b>
+  // A backtick inside an HTML comment inside a template literal closes the literal (D-77). The rule is
+  // not *escape it* — it is that HTML comments do not go inside template literals at all.
+  $("groupSettings").innerHTML = `
+    <h4>What this group is</h4>
+
+    <div class="setting wide"><label class="q" for="gsTitle">Its display title:</label>
+      <input id="gsTitle" type="text" autocomplete="off" value="${h(one.title || "")}">
+      <span class="u"></span></div>
+
+    <div class="setting wide"><label class="q" for="gsSummary">One line, shown under its name:</label>
+      <input id="gsSummary" type="text" autocomplete="off" value="${h(one.summary || "")}">
+      <span class="u"></span></div>
+
+    <div class="setting wide"><label class="q" for="gsDescription">What it is for:</label>
+      <input id="gsDescription" type="text" autocomplete="off"
+        value="${h(one.description || "")}"><span class="u"></span></div>
+
+    <h4>Group membership</h4>
+
+    <div class="setting wide"><label class="q" for="gsVisibility">Who can see that this group exists:</label>
+      ${pick("gsVisibility", one.visibility || "members", [
+        ["members", "Only its members"],
+        ["organization", "All signed-in members"],
+        ["public", "Everybody — not built yet", true],
+      ])}<span class="u"></span></div>
+    <p class="hint">Seeing that a group exists is not being able to read what is in it. What is shared
+      with this group stays readable by its members and nobody else, whatever this says.
+      <b>Everybody</b> would mean an anonymous caller, and there is nowhere for that to happen yet.</p>
+
+    <div class="setting wide"><label class="q" for="gsJoin">How people come to be in it:</label>
+      ${pick("gsJoin", one.joinPolicy || "invitation", [
+        ["invitation", "An owner or manager adds them"],
+        ["request", "They ask — not built yet", true],
+        ["self", "They add themselves"],
+      ])}<span class="u"></span></div>
+    <p class="hint">Asking to join needs a queue somebody reviews, which is not built.</p>
+
+    <div class="setting wide"><label class="q" for="gsContribute">Who may share a service into it:</label>
+      ${pick("gsContribute", one.contribute || "managers", [
+        ["managers", "The owner and its managers"],
+        ["members", "Any member"],
+      ])}<span class="u"></span></div>
+    <p class="hint" id="gsVisNote"></p>
+
+    <div class="row" style="margin:var(--gap-4) 0">
+      <button class="primary" id="gsSave" disabled>Save</button>
+      <span class="val" id="gsDirty"></span>
+    </div>
+
+    <h4>Fixed when the group was made</h4>
+
+    <div class="setting wide"><span class="q">What members may do with what is already in it:</span>
+      <select disabled aria-label="What members may do with what is already in it"><option>${
+        one.itemUpdate === "allItems"
+          ? "Edit every service shared with it"
+          : one.itemUpdate === "ownItems"
+            ? "Edit the ones they shared themselves"
+            : "Read them"}</option></select><span class="u"></span></div>
+    <p class="hint">Fixed when the group was made. Widening it would make every service already shared
+      with the group editable by every member, retroactively — so there is no write path for it at all
+      (ADR-036 §4c). To change it, make another group and move the shares.</p>
+
+    <h4>Deletion</h4>
+
+    <div class="setting wide"><span class="q">Protect this group from being deleted:</span>
+      <label><input type="checkbox" id="gsLock"${one.deleteLocked ? " checked" : ""}
+        aria-label="Protect this group from being deleted">
+        ${one.deleteLocked ? "Locked" : "Not locked"}</label>
+      <span class="u"></span></div>
+    <p class="hint">Nobody can delete this group while this is on, <b>including an administrator</b>.
+      A confirmation is dismissed by habit; a lock has to be turned off deliberately, here, where what
+      the group holds is on the next tab. <b>Applied the moment it is ticked, not on Save</b> — the
+      same rule a service's sharing follows, and it is stated because a safety switch left unsaved is
+      believed-on and off.</p>
+
+    ${one.mayDelete ? `
+      <div class="row" style="margin-top:var(--gap-3)">
+        <button class="tiny danger" id="groupDelete"${one.deleteLocked ? " disabled" : ""}
+          >Delete group</button>
+        <span class="hint" style="margin:0">${one.deleteLocked
+          ? `Turn the protection off first — the switch is one row above.`
+          : `Its members and its shares go with it. The services themselves are untouched.`}</span>
+      </div>` : ""}`;
+
+  // Dirty tracking, so Save is disabled until there is something to save. The lock is deliberately
+  // not part of it: it writes on its own, because a safety switch left unsaved is believed-on and off.
+  const watch = ["gsTitle", "gsSummary", "gsDescription",
+                 "gsVisibility", "gsJoin", "gsContribute"];
+
+  const reading = () => watch.map(id => $(id).value).join("\u0000");
+  const was = reading();
+
+  const check = () => {
+    const dirty = reading() !== was;
+    $("gsSave").disabled = !dirty;
+    $("gsDirty").textContent = dirty ? "unsaved" : "";
+  };
+
+  // The three text rows are `input`, the three selects are `change`; a text field that only reported
+  // on blur would leave Save disabled while somebody typed into it.
+  for (const id of watch) {
+    $(id).onchange = check;
+    $(id).oninput = check;
+  }
+}
+
+/**
+ * Writes a group's settings, whole, from a patch.
+ *
+ * <b>The only path allowed to build that body, and the reason is a bug this caught before it
+ * shipped.</b> The endpoint replaces every field, including title, summary and description — so a
+ * caller that assembles the body from the controls in front of it erases whatever is not in front of
+ * it. The port's own documentation said *"or null to leave it"* for an hour while the statement wrote
+ * `set title = @title`; a design review found it before either screen existed. Overlay on the last
+ * read, never on the DOM alone.
+ */
+async function saveGroupSettings(patch, what) {
+  if (!groupNow) return;
+
+  const body = {
+    title: groupNow.title ?? null,
+    summary: groupNow.summary ?? null,
+    description: groupNow.description ?? null,
+    visibility: groupNow.visibility || "members",
+    joinPolicy: groupNow.joinPolicy || "invitation",
+    contribute: groupNow.contribute || "managers",
+    deleteLocked: !!groupNow.deleteLocked,
+    ...patch,
+  };
+
+  try {
+    const answer = await api(
+      `/admin/groups/${encodeURIComponent(groupNow.name)}/settings`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    // <b>The note is about visibility, so it is shown only when visibility moved.</b> The endpoint
+    // returns it on every call because the write is whole-object — so ticking the delete lock produced
+    // *"Locked. Nobody can delete this group… — Only its members can find it. What is shared with it
+    // was already readable by them…"*, a lecture about discovery attached to a lock. Read cold in a
+    // design review, which is the only way that kind of thing is ever caught.
+    const moved = "visibility" in patch && patch.visibility !== groupNow.visibility;
+
+    toast(moved && answer?.note ? `${what} ${answer.note}` : what, true);
+    await refreshGroup();
+  } catch (e) { toast(e.message); }
 }
 
 /**
@@ -750,6 +1208,11 @@ const SCREEN_SURFACE = {
   // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
   // page belongs to is `LAYER_PAGES`, and the router asks that instead.
   operations: "server",
+
+  // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
+  // A screen absent from this table falls through to its surface's home, so `/server/#/group/planning`
+  // would land an administrator on Services with no explanation.
+  group: "studio",
   content: "studio",
   anonymous: "studio",
   sources: "server",
@@ -856,6 +1319,16 @@ function route() {
   if (rest[0] === "layer" && rest[1]) {
     const mine = pagesOf(surface);
     showLayer(rest[1], mine.includes(rest[2]) ? rest[2] : mine[0]);
+    return;
+  }
+
+  // <b>A group and one of its tabs — `#/group/planning/members`.</b> A group's page is addressable
+  // where a service's is not, and the difference is real rather than an oversight: `route()` splits on
+  // `/` before decoding, so a service's `folder/name` cannot survive a third segment, while a group's
+  // name is one `encodeURIComponent`ed segment and can. A group's name may itself contain a slash —
+  // nothing validates it — which is exactly why it has to be encoded here.
+  if (rest[0] === "group" && rest[1]) {
+    showGroup(decodeURIComponent(rest[1]), rest[2]);
     return;
   }
 
@@ -4335,16 +4808,14 @@ async function handleClick(event) {
   // addressable (`#/layer/x/sharing`, ADR-034 §5c) and service pages are not, which is an
   // inconsistency and not a decision.
   // ---------------------------------------------------------------- groups (ADR-036)
+  // <b>A row goes to the group's page, and the `scrollIntoView` this used to need is gone with the
+  // panel it scrolled to.</b> `tr.pick.on` now marks the group you last visited rather than the one
+  // that is open, which is the one useful thing left for it to mean: coming back from a page, the row
+  // you came from is where you left it.
   const groupRow = t.closest?.("tr[data-group]");
 
   if (groupRow) {
-    groupOpen = groupRow.dataset.group;
-    await section("groups", loadGroups, "groupRows");
-
-    // <b>Because the panel it opens is below the fold.</b> Ten rows at ~51px each put the editor's
-    // heading near 780px, so on a 1366×768 window the operator clicks a row and nothing visible
-    // changes. `nearest` rather than `start`: if it is already on screen, do not move the page.
-    $("groupEditor")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    location.hash = `#/group/${encodeURIComponent(groupRow.dataset.group)}`;
     return;
   }
 
@@ -4412,6 +4883,12 @@ async function handleClick(event) {
       groupOpen = name;
       toast(`${name}: created. You own it.`, true);
       $("groupNewForm").hidden = true;
+
+      // <b>Straight to its page.</b> The next act after making a group is adding members, and those
+      // verbs live there — staying on the list left the new row highlighted under nothing, which was a
+      // leftover of the panel this replaced.
+      location.hash = `#/group/${encodeURIComponent(name)}/overview`;
+      return;
     } catch (e) { toast(e.message); }
 
     await section("groups", loadGroups, "groupRows");
@@ -4461,6 +4938,50 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "gsSave") {
+    await saveGroupSettings({
+      title: $("gsTitle").value.trim() || null,
+      summary: $("gsSummary").value.trim() || null,
+      description: $("gsDescription").value.trim() || null,
+      visibility: $("gsVisibility").value,
+      joinPolicy: $("gsJoin").value,
+      contribute: $("gsContribute").value,
+    }, "Saved.");
+    return;
+  }
+
+  // <b>The remedy for an inert share, on the tab that names it.</b> A service reaches a group's
+  // members only when its own scope is `group`; that is a setting on the service, and until
+  // 2026-08-18 this console could not set it at all — `SCOPES` had three values and the server took
+  // four, so the one instruction the group page gives was unfollowable. The verb is here rather than
+  // only on the service's page because the operator is looking at the list of what is broken.
+  const reach = t.closest?.("[data-group-reach]");
+
+  if (reach) {
+    const qualified = reach.dataset.groupReach;
+    const cut = qualified.lastIndexOf("/");
+    const folder = cut < 0 ? "" : qualified.slice(0, cut);
+    const bare = cut < 0 ? qualified : qualified.slice(cut + 1);
+
+    reach.disabled = true;
+
+    try {
+      await api(
+        `/admin/services/${encodeURIComponent(bare)}/sharing`
+        + `?folder=${encodeURIComponent(folder)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sharing: "group" }),
+        });
+
+      toast(`${bare} now reaches this group's members.`, true);
+    } catch (e) { toast(e.message); reach.disabled = false; return; }
+
+    await refreshGroup();
+    return;
+  }
+
   if (t.id === "groupPickCancel") {
     // Whichever is open: the create form has its own slot outside the editor, and the member and
     // service pickers are inside it, because those two *are* operations on the open group.
@@ -4485,7 +5006,7 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
 
     $("groupPicker").hidden = true;
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4500,8 +5021,14 @@ async function handleClick(event) {
 
     // <b>Services, not layers.</b> The listing is per layer and a group is shared a *service*, so
     // three layers of one service must offer one choice rather than three.
+    //
+    // <b>`l.service` already carries the folder</b>, so prefixing `l.folder` produced
+    // `hosted/hosted/look_buildings`, and the share below split that into folder `hosted/hosted`.
+    // Every service on this server is in a folder, so *Share a service* answered 404 for all of
+    // them — with `'look_buildings' is not something this server has`, about a service the screen
+    // had just offered. Found in the design review of 2026-08-18.
     const services = [...new Set((content.mine || []).map(l =>
-      l.folder ? `${l.folder}/${l.service}` : l.service))].sort();
+      l.service.includes("/") || !l.folder ? l.service : `${l.folder}/${l.service}`))].sort();
 
     if (services.length === 0) {
       toast("You have published nothing to share.");
@@ -4510,7 +5037,7 @@ async function handleClick(event) {
 
     $("groupPicker").innerHTML = `
       <div class="picker">
-        <label for="groupPickFilter">Share a service</label>
+        <label for="groupPickFilter">Add an item to this group</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
         <select id="groupPickWhat" size="8" aria-label="Services you could share">${services.map(n =>
           `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
@@ -4543,7 +5070,7 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
 
     $("groupPicker").hidden = true;
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4566,7 +5093,7 @@ async function handleClick(event) {
       groupOpen = null;
     } catch (e) { toast(e.message); }
 
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4585,7 +5112,7 @@ async function handleClick(event) {
       toast(`${grade.dataset.groupGrade} is now a ${grade.dataset.to}`, true);
     } catch (e) { toast(e.message); }
 
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4610,7 +5137,7 @@ async function handleClick(event) {
       toast(`${drop.dataset.groupDrop} removed from ${groupOpen}`, true);
     } catch (e) { toast(e.message); }
 
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4629,7 +5156,7 @@ async function handleClick(event) {
       toast(`${bare} is no longer shared with ${groupOpen}`, true);
     } catch (e) { toast(e.message); }
 
-    await section("groups", loadGroups, "groupRows");
+    await refreshGroup();
     return;
   }
 
@@ -4644,6 +5171,7 @@ async function handleClick(event) {
       groupOpen = null;
     } catch (e) { toast(e.message); }
 
+    location.hash = "#/groups";
     await section("groups", loadGroups, "groupRows");
     return;
   }
@@ -4926,6 +5454,24 @@ async function handleClick(event) {
 document.addEventListener("change", async event => {
   const d = event.target.dataset || {};
 
+  // <b>The lock writes immediately, and it is the one control on that tab that does.</b> A safety
+  // switch left unsaved is believed-on and off, which is the failure the switch exists to prevent. It
+  // still goes through the overlay, so turning it on does not erase the description.
+  if (event.target.id === "gsLock") {
+    await saveGroupSettings(
+      { deleteLocked: event.target.checked },
+      event.target.checked
+        ? "Locked. Nobody can delete this group, including an administrator."
+        : "Unlocked. It can be deleted again.");
+    return;
+  }
+
+  if (event.target.id === "groupItemSort") {
+    resetPage("groupItems");
+    if (groupNow) drawGroupContent(groupNow);
+    return;
+  }
+
   // A tick and a chosen option are `change` rather than `input`, so the note lives
   // here too: a capability unticked and then left behind is exactly the edit worth
   // keeping.
@@ -5055,6 +5601,12 @@ document.addEventListener("click", event => {
   else if (id === "sources") section("data sources", loadSources, "sources");
   else if (id === "roleRows") section("roles", loadRoles, "roleRows");
   else if (id === "groupRows") section("groups", loadGroups, "groupRows");
+
+  // <b>A group's two paged tables were absent from this list, so both arrows were dead.</b> The
+  // index was set and nothing redrew: a fourteen-member group showed ten members and no way to
+  // reach the other four — which, with the store's sort, were the managers. Found in the design
+  // review of 2026-08-18.
+  else if (id === "groupItems" || id === "groupMembers") refreshGroup();
 });
 
 document.addEventListener("input", event => {
@@ -5074,6 +5626,20 @@ document.addEventListener("input", event => {
       }
     }
 
+    return;
+  }
+
+  // The Content and Members tabs re-render in place: the search reads the group already in hand rather
+  // than asking the server again. The sort is a `<select>` and so is in the change handler.
+  if (event.target.id === "groupItemFilter") {
+    resetPage("groupItems");
+    if (groupNow) drawGroupContent(groupNow);
+    return;
+  }
+
+  if (event.target.id === "groupMemberFilter") {
+    resetPage("groupMembers");
+    if (groupNow) drawGroupMembers(groupNow);
     return;
   }
 
