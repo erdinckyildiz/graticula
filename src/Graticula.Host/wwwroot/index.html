@@ -689,6 +689,15 @@
       <button class="primary" id="groupNew">New group</button>
     </div>
 
+    <!--
+      <b>The create form lives here, not inside the editor.</b> It was in `#groupPicker`, which sits
+      inside `#groupEditor` — a panel that is `hidden` until a group is chosen. So on a server with no
+      groups, New group wrote its form into a hidden container and appeared to do nothing, which is
+      exactly the state a first-time reader is in. Creating a group is also not an operation *on* a
+      group, so it does not belong on a group's panel.
+    -->
+    <div id="groupNewForm" hidden></div>
+
     <div class="panel">
       <table>
         <thead><tr>

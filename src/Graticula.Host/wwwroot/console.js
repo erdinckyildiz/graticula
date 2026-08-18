@@ -355,6 +355,10 @@ async function loadGroups() {
   // offer what its reader cannot do, and a plain member of a group is a reader here.
   $("groupActions").hidden = !chosen.mayManage;
   $("groupDelete").hidden = !chosen.mayDelete;
+
+  // <b>The pickers close on a re-render and the create form does not.</b> A picker belongs to the
+  // group that was open; the create form belongs to nobody, and closing it because the list refreshed
+  // would throw away what somebody was typing.
   $("groupPicker").hidden = true;
 
   // <b>Absent for the owner.</b> The store refuses to remove them — they would keep owning a group
@@ -4352,7 +4356,7 @@ async function handleClick(event) {
   // return to. And a browser that has offered *"prevent this page from creating additional
   // dialogs"* makes New group silently do nothing for the rest of the session.
   if (t.id === "groupNew") {
-    $("groupPicker").innerHTML = `
+    $("groupNewForm").innerHTML = `
       <div class="picker">
         <label for="newGroupName">Name</label>
         <input id="newGroupName" type="text" placeholder="planning" autocomplete="off">
@@ -4381,7 +4385,7 @@ async function handleClick(event) {
         </div>
       </div>`;
 
-    $("groupPicker").hidden = false;
+    $("groupNewForm").hidden = false;
     $("newGroupName")?.focus();
     return;
   }
@@ -4407,7 +4411,7 @@ async function handleClick(event) {
       });
       groupOpen = name;
       toast(`${name}: created. You own it.`, true);
-      $("groupPicker").hidden = true;
+      $("groupNewForm").hidden = true;
     } catch (e) { toast(e.message); }
 
     await section("groups", loadGroups, "groupRows");
@@ -4458,7 +4462,10 @@ async function handleClick(event) {
   }
 
   if (t.id === "groupPickCancel") {
+    // Whichever is open: the create form has its own slot outside the editor, and the member and
+    // service pickers are inside it, because those two *are* operations on the open group.
     $("groupPicker").hidden = true;
+    $("groupNewForm").hidden = true;
     return;
   }
 
@@ -5111,6 +5118,11 @@ document.addEventListener("keydown", event => {
     // navigated to is left with Back or Cancel.
     // <b>An open picker closes first.</b> It is the innermost thing on screen and Escape means *out
     // of this*, so a chain that skipped it would send the reader out of the screen instead.
+    if ($("groupNewForm") && !$("groupNewForm").hidden) {
+      $("groupNewForm").hidden = true;
+      return;
+    }
+
     if ($("groupPicker") && !$("groupPicker").hidden) {
       $("groupPicker").hidden = true;
       return;

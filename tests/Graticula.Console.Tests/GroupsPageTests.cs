@@ -41,6 +41,71 @@ public sealed class GroupsPageTests : ConsoleTest
         System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
 
     /// <summary>
+    /// New group opens its form when there are no groups at all, which is where it failed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Reported by the owner, 2026-08-18: *"new group düğmesi çalışmıyor"*.</b> The create form was
+    /// written into <c>#groupPicker</c>, which sits inside <c>#groupEditor</c> — a panel that is
+    /// <c>hidden</c> until a group is chosen. So the button wrote its form into a hidden container and
+    /// appeared to do nothing, **and the only reader who hits that is somebody with no groups yet**:
+    /// the first-run case, which is the one state the three earlier tests could not be in, because each
+    /// of them created a group before opening the screen.
+    /// </para>
+    /// <para>
+    /// <b>So this test refuses to create one first.</b> It asserts the button works from the state a
+    /// new deployment is in, and that is the whole point of it — a test that provisions a group before
+    /// pressing New group passes against the broken build.
+    /// </para>
+    /// <para>
+    /// <b>It also proves the form is visible, not merely present.</b> `offsetParent` is null for
+    /// anything inside a `hidden` ancestor, which is exactly the failure: the elements existed and
+    /// nobody could see them.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task New_group_opens_its_form_with_no_groups_on_the_screen()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/groups", token);
+
+        await WaitForAsync(
+            "!!document.getElementById('groupNew')",
+            "The Groups screen has no New group button.");
+
+        // <b>The editor is closed, which is the condition under which this broke.</b> If the server
+        // this suite runs against happens to have groups, the editor opens on the first one and the
+        // defect is masked — so the state is asserted rather than assumed, and the test says which
+        // state it is in when it cannot get the interesting one.
+        bool editorOpen = await Browser.EvaluateAsync<bool>(
+            "!!document.getElementById('groupEditor')"
+            + " && !document.getElementById('groupEditor').hidden");
+
+        await ClickAsync("#groupNew");
+
+        await WaitForAsync(
+            "!!document.getElementById('newGroupName')",
+            "New group did not render its form.");
+
+        // <b>Visible, not merely present.</b> `offsetParent` is null inside a `hidden` ancestor, and
+        // that is precisely how this failed: every element existed and none of them could be seen.
+        bool visible = await Browser.EvaluateAsync<bool>(
+            "!!document.getElementById('newGroupName')?.offsetParent");
+
+        Assert.True(
+            visible,
+            "The create form rendered into something hidden"
+            + (editorOpen
+                ? "."
+                : " — and the group editor was closed, which is the state a deployment with no "
+                  + "groups is always in, so New group did nothing for a first-time reader."));
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
     /// Adding a member is a picker over real names, not a box to type one into.
     /// </summary>
     /// <remarks>
