@@ -103,3 +103,24 @@ disguise.
 Reviewed at every phase gate (§65). At each review, for every open entry, ask
 whether the trigger has fired — and whether the entry is still honest, or has
 quietly become the permanent architecture while nobody was looking.
+
+**And ask a third thing, which was added 2026-08-18 because it kept catching
+something: is the entry still true?** A row is written from a symptom, at speed,
+and then the code moves and the row does not. Two of the seven open rows checked
+against the code that day were describing a state it had left:
+
+- **D-52** named a mechanism — *the startup check never asks whether a build needs a
+  newer schema* — that had existed for four days before the row was written, with a
+  test. The real cause was a stale constant, which the row could not see because it
+  reasoned from the symptom instead of reading the check it accused.
+- **D-22** said `where` accepts only `1=1`. The grammar had arrived; `objectid>5`
+  filtered correctly and had for some time. One genuine gap was underneath it, and it
+  was a different gap from the one the row described.
+
+The other five checked out — **D-24** and **D-33**'s columns really are written and
+never read, **D-12** really has no trusted-proxy handling, **D-26**'s composite flag
+really is stored and refused, **D-39** really does address two kinds of service at one
+path. So the register is not rotten; it is roughly two in seven stale, which is high
+enough that **a row is a lead rather than a finding.** Read the code the row accuses
+before starting work aimed at it: a day spent on D-52 as written would have added a
+second check beside a correct one and left the cause in place.
