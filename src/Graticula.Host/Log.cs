@@ -31,7 +31,16 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1021.
+    // The next id is 1022.
+
+    [LoggerMessage(
+        EventId = 1021,
+        Level = LogLevel.Debug,
+        Message = "The geodatabase reader process had already exited when it was killed. This is the "
+                + "ordinary race between checking and killing rather than a fault, and is logged at "
+                + "Debug so that a run which hits it often is still visible to somebody looking.")]
+    public static partial void ImportReaderAlreadyGone(
+        ILogger logger, System.Exception? exception);
 
     [LoggerMessage(
         EventId = 1000,

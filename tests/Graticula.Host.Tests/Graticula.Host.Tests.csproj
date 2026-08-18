@@ -4,6 +4,7 @@
     <!-- OverlayWorkerPoolTests runs the real worker: the bound being tested is
          a process being killed, and a fake would test the bookkeeping. -->
     <CopyOverlayWorker>true</CopyOverlayWorker>
+    <CopyImportReader>true</CopyImportReader>
     <RootNamespace>Graticula.Host.Tests</RootNamespace>
   </PropertyGroup>
 
