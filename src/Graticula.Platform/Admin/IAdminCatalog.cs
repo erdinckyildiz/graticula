@@ -647,6 +647,36 @@ public interface IAdminCatalog
         int index,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets a service's sharing scope, and says what it was.
+    /// </summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="sharing">The new scope.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The scope it had, or null when there is no such service.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The service is the thing that has a sharing scope, and until 2026-08-18 there was no way
+    /// to say so.</b> <see cref="SetSharingAsync"/> takes a <em>layer</em> name and writes the
+    /// owning service's scope — correct since migration 11, and reachable only through a layer.
+    /// So a service with three layers had three routes to one setting, which is
+    /// <see href="../architecture-debt.md">D-61</see>'s shape; and a service with **no** layers had
+    /// none at all. Server creates empty services, so Server could create a private thing whose
+    /// scope nothing could change. Found by trying it.
+    /// </para>
+    /// <para>
+    /// <b>Folder-qualified, because a name is not unique.</b> Two folders may each hold a service
+    /// called <c>parcels</c>, and the layer route sidestepped that only because layer names are
+    /// unique. This one cannot.
+    /// </para>
+    /// </remarks>
+    Task<SharingScope?> SetServiceSharingAsync(
+        string serviceName,
+        string? folder,
+        SharingScope sharing,
+        CancellationToken cancellationToken);
+
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
     /// <param name="layerName">A layer in the service.</param>
     /// <param name="sharing">The new scope.</param>

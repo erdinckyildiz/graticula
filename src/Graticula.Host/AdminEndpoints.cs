@@ -1826,15 +1826,40 @@ internal static class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <remarks>
+    /// <para>
+    /// <b>Every service, not only a system service — corrected 2026-08-18.</b> This handler took
+    /// only <see cref="PostgresSystemServices"/>, so a path spelled <c>/admin/services/…</c>
+    /// answered 404 for every ordinary service on the server. The owner said *"server tarafında
+    /// sharing mekanizması çok işlemiyor"*, and this was most of the reason.
+    /// </para>
+    /// <para>
+    /// <b>The consequence was worse than a missing route.</b> A service's scope was reachable only
+    /// through <c>PUT /admin/layers/{name}/sharing</c> — which writes the *owning service's*
+    /// column, correctly, since migration 11. So a service with three layers had three routes to
+    /// one setting ([D-61](../../docs/architecture-debt.md)'s exact shape), and an **empty** service
+    /// had none: Server creates empty services, and an empty service is created `private`, so
+    /// Server could create a thing whose sharing nothing on the server could change. Measured by
+    /// doing it — both candidate routes answered 404.
+    /// </para>
+    /// <para>
+    /// <b>System services keep their own path through this handler.</b> They live in a different
+    /// table and are not content; the branch is on which kind of service the name resolves to, and
+    /// a system service is tried first because its names are fixed and few.
+    /// </para>
+    /// </remarks>
     private static async Task SetServiceSharingAsync(
         HttpContext context,
         string name,
+        string? folder,
         SharingRequest request,
         PostgresSystemServices services,
+        IAdminCatalog catalog,
         IAuditLog audit,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(catalog);
 
         if (!TryReadScope(request.Sharing, out SharingScope scope, out string? error))
         {
@@ -1851,7 +1876,39 @@ internal static class AdminEndpoints
             return;
         }
 
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
         SystemService? before = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+
+        if (before is null)
+        {
+            // An ordinary service. One statement, and it reports the scope it replaced.
+            SharingScope? had = await catalog
+                .SetServiceSharingAsync(name, at, scope, cancellation).ConfigureAwait(false);
+
+            if (had is null)
+            {
+                await Refuse(context, 404,
+                    $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            await AuditAsync(
+                context, audit, "service.share", name,
+                Detail(new { folder = at, from = PostgresSharing(had.Value), to = PostgresSharing(scope) }),
+                succeeded: true, cancellation).ConfigureAwait(false);
+
+            await Results.Json(new
+            {
+                name,
+                folder = at,
+                from = PostgresSharing(had.Value),
+                to = PostgresSharing(scope),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
 
         if (!await services.SetSharingAsync(name, scope, cancellation).ConfigureAwait(false))
         {

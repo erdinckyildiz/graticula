@@ -1100,6 +1100,49 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>One statement, returning the old value.</b> ADR-017 §5d wants before and after in the
+    /// audit record, and the only moment the *before* is knowable without a race is inside the
+    /// statement that replaces it — the same reason <see cref="SetSharingAsync"/> is written this
+    /// way.
+    /// </remarks>
+    public async Task<SharingScope?> SetServiceSharingAsync(
+        string serviceName,
+        string? folder,
+        SharingScope sharing,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        // <b>Case-insensitive on both, and the folder compared through `coalesce`.</b> The rest of
+        // this class matches services this way; a lookup that differed here would find a service
+        // the catalogue does not, or miss one it does — which is the defect two services differing
+        // only in the case of their folder already caused once.
+        // <b>The old value comes from a `from` subquery, not from `returning` alone.</b>
+        // `returning` yields the *updated* row, so it cannot report what the scope was. Joining
+        // against a subquery over the same table does: it is evaluated on the statement's snapshot,
+        // which is the state before the update.
+        const string Sql = """
+            update service s
+               set sharing = @sharing, updated_at = now()
+              from (select id, sharing from service
+                     where lower(name) = lower(@name)
+                       and coalesce(lower(folder), '') = coalesce(lower(@folder), '')) was
+             where s.id = was.id
+            returning was.sharing
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("sharing", Wire(sharing));
+
+        object? was = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return was is string old ? Parse(old) : null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <para>
     /// <b>Writes the service's scope, not the layer's, and that was a shipped
     /// defect until 2026-08-15.</b> This statement said

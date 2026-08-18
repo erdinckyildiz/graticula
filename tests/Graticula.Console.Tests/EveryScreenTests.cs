@@ -90,7 +90,13 @@ public sealed class EveryScreenTests : ConsoleTest
         Dictionary<string, string[]> pages = new()
         {
             ["server"] = ["general", "endpoints"],
-            ["studio"] = ["sharing", "symbology", "caching"],
+            // <b>Sharing left this list on 2026-08-18.</b> A scope belongs to the service —
+            // `service.sharing` is the column the serving path reads — so a Sharing page per layer
+            // gave one setting as many screens as the service had layers, which is D-61's defect in
+            // the one setting D-61's repair did not reach. Its absence is asserted at the end of
+            // this method rather than left implicit, because *a page reappears on the wrong object*
+            // is the regression this class exists for.
+            ["studio"] = ["symbology", "caching", "maintenance"],
         };
 
         foreach ((string surface, string[] names) in pages)
@@ -118,7 +124,32 @@ public sealed class EveryScreenTests : ConsoleTest
                     + string.Join("\n  ", failures));
             }
         }
+
+        // <b>And Sharing is not one of a layer's pages, on either surface.</b> Asked for by address
+        // rather than by reading the source: a page gone from the navigation and still reachable by
+        // URL is half-moved, which is how the settings D-61 describes came to exist twice over.
+        foreach (string surface in Surfaces)
+        {
+            await OpenAsync(
+                $"/{surface}/#/layer/{Uri.EscapeDataString(layer)}/sharing", token);
+
+            await WaitForAsync(
+                "getComputedStyle(document.getElementById('app')).display !== 'none'",
+                $"The console did not finish loading for {surface} on a stale sharing address.");
+
+            bool present = await Browser.EvaluateAsync<bool>(
+                "!!document.querySelector('#editPages #page-sharing')");
+
+            Assert.False(
+                present,
+                $"A layer still has a Sharing page on {surface}. A scope is the service's — one "
+                + "column — and a page per layer makes one setting look like several (D-61). It "
+                + "belongs on the service's pages, where ServiceSharingPageTests requires it.");
+        }
     }
+
+    /// <summary>The two surfaces, hoisted so the loop above does not allocate per call.</summary>
+    private static readonly string[] Surfaces = ["server", "studio"];
 
     private async Task AssertEveryScreenAsync(string surface, string[] screens, string token)
     {

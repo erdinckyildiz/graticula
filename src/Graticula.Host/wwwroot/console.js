@@ -1263,7 +1263,7 @@ function drawServiceSettings(name, folder) {
     `<a href="#" data-service-page="${p}"${p === page ? ' aria-current="page"' : ""}>${
       p[0].toUpperCase() + p.slice(1)}</a>`).join("");
 
-  $("servicePagesBody").innerHTML = serviceSettingsMarkup()
+  $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + `<div class="row" style="margin-top:22px">
          <button class="primary" data-service-save="${h(name)}"
            data-folder="${h(folder || "")}">Save</button>
@@ -1298,7 +1298,7 @@ let SERVICE_PAGE_OPEN = null;
  */
 const OPERATIONS = ["Query", "Create", "Update", "Delete", "Extract"];
 
-function serviceSettingsMarkup() {
+function serviceSettingsMarkup(name, folder) {
   return `
     <section class="page" id="page-capabilities">
       <h4>Faces this service offers</h4>
@@ -1318,6 +1318,24 @@ function serviceSettingsMarkup() {
       <p class="hint"><b>One setting per service.</b> Every layer this service holds offers what is
         ticked here; there is no per-layer version of this, and the console used to imply there
         was — D-61.</p>
+    </section>
+
+    <section class="page" id="page-sharing">
+      <h4>Who may read this service</h4>
+      <div class="setting"><span class="q">Sharing scope:</span>
+        <select id="capSharing" data-service-sharing="${h(name || "")}"
+          data-folder="${h(folder || "")}">${SCOPES.map(v =>
+          `<option value="${v}">${v}</option>`).join("")}</select></div>
+      <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
+        a service has to be able to trust that it happened rather than press Save afterwards
+        (ADR-031 §2b, the same rule the role select follows).</p>
+      <p class="hint"><b>One scope per service, and every layer inside it is read under that
+        scope.</b> There is no per-layer version: <code>service.sharing</code> is what the serving
+        path reads, and the console used to offer this page once per layer — D-61.</p>
+      <p class="hint"><b>A ceiling, not a grant.</b> <b>Private</b> is the owner plus anybody with
+        <i>view all content</i>; <b>organization</b> is any signed-in member; <b>public</b> is
+        anyone at all, including an anonymous caller. Sharing to public needs
+        <code>sharing:shareToPublic</code>, which not every role carries.</p>
     </section>
 
     <section class="page" id="page-limits">
@@ -2043,7 +2061,16 @@ async function loadServices() {
         <td>${r.system
           ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
-          : pill(r.sharing)}</td>
+          // <b>A link to where it is set, not a dead label.</b> The owner: *"server tarafında
+          // sharing mekanizması çok işlemiyor"* — and on this screen it did nothing at all, while
+          // the row above it (a system service) carried a working select in the same column. A
+          // reader cannot tell a scope that is fixed from one that is set elsewhere unless the
+          // screen says which. Sharing stays Studio's (owner, 2026-08-17); what was missing is the
+          // route to it.
+          : `<a href="#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}"
+               data-open-service-page="sharing"
+               title="Set on this service's Sharing page — a scope is its owner's decision">${
+                 pill(r.sharing)}</a>`}</td>
         <td class="val">${h(r.owner || "—")}</td>
 
         <td class="acts">${r.system ? `
@@ -2174,9 +2201,19 @@ const LAYER_PAGES = {
   general: "server",
   endpoints: "server",
 
-  // The publisher's: who sees it, how it looks, and how stale a tile may be (A-028 — the
-  // administrator is not the person who knows a layer's volatility; its owner is).
-  sharing: "studio",
+  // <b>Sharing left this list on 2026-08-18 — see `SERVICE_PAGES`.</b> It is a service's scope,
+  // not a layer's: `service.sharing` is the column the serving path reads, `layer.sharing` is
+  // vestigial, and a layer page for it gave one setting as many screens as the service had layers.
+  // Kept as a comment rather than deleted, because *why is sharing not here* is the question
+  // somebody will have.
+  //
+  // <b>`maintenance` is what the page became once the scope left it.</b> It held two unrelated
+  // things — who may read the service, and unpublishing this layer — and only the first belonged to
+  // the service. The name is not new: ADR-034 §5c records *Maintenance* as the section the split of
+  // 2026-08-17 broke up, and this is the half that stayed with the layer. It is Studio's for the
+  // reason that section gives — *"Delete layer is a decision about content, and the person who
+  // published it unpublishes it."*
+  maintenance: "studio",
 
   // <b>Symbology is a layer's own, and it is the one appearance fact that is.</b> ADR-033
   // §5a stores a canonical document per layer, and the endpoint behind this page asks for
@@ -2205,6 +2242,17 @@ const EDIT_PAGES = Object.keys(LAYER_PAGES);
 const SERVICE_PAGES = {
   capabilities: "server",
   limits: "server",
+
+  // <b>Sharing is a service's setting and was the one D-61's repair missed.</b> D-61 moved
+  // Capabilities and Limits off the layer pages because their columns are on `service`;
+  // `service.sharing` is also on `service` — the endpoint behind the old layer page writes it, and
+  // has since migration 11 — and sharing stayed a layer page anyway. So a service with three layers
+  // had three Sharing pages editing one row, which is the same defect with a different subject.
+  //
+  // <b>Studio's, by owner decision 2026-08-17:</b> *"aslında bir servisin private mi organization
+  // mu public mi olduğu studio tarafında ayarlanacak."* That decision is unchanged; what changes is
+  // which *object* the page hangs off.
+  sharing: "studio",
 };
 
 /** The service pages this surface owns. */
@@ -2408,18 +2456,13 @@ function showLayer(name, page, pending = null) {
       <pre class="doc" id="symDerived">—</pre>
     </section>
 
-    <section class="page" id="page-sharing">
-      <h4>Who may read it</h4>
-      <div class="row">
-        <select data-share="${h(name)}">
-          ${SCOPES.map(v =>
-            `<option value="${v}"${v === l.sharing ? " selected" : ""}>${v}</option>`).join("")}
-        </select>
-        <span class="val">applied when chosen, not on Save</span>
-      </div>
-      <p class="hint">Sharing and started/stopped are deliberately outside the settings
-        Save — ADR-031 §2b. They take effect at once and are never cached, because an
-        operator revoking access has to be able to trust that it happened.</p>
+    <section class="page" id="page-maintenance">
+      <p class="hint"><b>Who may read this is set on the service</b>, not here — one scope covers
+        every layer the service holds, because <code>service.sharing</code> is the column the serving
+        path reads. <a href="#/service/${
+          [l.folder, l.service].filter(Boolean).map(encodeURIComponent).join("/")}"
+        data-open-service-page="sharing">Open its Sharing page</a>. This page offered the same scope
+        once per layer until 2026-08-18, which made one setting look like several — D-61.</p>
 
       <h4>Unpublish</h4>
       <div class="row">
@@ -2577,6 +2620,19 @@ async function loadServiceCapabilities(name, folderGiven) {
   set("capInBytes", c.maxRequestBytes);
   set("capEdits", c.maxEditsPerTransaction);
   set("capTimeout", c.statementTimeoutMs);
+
+  // <b>Read from the catalogue listing rather than from `/capabilities`.</b> Sharing is not a
+  // capability — ADR-031 §2b keeps them apart deliberately, because a scope answers *who may read*
+  // and a capability answers *what may be done* — so it is not in that document and must not be
+  // added to it.
+  if ($("capSharing")) {
+    const listing = await api("/admin/featureservices") || {};
+    const row = (listing.services || []).find(x =>
+      (x.name || "").toLowerCase() === service.toLowerCase()
+      && ((x.folder || "") || "").toLowerCase() === ((folder || "") || "").toLowerCase());
+
+    if (row?.sharing) $("capSharing").value = row.sharing;
+  }
   set("capDeadline", c.requestDeadlineSeconds);
 
   // <b>The placeholder is read, not assumed.</b> 600 is this build's default and a deployment may
@@ -3828,6 +3884,18 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>Which page to open when arriving from somewhere else.</b> A service's pages are not
+  // separately addressable — the hash carries the service and `folder/name` already uses the
+  // separator a third segment would need — so a link that wants a particular page says so here and
+  // the router honours it on the next render. Recorded rather than worked around: layer pages *are*
+  // addressable (`#/layer/x/sharing`, ADR-034 §5c) and service pages are not, which is an
+  // inconsistency and not a decision.
+  if (t.dataset?.openServicePage) {
+    SERVICE_PAGE_OPEN = t.dataset.openServicePage;
+    // No preventDefault: the href is a real address and navigating to it is what draws the service.
+    return;
+  }
+
   if (t.dataset?.servicePage) {
     event.preventDefault();
     SERVICE_PAGE_OPEN = t.dataset.servicePage;
@@ -4003,6 +4071,25 @@ document.addEventListener("change", async event => {
   // here too: a capability unticked and then left behind is exactly the edit worth
   // keeping.
   noteEdit(event.target);
+
+  // <b>A service's scope, applied on choosing it.</b> The `data-service-share` name is already
+  // taken by the Server list's system-service select, so this carries the folder too and goes to
+  // the same endpoint — which since 2026-08-18 accepts an ordinary service as well as a system one.
+  if (d.serviceSharing) {
+    try {
+      const at = event.target.dataset.folder || "";
+      const r = await api(
+        `/admin/services/${encodeURIComponent(d.serviceSharing)}/sharing`
+        + `?folder=${encodeURIComponent(at)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sharing: event.target.value }),
+        });
+      toast(`${d.serviceSharing}: shared ${r.from} → ${r.to}`, true);
+    } catch (e) { toast(e.message); }
+    return;
+  }
 
   if (d.share) {
     try {
