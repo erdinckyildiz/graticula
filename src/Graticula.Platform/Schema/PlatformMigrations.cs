@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(27);
+    public static SchemaVersion ComponentSchemaVersion => new(28);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -62,6 +62,7 @@ public static class PlatformMigrations
         RolePrivilegesV25,
         GroupsV26,
         GroupSettingsV27,
+        JobsV28,
     ]);
 
     /// <summary>
@@ -406,6 +407,92 @@ public static class PlatformMigrations
     /// </para>
     /// <para><b>Expand.</b> Five nullable-or-defaulted columns and three checks. Nothing loses a value.</para>
     /// </remarks>
+    /// <summary>
+    /// A record of long work: what was asked for, how it went, and what came of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-037] and the first increment of [ADR-011], which until now was a decision with no
+    /// implementation.</b> There is no job table, no queue and no status endpoint in this product; a
+    /// File Geodatabase import cannot be answered on the request that asks for it, because reading one
+    /// takes minutes. So this is the smallest record that lets a caller be told *later*.
+    /// </para>
+    /// <para>
+    /// <b>It is deliberately not a queue.</b> ADR-011 describes fair-shared scheduling, an OGC API
+    /// Processes surface and a job engine two subsystems share; none of that is here. What is here is a
+    /// row per request with a status somebody can poll, and the honest name for it is *a record*, not
+    /// *the job system*. Building the queue to hold one job type would be deciding ADR-011's open
+    /// questions by accident — the failure §82 exists to prevent, and the one
+    /// [D-46](../../docs/architecture-debt.md) records for UI.
+    /// </para>
+    /// <para>
+    /// <b>`owner_principal_id` is not null, and that is an authorization decision rather than a
+    /// column.</b> A job is somebody's; the status endpoint shows a caller their own and an
+    /// administrator everybody's, which is the same two-axis shape ADR-036 §3 uses for groups. A
+    /// nullable owner would make *whose is this* unanswerable for exactly the rows where it matters —
+    /// an import that wrote a table.
+    /// </para>
+    /// <para>
+    /// <b>`detail` is text holding JSON rather than `jsonb`.</b> Nothing queries inside it: it carries
+    /// what the request asked for and what the worker answered, read whole by one screen. `jsonb` would
+    /// buy indexing nobody needs and cost a rewrite of every value on the way in — the same reasoning
+    /// `audit_event.detail` already uses, and consistency with the row beside it is worth more here
+    /// than a capability with no caller.
+    /// </para>
+    /// <para>
+    /// <b>`progress` is an integer 0–100 and it is a report, not a promise.</b> A reader needs to know
+    /// whether a five-minute import is moving; a worker that cannot say how far along it is leaves it
+    /// at zero, which is honest. The check keeps a worker from reporting 140% because it counted
+    /// features instead of fractions.
+    /// </para>
+    /// <para><b>Expand.</b> One new table and two indexes. Nothing existing loses a value.</para>
+    /// </remarks>
+    private static Migration JobsV28 => Migration.Expand(
+        new SchemaVersion(28),
+        "A record of long work, so an import can be answered later (ADR-037, ADR-011's first step).",
+
+        """
+        create table if not exists job (
+            id                  uuid primary key,
+            kind                text        not null,
+            status              text        not null,
+            progress            int         not null default 0,
+            owner_principal_id  uuid        not null references principal (id),
+            subject             text,
+            detail              text,
+            failure             text,
+            created_at          timestamptz not null default now(),
+            started_at          timestamptz,
+            finished_at         timestamptz
+        )
+        """,
+
+        """
+        alter table job add constraint job_status_known
+          check (status in ('queued', 'running', 'done', 'failed', 'cancelled'))
+        """,
+
+        """
+        alter table job add constraint job_progress_ranged
+          check (progress between 0 and 100)
+        """,
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.import'))
+        """,
+
+        // The two questions a screen asks: what is mine, newest first, and what is still running.
+        """
+        create index if not exists job_by_owner
+            on job (owner_principal_id, created_at desc)
+        """,
+
+        """
+        create index if not exists job_unfinished
+            on job (status) where status in ('queued', 'running')
+        """);
+
     private static Migration GroupSettingsV27 => Migration.Expand(
         new SchemaVersion(27),
         "A group's visibility, join policy, contributor policy and delete lock (ADR-036 §4g).",
