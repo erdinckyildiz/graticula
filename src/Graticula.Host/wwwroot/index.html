@@ -673,6 +673,59 @@
     but it means an administrator reading a 404 cannot tell the two apart. D-45
     is that mistake, made by me, against my own server.
   -->
+  <!-- Groups — ADR-036. Studio's, because a group is about who may read somebody's content. -->
+  <section class="view" id="view-groups">
+    <div class="head">
+      <div>
+        <h2>Groups</h2>
+        <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else — a group confers reading, not editing.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="val" id="groupCount"></span>
+      <span style="flex:1"></span>
+      <button class="primary" id="groupNew">New group</button>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Group</th><th>Description</th><th>You are</th><th>Owner</th>
+          <th class="num">Members</th><th class="num">Services</th>
+        </tr></thead>
+        <tbody id="groupRows"></tbody>
+      </table>
+    </div>
+    <div id="groupsPager"></div>
+
+    <div class="panel" id="groupEditor" hidden>
+      <div class="head">
+        <div><h3 id="groupEditorName"></h3></div>
+        <div id="groupActions" hidden>
+          <button class="tiny" id="groupAdd">Add member</button>
+          <button class="tiny" id="groupShare">Share a service</button>
+          <button class="tiny danger" id="groupDelete" hidden>Delete group</button>
+        </div>
+      </div>
+
+      <div id="groupCapability"></div>
+
+      <h4>Members</h4>
+      <table>
+        <thead><tr><th>Member</th><th>Standing</th><th></th></tr></thead>
+        <tbody id="groupMembers"></tbody>
+      </table>
+
+      <h4>Services shared with it</h4>
+      <table>
+        <thead><tr><th>Service</th><th></th></tr></thead>
+        <tbody id="groupItems"></tbody>
+      </table>
+      <p class="hint">A service reaches this group's members only when its own sharing scope is <b>group</b> as well — set on the service's Sharing page. Sharing it here and leaving the scope alone is the step people miss.</p>
+    </div>
+  </section>
+
   <section class="view" id="view-anonymous">
     <div class="pagehead"><div><h2>Anonymous view</h2>
       <p>What a caller with no credential actually sees of your content.</p></div></div>

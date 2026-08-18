@@ -222,8 +222,20 @@ The other four parsers and the ceiling were found by running the feature.
    `owner_principal_id` is `on delete restrict` and the disposition could not otherwise succeed.
    **Removing a member disposes of their groups**, both ways, extending
    [ADR-015](ADR-015-authentication.md) §6c's two dispositions rather than adding a third.
-5. **No screen appears that its reader cannot use** — ADR-034 condition 1, and here it means the
-   Groups screen is absent for a role without `groups:create`, rather than present and refusing.
+5. **DISCHARGED 2026-08-18**, and the condition was reworded by building it. It said the screen
+   should be *absent for a role without `groups:create`*, which is wrong: **you can belong to a group
+   without being able to create one**, and a member who cannot see the group they were added to has
+   been added to nothing. So the screen is present for everybody and its *controls* follow the
+   membership axis — the server sends `mayManage` and `mayDelete` per row, and the console hides what
+   they deny rather than offering it and reporting a 403. Asserted from the other direction too: the
+   owner of a group **is** offered them, which is what proves the flags are read rather than
+   hard-coded off. **No screen appears that its reader cannot use** — ADR-034 condition 1.
+
+   **The screen was owed for half a day, and the owner asked for it:** *"grubu nereden oluşturuyoruz.
+   içinde olduğum grupların listesini nereden görüyorum?"* The store and the API were built and
+   measured, and the answer to both questions was *nowhere*. Worth recording because the order was
+   deliberate — ADR-035 §4d built the privilege mechanism before the groups that need it — and the
+   cost of that order is exactly this: a working subsystem with no way in.
 
 ## 7. Dissent
 

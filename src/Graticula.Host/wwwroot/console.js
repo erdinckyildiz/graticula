@@ -178,6 +178,100 @@ function metric(label, value, note) {
  * tab a reader cannot use must not be in the document at all.
  */
 /**
+ * Groups: the ones you are in, and what is shared with them.
+ *
+ * <b>ADR-036.</b> A group is a set of members with services shared to it; its members read those
+ * services and nobody else does. The list is what you own or belong to — an administrator sees all
+ * of them, because a group whose owner has left still has to be administrable.
+ *
+ * <b>Two axes on one screen, and the row says which one it is showing.</b> What you may do to a
+ * group depends on where you stand in it (owner, manager, member) as well as on what your role
+ * grants, so the server sends `mayManage` and `mayDelete` per row rather than leaving the console to
+ * recompute them from a standing and a privilege list and get it wrong differently.
+ */
+let groupOpen = null;
+
+async function loadGroups() {
+  const answer = await api("/admin/groups") || {};
+  const groups = answer.groups || [];
+
+  if (!groups.some(g => g.name === groupOpen)) groupOpen = groups[0]?.name ?? null;
+
+  $("groupCount").textContent = groups.length === 0
+    ? "no groups"
+    : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
+
+  $("groupRows").innerHTML = groups.length === 0
+    ? `<tr><td colspan="6" class="empty">You are in no groups. <b>New group</b> makes one, and
+         whoever makes it owns it.</td></tr>`
+    : pageOf("groupRows", groups).map(g => `
+      <tr class="pick${g.name === groupOpen ? " on" : ""}" data-group="${h(g.name)}">
+        <td class="name">${h(g.title || g.name)}${g.title
+          ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
+        <td class="val">${h(g.description || "")}</td>
+        <td>${pill(g.standing)}</td>
+        <td class="val">${h(g.owner || "—")}</td>
+        <td class="num">${num(g.members)}</td>
+        <td class="num">${num(g.items)}</td>
+      </tr>`).join("");
+
+  $("groupsPager").innerHTML = pagerFor("groupRows", groups.length);
+
+  const chosen = groups.find(g => g.name === groupOpen) || null;
+
+  if (!chosen) { $("groupEditor").hidden = true; return; }
+
+  $("groupEditor").hidden = false;
+
+  const one = await api(`/admin/groups/${encodeURIComponent(chosen.name)}`) || {};
+
+  $("groupEditorName").innerHTML = `<b>${h(one.title || one.name || chosen.name)}</b>
+    <span class="val">${h(chosen.standing)}</span>`;
+
+  // <b>What the group confers, said in words rather than as a code.</b> `none` is the ordinary case
+  // and an operator reading *none* beside a group of forty people should not have to look it up.
+  $("groupCapability").innerHTML = `<p class="hint"><b>${
+    one.itemUpdate === "allItems"
+      ? "Members may edit every service shared with this group"
+      : one.itemUpdate === "ownItems"
+        ? "Members may edit services they shared with this group themselves"
+        : "Members read what is shared with this group and nothing more"
+    }.</b> This was fixed when the group was created and cannot be changed — widening it would make
+    every service already shared with the group editable by every member, retroactively (ADR-036
+    §4c). To change it, make another group and move the shares.</p>`;
+
+  $("groupMembers").innerHTML = (one.members || []).length === 0
+    ? `<tr><td colspan="3" class="empty">Nobody yet.</td></tr>`
+    : one.members.map(m => `
+      <tr>
+        <td class="name">${h(m.name)}</td>
+        <td>${pill(m.standing)}</td>
+        <td style="text-align:right">${chosen.mayManage && m.standing !== "owner" ? `
+          <button class="tiny" data-group-grade="${h(m.name)}"
+            data-to="${m.standing === "manager" ? "member" : "manager"}"
+            title="${m.standing === "manager"
+              ? "A manager may add members and share services; make them a plain member"
+              : "A manager may add members and share services, and may not delete the group"}"
+            >Make ${m.standing === "manager" ? "member" : "manager"}</button>
+          <button class="tiny danger" data-group-drop="${h(m.name)}">Remove</button>` : ""}</td>
+      </tr>`).join("");
+
+  $("groupItems").innerHTML = (one.items || []).length === 0
+    ? `<tr><td colspan="2" class="empty">Nothing shared with it yet.</td></tr>`
+    : one.items.map(i => `
+      <tr>
+        <td class="name">${h(i)}</td>
+        <td style="text-align:right">${chosen.mayManage
+          ? `<button class="tiny danger" data-group-unshare="${h(i)}">Stop sharing</button>` : ""}</td>
+      </tr>`).join("");
+
+  // <b>Only what a manager may act on gets controls.</b> ADR-034 condition 1: a screen must not
+  // offer what its reader cannot do, and a plain member of a group is a reader here.
+  $("groupActions").hidden = !chosen.mayManage;
+  $("groupDelete").hidden = !chosen.mayDelete;
+}
+
+/**
  * Roles and what they grant.
  *
  * <b>ADR-035, and the shape is the reference's role editor — §4f.</b> Two sections, per-category
@@ -534,6 +628,12 @@ const SURFACES = {
       // lived. Now it reads the content listing, which is Studio's, so it is where it belongs
       // rather than where it started.
       ["anonymous", "Anonymous view"],
+
+      // <b>Groups — ADR-036, and Studio's because ADR-034 §6 said so before they existed:</b>
+      // *"Q-112 (groups), when answered, lands in Studio."* A group is content collaboration — who
+      // may read what somebody published — which is the publisher's business rather than the
+      // administrator's.
+      ["groups", "Groups"],
     ],
     action: { id: "newLayer", label: "New layer" },
   },
@@ -785,6 +885,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "content") section("your content", loadMyContent, "mine");
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
+  if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
 }
@@ -4131,6 +4232,158 @@ async function handleClick(event) {
   // the router honours it on the next render. Recorded rather than worked around: layer pages *are*
   // addressable (`#/layer/x/sharing`, ADR-034 §5c) and service pages are not, which is an
   // inconsistency and not a decision.
+  // ---------------------------------------------------------------- groups (ADR-036)
+  const groupRow = t.closest?.("tr[data-group]");
+
+  if (groupRow) {
+    groupOpen = groupRow.dataset.group;
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  if (t.id === "groupNew") {
+    const name = prompt("Name for the new group:");
+    if (!name) return;
+
+    // <b>The capability is asked for here and nowhere else, because it cannot be changed.</b>
+    // ADR-036 §4c. Offering it later on an editor screen would be offering something the server
+    // refuses.
+    const capability = prompt(
+      "What may its members do with the services shared into it?\n"
+      + "  none      — read them (the default)\n"
+      + "  ownItems  — edit the ones they shared themselves\n"
+      + "  allItems  — edit every service shared with the group\n\n"
+      + "This is fixed now and cannot be changed afterwards.",
+      "none");
+
+    if (capability === null) return;
+
+    try {
+      await api("/admin/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          title: name.trim(),
+          itemUpdate: capability.trim() || "none",
+        }),
+      });
+      groupOpen = name.trim();
+      toast(`${name.trim()}: created. You own it.`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  if (t.id === "groupAdd") {
+    const who = prompt("Which member should join this group?");
+    if (!who || !groupOpen) return;
+
+    try {
+      await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}/members/${encodeURIComponent(who.trim())}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manager: false }),
+        });
+      toast(`${who.trim()} joined ${groupOpen}`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  if (t.id === "groupShare") {
+    const what = prompt("Which service? Use folder/name for a service in a folder.");
+    if (!what || !groupOpen) return;
+
+    const cut = what.trim().split("/");
+    const bare = cut.pop();
+    const folder = cut.join("/");
+
+    try {
+      const done = await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}/items/${encodeURIComponent(bare)}`
+        + `?folder=${encodeURIComponent(folder)}`,
+        { method: "PUT" });
+
+      toast(done.note ? `${bare} shared. ${done.note}` : `${bare} shared`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  const grade = t.closest?.("[data-group-grade]");
+
+  if (grade && groupOpen) {
+    try {
+      await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}`
+        + `/members/${encodeURIComponent(grade.dataset.groupGrade)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manager: grade.dataset.to === "manager" }),
+        });
+      toast(`${grade.dataset.groupGrade} is now a ${grade.dataset.to}`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  const drop = t.closest?.("[data-group-drop]");
+
+  if (drop && groupOpen) {
+    try {
+      await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}`
+        + `/members/${encodeURIComponent(drop.dataset.groupDrop)}`,
+        { method: "DELETE" });
+      toast(`${drop.dataset.groupDrop} left ${groupOpen}`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  const unshare = t.closest?.("[data-group-unshare]");
+
+  if (unshare && groupOpen) {
+    const cut = unshare.dataset.groupUnshare.split("/");
+    const bare = cut.pop();
+    const folder = cut.join("/");
+
+    try {
+      await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}/items/${encodeURIComponent(bare)}`
+        + `?folder=${encodeURIComponent(folder)}`,
+        { method: "DELETE" });
+      toast(`${bare} is no longer shared with ${groupOpen}`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  if (t.id === "groupDelete" && groupOpen) {
+    if (!confirm(
+      `Delete the group '${groupOpen}'? Its members and its shares go with it. The services `
+      + "themselves keep existing and are read under their own sharing scope.")) return;
+
+    try {
+      await api(`/admin/groups/${encodeURIComponent(groupOpen)}`, { method: "DELETE" });
+      toast(`${groupOpen}: removed`, true);
+      groupOpen = null;
+    } catch (e) { toast(e.message); }
+
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
   // ---------------------------------------------------------------- roles (ADR-035)
   // <b>`closest`, because a click lands on a cell and the row carries the name.</b> This read
   // `t.dataset.role` and `t` is the `<td>`, so choosing a role did nothing at all and the editor
@@ -4535,6 +4788,7 @@ document.addEventListener("click", event => {
   else if (id === "members") section("members", loadMembers, "members");
   else if (id === "sources") section("data sources", loadSources, "sources");
   else if (id === "roleRows") section("roles", loadRoles, "roleRows");
+  else if (id === "groupRows") section("groups", loadGroups, "groupRows");
 });
 
 document.addEventListener("input", event => {
