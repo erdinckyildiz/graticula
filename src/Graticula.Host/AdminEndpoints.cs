@@ -562,6 +562,7 @@ internal static class AdminEndpoints
         IAdminCatalog catalog,
         PostgresLayerCatalog layers,
         IGroupDirectory groups,
+        IAuditLog audit,
         CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -596,14 +597,17 @@ internal static class AdminEndpoints
         // Which groups this caller is in, so a `group`-scoped service can say *which* group put it
         // here — the fact that makes the scope actionable rather than just a label.
         Dictionary<string, string> groupTitles = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<Guid, string> groupNames = [];
 
         foreach (GroupSummary g in await groups
             .ListAsync(current.Principal.Id, false, cancellation).ConfigureAwait(false))
         {
             groupTitles[g.Name] = g.Title ?? g.Name;
+            groupNames[g.Id] = g.Title ?? g.Name;
         }
 
         List<object> items = [];
+        List<string> overridden = [];
         SortedSet<string> folders = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> counts = new(StringComparer.Ordinal)
         {
@@ -657,6 +661,11 @@ internal static class AdminEndpoints
             counts[scope]++;
             folders.Add(service.Folder ?? string.Empty);
 
+            if (scope == "administrative")
+            {
+                overridden.Add(service.QualifiedName);
+            }
+
             byName.TryGetValue(service.QualifiedName, out AdminService admin);
 
             items.Add(new
@@ -671,6 +680,19 @@ internal static class AdminEndpoints
                 status = Wire(service.Status),
                 layers = service.Layers.Count,
                 scope,
+
+                // <b>Which group, not just *a* group.</b> `Evaluate` iterates the item's groups
+                // against the caller's and returns on the first hit, so the answer is in hand at the
+                // moment of the decision and was being discarded — leaving a screen able to group rows
+                // under *shared with a group you are in* and unable to say which one, which is the
+                // weaker sentence and the less actionable one. Empty for every other scope.
+                throughGroups = scope == "group"
+                    ? service.SharedWith
+                        .Where(g => current.Authorization.Groups.Contains(g))
+                        .Select(g => groupNames.TryGetValue(g, out string? had) ? had : null)
+                        .Where(n => n is not null)
+                        .ToList()
+                    : [],
 
                 // <b>Why the caller may read it, beside whose it is.</b> The two differ for an owner's
                 // public service — theirs, and readable by anybody — and both facts are worth showing:
@@ -690,9 +712,34 @@ internal static class AdminEndpoints
                             + $"/FeatureServer/{admin.Cover.Value.LayerIndex}",
                     },
 
+                // <b>Empty is said rather than left to be inferred from a null cover.</b> A service
+                // with no layers has nothing to share into a group and nothing to draw; a picker that
+                // offered it would offer a row whose thumbnail can only be hatching and whose add
+                // achieves nothing. The listing keeps it — it is real, and its owner needs to see the
+                // residue publishing leaves — and says which it is.
+                empty = service.Layers.Count == 0,
+
                 updated = admin.Updated == default ? (DateTimeOffset?)null : admin.Updated,
                 created = admin.Created == default ? (DateTimeOffset?)null : admin.Created,
             });
+        }
+
+        // <b>ADR-018 condition 3, and it was not being kept for a listing.</b> *"An administrator
+        // reading a private layer is legitimate and must leave a record, or the sharing model is
+        // decorative."* Every per-layer read audits; **the listings did not**, so an administrator
+        // could enumerate every private service on the server and leave nothing behind. Found by a
+        // design review asking whether the sentence a screen was about to show — *every one of these
+        // reads is recorded against your name* — was true. It was not. It is now.
+        //
+        // <b>One row per listing, naming the count and the services.</b> Not one per item: a listing
+        // is one act, and four hundred rows for one screen would make the log unreadable, which is the
+        // way an audit trail actually dies.
+        if (overridden.Count > 0)
+        {
+            await AuditAsync(
+                context, audit, "content.override", null,
+                Detail(new { count = overridden.Count, services = overridden }),
+                succeeded: true, cancellation).ConfigureAwait(false);
         }
 
         await Results.Json(new
@@ -747,6 +794,7 @@ internal static class AdminEndpoints
 
         List<object> mine = [];
         List<object> shared = [];
+        List<object> notShared = [];
 
         foreach (PublishedService service in services)
         {
@@ -785,7 +833,16 @@ internal static class AdminEndpoints
                     because = reason.ToString(),
                 };
 
-                (owned ? mine : shared).Add(entry);
+                // <b>Three lists, because two of them made a false statement.</b> Everything not
+                // owned went into `shared`, under a heading this console renders as *visible to you
+                // and owned by somebody else* — including the private services an administrator sees
+                // through `admin:viewAllContent`. Nobody shared those. It was invisible on the
+                // development server only because one account owns every service there, which is the
+                // kind of accident that ships a defect. Found in the design review of 2026-08-18.
+                (owned
+                    ? mine
+                    : reason == LayerAccess.Reason.AdministrativeOverride ? notShared : shared)
+                    .Add(entry);
             }
         }
 
@@ -793,6 +850,10 @@ internal static class AdminEndpoints
         {
             mine,
             shared,
+
+            // Private to their owners, and visible only through `admin:viewAllContent`. Its own list
+            // rather than folded into `shared`, and the read is recorded — see `/content/items`.
+            notShared,
 
             // Said rather than counted by the caller, because "you have published nothing
             // yet" and "nothing is shared with you" are different first-run screens.
@@ -2890,6 +2951,18 @@ internal static class AdminEndpoints
                         kind = i.Kind,
                         shared = i.Shared,
                         sharedBy = i.SharedBy,
+
+                        // What a picture of it is drawn from — a service holds no geometry, so the
+                        // cover is a layer. Reported here so the Content tab does not have to join
+                        // two listings in the browser to show a thumbnail.
+                        cover = i.CoverLayer is null
+                            ? null
+                            : new
+                            {
+                                layer = i.CoverLayer,
+                                index = i.CoverIndex,
+                                url = $"/rest/services/{i.Name}/FeatureServer/{i.CoverIndex}",
+                            },
                     })
                 : null,
 

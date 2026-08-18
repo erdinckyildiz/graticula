@@ -504,31 +504,39 @@
       this table is one of two on it — *mine* and *shared with you* — so what it needs is a label
       that tells them apart.
     -->
-    <div class="label">What you own</div>
-    <p class="hint"><b>Map</b> draws one; the address beside it is what any ArcGIS client would
-      use.</p>
-    <div class="panel">
-      <table>
-        <thead><tr>
-          <th style="width:1%"></th><th>Layer</th><th>Where</th><th>Status</th>
-          <th>Sharing</th><th>Address</th>
-        </tr></thead>
-        <tbody id="mine"></tbody>
-      </table>
+    <!--
+      <b>One table with a scope strip, where there were two tables with duplicate headers.</b> The
+      owner, 2026-08-18: *"content can be my own, from my groups, or shared in organization. I think we
+      need a public section as well."* The four sections they named are one value the server already
+      computes, and the old split — *What you own* over *Shared with you* — collapsed all four into two
+      and got one of them wrong: an administrator's *Shared with you* contained other people's
+      **private** services, which nobody shared.
+
+      <b>`Everything` is the default, and it has to be.</b> Four of the five scopes are empty for a
+      brand-new operator and the fifth holds all of it; defaulting to *Mine* would hand them an empty
+      screen with the content one unclicked tab away, which is the first-run failure this console has
+      already shipped once.
+    -->
+    <nav class="tabstrip" id="contentScopes" aria-label="Content"></nav>
+
+    <div class="toolbar">
+      <input type="search" id="contentFilter" placeholder="Search your content&hellip;"
+             autocomplete="off" hidden>
+      <span class="val" id="contentCount"></span>
     </div>
 
-    <div class="label">Shared with you</div>
-    <p class="lede">Visible to you and owned by somebody else — so you can draw it and not
-      restyle it. The last column says why you can see it.</p>
+    <p class="hint" id="contentNote"></p>
+
     <div class="panel">
       <table>
         <thead><tr>
-          <th style="width:1%"></th><th>Layer</th><th>Where</th><th>Status</th>
-          <th>Sharing</th><th>Why</th>
+          <th colspan="2">Layer</th><th>Where</th><th>Status</th>
+          <th>Sharing</th><th>Last change</th><th></th>
         </tr></thead>
-        <tbody id="sharedWithMe"></tbody>
+        <tbody id="contentRows"></tbody>
       </table>
     </div>
+    <div id="contentRowsPager"></div>
   </section>
 
   <!-- ------------------------------------------------------------- sources -->
@@ -803,7 +811,12 @@
           today, so naming the kind in the verb is a label that has to change when maps arrive. *Item*
           is the word this tab is already built around.
         -->
-        <button class="tiny primary" id="groupShare" hidden>Add item</button>
+        <!--
+          <b>An anchor, not a button.</b> It goes to an address, so making it a link gives Back,
+          middle-click and copy-link for free — the same argument the tab strip makes one level up. The
+          `href` is set per group when the page renders.
+        -->
+        <a class="tiny primary" id="groupShare" hidden>Add item</a>
         <input type="search" id="groupItemFilter" placeholder="Search shared services&hellip;"
                autocomplete="off" hidden>
         <span class="val" id="groupItemCount"></span>
@@ -817,7 +830,7 @@
       <div class="panel">
         <table>
           <thead><tr>
-            <th>Service</th><th>Kind</th><th>Reaches members</th><th>Shared</th><th></th>
+            <th colspan="2">Service</th><th>Kind</th><th>Reaches members</th><th>Shared</th><th></th>
           </tr></thead>
           <tbody id="groupItems"></tbody>
         </table>
@@ -847,6 +860,57 @@
         </table>
       </div>
       <div id="groupMembersPager"></div>
+    </div>
+
+    <!-- ─── Add items (Content's child page) ─────────────────────────────────────────────
+      <b>A page, not a modal, and the rule was already written in this file.</b> The issued-password
+      dialog below is modal *because its content is a secret that must not be left on screen*; the
+      note beside it says a panel is right when the reader may want to read the page behind it.
+      Choosing what to share is the second kind. Measured too: a row with a thumbnail is 101px, so ten
+      rows plus a toolbar and a pager is about 1,150px — which does not go inline above a table on a
+      768px viewport without the footer landing a thousand pixels down.
+
+      <b>Addressed `#/group/{name}/add`</b>, so Back, middle-click and copy-link work, and focus
+      return, Escape and scroll containment are the browser's problem rather than ours. Content stays
+      marked current in the strip while this is open, because this is its child.
+    -->
+    <div class="grouptab" id="tab-add" hidden>
+      <div class="toolbar">
+        <input type="search" id="addFilter" placeholder="Search your content&hellip;"
+               autocomplete="off">
+        <span class="val" id="addCount"></span>
+        <span style="flex:1"></span>
+        <label class="pickall"><input type="checkbox" id="addAll">
+          <span id="addAllLabel">Select all</span></label>
+      </div>
+
+      <!--
+        <b>The folder rail, which is the one part of the reference's left rail we have data for.</b>
+        Its Categories, Tags, Location and Date created have nothing behind them here; folders do, and
+        folders are what make five hundred items navigable. Same `.rail-item` component the Server
+        surface uses, so this is a lift rather than a new idiom.
+      -->
+      <div class="addgrid">
+        <aside class="rail" id="addRail"></aside>
+        <div>
+          <div class="panel">
+            <table>
+              <thead><tr>
+                <th class="tick"></th><th colspan="2">Service</th>
+                <th>Reaches members</th><th>Last change</th>
+              </tr></thead>
+              <tbody id="addRows"></tbody>
+            </table>
+          </div>
+          <div id="addRowsPager"></div>
+        </div>
+      </div>
+
+      <div class="row addfoot">
+        <button class="primary" id="addCommit" disabled>Add items</button>
+        <a class="ghost" id="addCancel">Cancel</a>
+        <span class="hint" style="margin:0" id="addNote"></span>
+      </div>
     </div>
 
     <!-- ─── Settings ─────────────────────────────────────────────────────────────────────── -->

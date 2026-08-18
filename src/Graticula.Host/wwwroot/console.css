@@ -1445,6 +1445,29 @@ tr.groupband > td {
 .setting.wide .u { width: auto; flex: 0 0 auto; }
 .setting.wide .q { max-width: 400px; }
 
+/* ---------------------------------------------------------------- the add page
+
+   <b>The rail slot the group Content tab reserved, spent on the one thing we have data for.</b>
+   `#serverGrid`'s shape, and the same media query: below 1100px the rail stacks above the table rather
+   than squeezing the rows that carry a 104px picture. */
+
+.addgrid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: var(--gap-5); }
+@media (max-width: 1100px) { .addgrid { grid-template-columns: minmax(0, 1fr); } }
+
+.tick { width: 34px; }
+.thumbcell { width: 120px; padding-right: 0; }
+
+/* Already in the group: ticked, disabled, and legible as *not an option* rather than as broken. */
+tr.already { color: var(--muted); }
+tr.already .name { font-weight: 500; }
+
+/* The select-all, whose label carries its own count — the whole point of not being a bare tick. */
+.pickall { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--t-small);
+           color: var(--muted); white-space: nowrap; }
+
+.addfoot { margin-top: var(--gap-5); gap: var(--gap-3); align-items: baseline; flex-wrap: wrap; }
+.addfoot .hint { flex: 1 1 340px; min-width: 240px; }
+
 /* ---------------------------------------------------------------- the inline picker
 
    <b>Its own rules, because it was wearing `.setting`.</b> That class is a 620px flex row built for

@@ -369,6 +369,90 @@ the strip. The layer and group counts moved under the name and their own column 
 they were in two places at once, and a table column is the wrong place for a fact that is
 sometimes *"3 layers, 1 group"*.
 
+### 5z. Content is listed by how it reached you — owner decision, 2026-08-18
+
+*"content can be my own, from my groups, or shared in organization. I think we need a public section as
+well to get publicly shared items."* And, on the item picker built the same day: *"going with name only
+is not feasible. I need to see thumbnail etc for items. I also need to see the thumbnails in studio
+content."*
+
+**The four sections are one value the server already computes.** `LayerAccess.Evaluate` returns a
+`Reason` — Owner, Group, Organization, Public, plus AdministrativeOverride — because
+[ADR-018](ADR-018-authorization-and-roles.md) condition 3 wanted an auditable answer to *why could they
+see this* rather than a boolean. The console had been receiving that on every row and throwing it into
+two buckets called `mine` and `shared`.
+
+#### But the reason cannot be the label, and using it that way was measured wrong before it shipped
+
+`Evaluate` tests `Public` **before** ownership, which is right for the question it answers: a public
+service is readable whoever asks, and the cheapest sufficient justification is the correct audit
+answer. Used as a content scope it filed **ten of this server's eleven services under *public* for the
+person who owns all of them** — so *My content* would have shown one item to an operator who published
+every one.
+
+So ownership decides the section and the reason is reported beside it as `because`, which is the fact
+that says who *else* can see the thing. Recorded rather than fixed in `Evaluate`: changing that
+precedence would make an audit line say *they read it because they own it* where *because it is public
+to everybody* is the stronger fact.
+
+| Scope | Rule |
+|---|---|
+| **Everything** | all visible — **the default** |
+| **Mine** | `owner == me`, whatever its sharing |
+| **From my groups** | not mine, reached through a group you are in, **naming which** |
+| **Organization** | not mine, shared with every signed-in member |
+| **Public** | not mine, readable by anybody |
+| **Not shared with you** | not mine, private to its owner, visible by administrative override |
+
+**Everything is the default and that is a first-run decision.** Four of five scopes are empty for a new
+operator and the fifth holds everything; defaulting to *Mine* hands them a blank screen with the
+content one unclicked tab away, which is the failure this console already shipped on the Groups screen.
+
+**Each scope is an address** — `#/content/organization` — because five sections whose only handle is a
+click are five things you cannot send anybody to.
+
+#### The picture is drawn from the data, and that constrains the page size
+
+There are no stored thumbnails and no file storage. `preview.js` draws a service's geometry from one
+query, and its own header already refused the alternative: *"a stock icon per geometry type would be
+decoration rather than information, and this project's rule is that a picture of the data has to come
+from the data."*
+
+**So the page is ten, and the reference's sixty is the thing not to copy.** Measured: a dense line
+layer is about 115 KB, and ten rows of the Services screen cost 612 KB over 510 ms. Sixty rows a page
+would be roughly 120 requests and over two megabytes *per page*. At ten, the mechanism that already
+exists — `paintPreviews` walking the page in DOM order, awaiting each — is the whole answer.
+
+#### The item picker is a page, and the rule was already written in this repository
+
+`#/group/{name}/add`. [D-83](../architecture-debt.md) is the `<select>` it replaces. Not a modal: this
+file's own note beside the issued-password dialog says a modal is for *content that must not be left on
+screen*, and a panel for *a decision an operator may want to read the page behind*. Choosing what to
+share is the second. A page also makes focus return, Escape and scroll containment the browser's
+problem rather than ours, and gives Back and copy-link for free.
+
+**Six things about multi-select, decided rather than inferred**, because this console has twice shipped
+a control that could not be operated: the selection outlives paging and filtering; select-all means the
+filtered set and its label carries the number (*Select all 4 matching*); indeterminate means some-but-
+not-all of that set; the footer counts the selection and names what is off-page; a service already in
+the group is shown **ticked and disabled** and labelled, not filtered out, so somebody hunting for it is
+told rather than left to share it twice; and a partial write reports per item, leaving the refused
+selected so retry is one press.
+
+**And one absence of the reference's that must not become ours.** Their dialog says nothing about
+whether an item will actually reach the group's members. Ours must, because sharing into a group and
+setting the service's own scope are two acts and either alone reads as done — so each row shows its
+current scope, and the confirmation counts how many of the added items still reach nobody.
+
+#### What is deliberately not built
+
+Their rail carries Categories, Tags, Location and Date created. **Nothing here stores any of them**, and
+a filter that filters nothing is worse than no filter — the same rule that kept a category rail off the
+group's Content tab. Their item-type tree has twelve branches against our three service kinds, and
+`kind` has one value on this server; it arrives as a flat filter when it has a second. Folders **are**
+built, because folders are the part of that rail we have data for and they are what makes five hundred
+items navigable.
+
 ## 6. Consequences
 
 - **ADR-020 is amended.** Its §5e table of surfaces becomes Server's; Studio is new.

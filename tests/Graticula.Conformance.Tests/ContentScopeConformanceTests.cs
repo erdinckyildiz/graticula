@@ -91,12 +91,21 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
     /// Each of the four scopes is reachable, and a stranger sees only what reached them.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>One caller, four states, measured in order.</b> A newly created member owns nothing, so their
     /// listing is public-only; putting them in a group with a <c>group</c>-scoped service adds the group
-    /// section; setting a service to <c>organization</c> adds that one. Every change is undone at the
-    /// end, and the two services' original scopes are **read before they are changed** rather than
-    /// assumed — restoring a value you never recorded is how this repository once set a service to
-    /// public by accident and failed three conformance tests.
+    /// section; setting a service to <c>organization</c> adds that one.
+    /// </para>
+    /// <para>
+    /// <b>It makes its own services, and the first version borrowed the demo ones.</b> That version
+    /// changed two demo services' sharing scopes and put them back — correctly, from values it had
+    /// read — and still broke two unrelated conformance tests, because the suites run against one
+    /// shared server and <c>QueryCapabilityConformanceTests</c> read <c>look_buildings</c> during the
+    /// window when it was <c>group</c>-scoped and got a 404. That is
+    /// <see href="../../docs/architecture-debt.md">D-75</see> exactly: the HTTP-backed suites are
+    /// serialised against each other only by luck. **A test that mutates shared state is a test that
+    /// fails somebody else**, and restoring the value afterwards does not help — the window is the
+    /// defect. So this one publishes two empty services of its own and mutates only those.
     /// </remarks>
     [Fact]
     public async Task A_stranger_sees_public_then_group_then_organization_as_each_arrives()
@@ -123,8 +132,6 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
         // Declared before the try so the cleanup can see them, and null until read.
         string? forGroup = null;
         string? forOrganization = null;
-        string? wasGroupScope = null;
-        string? wasOrgScope = null;
 
         try
         {
@@ -134,24 +141,27 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
 
             Assert.False(theirs is null, "The probe member could not sign in.");
 
-            // A group and a service to share into it, both taken from what is already here.
-            JsonElement mine = await ContentAsync(root, token!);
+            // <b>Two services of its own, so nothing another suite reads can move.</b> Empty ones:
+            // this test is about how a service *reaches* somebody, and an empty service reaches people
+            // the same way a full one does. `POST /admin/featureservices` makes a container with no
+            // layers, which is exactly enough.
+            forGroup = "zz_scope_reach";
+            forOrganization = "zz_scope_org";
 
-            JsonElement[] candidates = mine.GetProperty("items").EnumerateArray()
-                .Where(i => i.GetProperty("scope").GetString() == "mine")
-                .ToArray();
+            foreach (string one in new[] { forGroup, forOrganization })
+            {
+                await AdminAsync(
+                    root, token!, HttpMethod.Delete,
+                    $"/admin/featureservices/{Uri.EscapeDataString(one)}", null);
 
-            Assert.False(
-                candidates.Length < 2,
-                "Fewer than two services belong to the administrator, so this test cannot make one "
-                + "group-scoped and another organization-scoped.");
+                (System.Net.HttpStatusCode put, string putWhy) = await AdminAsync(
+                    root, token!, HttpMethod.Post, "/admin/featureservices",
+                    JsonSerializer.Serialize(new { name = one, sharing = "private" }));
 
-            forGroup = candidates[0].GetProperty("name").GetString()!;
-            forOrganization = candidates[1].GetProperty("name").GetString()!;
-
-            // <b>Read before written.</b> Both are put back exactly as they were found.
-            wasGroupScope = candidates[0].GetProperty("sharing").GetString()!;
-            wasOrgScope = candidates[1].GetProperty("sharing").GetString()!;
+                Assert.True(
+                    put is System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.Created,
+                    $"{(int)put} {putWhy}");
+            }
 
             JsonElement before = await ContentAsync(root, theirs!);
 
@@ -172,6 +182,7 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
             JsonElement withGroup = await ContentAsync(root, theirs!);
 
             Assert.Equal(1, withGroup.GetProperty("counts").GetProperty("group").GetInt32());
+            Assert.Equal(0, withGroup.GetProperty("counts").GetProperty("mine").GetInt32());
 
             // <b>And the group it came through is named.</b> A scope that says *one of your groups*
             // without saying which is a label rather than an answer.
@@ -186,6 +197,14 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
 
             Assert.Equal(
                 1, withOrganization.GetProperty("counts").GetProperty("organization").GetInt32());
+
+            // <b>And its own service is named, not merely counted.</b> A count of one over the wrong
+            // service would pass a bare assertion.
+            Assert.Contains(
+                forOrganization!,
+                withOrganization.GetProperty("items").EnumerateArray()
+                    .Where(i => i.GetProperty("scope").GetString() == "organization")
+                    .Select(i => i.GetProperty("name").GetString()));
 
             // Still nothing of their own, which is the section that must not fill up by accident.
             Assert.Equal(0, withOrganization.GetProperty("counts").GetProperty("mine").GetInt32());
@@ -204,17 +223,17 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
         }
         finally
         {
-            // <b>Only what was actually read is put back.</b> Restoring a value never recorded is how
-            // this repository once set a service to public by accident and failed three conformance
-            // tests; a null here means the test did not get far enough to change it.
-            if (forGroup is not null && wasGroupScope is not null)
+            // <b>Removed rather than restored, because they are this test's own.</b> Nothing here
+            // belonged to the server before the run, so there is no earlier value to put back — which
+            // is the property that makes the test safe to run beside the others.
+            foreach (string? one in new[] { forGroup, forOrganization })
             {
-                await SetSharingAsync(root, token!, forGroup, wasGroupScope);
-            }
-
-            if (forOrganization is not null && wasOrgScope is not null)
-            {
-                await SetSharingAsync(root, token!, forOrganization, wasOrgScope);
+                if (one is not null)
+                {
+                    await AdminAsync(
+                        root, token!, HttpMethod.Delete,
+                        $"/admin/featureservices/{Uri.EscapeDataString(one)}", null);
+                }
             }
 
             await AdminAsync(root, token!, HttpMethod.Delete, $"/admin/groups/{group}", null);

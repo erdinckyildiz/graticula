@@ -290,6 +290,13 @@ const GROUP_TABS = [
   ["content", "Content"],
   ["members", "Members"],
   ["settings", "Settings"],
+
+  // <b>Addressable and not on the strip.</b> *Add items* is Content's child page, so it needs a place
+  // in this table for the router to accept `#/group/x/add`, and it must not become a fifth link — a
+  // strip entry for a transient act reads as a fifth subject. `false` is *not a destination in its own
+  // right*; the strip filters on it and keeps **Content** marked current while this is open, because a
+  // strip with nothing marked reads as nothing selected.
+  ["add", "Add items", false],
 ];
 
 /**
@@ -323,6 +330,16 @@ function day(value) {
  * viewport. Addressed `#/group/{name}/{tab}`, so a tab is somewhere you can send somebody.
  */
 async function showGroup(name, tab) {
+  // <b>A fresh arrival at the add page starts with nothing ticked.</b> The selection outlives paging
+  // and filtering deliberately; outliving *navigation away and back* would be a different promise, and
+  // a footer offering to add eight things somebody chose ten minutes ago on another group is worse than
+  // one that starts empty.
+  if (name !== groupOpen || tab !== "add") {
+    addPicked = new Set();
+    addFolder = null;
+    resetPage("addRows");
+  }
+
   groupOpen = name;
   groupTab = GROUP_TABS.some(([id]) => id === tab) ? tab : "overview";
   showView("view-group", "groups");
@@ -361,10 +378,13 @@ async function showGroup(name, tab) {
   const members = one.members || [];
   const counts = { overview: null, content: items.length, members: members.length, settings: null };
 
-  $("groupTabs").innerHTML = GROUP_TABS.map(([id, label]) => `
-    <a href="#/group/${encodeURIComponent(name)}/${id}"${id === groupTab
-      ? ' aria-current="page"' : ""}>${label}${counts[id] === null
-        ? "" : ` <span class="count">${num(counts[id])}</span>`}</a>`).join("");
+  $("groupTabs").innerHTML = GROUP_TABS
+    .filter(([, , onStrip]) => onStrip !== false)
+    .map(([id, label]) => `
+      <a href="#/group/${encodeURIComponent(name)}/${id}"${
+        id === groupTab || (groupTab === "add" && id === "content")
+          ? ' aria-current="page"' : ""}>${label}${counts[id] === null
+            ? "" : ` <span class="count">${num(counts[id])}</span>`}</a>`).join("");
 
   // <b>Only what this reader may act on.</b> ADR-034 condition 1, and a plain member of a group is a
   // reader here. *Leave group* is absent for the owner because the store refuses it — they would keep
@@ -378,7 +398,12 @@ async function showGroup(name, tab) {
   // <b>The two managing verbs live on the tabs they act on</b> — the owner's correction, 2026-08-18 —
   // so each is drawn by its own tab and only when that tab is the one showing.
   if ($("groupAdd")) $("groupAdd").hidden = !one.mayManage;
-  if ($("groupShare")) $("groupShare").hidden = !one.mayManage;
+
+  if ($("groupShare")) {
+    $("groupShare").hidden = !one.mayManage;
+    $("groupShare").setAttribute(
+      "href", `#/group/${encodeURIComponent(name)}/add`);
+  }
 
   for (const [id] of GROUP_TABS) $(`tab-${id}`).hidden = id !== groupTab;
 
@@ -386,6 +411,9 @@ async function showGroup(name, tab) {
   if (groupTab === "content") drawGroupContent(one);
   if (groupTab === "members") drawGroupMembers(one);
   if (groupTab === "settings") drawGroupSettings(one);
+  if (groupTab === "add") await drawGroupAdd(one);
+
+  paintPreviews();
 }
 
 /** Re-reads the open group and redraws whichever tab is showing. */
@@ -526,14 +554,18 @@ function drawGroupContent(one) {
         + `in this group`;
 
   $("groupItems").innerHTML = all.length === 0
-    ? `<tr><td colspan="5" class="empty">Nothing in it yet. <b>Add item</b> offers what you have
+    ? `<tr><td colspan="6" class="empty">Nothing in it yet. <b>Add item</b> offers what you have
          published — and an item reaches these members only once its own sharing scope is
          <b>group</b> as well. Overview lists the ones that do not and sets it.</td></tr>`
     : shown.length === 0
-      ? `<tr><td colspan="5" class="empty">Nothing matches <b>${h(needle)}</b>. The search reads a
+      ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(needle)}</b>. The search reads a
            service's name, its kind and who shared it.</td></tr>`
       : pageOf("groupItems", shown).map(i => `
         <tr>
+          <td class="thumbcell">${i.cover
+            ? `<canvas class="thumb" width="104" height="70"
+                 data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
+            : `<div class="thumb empty"></div>`}</td>
           <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
             >${h(i.name)}</a></td>
           <td class="val">${h(i.kind || "service")}</td>
@@ -777,6 +809,149 @@ function drawGroupSettings(one) {
     $(id).onchange = check;
     $(id).oninput = check;
   }
+}
+
+/**
+ * What is ticked on the add page, and which folder it is looking at.
+ *
+ * <b>The selection outlives paging and filtering, deliberately.</b> Anything else lets the footer
+ * count exceed what somebody believes they picked, or shrink silently when they type — and this
+ * console has twice shipped a control that could not be operated, so the rule is stated rather than
+ * left to fall out of the rendering.
+ */
+let addPicked = new Set();
+let addFolder = null;
+let addOffered = [];
+
+/**
+ * The page that chooses what to put in a group.
+ *
+ * <b>It replaces a `<select size="8">` of qualified names, which the owner rejected on sight:</b>
+ * *"going with name only is not feasible. I need to see thumbnail etc for items."* They are right at
+ * any scale and unarguable at theirs — 512 items in a list box is not something a person chooses from.
+ *
+ * <b>Ten a page, which is the decision that makes the pictures affordable.</b> A preview is a real
+ * query against the service, measured at roughly 115 KB for a dense line layer: sixty rows a page —
+ * the reference's number — would be about 120 requests and over two megabytes *per page*, which is a
+ * load test dressed up as a screen. At ten, `paintPreviews` walks the page in DOM order and awaits
+ * each, which is the mechanism that already exists.
+ */
+async function drawGroupAdd(one) {
+  const answer = await api("/content/items") || {};
+
+  // <b>Your own content, and not the empty services.</b> A service with no layers has nothing to
+  // share into a group and nothing to draw, so offering it would be a row whose picture can only be
+  // hatching and whose add achieves nothing. They stay visible on My content, where their owner needs
+  // to see the residue publishing leaves — the count line below says how many were held back.
+  const own = (answer.items || []).filter(i => i.scope === "mine");
+  const empties = own.filter(i => i.empty).length;
+
+  addOffered = own.filter(i => !i.empty);
+
+  const already = new Set((one.items || []).map(i => i.name));
+  const needle = ($("addFilter")?.value || "").trim().toLowerCase();
+
+  const shown = addOffered.filter(i =>
+    (addFolder === null || (i.folder || "") === addFolder)
+    && (!needle || [i.name, i.kind, i.description].some(v => (v || "").toLowerCase().includes(needle))));
+
+  // ------------------------------------------------------------------ the rail
+  const counted = folder => addOffered.filter(i => (i.folder || "") === folder).length;
+
+  $("addRail").innerHTML = `
+    <a class="rail-item${addFolder === null ? " on" : ""}" data-add-folder=""
+      ${addFolder === null ? ' aria-current="page"' : ""}>All your content
+      <span class="rail-count">${num(addOffered.length)}</span></a>
+    ${(answer.folders || [])
+      .filter(f => counted(f) > 0)
+      .map(f => `
+        <a class="rail-item${addFolder === f ? " on" : ""}" data-add-folder="${h(f)}"
+          ${addFolder === f ? ' aria-current="page"' : ""}>${f === "" ? "Site (root)" : h(f)}
+          <span class="rail-count">${num(counted(f))}</span></a>`).join("")}`;
+
+  // ------------------------------------------------------------------ select-all, with its number
+  // <b>The label carries the count, so its scope is not something to guess at.</b> A bare tri-state
+  // checkbox is exactly the control this console has shipped unusable twice; *Select all 4 matching*
+  // says what it will do. Rows already in the group are excluded from it — ticking them again is not
+  // an act.
+  const selectable = shown.filter(i => !already.has(i.name));
+  const ticked = selectable.filter(i => addPicked.has(i.name)).length;
+
+  $("addAllLabel").textContent = needle || addFolder !== null
+    ? `Select all ${num(selectable.length)} matching`
+    : `Select all ${num(selectable.length)}`;
+
+  $("addAll").checked = selectable.length > 0 && ticked === selectable.length;
+  $("addAll").indeterminate = ticked > 0 && ticked < selectable.length;
+  $("addAll").disabled = selectable.length === 0;
+
+  $("addCount").textContent = needle || addFolder !== null
+    ? `showing ${num(shown.length)} of ${num(addOffered.length)}`
+    : `${num(addOffered.length)} service${addOffered.length === 1 ? "" : "s"} you own`;
+
+  // ------------------------------------------------------------------ the rows
+  $("addRows").innerHTML = addOffered.length === 0
+    ? `<tr><td colspan="5" class="empty">You have published nothing to share. <b>New layer</b>, on
+         My content, publishes one.</td></tr>`
+    : shown.length === 0
+      ? `<tr><td colspan="5" class="empty">Nothing matches. The search reads a service's name, its
+           kind and its description.</td></tr>`
+      : pageOf("addRows", shown).map(i => {
+        const here = already.has(i.name);
+
+        // <b>Already-shared rows are shown, ticked and disabled — not filtered out.</b> Somebody
+        // hunting for a service they shared last week needs to be told it is already there, not to
+        // find it missing and share it twice. This also answers a live defect: the old picker offered
+        // a service that was already in the group.
+        return `
+        <tr class="${here ? "already" : ""}">
+          <td class="tick"><input type="checkbox" data-add="${h(i.name)}"
+            ${here || addPicked.has(i.name) ? "checked" : ""}${here ? " disabled" : ""}
+            aria-label="${here ? `${h(i.name)}, already in this group` : `Add ${h(i.name)}`}"></td>
+          <td class="thumbcell">${i.cover
+            ? `<canvas class="thumb" width="104" height="70"
+                 data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
+            : `<div class="thumb empty"></div>`}</td>
+          <td class="name">${h(i.name)}
+            <div class="rowmeta">${h(i.kind)}${i.description
+              ? ` · ${h(i.description)}` : ""} · ${num(i.layers)} layer${i.layers === 1 ? "" : "s"}
+              ${here ? `· <b>already in ${h(one.name)}</b>` : ""}</div></td>
+          <td>${i.sharing === "group"
+            ? `yes`
+            : `<b>no</b> <span class="val">— its own scope is ${h(i.sharing)}</span>`}</td>
+          <td class="val">${day(i.updated)}</td>
+        </tr>`;
+      }).join("");
+
+  $("addRowsPager").innerHTML = pagerFor("addRows", shown.length);
+
+  // ------------------------------------------------------------------ the footer counts the selection
+  // <b>The selection, not the page</b>, because the selection is what the button will do — and it says
+  // when part of it is somewhere you cannot see.
+  const onPage = new Set(pageOf("addRows", shown).map(i => i.name));
+  const offPage = [...addPicked].filter(n => !onPage.has(n)).length;
+
+  $("addCommit").textContent = addPicked.size === 0
+    ? "Add items"
+    : offPage > 0
+      ? `Add ${num(addPicked.size)} items (${num(offPage)} not on this page)`
+      : `Add ${num(addPicked.size)} item${addPicked.size === 1 ? "" : "s"}`;
+
+  $("addCommit").disabled = addPicked.size === 0;
+  $("addCancel").setAttribute(
+    "href", `#/group/${encodeURIComponent(one.name)}/content`);
+
+  // <b>Two absences named rather than left as a shorter list.</b> An empty service held back, and the
+  // two-step share the reference's own dialog says nothing about — ours has to, because sharing into a
+  // group and setting the service's scope are separate acts and either alone reads as done.
+  $("addNote").innerHTML = [
+    empties > 0
+      ? `${num(empties)} empty service${empties === 1 ? " is" : "s are"} not listed — they hold
+         nothing to share.`
+      : "",
+    `A service reaches this group's members only once its own scope is <b>group</b> as well. Overview
+     lists the ones that do not, and sets it.`,
+  ].filter(Boolean).join(" ");
 }
 
 /**
@@ -1339,6 +1514,14 @@ function route() {
     return;
   }
 
+  // <b>`#/content/{scope}` — the scope is part of the address.</b> Five sections whose only handle is
+  // a click are five things you cannot send anybody to; *here is what the organisation can see* has to
+  // be a link. Validated against the table rather than trusted, so a stale bookmark lands on Everything
+  // instead of an empty screen.
+  if (rest[0] === "content" && rest[1]) {
+    contentScope = CONTENT_SCOPES.some(([key]) => key === rest[1]) ? rest[1] : "all";
+  }
+
   const screens = SURFACES[surface].tabs.map(([name]) => name);
   const screen = screens.includes(rest[0]) ? rest[0] : SURFACES[surface].home;
 
@@ -1457,7 +1640,9 @@ function openScreen(surface, screen, folder) {
     section("services", loadServices, "services");
   }
 
-  if (screen === "content") section("your content", loadMyContent, "mine");
+  if (screen === "content") {
+    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+  }
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
@@ -2052,48 +2237,178 @@ function redrawLayerPage() {
  * that through the services directory. This listing answers it directly, so Studio needs no
  * `admin:` privilege to draw a map: the URL it draws from came with the row.
  */
+/**
+ * The scopes content arrives by, in the order somebody reads them.
+ *
+ * <b>Five plus one, and mutually exclusive.</b> The owner named four — *my own, from my groups, shared
+ * in organization, public* — and the fifth is *Everything*, which is what an operator actually asks for
+ * most of the time. The sixth appears only for an administrator who has something to see through it.
+ *
+ * <b>Keyed on ownership and sharing, never on `because`.</b> That value is precedence-ordered for the
+ * audit trail — `Evaluate` returns the narrowest justification the reader needed, so a public service
+ * you own comes back *Public* — and faceting on it inverts its meaning. The server sends `scope` for
+ * exactly this and `because` beside it as the fact about who *else* can see the thing.
+ */
+const CONTENT_SCOPES = [
+  ["all", "Everything"],
+  ["mine", "Mine"],
+  ["group", "From my groups"],
+  ["organization", "Organization"],
+  ["public", "Public"],
+
+  // <b>Named for what it means to the reader, not for the enum.</b> `AdministrativeOverride` is an
+  // identifier; *not shared with you* is what an operator needs to understand about the rows under it.
+  // Shown only when it holds something — a tab reading `0` invites the click that proves it reads `0`.
+  ["administrative", "Not shared with you"],
+];
+
+/** Which scope the content screen is showing. */
+let contentScope = "all";
+
+/** What is typed in its search box. */
+let contentFilter = "";
+
+/**
+ * Everything this operator can see, with a picture of each.
+ *
+ * <b>Rebuilt 2026-08-18 on the owner's two corrections.</b> *"I also need to see the thumbnails in
+ * studio content"*, and the four scopes. Three things were wrong beyond the missing picture and each
+ * had to be fixed before a thumbnail could be added rather than because of it:
+ *
+ * - **It never paginated.** No `pageOf`, no `pagerFor`, at a stated scale of 100–1,000 services. At
+ *   their 512 that is 512 rows and something like thirty thousand pixels of table — the same defect
+ *   class as the 512-option select box, on the screen where the owner asked for the picture.
+ * - **Two tables with duplicate headers**, which the scope strip replaces: the strip *is* the
+ *   mine-versus-shared split, done properly and with the two scopes that split could not express.
+ * - **The row put two buttons ahead of the name.** Put a 104px picture in front of that and the name
+ *   is the fourth thing in the row. The Services screen already obeys the owner's brief — name
+ *   strongest, one verb, the rest behind `⋯` — and this screen did not.
+ */
 async function loadMyContent() {
-  const { mine, shared, note } = await api("/content/layers");
+  const answer = await api("/content/items") || {};
+  const items = answer.items || [];
 
-  content = new Map([...(mine || []), ...(shared || [])].map(e => [e.name, e]));
+  // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
+  // per-layer listing stays the map's source; this screen is about items.
+  const layers = await api("/content/layers") || {};
 
-  const row = (e, last) => {
-    const isShown = shown.has(e.name);
-    const stopped = e.status === "stopped";
-    const swatch = isShown
-      ? `<i class="swatch" style="background:${h(shown.get(e.name).colour)}"></i>` : "";
+  content = new Map(
+    [...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]
+      .map(e => [e.name, e]));
 
-    return `<tr class="pick" data-pick="${h(e.name)}">
-      <td class="acts">${swatch}<button class="tiny ${isShown ? "on" : ""}"
-        data-show="${h(e.name)}" ${stopped
-          ? "disabled title='A stopped service answers 503, so there is nothing to draw.'"
-          : ""}>${isShown ? "Hide" : "Map"}</button>${e.hosted
-        ? `<button class="tiny ${shown.has(tileKey(e.name)) ? "on" : ""}"
-             data-tiles="${h(e.name)}" ${stopped ? "disabled" : ""}>Tiles</button>` : ""}</td>
-      <td class="name">${h(e.name)}</td>
-      <td>${pill(e.hosted ? "hosted" : "registered")}${
-        // The folder, but not when it merely repeats the word beside it: every hosted layer
-        // is in `hosted`, so saying both is noise in a column that has one job.
-        e.folder && e.folder !== "hosted"
-          ? ` <span class="val">${h(e.folder)}</span>` : ""}</td>
-      <td>${pill(e.status)}</td>
-      <td>${pill(e.sharing)}</td>
-      <td class="val">${last(e)}</td>
-    </tr>`;
-  };
+  const counts = answer.counts || {};
+  const total = items.length;
 
-  const address = e => `<a href="${h(e.url)}?f=json" target="_blank" rel="noreferrer">${
-    h(e.service)}/FeatureServer/${e.layerId}</a>`;
+  // <b>The administrative scope appears only when it holds something.</b> And its own tab rather than
+  // folded into any other: a listing that quietly mixed other people's private content into
+  // *organization* would misreport the sharing model to the one person who can change it.
+  const scopes = CONTENT_SCOPES.filter(([key]) =>
+    key === "all" || key !== "administrative" || (counts.administrative || 0) > 0);
 
-  $("mine").innerHTML = (mine || []).length === 0
-    ? `<tr><td colspan="6" class="empty">${h(note || "Nothing yet.")} <b>New layer</b> publishes
-         one.</td></tr>`
-    : mine.map(e => row(e, address)).join("");
+  $("contentScopes").innerHTML = scopes.map(([key, label]) => {
+    const n = key === "all" ? total : (counts[key] || 0);
 
-  $("sharedWithMe").innerHTML = (shared || []).length === 0
-    ? `<tr><td colspan="6" class="empty">Nothing is shared with you by anybody else.</td></tr>`
-    : shared.map(e => row(e, x => h(x.because))).join("");
+    return `<a href="#/content/${key}"${key === contentScope ? ' aria-current="page"' : ""}
+      >${label} <span class="count">${num(n)}</span></a>`;
+  }).join("");
+
+  const inScope = contentScope === "all"
+    ? items
+    : items.filter(i => i.scope === contentScope);
+
+  const needle = contentFilter.trim().toLowerCase();
+
+  const visible = needle
+    ? inScope.filter(i => [i.name, i.kind, i.description, i.owner, i.folder]
+        .some(v => (v || "").toLowerCase().includes(needle)))
+    : inScope;
+
+  $("contentFilter").hidden = inScope.length <= PAGE_SIZE && !needle;
+
+  $("contentCount").textContent = inScope.length === 0
+    ? ""
+    : needle
+      ? `showing ${num(visible.length)} of ${num(inScope.length)}`
+      : `${num(inScope.length)} item${inScope.length === 1 ? "" : "s"}`;
+
+  // <b>One line, and only where it says something the table does not.</b> The administrative scope
+  // carries the sentence ADR-018 condition 3 is about, and it is only writable because the listing now
+  // records the read — the promise was checked before it was made.
+  $("contentNote").innerHTML = contentScope === "administrative"
+    ? `These are private to their owners. You can see them because you are an administrator, and every
+       listing that includes them is recorded against your name.`
+    : contentScope === "group"
+      ? `Shared with you through a group you are in. What a group confers is fixed when it is made —
+         reading, or editing what its members shared.`
+      : contentScope === "all" && total === 0
+        ? h(answer.note || "Nothing to see yet.")
+        : "";
+
+  $("contentRows").innerHTML = total === 0
+    ? `<tr><td colspan="7" class="empty">${h(answer.note || "Nothing here yet.")}
+         <b>New layer</b> publishes one.</td></tr>`
+    : inScope.length === 0
+      ? `<tr><td colspan="7" class="empty">Nothing arrived this way.
+           ${contentScope === "mine"
+             ? `<b>New layer</b> publishes something of your own.`
+             : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
+      : visible.length === 0
+        ? `<tr><td colspan="7" class="empty">Nothing matches <b>${h(contentFilter)}</b>. The search
+             reads a service's name, kind, description, owner and folder.</td></tr>`
+        : pageOf("contentRows", visible).map(i => {
+          // The map is driven per layer, and a service's cover layer is the one this row draws and
+          // shows. A multi-layer service is opened from its own page for the rest.
+          const key = i.cover ? i.cover.layer : null;
+          const isShown = key !== null && shown.has(key);
+          const stopped = i.status === "stopped";
+
+          return `
+          <tr>
+            <td class="thumbcell">${i.cover
+              ? `<canvas class="thumb" width="104" height="70"
+                   data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
+              : `<div class="thumb empty"></div>`}</td>
+            <td class="name"><a href="#/service/${
+              i.name.split("/").map(encodeURIComponent).join("/")}">${h(i.name)}</a>
+              <div class="rowmeta">${h(i.kind)} · ${num(i.layers)}
+                layer${i.layers === 1 ? "" : "s"}${i.description
+                  ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
+                  ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
+                  ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}</div></td>
+            <td class="val">${i.folder ? h(i.folder) : "root"}</td>
+            <td>${pill(i.status)}</td>
+            <td>${pill(i.sharing)}${
+              // `because` only where the scope pill does not already say it. On this server the two
+              // used to read `public` and `Public` three inches apart, which is one fact twice.
+              i.because === "administrativeoverride"
+                ? ` <span class="val">by override</span>` : ""}</td>
+            <td class="val">${day(i.updated)}</td>
+            <td style="text-align:right">${key === null
+              ? ""
+              : `${stopped
+                  ? ""
+                  : `<button class="tiny ${isShown ? "on" : ""}" data-show="${h(key)}"
+                       >${isShown ? "Hide" : "Map"}</button>`}
+                <details class="menu">
+                  <summary title="More" aria-label="More actions">⋯</summary>
+                  <div class="sheet">
+                    ${(content.get(key) || {}).hosted && !stopped
+                      ? `<button data-tiles="${h(key)}">${shown.has(tileKey(key))
+                          ? "Hide its tiles" : "Draw its tiles"}</button>` : ""}
+                    <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
+                      >The layer document</a>
+                    <div class="note">${stopped
+                      ? `Stopped, so there is nothing to draw — a stopped service answers 503.`
+                      : `The address is what any ArcGIS client would use.`}</div>
+                  </div>
+                </details>`}</td>
+          </tr>`;
+        }).join("");
+
+  $("contentRowsPager").innerHTML = pagerFor("contentRows", visible.length);
 }
+
+
 
 /**
  * One service, and the layers it holds.
@@ -2962,7 +3277,7 @@ async function loadServices() {
       // removed — has room to be a sentence instead of a tooltip.
       return `<tr class="pick" data-service="${h(r.qualified)}">
         <td>${r.cover
-          ? `<canvas class="thumb" width="104" height="74"
+          ? `<canvas class="thumb" width="104" height="70"
                data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
           : `<div class="thumb empty"></div>`}</td>
 
@@ -4938,6 +5253,77 @@ async function handleClick(event) {
     return;
   }
 
+  // ---------------------------------------------------------------- the add page
+  const railPick = t.closest?.("[data-add-folder]");
+
+  if (railPick) {
+    addFolder = railPick.dataset.addFolder === "" && railPick.textContent.includes("All your")
+      ? null
+      : railPick.dataset.addFolder;
+
+    resetPage("addRows");
+    if (groupNow) await drawGroupAdd(groupNow);
+    paintPreviews();
+    return;
+  }
+
+  if (t.id === "addCommit") {
+    // <b>One call per service, sequentially, and every outcome reported.</b> `PUT .../items/{s}` is
+    // per item, so eight selected is eight requests; firing them together would make a partial write
+    // report *done* over a mixture of successes and refusals, which is worse than having no bulk
+    // control at all. Sequential also makes the failure legible: the row that refused is named.
+    const wanted = [...addPicked];
+
+    t.disabled = true;
+
+    const added = [];
+    const refused = [];
+
+    for (const qualified of wanted) {
+      const cut = qualified.lastIndexOf("/");
+      const folder = cut < 0 ? "" : qualified.slice(0, cut);
+      const bare = cut < 0 ? qualified : qualified.slice(cut + 1);
+
+      try {
+        await api(
+          `/admin/groups/${encodeURIComponent(groupOpen)}/items/${encodeURIComponent(bare)}`
+          + `?folder=${encodeURIComponent(folder)}`,
+          { method: "PUT" });
+
+        added.push(qualified);
+        addPicked.delete(qualified);
+      } catch (e) {
+        refused.push(`${bare} (${e.message || e})`);
+      }
+    }
+
+    // <b>The refused stay ticked, so retry is one press.</b> And the confirmation counts what will
+    // reach nobody, because a share that reports success and reaches no member is the two-step trap
+    // this screen exists not to hide.
+    const inert = added.filter(name =>
+      (addOffered.find(i => i.name === name) || {}).sharing !== "group").length;
+
+    toast(
+      [
+        added.length > 0
+          ? `${num(added.length)} added${inert > 0
+              ? `, ${num(inert)} of them reaching nobody yet — Overview sets the scope` : ""}.`
+          : "",
+        refused.length > 0 ? `Refused: ${refused.join(", ")}` : "",
+      ].filter(Boolean).join(" "),
+      refused.length === 0);
+
+    t.disabled = false;
+
+    if (refused.length === 0) {
+      location.hash = `#/group/${encodeURIComponent(groupOpen)}/content`;
+      return;
+    }
+
+    await refreshGroup();
+    return;
+  }
+
   if (t.id === "gsSave") {
     await saveGroupSettings({
       title: $("gsTitle").value.trim() || null,
@@ -5457,6 +5843,41 @@ document.addEventListener("change", async event => {
   // <b>The lock writes immediately, and it is the one control on that tab that does.</b> A safety
   // switch left unsaved is believed-on and off, which is the failure the switch exists to prevent. It
   // still goes through the overlay, so turning it on does not erase the description.
+  // The add page's ticks, and its select-all. Both redraw from the group already in hand.
+  const tick = event.target.closest?.("[data-add]");
+
+  if (tick) {
+    if (tick.checked) addPicked.add(tick.dataset.add);
+    else addPicked.delete(tick.dataset.add);
+
+    if (groupNow) await drawGroupAdd(groupNow);
+    paintPreviews();
+    return;
+  }
+
+  if (event.target.id === "addAll") {
+    // <b>The filtered set, which is what its label says.</b> Not the page — a select-all that means
+    // the page while the label says a number larger than the page is the ambiguity the number was
+    // added to remove.
+    const already = new Set((groupNow?.items || []).map(i => i.name));
+    const needle = ($("addFilter")?.value || "").trim().toLowerCase();
+
+    const matching = addOffered.filter(i =>
+      !already.has(i.name)
+      && (addFolder === null || (i.folder || "") === addFolder)
+      && (!needle || [i.name, i.kind, i.description]
+        .some(v => (v || "").toLowerCase().includes(needle))));
+
+    for (const i of matching) {
+      if (event.target.checked) addPicked.add(i.name);
+      else addPicked.delete(i.name);
+    }
+
+    if (groupNow) await drawGroupAdd(groupNow);
+    paintPreviews();
+    return;
+  }
+
   if (event.target.id === "gsLock") {
     await saveGroupSettings(
       { deleteLocked: event.target.checked },
@@ -5607,9 +6028,15 @@ document.addEventListener("click", event => {
   // reach the other four — which, with the store's sort, were the managers. Found in the design
   // review of 2026-08-18.
   else if (id === "groupItems" || id === "groupMembers") refreshGroup();
+  else if (id === "contentRows") {
+    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+  }
+  else if (id === "addRows") {
+    if (groupNow) drawGroupAdd(groupNow).then(paintPreviews);
+  }
 });
 
-document.addEventListener("input", event => {
+document.addEventListener("input", async event => {
   // <b>On `input`, and it was on `change` — so typing in it did nothing.</b> A `<input
   // type=search>` reports `change` on blur or Enter only, and `#groupFilter` twenty lines below was
   // already on `input`: two search boxes on one screen with two behaviours, which is worse than
@@ -5631,6 +6058,21 @@ document.addEventListener("input", event => {
 
   // The Content and Members tabs re-render in place: the search reads the group already in hand rather
   // than asking the server again. The sort is a `<select>` and so is in the change handler.
+  if (event.target.id === "contentFilter") {
+    contentFilter = event.target.value;
+    resetPage("contentRows");
+    await section("your content", loadMyContent, "contentRows");
+    paintPreviews();
+    return;
+  }
+
+  if (event.target.id === "addFilter") {
+    resetPage("addRows");
+    if (groupNow) await drawGroupAdd(groupNow);
+    paintPreviews();
+    return;
+  }
+
   if (event.target.id === "groupItemFilter") {
     resetPage("groupItems");
     if (groupNow) drawGroupContent(groupNow);

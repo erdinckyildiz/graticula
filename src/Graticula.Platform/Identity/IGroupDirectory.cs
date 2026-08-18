@@ -157,12 +157,23 @@ public sealed record GroupSummary(
 /// <see cref="GroupContribute.Members"/> any member may share their own service in, so when one of
 /// thirty is inert this names the person to talk to.
 /// </param>
+/// <param name="CoverLayer">
+/// The lowest-numbered layer of the service, or null when it holds none.
+/// <b>What a picture of it is drawn from</b>, because a service holds no geometry of its own — the
+/// same cover <see cref="Graticula.Platform.Admin.AdminService"/> carries, reported here so a group's
+/// Content tab can draw a thumbnail without joining two listings in the browser. Deriving it in the
+/// client as the lowest layer id of the rows it happens to have is right only while every layer of
+/// every service is visible to the caller, and goes silently wrong the first time one is not.
+/// </param>
+/// <param name="CoverIndex">That layer's index, which is what the address needs.</param>
 public sealed record GroupItem(
     string Name,
     string Sharing,
     string? Kind = null,
     DateTimeOffset? Shared = null,
-    string? SharedBy = null);
+    string? SharedBy = null,
+    string? CoverLayer = null,
+    int CoverIndex = 0);
 
 /// <summary>Somebody in a group, and how they came to be there.</summary>
 /// <param name="Name">Their sign-in name.</param>

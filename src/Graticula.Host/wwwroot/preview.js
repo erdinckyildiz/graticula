@@ -49,8 +49,25 @@ async function drawPreview(canvas, url, colour) {
   const key = `${url}|${colour}`;
 
   try {
-    const shape = previews.get(key) ?? await readShape(url, canvas.width);
-    previews.set(key, shape);
+    // <b>The cache holds the promise, not the resolved shape, and holding the shape made it miss
+    // exactly when it mattered.</b> `previews.set` ran *after* the await, so two overlapping passes
+    // over the same list both found nothing and both fetched: measured on the Services screen at
+    // folder `hosted`, 34 requests were issued for 20 distinct layers — 14 of them exact duplicates,
+    // 7 services fetched twice each, in 612 KB and 510 ms. Caching the in-flight promise makes the
+    // second caller await the first one's answer.
+    //
+    // <b>This is the change that makes a second surface affordable.</b> Ten thumbnails on a picker
+    // over the same services the listing behind it already drew cost nothing the second time; without
+    // it, adding a surface doubles the bytes. Found in the design review of 2026-08-18, which measured
+    // it rather than inferring it.
+    let pending = previews.get(key);
+
+    if (!pending) {
+      pending = readShape(url, canvas.width);
+      previews.set(key, pending);
+    }
+
+    const shape = await pending;
 
     // <b>The server's colour, not the caller's.</b> `readShape` reads the layer document, which
     // carries `drawingInfo` since ADR-033 — so the picture is drawn in the colour every other
@@ -66,6 +83,11 @@ async function drawPreview(canvas, url, colour) {
     canvas.title = `${shape.features.length}${shape.partial ? " of more" : ""} of this layer's `
       + `features, simplified to fit — an indication rather than the map`;
   } catch (e) {
+    // <b>A rejection is not kept.</b> Caching the promise means caching a failed one too, and a layer
+    // that answered 503 once while its service was starting would then never draw again for the rest
+    // of the session — a transient fault made permanent by the fix for a different one.
+    previews.delete(key);
+
     // A stopped service answers 503 here and a layer without Query answers 400. Both are
     // expected states rather than faults, so the box says the state instead of going blank.
     // Read off `e.status`, which `api` attaches for exactly this.

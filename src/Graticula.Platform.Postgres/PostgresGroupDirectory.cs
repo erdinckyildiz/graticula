@@ -575,7 +575,11 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         // scope turns that from a caveat the operator carries to another screen into a column.
         const string Sql = """
             select case when s.folder is null then s.name else s.folder || '/' || s.name end,
-                   s.sharing, s.kind, i.shared_at, sharedby.name
+                   s.sharing, s.kind, i.shared_at, sharedby.name,
+                   (select l.name from layer l
+                     where l.service_id = s.id order by l.layer_index limit 1),
+                   (select l.layer_index from layer l
+                     where l.service_id = s.id order by l.layer_index limit 1)
               from sharing_group g
               join sharing_group_item i on i.group_id = g.id
               join service s on s.id = i.service_id
@@ -599,7 +603,9 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                 reader.GetString(1),
                 reader.IsDBNull(2) ? null : reader.GetString(2),
                 reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? 0 : reader.GetInt32(6)));
         }
 
         return answer;
