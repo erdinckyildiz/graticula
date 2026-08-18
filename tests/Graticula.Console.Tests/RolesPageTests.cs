@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -24,6 +26,192 @@ namespace Graticula.Console.Tests;
 /// </remarks>
 public sealed class RolesPageTests : ConsoleTest
 {
+    /// <summary>
+    /// Finds a privilege checkbox by its name, without a nested-quoted CSS selector.
+    /// </summary>
+    /// <remarks>
+    /// <b>A filter rather than <c>[data-privilege='content:create']</c>.</b> The value contains a
+    /// colon, so the attribute selector needs quotes, and those quotes then have to survive a C#
+    /// string and a JS string — which they did not. The first version of these tests failed with
+    /// *missing ) after argument list*, which says nothing about quoting.
+    /// </remarks>
+    private static string Box(string privilege) =>
+        "[...document.querySelectorAll('#rolePrivileges input[data-privilege]')]"
+        + $".find(b => b.dataset.privilege === '{privilege}')";
+
+    /// <summary>A privilege and the one it requires, for the dependency test's fixture.</summary>
+    private static readonly string[] Pair = ["content:create", "content:publishFeatures"];
+
+    /// <summary>
+    /// Choosing a role opens it, and giving it a privilege works from the screen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Reported by the owner, 2026-08-18:</b> *"varolan bir yetkiye yeni yetki veremiyorum.
+    /// viewer seçimi değişmiyor."* — a role could not be selected and therefore nothing could be
+    /// given a privilege. Both were one defect: the click handler read <c>t.dataset.role</c> where
+    /// <c>t</c> is the cell that was clicked, not the row that carries the name, so choosing a role
+    /// did nothing and the editor stayed on whichever role rendered first. Every other row handler
+    /// in <c>console.js</c> already used <c>closest</c>.
+    /// </para>
+    /// <para>
+    /// <b>The three earlier tests in this class all passed while this was broken</b>, and that is
+    /// the part worth keeping. They asserted the screen's *shape* — sections, counts, disabled
+    /// boxes, copying — and never the one act the screen exists for. A suite can be green about
+    /// every detail of a control nobody can operate.
+    /// </para>
+    /// <para>
+    /// <b>It edits a role it creates, and removes it.</b> The five built-in roles belong to the
+    /// server this suite runs against.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_role_can_be_chosen_and_given_a_privilege_from_the_screen()
+    {
+        (string token, _) = await SignInAsync();
+
+        const string Probe = "zz_roles_page_probe";
+
+        (int made, string why) = await AdminAsync(
+            HttpMethod.Post,
+            "/admin/roles",
+            JsonSerializer.Serialize(new
+            {
+                name = Probe,
+                description = "Created by RolesPageTests; removed when it finishes.",
+                privileges = Array.Empty<string>(),
+            }));
+
+        Assert.True(made is 200 or 201, $"Could not create the probe role: {made} {why}");
+
+        try
+        {
+            await OpenAsync("/server/#/roles", token);
+
+            await WaitForAsync(
+                $"!!document.querySelector('#roleRows tr[data-role={Probe}]')",
+                "The probe role is not listed.");
+
+            // <b>Clicking a cell, which is what a person does.</b> Clicking the row element itself
+            // would have passed against the broken build.
+            await ClickAsync($"#roleRows tr[data-role={Probe}] td.name");
+
+            await WaitForAsync(
+                "(document.getElementById('roleEditorName')?.textContent || '')"
+                + $".includes('{Probe}')",
+                "Clicking a role's cell did not open that role. This is the defect the owner "
+                + "reported: the editor stays on whichever role rendered first, so every edit is "
+                + "aimed at the wrong role or refused.");
+
+            // Tick a privilege that has a prerequisite, and require the screen to tick the
+            // prerequisite too — otherwise the save is refused and the operator has to work out
+            // which of eleven boxes caused it.
+            await Browser.EvaluateAsync<object>(
+                $"(() => {{ const b = {Box("content:publishFeatures")};"
+                + " b.checked = true;"
+                + " b.dispatchEvent(new Event('change', { bubbles: true })); })()");
+
+            await WaitForAsync(
+                $"{Box("content:create")}?.checked === true",
+                "Ticking content:publishFeatures did not tick content:create, which it requires. "
+                + "The server refuses the pair, so the screen has to complete it in front of the "
+                + "operator or the refusal is unanswerable.");
+
+            await ClickAsync("#roleSave");
+
+            // <b>The write is asserted, not the row that would have followed it.</b> This harness
+            // traps every non-GET and answers `{}` without sending it — *"reads go to the server;
+            // writes do not leave the page"* — so a browser test cannot save and must not pretend
+            // to. The first version of this test read the API back, found nothing, and the toast
+            // said *saved*: the trap had answered 200. Whether the write persists is
+            // `RoleDirectoryTests`' subject, against a throwaway schema.
+            //
+            // What this proves is the half the owner's report was about: the request goes to **the
+            // role that was chosen**, which is what a broken row selection breaks.
+            string[] writes = await WritesAsync();
+
+            Assert.Contains(
+                $"PUT /admin/roles/{Probe}/privileges",
+                writes.Select(w => w.Replace("%2F", "/", StringComparison.Ordinal)));
+
+            // And the set it would carry: both the privilege that was ticked and the one the screen
+            // ticked for it.
+            string ticked = await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#rolePrivileges input[data-privilege]')]"
+                + ".filter(b => b.checked).map(b => b.dataset.privilege).sort().join(',')")
+                ?? string.Empty;
+
+            Assert.Equal("content:create,content:publishFeatures", ticked);
+
+            string[] errors = await PageErrorsAsync();
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/roles/{Probe}");
+        }
+    }
+
+    /// <summary>
+    /// Unticking a prerequisite unticks what needed it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The direction nobody thinks of.</b> Without it the operator removes <c>content:create</c>,
+    /// saves, and is told <c>content:publishFeatures</c> requires it — about a box they can still
+    /// see ticked.
+    /// </remarks>
+    [Fact]
+    public async Task Unticking_a_prerequisite_unticks_what_required_it()
+    {
+        (string token, _) = await SignInAsync();
+
+        const string Probe = "zz_roles_page_dep";
+
+        (int made, string why) = await AdminAsync(
+            HttpMethod.Post,
+            "/admin/roles",
+            JsonSerializer.Serialize(new
+            {
+                name = Probe,
+                description = "probe",
+                privileges = Pair,
+            }));
+
+        Assert.True(made is 200 or 201, $"{made} {why}");
+
+        try
+        {
+            await OpenAsync("/server/#/roles", token);
+
+            await WaitForAsync(
+                $"!!document.querySelector('#roleRows tr[data-role={Probe}]')",
+                "The probe role is not listed.");
+
+            await ClickAsync($"#roleRows tr[data-role={Probe}] td.name");
+
+            await WaitForAsync(
+                $"{Box("content:publishFeatures")}?.checked === true",
+                "The editor did not open the probe role with its privileges ticked.");
+
+            await Browser.EvaluateAsync<object>(
+                $"(() => {{ const b = {Box("content:create")};"
+                + " b.checked = false;"
+                + " b.dispatchEvent(new Event('change', { bubbles: true })); })()");
+
+            await WaitForAsync(
+                $"{Box("content:publishFeatures")}?.checked === false",
+                "Unticking content:create left content:publishFeatures ticked, so saving would be "
+                + "refused for a privilege the operator can still see enabled.");
+
+            string[] errors = await PageErrorsAsync();
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/roles/{Probe}");
+        }
+    }
+
     /// <summary>The screen lists the roles and both privilege sections.</summary>
     [Fact]
     public async Task The_roles_screen_shows_both_sections_and_the_privilege_catalogue()

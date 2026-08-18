@@ -200,6 +200,73 @@ let roleOpen = null;
  * count and possibly which user types may hold the role; keeping three counters in step by hand is
  * how one of them comes to disagree, and there are eighteen boxes rather than eighteen thousand.
  */
+/**
+ * Ticks what a privilege requires, and unticks what requires it.
+ *
+ * <b>The server refuses a role that grants a privilege without its prerequisite, and refusing is
+ * right — auto-adding at the API would widen a grant the operator did not make.</b> On the screen
+ * the operator is present, so the tick happens in front of them and is named in a toast: they can
+ * see both boxes and untick either. That is the difference between a server deciding and a form
+ * helping.
+ *
+ * <b>Both directions, because only one of them is obvious.</b> Ticking `publishFeatures` ticks
+ * `create`. Unticking `create` must also untick `publishFeatures`, or the operator saves a set the
+ * server will refuse and has to work out which of eleven boxes caused it.
+ *
+ * The dependency table comes from the server — `needs` on each catalogue entry — and is rendered
+ * into the label, so this reads the page rather than holding a second copy.
+ */
+function followRoleDependencies(box) {
+  const boxes = [...document.querySelectorAll("#rolePrivileges input[data-privilege]")];
+  const by = new Map(boxes.map(b => [b.dataset.privilege, b]));
+
+  // `needs a, b` is written into the label by loadRoles.
+  const needsOf = element => {
+    const said = element.parentElement?.querySelector(".val")?.textContent ?? "";
+    const match = said.match(/needs (.+)/);
+    return match ? match[1].split(",").map(x => x.trim()).filter(Boolean) : [];
+  };
+
+  const added = [];
+  const removed = [];
+
+  if (box.checked) {
+    // Walk the chain: deleteOwn needs create, and a longer chain later needs no new code.
+    const pending = [box];
+
+    while (pending.length) {
+      for (const name of needsOf(pending.pop())) {
+        const need = by.get(name);
+        if (need && !need.checked && !need.disabled) {
+          need.checked = true;
+          added.push(name);
+          pending.push(need);
+        }
+      }
+    }
+  } else {
+    // Anything that named this one is now unsatisfiable.
+    let again = true;
+
+    while (again) {
+      again = false;
+
+      for (const other of boxes) {
+        if (!other.checked || other.disabled) continue;
+
+        if (needsOf(other).some(name => !by.get(name)?.checked)) {
+          other.checked = false;
+          removed.push(other.dataset.privilege);
+          again = true;
+        }
+      }
+    }
+  }
+
+  if (added.length) toast(`Also ticked ${added.join(", ")} — required by what you chose.`, true);
+  if (removed.length) toast(`Unticked ${removed.join(", ")} — they need what you just removed.`);
+}
+
 function recountRoleSections() {
   const sections = [...document.querySelectorAll("#rolePrivileges .rolesection")];
   let anyAdmin = false;
@@ -4065,14 +4132,23 @@ async function handleClick(event) {
   // addressable (`#/layer/x/sharing`, ADR-034 §5c) and service pages are not, which is an
   // inconsistency and not a decision.
   // ---------------------------------------------------------------- roles (ADR-035)
-  if (t.dataset?.role) {
-    roleOpen = t.dataset.role;
+  // <b>`closest`, because a click lands on a cell and the row carries the name.</b> This read
+  // `t.dataset.role` and `t` is the `<td>`, so choosing a role did nothing at all and the editor
+  // stayed on whichever role happened to be first — reported by the owner, who could not select
+  // anything and therefore could not save anything either. Every other row handler in this file
+  // already used `closest`; this one was written without looking at them.
+  const roleRow = t.closest?.("tr[data-role]");
+
+  if (roleRow && !t.closest?.("[data-role-delete]")) {
+    roleOpen = roleRow.dataset.role;
     await section("roles", loadRoles, "roleRows");
     return;
   }
 
-  if (t.dataset?.roleDelete) {
-    const name = t.dataset.roleDelete;
+  const roleDelete = t.closest?.("[data-role-delete]");
+
+  if (roleDelete) {
+    const name = roleDelete.dataset.roleDelete;
 
     // <b>Asked, because it cannot be undone and the count is the thing at stake.</b> The server
     // refuses while members hold it, so the only deletable role is one nobody has — which makes
@@ -4089,16 +4165,26 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.dataset?.roleAll) {
+  const roleAll = t.closest?.("[data-role-all]");
+
+  if (roleAll) {
     // <b>Enable all, or disable all if everything in the section is already on.</b> One control
     // rather than two, because a section is either fully on or not and the label says which act it
     // is about to perform.
-    const wantAdmin = t.dataset.roleAll === "admin";
+    const wantAdmin = roleAll.dataset.roleAll === "admin";
     const boxes = [...document.querySelectorAll("#rolePrivileges .rolesection")]
       [wantAdmin ? 1 : 0]?.querySelectorAll("input[data-privilege]:not([disabled])") ?? [];
 
     const allOn = [...boxes].every(b => b.checked);
     for (const box of boxes) box.checked = !allOn;
+
+    // <b>Enable-all in one section can leave a prerequisite in the other unticked.</b>
+    // `content:registerDataStore` is administrative and needs `content:create`, which is general —
+    // so enabling all of Administrative alone produces a set the server refuses. Running the
+    // dependency pass over every box afterwards fixes it in front of the operator.
+    if (!allOn) {
+      for (const box of boxes) followRoleDependencies(box);
+    }
 
     recountRoleSections();
     return;
@@ -4355,6 +4441,7 @@ document.addEventListener("change", async event => {
 
   // A tick moves two counters and the compatibility line; recomputing is cheaper than tracking.
   if (event.target.dataset?.privilege) {
+    followRoleDependencies(event.target);
     recountRoleSections();
     return;
   }
