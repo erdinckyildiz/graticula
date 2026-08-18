@@ -110,28 +110,29 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>c48e9a0</code> · 2026-08-18 09:39</p>
+<p class="stamp">Şu commit’ten üretildi: <code>ab88fc1</code> · 2026-08-18 10:37</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">34</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">40/124</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 4 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">35</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
+<div class="kpi warn"><div class="kpi-v">40/129</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">85 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">54</div><div class="kpi-l">açık soru</div><div class="kpi-n">61 yanıtlandı · 5 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">40</div><div class="kpi-l">açık borç</div><div class="kpi-n">26 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1159</div><div class="kpi-l">test</div><div class="kpi-n">130 kaynak dosya, 47,341 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1162</div><div class="kpi-l">test</div><div class="kpi-n">130 kaynak dosya, 47,341 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">3 kapı</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">124 madde</span></div><p><b>80 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">129 madde</span></div><p><b>85 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-034 · Two surfaces over one API: Server </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">5</div></div>
+<div class="bar"><div class="bar-l">ADR-035 · Role privileges are editable, exce</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">5</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
@@ -210,6 +211,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">032</td><td>The product is named Graticula</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
 <tr><td class="id">033</td><td>Symbology: one canonical document per layer, and both protocol faces derive from it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the canonical model · MEDIUM for the derivation&#x27;s fidelity</td><td class="num">5/5</td></tr>
 <tr><td class="id">034</td><td>Two surfaces over one API: Server for the operator, Studio for the publisher</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split · MEDIUM for where each screen lands</td><td class="num">0/5</td></tr>
+<tr><td class="id">035</td><td>Role privileges are editable, except the administrator&#x27;s</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">0/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -423,10 +425,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:53.8%"></div></div><div class="bar-n">136</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:39.5%"></div></div><div class="bar-n">100</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:8.7%"></div></div><div class="bar-n">22</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:6.3%"></div></div><div class="bar-n">16</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:7.5%"></div></div><div class="bar-n">19</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">5</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>ab88fc1</code><time>2026-08-18</time><span>ten rows a page on Server&#x27;s listings, and one mechanism rather than three</span></li>
+<li><code>2814fc3</code><time>2026-08-18</time><span>the one thing prepared for groups turns out not to be prepared</span></li>
 <li><code>c48e9a0</code><time>2026-08-18</time><span>the three-database ADRs get the decision they were waiting for, and it cost more than a sweep</span></li>
 <li><code>568c83d</code><time>2026-08-18</time><span>every service gets a timeout, and the one that was already configurable turned out never to run</span></li>
 <li><code>c1e158e</code><time>2026-08-18</time><span>a member can be removed now, and the removal asks what to do with what they own</span></li>
@@ -439,8 +443,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>bf128aa</code><time>2026-08-18</time><span>D-43 was arithmetic, not a race, and the numbers agree to the second</span></li>
 <li><code>1e79be1</code><time>2026-08-18</time><span>two more debts, and one of them was accusing the wrong code</span></li>
 <li><code>b88b235</code><time>2026-08-18</time><span>ADR-033: a layer can be styled, in either format, and told what it cost</span></li>
-<li><code>8b9cfb8</code><time>2026-08-18</time><span>the console gets a test suite, and three things it found on the way in</span></li>
-<li><code>180b944</code><time>2026-08-18</time><span>the local test command was the flaky one, and that is the worse half</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
