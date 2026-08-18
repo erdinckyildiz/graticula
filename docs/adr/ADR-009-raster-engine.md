@@ -137,6 +137,26 @@ makes the single-binary deployment real, removes an untrusted-file parser from
 the process that serves public requests, and keeps GDAL driver data out of the
 air-gapped checklist for the serving artefact.
 
+**Amended 2026-08-19: the boundary is the process, not the image.**
+[ADR-037](ADR-037-job-workers-come-in-two-kinds.md) §5a reversed the worker's
+language on the same day it was decided, and GDAL now arrives as
+`MaxRev.Gdal.Core` in this solution rather than as command-line tools in a
+separate image. Read the block quote above as **"the serving process never loads
+GDAL"**, which is still true and is the property every reason in the paragraph
+above actually rests on: `Graticula.Import.Reader` is an executable referenced by
+nothing, spawned as a child by `GeodatabaseInspector`, and the untrusted-file
+parser is still not in the process answering public requests.
+
+**What the amendment costs is stated rather than absorbed.** The sentence
+strengthened this from a placement decision *to an artefact rule* precisely
+because an image boundary is checkable and a placement is not — and the artefact
+rule is what was spent. The replacement check is
+`NativeDependencyTests`: a confined dependency is referenced by its one project
+and no other, and the serving project cannot reach it through a project
+reference either. That is narrower than *no reference anywhere* and it is
+mechanical, which is the property worth keeping.
+[D-88](../architecture-debt.md), ADR-037 condition 4.
+
 It also gives a clean test for Q-52: **any provider that needs GDAL cannot be a
 serving provider.** It is an import source.
 

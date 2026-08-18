@@ -293,17 +293,45 @@ dependency that leaks.
 
 ## 7. Conditions
 
-1. **The rule that separates the two kinds is written where a worker is added**, not only here. A job
-   placed in the wrong worker is the failure this ADR exists to prevent, and an ADR is not where
-   somebody looks while writing one.
-2. **The Python worker's image enumerates its GDAL drivers and their licences** before it ships, per
-   [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)'s own warning that a GDAL build is a bill of
-   materials rather than one licence.
-3. **A test fails the build if the Python worker acquires a path to user-supplied code.** The
-   distinction between *our script* and *their tool* is one sentence wide and is the whole of why
-   [Q-75](../open-questions.md) is not reopened by this decision. A sentence is not a guard.
-4. **No GDAL or OSGeo package reference appears in the solution.** Verified absent 2026-08-18; Q-28's
-   stricter form is mechanically checkable where an image boundary is not, so it is checked.
+1. **DISCHARGED 2026-08-19.** **The rule that separates the two kinds is written where a worker is
+   added**, not only here. A job placed in the wrong worker is the failure this ADR exists to prevent,
+   and an ADR is not where somebody looks while writing one. It is now in three places a person writing
+   a worker cannot miss: `NativeDependencyTests.Confined` names each confined library, its one project
+   and the reason in one table; `Graticula.Import.Reader.csproj` and `Graticula.Overlay.Worker.csproj`
+   each open with why they are an executable rather than a library; and `GeodatabaseReader`'s class note
+   states the difference between the two kinds — the overlay worker is pooled because a launch dominates
+   a request-path operation, and the reader is a process per archive because nothing should survive
+   between two files somebody else chose.
+2. **Restated 2026-08-19, and still open. The GDAL build ships with its drivers and their licences
+   enumerated**, per [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)'s own warning that a GDAL
+   build is a bill of materials rather than one licence. It said *the Python worker's image*, and §5a
+   removed both the Python worker and the image — the drivers now arrive as
+   `MaxRev.Gdal.WindowsRuntime.Minimal` and `MaxRev.Gdal.LinuxRuntime.Minimal` package payloads, which
+   is a **narrower** set than a distribution build and still not an enumerated one. **The condition
+   survives the reversal because the obligation is about what we distribute, not about how it was
+   packaged.** What is known so far is only what has been asked for: `OpenFileGDB` and `Parquet` are
+   present, asserted by `GeodatabaseReaderTests`. Nothing has listed the rest.
+3. **PARTLY DISCHARGED 2026-08-19, and restated because its subject is gone.** It read *a test fails
+   the build if the **Python worker** acquires a path to user-supplied code* — and there is no Python
+   worker. The reason it existed is untouched: the distinction between *our script* and *their tool* is
+   one sentence wide and is the whole of why [Q-75](../open-questions.md) is not reopened by this
+   decision, and a sentence is not a guard. **So it now applies to the reader, which is the process a
+   path could reach.** What is met: the wire is three named operations with named string arguments,
+   nothing evaluates, and `GeodatabaseReaderTests` asserts that an operation the reader does not have
+   comes back as a refusal rather than being attempted. **What is not:** no test asserts that the set of
+   operations stays closed. A fourth op that took a script would pass every test in this repository.
+4. ~~**No GDAL or OSGeo package reference appears in the solution.** Verified absent 2026-08-18;
+   Q-28's stricter form is mechanically checkable where an image boundary is not, so it is checked.~~
+   ***(Withdrawn 2026-08-19 — §5a spent it the same day it was written. There is a
+   `MaxRev.Gdal.Core` reference now, and a condition that the decision above makes impossible is not
+   outstanding work; it is a decision recorded twice. [D-88](../architecture-debt.md).)***
+   **Replaced by what remains checkable, and it is checked: a confined dependency is referenced by its
+   one project and no other, and the serving project cannot reach it through a project reference.**
+   `NativeDependencyTests` asserts both directions, including the arm that fails when the rule stops
+   asserting anything — and it honours `ReferenceOutputAssembly="false"`, which is the mechanism the
+   host uses to build a worker without linking it. **The replacement is met.** What was genuinely lost
+   is checkability of the *image*, not the isolation: `GeodatabaseInspector` spawns a child and the
+   serving process never loads GDAL.
 5. **PARTLY DISCHARGED 2026-08-18** — ADR-024 condition 2's rule, which found a winding-order defect
    in the shapefile reader. **The corpus exists:** the owner supplied three of their own geodatabases,
    and `OpenFileGDB` opened all three and listed 12, 55 and 8 layers with relationships, domains, field
@@ -324,6 +352,20 @@ dependency that leaks.
    archives run to 338 members and one member compressing **430×**, against
    `ArchiveLimits.ForShapefile`'s 32 and 100×, so the shapefile numbers were never going to serve both
    formats. A ratio calibrated for two formats at once is a ratio calibrated for neither.
+
+   **The replacement is DISCHARGED 2026-08-19.** `ImportScratch` is that scratch file and its bounds:
+   `GisServer:ImportScratchBudgetMB` caps what may be resident in the directory at once — 2 GB by
+   default, three orders of magnitude above the owner's largest archive and derived from the format
+   rather than round — and the file is deleted in a `finally` whether the job succeeded or failed,
+   because the failure path is where an archive stays for ever and then refuses the next upload for a
+   reason nobody can see. The file is named by job id and nothing else, so a path is never composed out
+   of a string somebody else chose, and a dirty directory can be reconciled against the job table.
+
+   **A note on how this item counts, because it counts wrong in an instructive way.**
+   [tools/conditions.py](../../tools/conditions.py) treats a leading `~~` as discharged, so this item
+   has read as *done* since the withdrawal — while the narrower condition inside it was open for a day.
+   The count was accidentally right and is now actually right. A withdrawal that carries a live
+   replacement is a shape the tool cannot see, and there is exactly one of them.
 
 ## 8. Assumptions this decision rests on
 
