@@ -180,6 +180,89 @@ at Python; the overlay worker points at .NET and has a measured reason. **Two wo
 defensible answer** — they are different jobs with different reasons — **and it should be a decision
 rather than a residue.** Opened as [Q-120](../open-questions.md).
 
+## 8b. Measured against three real geodatabases, and two of §8's conclusions were wrong
+
+**The owner supplied three of their own** on 2026-08-18 — the corpus ADR-037 condition 5 asks for, and
+the thing §5 said everything here was missing. **The data is a client's and stays out of this
+repository:** what follows is structure and counts, never a layer name or a value. Read with
+`ogrinfo` from `ghcr.io/osgeo/gdal:ubuntu-small-latest`, network disabled, the folder mounted
+read-only.
+
+| | archive A | archive B | archive C |
+|---|---|---|---|
+| members | 122 | **338** | 96 |
+| uncompressed | 2.0 MB | 11.5 MB | 0.5 MB |
+| whole-archive ratio | 6.2× | 2.9× | 8.8× |
+| **worst single-member ratio** | | **430×** | |
+| layers | 12 | **55** | 8 |
+| relationships | **6** | 0 | 0 |
+
+### What this corrects
+
+**1. There is no need to extract anything to disk.** §8 and [ADR-037](../adr/ADR-037-job-workers-come-in-two-kinds.md)
+both said `pyogrio` cannot read a stream, so a `.gdb` must be unpacked into a temporary directory — and
+ADR-037 listed *"import gains a disk dependency"* as a negative consequence with a condition attached to
+bounding it. **GDAL reads inside the archive**: `ogrinfo /vsizip//data/x.gdb.zip` opened all three with
+the `OpenFileGDB` driver and listed their layers. The virtual filesystem does the unpacking, in memory,
+member by member. So the temporary-directory capability, its bounds and its cleanup are **not needed**,
+and the consequence and condition are withdrawn rather than deferred.
+
+**2. The operator does not supply a coordinate system.** Our shapefile import requires `srid` and
+refuses to infer it, for a stated reason: a `.prj` is bare WKT and *"matching WKT to a code by comparing
+strings is how a layer comes to declare a system it is not in."* **That reasoning does not transfer.**
+GDAL returned `ID["EPSG",2952]` — NAD83(CSRS) / MTM zone 10 — resolved through PROJ's authority
+database rather than by string comparison, with the full parameter set and the area of use. A
+geodatabase import therefore has an authoritative code and asking for one would be asking the operator
+to confirm something the file already says better than they can.
+
+### What this adds, and it is larger than the corrections
+
+**3. A real geodatabase holds four kinds of thing our import has no place for.**
+
+- **Attachments.** Archive A carries six `__ATTACH` tables, each with geometry type `None` — plain
+  tables holding the files attached to features.
+- **Relationship classes.** Six, all `Composite`, each binding a feature class to its attachment table.
+  [ADR-013](../adr/ADR-013-feature-service-data-model.md) has both concepts, and
+  `RelationshipEndpoints` says reading them out of a geodatabase's system tables would be Esri internals
+  — **GDAL reports them as a first-class listing**, which is §7 of this note arriving with evidence.
+- **Coded value domains.** A field came back carrying `domain name=…`, so the valid values are a
+  declared set. We have no domains.
+- **Field aliases.** `alternative name="…"` beside the column name.
+
+**An import that reads the feature classes and stops loses all four, silently.** That is the finding
+that matters most, and it is not a reader problem — `OpenFileGDB` surfaces every one of them. It is a
+question about what *our* import is for, and it has to be answered before the worker writes anything,
+because "we imported your geodatabase" is a sentence a client will read as including their photographs.
+
+**4. Z is on most of the owner's real layers.** Archive B and C are full of `3D Multi Polygon`,
+`3D Multi Line String` and `3D Point`. Our shapefile reader drops Z and M and
+[ADR-024](../adr/ADR-024-shapefile-import.md) condition 5 made it say so in the import response; the
+same report is owed here, and it will fire on nearly every layer rather than occasionally.
+
+**5. Fifty-five layers in one archive.** The layer picker is not a nicety. And twelve of archive A's are
+`__ATTACH` tables with no geometry, so a picker that lists everything the driver reports would offer
+six things nobody wants to publish beside six they do.
+
+**6. Our archive bounds would refuse all three, on two separate grounds** — 338 members against
+`ArchiveLimits.ForShapefile`'s 32, and a single member compressing **430×** against the 100× cap. The
+cap is not wrong; it is calibrated for shapefile content, which compresses 2–20×, while a `.gdbtablx`
+is a sparse index and compresses far harder. **And the resolution is that neither number applies**: with
+`/vsizip/` the archive is opened by GDAL inside the worker, so `BoundedArchive` is not in the path at
+all. The bomb defence becomes the worker's memory and time bound — which is what
+[ADR-037](../adr/ADR-037-job-workers-come-in-two-kinds.md)'s process boundary is for, and a better
+answer than a ratio nobody could calibrate for two formats at once.
+
+### And one thing the specification does not cover
+
+Across the three archives: 102 `.gdbtable`, 102 `.gdbtablx`, 99 `.gdbindexes`, 95 `.atx`, 72 `.spx`,
+5 `.freelist` — and **72 `.horizon` files**, which are in none of the six extensions the
+[FGDB Spec](https://github.com/rouault/dump_gdbtable/wiki/FGDB-Spec) enumerates. Whatever they are,
+they are in every one of the owner's geodatabases and not in the published specification.
+
+**That is §5's argument arriving as evidence rather than as an estimate.** A reader written from the
+specification would have met an undocumented file type in its first real archive — not as an exception,
+but as seventy-two files it had no rule for. `OpenFileGDB` read all three without complaint.
+
 ## 9. Recommendation
 
 **Changed by §8, and the change is larger than *not v1*: do not write one at all.**

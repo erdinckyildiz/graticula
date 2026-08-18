@@ -179,9 +179,13 @@ the one to build now.
   now load-bearing sooner.
 - **Two worker shapes to understand**, and the rule that separates them is a sentence. A reader who
   does not know the rule will put a job in the wrong one.
-- **Import gains a disk dependency.** `pyogrio` cannot read a stream, so a `.gdb` must be extracted to
-  a temporary directory — a capability the server does not have and
-  [security.md](../security.md)'s upload rules did not contemplate.
+- ~~**Import gains a disk dependency.** `pyogrio` cannot read a stream, so a `.gdb` must be extracted
+  to a temporary directory — a capability the server does not have and
+  [security.md](../security.md)'s upload rules did not contemplate.~~ **Withdrawn 2026-08-18, measured
+  rather than reasoned.** GDAL reads inside the archive: `ogrinfo /vsizip//data/x.gdb.zip` opened three
+  of the owner's real geodatabases and listed their layers, unpacking member by member in memory. There
+  is no temporary directory, so there is nothing to bound or clean —
+  [file-geodatabase-readers.md](../research/file-geodatabase-readers.md) §8b.
 - **GDAL's licence is a bill of materials**, so the worker image's drivers must be enumerated before it
   ships. [D-06](../architecture-debt.md) narrows again rather than closing.
 
@@ -206,12 +210,23 @@ dependency that leaks.
    [Q-75](../open-questions.md) is not reopened by this decision. A sentence is not a guard.
 4. **No GDAL or OSGeo package reference appears in the solution.** Verified absent 2026-08-18; Q-28's
    stricter form is mechanically checkable where an image boundary is not, so it is checked.
-5. **The `.gdb` reader is verified against geodatabases this project did not write** — ADR-024
-   condition 2's rule, which found a winding-order defect in the shapefile reader. We have no `.gdb`
-   corpus, and until we do, every claim about this path is about `pyogrio`'s documentation rather than
-   about our data.
-6. **The temporary extraction directory has stated bounds and is cleaned**, with the same shape of
-   argument `ArchiveLimits.ForShapefile` carries: numbers derived from the format rather than round.
+5. **PARTLY DISCHARGED 2026-08-18** — ADR-024 condition 2's rule, which found a winding-order defect
+   in the shapefile reader. **The corpus exists:** the owner supplied three of their own geodatabases,
+   and `OpenFileGDB` opened all three and listed 12, 55 and 8 layers with relationships, domains, field
+   aliases and resolved EPSG codes. So the adopted reader is verified against data this project did not
+   write, which is the half that could be done before a worker exists. **What is still owed is an
+   actual import** — reading a layer is not writing one, and the geometry, the encoding and the Z drop
+   are only settled by a round trip. Details, including a file type the published specification does
+   not cover, in [file-geodatabase-readers.md](../research/file-geodatabase-readers.md) §8b.
+6. ~~**The temporary extraction directory has stated bounds and is cleaned**, with the same shape of
+   argument `ArchiveLimits.ForShapefile` carries: numbers derived from the format rather than round.~~
+   ***(Withdrawn 2026-08-18 — there is no extraction directory. See §6's negative consequences.)***
+   **What replaces it is not another condition but an existing one:** with `/vsizip/` the archive is
+   opened by GDAL inside the worker, so `BoundedArchive` is not in the path and the bomb defence is the
+   worker's memory and time bound — this ADR's own process boundary. Measured on the way: the owner's
+   archives run to 338 members and one member compressing **430×**, against
+   `ArchiveLimits.ForShapefile`'s 32 and 100×, so the shapefile numbers were never going to serve both
+   formats. A ratio calibrated for two formats at once is a ratio calibrated for neither.
 
 ## 8. Assumptions this decision rests on
 
