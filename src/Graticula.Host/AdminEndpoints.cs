@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -79,6 +80,20 @@ internal sealed record GroupLayerRequest(string? Name, string? Folder, int? Pare
 /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
 internal sealed record ServiceRequest(
     string? Name, string? Folder, string? Description, string? Sharing);
+
+/// <summary>A role to create, with what it grants.</summary>
+/// <param name="Name">Its name.</param>
+/// <param name="Description">A one-line description, shown on the roles screen.</param>
+/// <param name="Privileges">The privilege names it grants.</param>
+internal sealed record NewRoleRequest(
+    string? Name, string? Description, IReadOnlyList<string>? Privileges);
+
+/// <summary>What a role grants, replacing all of it.</summary>
+/// <param name="Privileges">
+/// The complete set. **Not a patch** — ADR-035's directory replaces rather than merges, because
+/// *untick one* and *tick everything but one* would otherwise be two requests with one intent.
+/// </param>
+internal sealed record RolePrivilegesRequest(IReadOnlyList<string>? Privileges);
 
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
@@ -280,6 +295,15 @@ internal static class AdminEndpoints
         // readable through the same API that writes it.
         app.MapGet("/admin/services/{name}/capabilities", GetServiceCapabilitiesAsync);
         app.MapPut("/admin/services/{name}/capabilities", SetServiceCapabilitiesAsync);
+
+        // <b>Roles, and the privilege that has had nothing behind it since it was written.</b>
+        // ADR-035: `admin:manageRoles` existed, was granted to the administrator, and no endpoint
+        // required it — D-56's complaint about `admin:manageMembers`, in the privilege this decision
+        // is about. These four give it something to guard.
+        app.MapGet("/admin/roles", ListRolesAsync);
+        app.MapPost("/admin/roles", CreateRoleAsync);
+        app.MapPut("/admin/roles/{name}/privileges", SetRolePrivilegesAsync);
+        app.MapDelete("/admin/roles/{name}", DeleteRoleAsync);
 
         // Group layers. Owner request 2026-08-15: "enable group layers also."
         app.MapGet("/admin/routes", ListRoutesAsync);
@@ -2138,6 +2162,266 @@ internal static class AdminEndpoints
     }
 
     /// <summary>
+    /// Every role, what it grants, and the catalogue it is drawn from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The catalogue travels with the answer, and that is what makes the screen possible.</b> A
+    /// console that knew the privilege list would carry a second copy of it, and the two would
+    /// disagree the first time one moved — the failure ADR-035 §2 spends three bullets on. So the
+    /// response says which privileges exist, which section each belongs to, what each requires and
+    /// what each already contains.
+    /// </para>
+    /// <para>
+    /// <b>The administrator is reported with its rows and marked as unchangeable.</b> §4b: the
+    /// authorization check never reads them, so they are there for the screen to show. Saying
+    /// *"cannot be edited"* in the document is what lets the console disable the controls rather than
+    /// letting somebody try.
+    /// </para>
+    /// </remarks>
+    private static async Task ListRolesAsync(
+        HttpContext context,
+        IRoleDirectory roles,
+        IRoleGrants grants,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageRoles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        IReadOnlyList<RoleGrant> held = await roles.ListAsync(cancellation).ConfigureAwait(false);
+
+        // <b>What the running server is actually using, beside what the store says.</b> They are the
+        // same set unless something is wrong, and *unless something is wrong* is not a thing an
+        // operator can check without being shown both. This exists because they disagreed during
+        // development and no screen could have told anybody.
+        ImmutableDictionary<string, ImmutableHashSet<Privilege>> inForce = grants.All();
+
+        await Results.Json(new
+        {
+            roles = held.Select(r => new
+            {
+                name = r.Name,
+                description = r.Description,
+                builtIn = r.BuiltIn,
+                members = r.Members,
+                privileges = r.Privileges.Select(Roles.NameOf).OrderBy(n => n, StringComparer.Ordinal),
+
+                // The administrator, and only the administrator. A built-in role's *privileges* are
+                // editable — the owner's rule is about the administrator, not about being built in.
+                editable = !string.Equals(r.Name, Roles.Administrator, StringComparison.Ordinal),
+
+                // Built-in roles cannot be deleted, because the migration seed would recreate them
+                // on a fresh store and the two would disagree about what exists.
+                removable = !r.BuiltIn,
+
+                // What this process is enforcing right now. Equal to `privileges` unless a refresh
+                // has been missed, which is worth being able to see rather than deduce.
+                inForce = (inForce.TryGetValue(r.Name, out ImmutableHashSet<Privilege>? live)
+                        ? live
+                        : [])
+                    .Select(Roles.NameOf).OrderBy(n => n, StringComparer.Ordinal),
+            }),
+
+            catalogue = Roles.AllPrivileges.Select(p => new
+            {
+                name = Roles.NameOf(p),
+                administrative = Roles.IsAdministrative(p),
+                requires = Roles.Prerequisites.TryGetValue(p, out var needs)
+                    ? needs.Select(Roles.NameOf)
+                    : [],
+                includes = Roles.Implies.TryGetValue(p, out var narrower)
+                    ? narrower.Select(Roles.NameOf)
+                    : [],
+            }),
+
+            note = "An administrator passes every privilege check without consulting these rows "
+                + "(ADR-035 §4b), so its grants are shown and cannot be changed. Everything else "
+                + "is a ceiling narrowed further by each member's user type.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Creates a role.</summary>
+    private static async Task CreateRoleAsync(
+        HttpContext context,
+        NewRoleRequest request,
+        IRoleDirectory roles,
+        IRoleGrants grants,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageRoles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
+            return;
+        }
+
+        (RoleChange outcome, string? detail) = await roles.CreateAsync(
+            request.Name.Trim(),
+            request.Description?.Trim() ?? string.Empty,
+            request.Privileges ?? [],
+            cancellation).ConfigureAwait(false);
+
+        if (outcome != RoleChange.Done)
+        {
+            await RefuseRoleChangeAsync(context, request.Name, outcome, detail).ConfigureAwait(false);
+            return;
+        }
+
+        await grants.RefreshAsync(cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "role.create", request.Name,
+            Detail(new { privileges = request.Privileges ?? [] }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name = request.Name.Trim(),
+            privileges = request.Privileges ?? [],
+            note = "It grants nothing to anybody until a member is given it.",
+        }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Replaces what a role grants.</summary>
+    private static async Task SetRolePrivilegesAsync(
+        HttpContext context,
+        string name,
+        RolePrivilegesRequest request,
+        IRoleDirectory roles,
+        IRoleGrants grants,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageRoles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.Privileges is null)
+        {
+            await Refuse(context, 400,
+                "'privileges' is required, and an empty array is how a role is emptied. Omitting it "
+                + "would make *grant nothing* and *leave unchanged* the same request.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        (RoleChange outcome, string? detail) = await roles
+            .SetPrivilegesAsync(name, request.Privileges, cancellation).ConfigureAwait(false);
+
+        if (outcome != RoleChange.Done)
+        {
+            await RefuseRoleChangeAsync(context, name, outcome, detail).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>Before the response, not after.</b> An administrator who has just revoked a privilege
+        // and is told it worked must not have the next request answered from a stale set — ADR-031
+        // §2b's argument for sharing, and a revocation is the direction where staleness is unsafe.
+        await grants.RefreshAsync(cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "role.privileges", name,
+            Detail(new { privileges = request.Privileges }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            privileges = request.Privileges,
+            note = "In force now. Each member's user type still narrows what this confers on them.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes a role nobody holds.</summary>
+    private static async Task DeleteRoleAsync(
+        HttpContext context,
+        string name,
+        IRoleDirectory roles,
+        IRoleGrants grants,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageRoles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RoleChange outcome = await roles.RemoveAsync(name, cancellation).ConfigureAwait(false);
+
+        if (outcome != RoleChange.Done)
+        {
+            await RefuseRoleChangeAsync(context, name, outcome, null).ConfigureAwait(false);
+            return;
+        }
+
+        await grants.RefreshAsync(cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "role.delete", name, Detail(new { removed = name }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, removed = true })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One refusal per outcome, each saying what to do instead.
+    /// </summary>
+    /// <remarks>
+    /// <b>In one place because the three handlers share every outcome.</b> A refusal written per
+    /// handler is how two of them come to disagree about what *"still held"* means.
+    /// </remarks>
+    private static Task RefuseRoleChangeAsync(
+        HttpContext context, string name, RoleChange outcome, string? detail) => outcome switch
+    {
+        RoleChange.Absent => Refuse(context, 404, $"No role '{name}'."),
+
+        RoleChange.Exists => Refuse(context, 409,
+            $"A role called '{name}' already exists. Edit its privileges instead, or choose "
+            + "another name."),
+
+        RoleChange.Administrator => Refuse(context, 409,
+            "The administrator role cannot be changed or removed. Its authority is a property of "
+            + "the server rather than a set of rows — it passes every privilege check without "
+            + "consulting them (ADR-035 §4b) — so an accepted edit would change nothing while "
+            + "appearing to. To take administrative power away from somebody, change their role "
+            + "rather than the role's privileges."),
+
+        RoleChange.BuiltIn => Refuse(context, 409,
+            $"'{name}' is one of the five roles this server ships with, and it cannot be removed: "
+            + "the schema seed recreates it on a fresh store, so removing it here would leave two "
+            + "answers about which roles exist. Its privileges are editable — PUT "
+            + $"/admin/roles/{name}/privileges — and a role you no longer want can be emptied."),
+
+        RoleChange.MissingPrerequisite => Refuse(context, 400,
+            $"{detail}. That privilege is useless without the one it requires, so it is refused "
+            + "rather than quietly granted alongside it: adding a privilege you did not tick would "
+            + "widen the role without saying so. Tick the prerequisite, or untick this."),
+
+        RoleChange.UnknownPrivilege => Refuse(context, 400,
+            $"'{detail}' is not a privilege this server has. GET /admin/roles lists every one, "
+            + "with what each requires."),
+
+        RoleChange.StillHeld => Refuse(context, 409,
+            $"Members still hold '{name}', so removing it would quietly reduce what they may do. "
+            + "Change their roles first — GET /admin/members says who holds what."),
+
+        _ => Refuse(context, 500, "Unhandled role outcome."),
+    };
+
+    /// <summary>
     /// Health, and it must answer when the platform store does not.
     /// </summary>
     /// <remarks>
@@ -2823,7 +3107,10 @@ internal static class AdminEndpoints
     /// granted by mistake.
     /// </remarks>
     private static async Task ListMembersAsync(
-        HttpContext context, IMemberDirectory directory, CancellationToken cancellation)
+        HttpContext context,
+        IMemberDirectory directory,
+        IRoleDirectory roles,
+        CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
@@ -2833,6 +3120,8 @@ internal static class AdminEndpoints
 
         IReadOnlyList<Member> members =
             await directory.ListMembersAsync(cancellation).ConfigureAwait(false);
+
+        IReadOnlyList<RoleGrant> defined = await roles.ListAsync(cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
@@ -2849,16 +3138,24 @@ internal static class AdminEndpoints
                 // somebody has to find.
                 ownsServices = m.OwnsServices,
             }),
-            roles = Roles.All,
+            // <b>Every role, not only the five built-in ones — corrected 2026-08-18.</b> A
+            // deployment can define its own roles now (ADR-035), and a picker listing `Roles.All`
+            // would offer five choices on a server that has seven.
+            roles = defined.Select(r => r.Name),
             userTypes = UserTypes.All,
 
-            // <b>What each role can do, from the one place that decides it.</b> A console drawing
-            // a role picker needs to say what the choice means, and the alternative is a copy of
-            // ADR-018 §2a in JavaScript — which would be the copy nobody updates.
-            grants = Roles.All.ToDictionary(
-                role => role,
-                role => Roles.PrivilegesOf(role)
-                    .Select(Authorize.Name).OrderBy(p => p, StringComparer.Ordinal)),
+            // <b>What each role can do, from the store rather than from the compiled table.</b> A
+            // console drawing a role picker needs to say what the choice means, and the alternative
+            // is a copy of ADR-018 §2a in JavaScript — the copy nobody updates.
+            //
+            // <b>This read `Roles.PrivilegesOf` until 2026-08-18, and from the moment role grants
+            // became editable that was a lie.</b> It happened to agree with the store because
+            // nothing had edited a role yet, which is the worst kind of agreement: it survives every
+            // test and breaks the first time the feature is used. Found while measuring ADR-035 —
+            // the screen reported `user` without a privilege the store had just been given.
+            grants = defined.ToDictionary(
+                r => r.Name,
+                r => r.Privileges.Select(Roles.NameOf).OrderBy(p => p, StringComparer.Ordinal)),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

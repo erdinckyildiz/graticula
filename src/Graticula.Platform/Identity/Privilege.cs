@@ -88,6 +88,39 @@ public enum Privilege
 
     /// <summary>Migrations, pools, workers, pinning.</summary>
     AdminManageServer,
+
+    /// <summary>Create a group. Whoever creates it owns it.</summary>
+    /// <remarks>
+    /// <b>ADR-035 §4c, from the owner:</b> *"grup oluşturma da bir yetki."* A group is a set of
+    /// members with items shared to it — Portal's fourth sharing scope, deferred by ADR-018 §3b and
+    /// undeferred here by the decision that role privileges are editable, because there was
+    /// otherwise nowhere to put the privilege this needs to be.
+    /// </remarks>
+    GroupsCreate,
+
+    /// <summary>Delete a group you own.</summary>
+    /// <remarks>
+    /// <b>Owning is not the same as being allowed to delete</b> — *"kendi grubunu silme de bir
+    /// yetki."* A role may let somebody create groups and not remove them, which is the shape an
+    /// organisation wants when a group is a shared asset rather than a personal folder.
+    /// </remarks>
+    GroupsDeleteOwn,
+
+    /// <summary>Add and remove a group's members.</summary>
+    /// <remarks>
+    /// <b>This is the privilege the group-manager axis narrows.</b> Holding it does not confer it
+    /// over every group: a principal may act on a group they own or manage. ADR-035 §4c.
+    /// </remarks>
+    GroupsManageMembers,
+
+    /// <summary>Share an item you own with a group you belong to.</summary>
+    /// <remarks>
+    /// <b>Distinct from `sharing:shareToOrganization` and narrower.</b> Sharing to a group makes an
+    /// item readable by that group's members and by nobody else — Portal calls the result
+    /// *semiprivate*. A role that may share to a group need not be allowed to share to the whole
+    /// organisation, and that is the ordinary case rather than an exotic one.
+    /// </remarks>
+    GroupsShareTo,
 }
 
 /// <summary>
@@ -155,6 +188,151 @@ public static class Roles
     /// </remarks>
     public static ImmutableHashSet<Privilege> PrivilegesOf(string role) =>
         Grants.TryGetValue(role, out ImmutableHashSet<Privilege>? privileges) ? privileges : [];
+
+    /// <summary>
+    /// The wire name of a privilege, which is now also its stored name.
+    /// </summary>
+    /// <param name="privilege">The privilege.</param>
+    /// <returns>Its name, e.g. <c>content:publishFeatures</c>.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Moved out of the host on 2026-08-18, because these became rows.</b> The mapping lived in
+    /// <c>Authorize.Name</c> and was a presentation detail — how a refusal spells a privilege in
+    /// JSON. ADR-035 stores role grants by name, so a name is now a value in the
+    /// database and a value in a deployment's configuration: it belongs to the platform's
+    /// vocabulary, not to one API's rendering of it.
+    /// </para>
+    /// <para>
+    /// <b>These names are a contract from the first stored grant.</b> Q-59 predicted exactly this
+    /// and was overruled; ADR-035 §2 lists what follows. Renaming one silently changes what an
+    /// existing role confers, so <c>RolePrivilegeCatalogueTests</c> carries the expected list and
+    /// fails the build when it moves.
+    /// </para>
+    /// </remarks>
+    public static string NameOf(Privilege privilege) => privilege switch
+    {
+        Privilege.ContentCreate => "content:create",
+        Privilege.ContentPublishFeatures => "content:publishFeatures",
+        Privilege.ContentPublishTiles => "content:publishTiles",
+        Privilege.ContentRegisterDataStore => "content:registerDataStore",
+        Privilege.FeaturesEdit => "features:edit",
+        Privilege.FeaturesFullEdit => "features:fullEdit",
+        Privilege.SharingShareToOrganization => "sharing:shareToOrganization",
+        Privilege.SharingShareToPublic => "sharing:shareToPublic",
+        Privilege.GroupsCreate => "groups:create",
+        Privilege.GroupsDeleteOwn => "groups:deleteOwn",
+        Privilege.GroupsManageMembers => "groups:manageMembers",
+        Privilege.GroupsShareTo => "groups:shareTo",
+        Privilege.AdminManageMembers => "admin:manageMembers",
+        Privilege.AdminManageRoles => "admin:manageRoles",
+        Privilege.AdminViewAllContent => "admin:viewAllContent",
+        Privilege.AdminManageAllContent => "admin:manageAllContent",
+        Privilege.AdminManageSecurity => "admin:manageSecurity",
+        Privilege.AdminManageServer => "admin:manageServer",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(privilege), privilege, "Not a privilege in ADR-018 §3a or ADR-035 §4c."),
+    };
+
+    /// <summary>Every privilege, in the order the enum declares them.</summary>
+    public static ImmutableArray<Privilege> AllPrivileges { get; } =
+        [.. Enum.GetValues<Privilege>()];
+
+    /// <summary>Name to privilege, for reading a stored grant.</summary>
+    private static readonly ImmutableDictionary<string, Privilege> ByName =
+        AllPrivileges.ToImmutableDictionary(NameOf, p => p, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Reads a stored or submitted privilege name.
+    /// </summary>
+    /// <param name="name">The name.</param>
+    /// <param name="privilege">The privilege, when the name is one we know.</param>
+    /// <returns>Whether it is.</returns>
+    /// <remarks>
+    /// <b>False rather than throwing, and the two callers want opposite things.</b> A name arriving
+    /// from an API is refused with the name in the message, because an operator who mistyped needs
+    /// to see what they typed. A name arriving from the store is <em>ignored and logged</em>: a row
+    /// written by a newer version must not stop an older one from starting, which is the same
+    /// direction of caution the schema handshake takes.
+    /// </remarks>
+    public static bool TryParsePrivilege(string? name, out Privilege privilege)
+    {
+        privilege = default;
+        return name is not null && ByName.TryGetValue(name, out privilege);
+    }
+
+    /// <summary>
+    /// Which privileges a privilege requires, without containing them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>These were the shape of `BuildGrants()` and are now data — ADR-035 §4e, condition 6.</b>
+    /// <c>publisher</c> held <c>content:create</c> because its set was built on <c>user</c>'s, not
+    /// because anybody wrote it down; flattening the five sets into rows deleted that fact. So a
+    /// role that grants a publish privilege without <c>content:create</c> is refused on write, with
+    /// the missing name in the refusal.
+    /// </para>
+    /// <para>
+    /// <b>Refused rather than auto-added, unlike the reference.</b> Esri auto-grants for version
+    /// management. Adding a privilege the operator did not tick is silently widening a grant, and
+    /// this project refuses in that direction as a rule — the same call the per-service statement
+    /// timeout made the same day. A refusal naming the prerequisite teaches the model; an auto-add
+    /// hides it.
+    /// </para>
+    /// </remarks>
+    public static ImmutableDictionary<Privilege, ImmutableArray<Privilege>> Prerequisites { get; } =
+        new Dictionary<Privilege, ImmutableArray<Privilege>>
+        {
+            // Publishing puts content into the catalogue, and content is what `create` allows.
+            // Esri states the same dependency for the same privilege.
+            [Privilege.ContentPublishFeatures] = [Privilege.ContentCreate],
+            [Privilege.ContentPublishTiles] = [Privilege.ContentCreate],
+
+            // Registering a data source is only useful to somebody who can publish from it, and
+            // ADR-034 §5c moved this to the administrator anyway.
+            [Privilege.ContentRegisterDataStore] = [Privilege.ContentCreate],
+
+            // Sharing to a group requires belonging to one, which requires groups to exist for
+            // this principal at all.
+            [Privilege.GroupsShareTo] = [Privilege.ContentCreate],
+            [Privilege.GroupsDeleteOwn] = [Privilege.GroupsCreate],
+        }.ToImmutableDictionary();
+
+    /// <summary>
+    /// Which privileges a privilege already contains.
+    /// </summary>
+    /// <remarks>
+    /// <b>Resolved in the check, not in the stored grants — ADR-035 §4e.</b> A role holding only
+    /// <c>features:fullEdit</c> passes a <c>features:edit</c> check. Storing both would show two
+    /// ticks for one decision, and a state where the wider is on and the narrower off would mean
+    /// nothing.
+    /// </remarks>
+    public static ImmutableDictionary<Privilege, ImmutableArray<Privilege>> Implies { get; } =
+        new Dictionary<Privilege, ImmutableArray<Privilege>>
+        {
+            [Privilege.FeaturesFullEdit] = [Privilege.FeaturesEdit],
+            [Privilege.AdminManageAllContent] = [Privilege.AdminViewAllContent],
+        }.ToImmutableDictionary();
+
+    /// <summary>
+    /// Whether a privilege belongs to the administrative half of the catalogue.
+    /// </summary>
+    /// <param name="privilege">The privilege.</param>
+    /// <remarks>
+    /// <b>Two sections, and they are ADR-034's surfaces from the other direction — ADR-035 §4f.</b>
+    /// The reference's role editor splits *General* from *Administrative*, and the split lands on
+    /// the same line ADR-034 draws between Studio and Server. <c>content:registerDataStore</c> is
+    /// the one privilege whose name and section disagree: the reference lists it under General and
+    /// the owner moved the grant to the administrator on 2026-08-17, so it is administrative here
+    /// and keeps a content name.
+    /// </remarks>
+    public static bool IsAdministrative(Privilege privilege) => privilege switch
+    {
+        Privilege.AdminManageMembers or Privilege.AdminManageRoles
+            or Privilege.AdminViewAllContent or Privilege.AdminManageAllContent
+            or Privilege.AdminManageSecurity or Privilege.AdminManageServer
+            or Privilege.ContentRegisterDataStore => true,
+        _ => false,
+    };
 
     /// <summary>A one-line description, for the <c>role</c> table and the admin API.</summary>
     public static string DescriptionOf(string role) => role switch
@@ -323,12 +501,21 @@ public sealed class Authorization
     public static readonly Authorization Nothing =
         new(UserTypes.Viewer, [], []);
 
+    /// <summary>What the roles granted before the user-type ceiling was applied.</summary>
+    private readonly ImmutableHashSet<Privilege> _beforeCeiling;
+
     private Authorization(
-        string userType, IEnumerable<string> roles, IEnumerable<Privilege> privileges)
+        string userType,
+        IEnumerable<string> roles,
+        IEnumerable<Privilege> privileges,
+        bool administrator = false,
+        IEnumerable<Privilege>? beforeCeiling = null)
     {
         UserType = userType;
         Roles = [.. roles];
         Privileges = [.. privileges];
+        IsAdministrator = administrator;
+        _beforeCeiling = beforeCeiling is null ? [.. privileges] : [.. beforeCeiling];
     }
 
     /// <summary>
@@ -342,22 +529,80 @@ public sealed class Authorization
     /// which is why <see cref="WithheldByUserType"/> exists and why refusals name
     /// it.
     /// </remarks>
-    public static Authorization Resolve(string userType, IEnumerable<string> roles)
+    public static Authorization Resolve(string userType, IEnumerable<string> roles) =>
+        Resolve(userType, roles, CompiledRoleGrants.Instance);
+
+    /// <summary>
+    /// What a principal may do, reading each role's grants from a given source.
+    /// </summary>
+    /// <param name="userType">The assigned user type.</param>
+    /// <param name="roles">The assigned role names.</param>
+    /// <param name="grants">Where each role's privileges come from.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The source is a parameter since 2026-08-18, because the answer stopped being a
+    /// constant.</b> ADR-035 makes a deployment able to edit what a role grants; the overload above
+    /// keeps the compiled table for everything with no store, and it is the same answer every build
+    /// before that gave.
+    /// </para>
+    /// <para>
+    /// <b>Implications are applied here, not stored.</b> A role holding
+    /// <c>features:fullEdit</c> passes a <c>features:edit</c> check without a second row saying so —
+    /// ADR-035 §4e. Doing it here rather than at the check means every caller of
+    /// <see cref="Authorization.Allows"/> gets it, including the ones written before the rule
+    /// existed.
+    /// </para>
+    /// <para>
+    /// <b>The administrator is recognised and not intersected.</b> The owner: *"Admin yetkisi
+    /// değiştirilemez. Ve sınırlandırılamaz. Sistemde her işlemi yapabilir."* So the flag is set
+    /// from the role list and <see cref="Authorization.Allows"/> answers true regardless of both the
+    /// stored grants and the user-type ceiling. <b>The ceiling not applying is a deliberate
+    /// consequence and worth naming:</b> ADR-018 §3a's ceiling exists so a migration cannot silently
+    /// widen an imported deployment, and an administrator held below the privileges needed to
+    /// administer is [D-14]'s unrecoverable server reached by a settings page. Import is where that
+    /// concern belongs, and import is not built.
+    /// </para>
+    /// </remarks>
+    /// <returns>The resolved authorization.</returns>
+    public static Authorization Resolve(
+        string userType, IEnumerable<string> roles, IRoleGrants grants)
     {
         ArgumentNullException.ThrowIfNull(userType);
         ArgumentNullException.ThrowIfNull(roles);
+        ArgumentNullException.ThrowIfNull(grants);
 
         string[] granted = [.. roles];
         HashSet<Privilege> fromRoles = [];
 
         foreach (string role in granted)
         {
-            fromRoles.UnionWith(Identity.Roles.PrivilegesOf(role));
+            fromRoles.UnionWith(grants.PrivilegesOf(role));
+        }
+
+        // Everything the held privileges already contain.
+        foreach (Privilege held in fromRoles.ToArray())
+        {
+            if (Identity.Roles.Implies.TryGetValue(held, out ImmutableArray<Privilege> narrower))
+            {
+                fromRoles.UnionWith(narrower);
+            }
         }
 
         ImmutableHashSet<Privilege> ceiling = UserTypes.CeilingOf(userType);
 
-        return new Authorization(userType, granted, fromRoles.Intersect(ceiling));
+        bool administrator = false;
+
+        foreach (string role in granted)
+        {
+            if (string.Equals(role, Identity.Roles.Administrator, StringComparison.Ordinal))
+            {
+                administrator = true;
+                break;
+            }
+        }
+
+        return new Authorization(
+            userType, granted, fromRoles.Intersect(ceiling), administrator, fromRoles);
     }
 
     /// <summary>The assigned user type.</summary>
@@ -369,32 +614,51 @@ public sealed class Authorization
     /// <summary>What survived the intersection.</summary>
     public ImmutableHashSet<Privilege> Privileges { get; }
 
+    /// <summary>
+    /// Whether this principal holds the administrator role.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-035 §4b.</b> Not *"holds every administrative privilege"* — that is a set of rows and
+    /// rows can be edited. This is the role, and the role's authority is a property of this code.
+    /// </remarks>
+    public bool IsAdministrator { get; }
+
     /// <summary>Whether this principal holds a privilege.</summary>
-    public bool Allows(Privilege privilege) => Privileges.Contains(privilege);
+    /// <param name="privilege">The privilege.</param>
+    /// <remarks>
+    /// <b>An administrator holds every privilege, without consulting anything.</b> The owner:
+    /// *"Admin yetkisi değiştirilemez. Ve sınırlandırılamaz."* Seeding the administrator's grants
+    /// and refusing edits at the API would leave the claim standing on rows, and a store is written
+    /// by more than one API over its life. So the check short-circuits and the rows are decoration
+    /// for the screen.
+    /// </remarks>
+    public bool Allows(Privilege privilege) =>
+        IsAdministrator || Privileges.Contains(privilege);
 
     /// <summary>
     /// Whether a role granted this privilege and the user type took it away.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Exists so a refusal can say <em>your role grants this and your user type
     /// does not permit it</em> rather than <em>you do not have this</em>. The
     /// second sends an administrator to grant a role they have already granted.
+    /// </para>
+    /// <para>
+    /// <b>Answered from what the roles granted at resolution time — corrected 2026-08-18.</b> It
+    /// asked <c>Roles.PrivilegesOf</c>, the compiled table, which was the answer until ADR-035 made
+    /// role grants editable. After that it was the wrong answer in exactly the case this method
+    /// exists for: an administrator who had just added an administrative privilege to a role would
+    /// be told the member simply lacked it, rather than that their user type withheld it — and would
+    /// grant the role again. Found by a test that edited a role and read the refusal.
+    /// </para>
+    /// <para>
+    /// <b>The granted set is captured rather than looked up.</b> Storing what the roles conferred
+    /// before the ceiling was applied costs one field and removes the need for this type to hold a
+    /// reference to a grant source — which would make an authorization answer depend on a store that
+    /// may have changed since the answer was computed.
+    /// </para>
     /// </remarks>
-    public bool WithheldByUserType(Privilege privilege)
-    {
-        if (Privileges.Contains(privilege))
-        {
-            return false;
-        }
-
-        foreach (string role in Roles)
-        {
-            if (Identity.Roles.PrivilegesOf(role).Contains(privilege))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    public bool WithheldByUserType(Privilege privilege) =>
+        !Privileges.Contains(privilege) && _beforeCeiling.Contains(privilege);
 }

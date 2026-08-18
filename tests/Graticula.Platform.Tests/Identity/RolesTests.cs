@@ -39,15 +39,50 @@ public sealed class RolesTests
         Assert.Empty(Roles.PrivilegesOf(Roles.Viewer));
     }
 
+    /// <summary>
+    /// A privilege no role grants is still reachable, because an administrator short-circuits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Rewritten 2026-08-18 by ADR-035, and the old assertion is recorded rather than
+    /// deleted.</b> This required the administrator's <em>compiled grants</em> to equal every enum
+    /// value, on the stated grounds that *"a new enum member no role grants is a capability nobody
+    /// can use, and it presents as an endpoint that refuses everyone including the administrator."*
+    /// </para>
+    /// <para>
+    /// <b>That rationale is now false, and the thing it was guarding is guarded better.</b> §4b makes
+    /// an administrator pass every privilege check without consulting any grant, so a privilege
+    /// granted to nobody is reachable by an administrator on the day it is added. The four
+    /// <c>groups:*</c> privileges are exactly that case: ADR-035 §4c defines them and migration 25
+    /// grants them to no role, deliberately, so that the upgrade cannot widen what anybody holds.
+    /// Keeping the old assertion would have forced them into every built-in role to make a test pass.
+    /// </para>
+    /// <para>
+    /// What replaced the guard is <c>AdministratorAuthorityTests</c>, which asserts the reachability
+    /// directly — with the grant store empty — rather than inferring it from a seed.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void The_administrator_carries_every_privilege_that_exists()
+    public void A_privilege_granted_to_no_role_is_still_reachable_by_an_administrator()
     {
-        // The guard on adding a privilege: a new enum member no role grants is a
-        // capability nobody can use, and it presents as an endpoint that refuses
-        // everyone including the administrator.
-        Assert.Equal(
-            Enum.GetValues<Privilege>().ToImmutableHashSet(),
-            Roles.PrivilegesOf(Roles.Administrator));
+        ImmutableHashSet<Privilege> seeded = Roles.PrivilegesOf(Roles.Administrator);
+
+        Privilege[] ungranted =
+        [
+            .. Enum.GetValues<Privilege>().Where(p => !seeded.Contains(p)),
+        ];
+
+        Authorization administrator =
+            Authorization.Resolve(UserTypes.Creator, [Roles.Administrator]);
+
+        foreach (Privilege privilege in ungranted)
+        {
+            Assert.True(
+                administrator.Allows(privilege),
+                $"{Roles.NameOf(privilege)} is granted to no role and an administrator cannot reach "
+                + "it either, so it is a capability nobody can use — which is what this test has "
+                + "guarded against since it was written, by a different route.");
+        }
     }
 
     [Fact]
@@ -149,14 +184,50 @@ public sealed class RolesTests
         Assert.False(plain.WithheldByUserType(Privilege.ContentPublishFeatures));
     }
 
+    /// <summary>
+    /// A creator user type caps an ordinary role and does not cap the administrator.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Rewritten 2026-08-18, and this one is a behaviour reversal rather than a rephrasing.</b>
+    /// It read:
+    /// </para>
+    /// <code>
+    /// Authorization creator = Authorization.Resolve(UserTypes.Creator, [Roles.Administrator]);
+    /// Assert.False(creator.Allows(Privilege.AdminManageMembers));
+    /// Assert.True(creator.WithheldByUserType(Privilege.AdminManageMembers));
+    /// </code>
+    /// <para>
+    /// — a member holding the administrator role with a creator user type could not administer.
+    /// ADR-035 §4b reverses it on the owner's instruction: *"Admin yetkisi değiştirilemez. Ve
+    /// sınırlandırılamaz. Sistemde her işlemi yapabilir."* An administrator held below the
+    /// privileges needed to administer is D-14's unrecoverable server reached through a settings
+    /// page, so the ceiling does not apply to that role.
+    /// </para>
+    /// <para>
+    /// <b>The ceiling still has to bite for every other role, and that half is asserted here too</b>
+    /// — with editable grants it is the only thing between an edited role and a privilege nobody
+    /// reviewed.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void A_creator_may_publish_but_never_administer()
+    public void A_creator_caps_an_ordinary_role_and_not_the_administrator()
     {
-        Authorization creator = Authorization.Resolve(UserTypes.Creator, [Roles.Administrator]);
+        // The reversal: the administrator role is not narrowed by a user type.
+        Authorization administrator =
+            Authorization.Resolve(UserTypes.Creator, [Roles.Administrator]);
 
-        Assert.True(creator.Allows(Privilege.ContentPublishFeatures));
-        Assert.False(creator.Allows(Privilege.AdminManageMembers));
-        Assert.True(creator.WithheldByUserType(Privilege.AdminManageMembers));
+        Assert.True(administrator.Allows(Privilege.ContentPublishFeatures));
+        Assert.True(administrator.Allows(Privilege.AdminManageMembers));
+        Assert.True(administrator.IsAdministrator);
+
+        // The half that is unchanged: a publisher with a creator type publishes and never
+        // administers, and the refusal can say which of the two withheld it.
+        Authorization publisher = Authorization.Resolve(UserTypes.Creator, [Roles.Publisher]);
+
+        Assert.True(publisher.Allows(Privilege.ContentPublishFeatures));
+        Assert.False(publisher.Allows(Privilege.AdminManageMembers));
+        Assert.False(publisher.IsAdministrator);
     }
 
     [Fact]

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(24);
+    public static SchemaVersion ComponentSchemaVersion => new(25);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -59,6 +59,7 @@ public static class PlatformMigrations
         CredentialMustChangeV22,
         LayerSymbologyV23,
         ServiceRequestDeadlineV24,
+        RolePrivilegesV25,
     ]);
 
     /// <summary>
@@ -294,6 +295,80 @@ public static class PlatformMigrations
     /// </para>
     /// <para><b>Expand.</b> One nullable column and a check that permits null.</para>
     /// </remarks>
+    /// <summary>
+    /// What each role grants, as rows rather than as compiled code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-035, owner decision 2026-08-18:</b> *"sistemde tanımlı tüm rollerin yetkileri
+    /// değiştirilebilir, admin hariç."* Until now role-to-privilege lived entirely in
+    /// <c>Roles.BuildGrants()</c> — a C# dictionary compiled into the platform assembly — and the
+    /// <c>role</c> table carried a name and a description and nothing else. So a role row could be
+    /// inserted and would grant nothing, with no way to give it anything.
+    /// </para>
+    /// <para>
+    /// <b>The seed is the point of this migration, more than the table is.</b> Every built-in
+    /// role's grants are written from <c>Roles.Grants</c>, so a deployment upgrading to this schema
+    /// keeps exactly the behaviour it had. An upgrade that silently widened or narrowed what a role
+    /// confers is the worst outcome available here and the one nobody would notice, which is why
+    /// ADR-035 condition 1 asks for it to be asserted rather than assumed.
+    /// </para>
+    /// <para>
+    /// <b>The administrator is seeded like the others and is not read like the others.</b> Its rows
+    /// exist so the roles screen can show what it holds; the authorization check short-circuits
+    /// before consulting them (ADR-035 §4b), because *"admin can do everything"* stated as data is
+    /// a claim an <c>UPDATE</c> can falsify. Deleting its rows changes nothing about what an
+    /// administrator may do.
+    /// </para>
+    /// <para>
+    /// <b>The four group privileges are in the catalogue and granted to nobody.</b> ADR-035 §4c
+    /// defines them; no built-in role receives them here, so this migration cannot widen anything.
+    /// A deployment that wants groups edits a role — which is the feature this migration exists to
+    /// enable, and it makes the upgrade a genuine non-event rather than a nearly-one.
+    /// </para>
+    /// <para>
+    /// <b>The privilege is text with no foreign key, deliberately.</b> There is no
+    /// <c>privilege</c> table: the catalogue is the enum, and a table of it would be a second place
+    /// for the same list to disagree from. An unknown name is refused on write by the application
+    /// and ignored-with-a-log on read, so a store written by a newer version does not stop an older
+    /// one from starting. The lesson is [D-70]: <c>sharing</c> was called *"a value rather than a
+    /// migration"* and carries a check constraint on three tables, so a check constraint listing
+    /// eighteen privilege names would be the same mistake at four times the size.
+    /// </para>
+    /// <para><b>Expand.</b> One new table and rows in it. Nothing existing changes shape.</para>
+    /// </remarks>
+    private static Migration RolePrivilegesV25 => Migration.Expand(
+        new SchemaVersion(25),
+        "What each role grants, editable per deployment (ADR-035).",
+        [.. RolePrivilegeStatements()]);
+
+    /// <summary>The table, then one row per grant the code holds today.</summary>
+    private static IEnumerable<string> RolePrivilegeStatements()
+    {
+        yield return
+            """
+            create table role_privilege (
+                role_name text not null references role (name) on delete cascade,
+                privilege text not null,
+                constraint role_privilege_pk primary key (role_name, privilege),
+                constraint role_privilege_not_blank check (length(btrim(privilege)) > 0)
+            )
+            """;
+
+        // <b>Generated from the code that has been the answer until now.</b> Writing the list by
+        // hand here would create a second statement of the same fact, and the two would disagree
+        // the first time either moved — which is the failure mode the whole of ADR-035 §2 is about.
+        foreach (string role in Roles.All)
+        {
+            foreach (Privilege privilege in Roles.PrivilegesOf(role))
+            {
+                yield return
+                    "insert into role_privilege (role_name, privilege) values ("
+                    + $"'{Literal(role)}', '{Literal(Roles.NameOf(privilege))}')";
+            }
+        }
+    }
+
     private static Migration ServiceRequestDeadlineV24 => Migration.Expand(
         new SchemaVersion(24),
         "How long a client may occupy a service, per service, in seconds.",

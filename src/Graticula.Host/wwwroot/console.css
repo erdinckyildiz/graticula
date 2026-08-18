@@ -1294,3 +1294,17 @@ pre.doc {
   background: var(--surface); color: var(--ink);
   font: 12px/1.5 var(--mono); white-space: pre;
 }
+
+/* The roles editor — ADR-035 §4f, two sections of grouped ticks. Dense on purpose: eighteen
+   privileges today and more later, and an operator comparing two roles reads them as a list. */
+.rolesection { margin-top: var(--gap-4); }
+.rolesection h4 { display: flex; align-items: center; gap: var(--gap-3); margin-bottom: var(--gap-2); }
+.rolesection h4 .val { font-weight: 400; }
+.rolesection h4 button { margin-left: auto; }
+.rolegroup { border: 1px solid var(--rule); border-radius: var(--round-lg);
+             padding: var(--gap-3); margin-bottom: var(--gap-3); background: var(--surface); }
+.rolegrouphead { display: flex; align-items: center; gap: var(--gap-3);
+                 font-weight: 600; font-size: var(--t-small); margin-bottom: 6px; }
+.roleprivilege { display: flex; align-items: baseline; gap: var(--gap-3); padding: 3px 0; }
+.roleprivilege .mono { min-width: 22em; }
+.roleprivilege input[disabled] + .mono { color: var(--muted); }

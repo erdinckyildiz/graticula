@@ -136,6 +136,22 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // <b>What each role grants, read from the store — ADR-035.</b> A singleton because it holds
+        // the answer between requests; registered as both the interface and the concrete type
+        // because the authentication path calls `EnsureFreshAsync`, which is not on the interface:
+        // freshness is this implementation's problem and the compiled one has nothing to refresh.
+        builder.Services.AddSingleton(services => new PostgresRoleGrants(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<ILoggerFactory>()
+                .CreateLogger<PostgresRoleGrants>(),
+            services.GetRequiredService<TimeProvider>()));
+
+        builder.Services.AddSingleton<IRoleGrants>(services =>
+            services.GetRequiredService<PostgresRoleGrants>());
+
+        builder.Services.AddSingleton<IRoleDirectory>(services =>
+            new PostgresRoleDirectory(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>A second port over the same store, and the split is deliberate</b> — see
         // IMemberDirectory. Every request touches IIdentityStore to authenticate; only
         // admin:manageMembers touches this, so the login path has no route to member creation.
@@ -207,7 +223,8 @@ public static class Program
 
         builder.Services.AddSingleton(services => new Authentication(
             services.GetRequiredService<IIdentityStore>(),
-            services.GetRequiredService<TimeProvider>()));
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<IRoleGrants>()));
 
         builder.Services.AddSingleton(services => new LoginService(
             services.GetRequiredService<IIdentityStore>(),

@@ -251,6 +251,50 @@ of rule, and this is the wider version of it.
 
 Condition 7.
 
+### 4h. Built and measured, 2026-08-18
+
+**Migration 25** adds `role_privilege(role_name, privilege)` and seeds it from `Roles.Grants`, so
+an upgrading deployment keeps exactly the grants it had — verified against the live store, role for
+role. The four `groups:*` privileges are in the catalogue and granted to nobody, so the migration
+cannot widen anything.
+
+**`IRoleGrants`** is the seam where the compiled constant used to be. `PostgresRoleGrants` holds the
+answer, refreshes on every write and re-reads after thirty seconds as a backstop for the
+multi-process deployment ADR-007 permits. An unreachable store keeps the last known answer rather
+than falling back to the compiled table, because falling back would resurrect the grants a
+deployment had edited away.
+
+**Measured end to end**, with one member holding `user` and one token throughout:
+
+| `user` grants | member creates a feature service |
+|---|---|
+| `content:create` | **403** |
+| `content:create`, `content:publishFeatures` | **201** |
+| `content:create` (revoked again) | **403** |
+
+Same session, no re-authentication, and `GET /admin/roles` reported the stored set and the in-force
+set as equal at each step.
+
+**Three defects found by doing that rather than by reading it**, and each was invisible to the code:
+
+- **The forced refresh was a no-op.** `RefreshAsync` shared its body with the cheap path and kept
+  the freshness check inside it, so an explicit refresh returned without reading whenever the held
+  answer was under thirty seconds old — which is always, immediately after a request. A revocation
+  reported success and took up to thirty seconds.
+- **`WithheldByUserType` read the compiled table.** It is the method that exists so a refusal can
+  say *your role grants this and your user type does not permit it*, and after roles became editable
+  it gave the wrong half of that sentence in exactly the case it was written for.
+- **`/admin/members` reported the compiled grants**, and listed only the five built-in roles. It
+  agreed with the store until something edited a role, which is the worst kind of agreement: it
+  survives every test and breaks the first time the feature is used.
+
+**And one process defect worth recording because it cost more than all three.** Several builds
+failed silently: a running server holds its dependencies' DLLs, so `dotnet build` reports `MSB3021`
+rather than a compiler error, and a grep for `CS\d+` misses it entirely. The server ran a mixture of
+old and new assemblies while two measurements contradicted each other. The fix is mechanical — the
+development script now stops the server, builds, and refuses to start on any error — and the lesson
+is that *"0 errors"* from a filtered build log is not a build result.
+
 ## 5. Consequences
 
 - **`admin:manageRoles` gets something behind it**, closing half of what
@@ -272,14 +316,19 @@ Condition 7.
 
 ## 6. Conditions
 
-1. **The seed is asserted to reproduce today's grants exactly**, role by role and privilege by
-   privilege, in a test that fails if either side changes. An upgrade that silently widens or
+1. **DISCHARGED 2026-08-18.** **The seed is asserted to reproduce today's grants exactly**, role by
+   role and privilege by privilege, in a test that fails if either side changes. An upgrade that silently widens or
    narrows what a role confers is the worst outcome available here, and it is the outcome nobody
    would notice.
-2. **The administrator short-circuit is tested from both directions**: that an administrator passes
+2. **DISCHARGED 2026-08-18** — `AdministratorAuthorityTests` resolves an administrator against an
+   empty grant store and against a viewer user type, and `RoleDirectoryTests` refuses every write to
+   the role and then checks its rows survived the refusal. **The administrator short-circuit is
+   tested from both directions**: that an administrator passes
    a privilege check with the table empty, and that no write path can remove privileges from the
    administrator role or grant the role to nobody. §4b is worth nothing if a `DELETE` can reach it.
-3. **The privilege catalogue is versioned, or a test notices when it changes.** A removed or renamed
+3. **DISCHARGED 2026-08-18** — `RolePrivilegeCatalogueTests` carries the eighteen names as an
+   independent list and names the missing one in its failure. **The privilege catalogue is versioned,
+   or a test notices when it changes.** A removed or renamed
    privilege silently changes what existing roles confer. Cheapest form: a test carrying the
    expected list of names, so removing one is a deliberate act with a failing build in front of it.
 4. **The group-manager axis is decided before the authorization check is written**, per §4d's
@@ -288,12 +337,20 @@ Condition 7.
 5. **No screen appears that its reader cannot use** — [ADR-034](ADR-034-server-and-studio.md)
    condition 1, restated because the roles screen is the first one whose whole subject is who may
    see which screens.
-6. **Every implication and every prerequisite between privileges is written down as data, and
+6. **DISCHARGED 2026-08-18** — `Roles.Prerequisites` and `Roles.Implies`, with the store refusing a
+   missing prerequisite by name and the resolver applying implications; both directions tested,
+   including the case where a wider privilege satisfies a prerequisite for the narrower.
+   **Every implication and every prerequisite between privileges is written down as data, and
    tested.** §4e. Today they exist only in the shape of `BuildGrants()`'s nesting, which the move to
    stored grants deletes. The test that matters: for each prerequisite pair, a role holding the
    dependent privilege without its prerequisite is refused on write; for each implication pair, a
    role holding only the wider privilege passes a check for the narrower.
-7. **No custom role, at any privilege level, can produce an administrator.** §4g. Concretely:
+7. **PARTLY DISCHARGED 2026-08-18.** The resolver half is done and tested — a custom role granted
+   every privilege in the catalogue is still not an administrator. What is **not** done is the
+   reserved operations themselves: nothing yet refuses *changing a member's role to administrator*
+   or *resetting an administrator's password* to a non-administrator, because those endpoints check
+   `admin:manageMembers` and an edited role can carry it. **No custom role, at any privilege level,
+   can produce an administrator.** §4g. Concretely:
    changing a role to or from administrator, deleting an administrator, and resetting an
    administrator's password are refused to everybody except the built-in administrator role.
    Asserted by a test that gives a custom role every privilege in the catalogue and then tries all

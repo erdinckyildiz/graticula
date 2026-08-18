@@ -173,22 +173,5 @@ internal static class Authorize
     /// that a third party's vocabulary never sits in the middle of our domain.
     /// </para>
     /// </remarks>
-    public static string Name(Privilege privilege) => privilege switch
-    {
-        Privilege.ContentCreate => "content:create",
-        Privilege.ContentPublishFeatures => "content:publishFeatures",
-        Privilege.ContentPublishTiles => "content:publishTiles",
-        Privilege.ContentRegisterDataStore => "content:registerDataStore",
-        Privilege.FeaturesEdit => "features:edit",
-        Privilege.FeaturesFullEdit => "features:fullEdit",
-        Privilege.SharingShareToOrganization => "sharing:shareToOrganization",
-        Privilege.SharingShareToPublic => "sharing:shareToPublic",
-        Privilege.AdminManageMembers => "admin:manageMembers",
-        Privilege.AdminManageRoles => "admin:manageRoles",
-        Privilege.AdminViewAllContent => "admin:viewAllContent",
-        Privilege.AdminManageAllContent => "admin:manageAllContent",
-        Privilege.AdminManageSecurity => "admin:manageSecurity",
-        Privilege.AdminManageServer => "admin:manageServer",
-        _ => throw new ArgumentOutOfRangeException(nameof(privilege), privilege, null),
-    };
+    public static string Name(Privilege privilege) => Roles.NameOf(privilege);
 }

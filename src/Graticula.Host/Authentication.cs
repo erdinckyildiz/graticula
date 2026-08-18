@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Http;
 
 namespace Graticula.Host;
@@ -38,17 +39,26 @@ internal sealed class Authentication
     private const string BearerPrefix = "Bearer ";
 
     private readonly IIdentityStore _store;
+
+    /// <summary>What each role grants — ADR-035, a deployment's own answer.</summary>
+    private readonly IRoleGrants _grants;
     private readonly TimeProvider _time;
 
     /// <summary>Creates the resolver.</summary>
     /// <param name="store">Where sessions live.</param>
     /// <param name="time">The clock.</param>
-    public Authentication(IIdentityStore store, TimeProvider time)
+    /// <param name="grants">
+    /// What each role grants — ADR-035. Optional so that a caller with no store keeps the compiled
+    /// answer every build before 2026-08-18 gave, rather than silently resolving to nothing.
+    /// </param>
+    public Authentication(
+        IIdentityStore store, TimeProvider time, IRoleGrants? grants = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
 
         _store = store;
+        _grants = grants ?? CompiledRoleGrants.Instance;
         _time = time;
     }
 
@@ -86,10 +96,19 @@ internal sealed class Authentication
             (string userType, IReadOnlyList<string> roles) =
                 await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
+            // <b>What each role grants is read from the store now, not from a compiled table.</b>
+            // ADR-035: a deployment edits its roles. The common case here is a clock comparison —
+            // `PostgresRoleGrants` holds the answer for thirty seconds and is refreshed the moment
+            // an administrator edits a role, so a revocation does not wait out a cache.
+            if (_grants is PostgresRoleGrants live)
+            {
+                await live.EnsureFreshAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             return new RequestPrincipal(
                 principal,
                 session?.SessionId,
-                Authorization.Resolve(userType, roles),
+                Authorization.Resolve(userType, roles, _grants),
                 session?.MustChangePassword ?? false);
         }
         catch (Npgsql.NpgsqlException)

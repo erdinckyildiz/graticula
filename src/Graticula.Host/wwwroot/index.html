@@ -743,6 +743,45 @@
     table for the list, actions in the row — rather than a new shape, which is D-46 instance 8's
     lesson from the same day.
   -->
+  <!-- Roles — ADR-035. Two sections, per-category counts, and set-from-existing-role. -->
+  <section class="view" id="view-roles">
+    <div class="head">
+      <div>
+        <h2>Roles</h2>
+        <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="val" id="roleCount"></span>
+      <span style="flex:1"></span>
+      <button class="primary" id="roleNew">New role</button>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Role</th><th>Description</th><th class="num">Privileges</th>
+          <th class="num">Members</th><th></th>
+        </tr></thead>
+        <tbody id="roleRows"></tbody>
+      </table>
+    </div>
+    <div id="rolesPager"></div>
+
+    <div class="panel" id="roleEditor" hidden>
+      <div class="head">
+        <div><h3 id="roleEditorName"></h3></div>
+        <div id="roleFrom"></div>
+      </div>
+      <div id="roleCompatibility"></div>
+      <div id="rolePrivileges"></div>
+      <div class="row" style="margin-top:18px">
+        <button class="primary" id="roleSave">Save privileges</button>
+      </div>
+    </div>
+  </section>
+
   <section class="view" id="view-members">
     <!--
       Every screen names itself the same way, which is the brief's *same Graticula

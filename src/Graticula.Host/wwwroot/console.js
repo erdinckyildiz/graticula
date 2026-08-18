@@ -178,6 +178,173 @@ function metric(label, value, note) {
  * tab a reader cannot use must not be in the document at all.
  */
 /**
+ * Roles and what they grant.
+ *
+ * <b>ADR-035, and the shape is the reference's role editor — §4f.</b> Two sections, per-category
+ * counts, and *set from existing role*, which is the control the owner marked in the screenshot:
+ * with eighteen privileges here and sixty-five there, the realistic edit is *"publisher, but without
+ * share-to-public"*, and starting from an empty set makes the operator rebuild something somebody
+ * already designed. The errors that produces are omissions, and omissions are invisible.
+ *
+ * <b>The catalogue comes from the server, not from here.</b> A console that knew the privilege list
+ * would hold a second copy of it and the two would disagree the first time either moved — the
+ * failure ADR-035 §2 is about. So the response says which privileges exist, which section each is
+ * in, what each requires and what each contains, and this file renders whatever it is given.
+ */
+let roleOpen = null;
+
+/**
+ * Re-reads the ticks and updates every count and the compatibility line.
+ *
+ * <b>Recomputed from the checkboxes rather than tracked.</b> A tick changes a group count, a section
+ * count and possibly which user types may hold the role; keeping three counters in step by hand is
+ * how one of them comes to disagree, and there are eighteen boxes rather than eighteen thousand.
+ */
+function recountRoleSections() {
+  const sections = [...document.querySelectorAll("#rolePrivileges .rolesection")];
+  let anyAdmin = false;
+
+  sections.forEach((section, index) => {
+    const boxes = [...section.querySelectorAll("input[data-privilege]")];
+    const on = boxes.filter(b => b.checked).length;
+
+    const head = section.querySelector("h4 .val");
+    if (head) head.textContent = `${on}/${boxes.length}`;
+
+    const button = section.querySelector("h4 button");
+    if (button) button.textContent = on === boxes.length ? "Disable all" : "Enable all";
+
+    for (const group of section.querySelectorAll(".rolegroup")) {
+      const mine = [...group.querySelectorAll("input[data-privilege]")];
+      const count = group.querySelector(".rolegrouphead .val");
+      if (count) count.textContent = `${mine.filter(b => b.checked).length}/${mine.length}`;
+    }
+
+    // The second section is the administrative one — `loadRoles` renders general first.
+    if (index === 1 && on > 0) anyAdmin = true;
+  });
+
+  const line = $("roleCompatibility")?.querySelector("b");
+
+  if (line) {
+    line.textContent = anyAdmin
+      ? "Only the unrestricted user type can hold this role"
+      : "Any user type can hold this role";
+  }
+}
+
+async function loadRoles() {
+  const answer = await api("/admin/roles") || {};
+  const roles = answer.roles || [];
+  const catalogue = answer.catalogue || [];
+
+  if (!roles.some(r => r.name === roleOpen)) roleOpen = roles[0]?.name ?? null;
+
+  const chosen = roles.find(r => r.name === roleOpen) || null;
+
+  $("roleRows").innerHTML = roles.length === 0
+    ? `<tr><td colspan="5" class="empty">No roles, which cannot happen: the schema seeds five.</td></tr>`
+    : pageOf("roleRows", roles).map(r => `
+      <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}">
+        <td class="name">${h(r.name)}${r.builtIn
+          ? ` <span class="val">built in</span>` : ""}</td>
+        <td class="val">${h(r.description || "")}</td>
+        <td class="num">${num(r.privileges.length)}</td>
+        <td class="num">${num(r.members)}</td>
+        <td style="text-align:right">${r.removable
+          ? `<button class="tiny danger" data-role-delete="${h(r.name)}"
+               ${r.members ? "disabled title='Members hold this role'" : ""}>Delete</button>`
+          : ``}</td>
+      </tr>`).join("");
+
+  $("rolesPager").innerHTML = pagerFor("roleRows", roles.length);
+
+  $("roleCount").textContent =
+    `${roles.length} role${roles.length === 1 ? "" : "s"}, `
+    + `${catalogue.length} privilege${catalogue.length === 1 ? "" : "s"}`;
+
+  if (!chosen) { $("roleEditor").hidden = true; return; }
+
+  $("roleEditor").hidden = false;
+  $("roleEditorName").innerHTML = `<b>${h(chosen.name)}</b>`;
+
+  // <b>Set from existing role.</b> Every other role is an option; choosing one copies its ticks
+  // into this editor without saving, so the operator can then narrow it. Absent for the
+  // administrator, which cannot be edited at all.
+  $("roleFrom").innerHTML = chosen.editable
+    ? `<label>Set from existing role
+         <select id="roleFromPick"><option value="">choose a role…</option>${
+           roles.filter(r => r.name !== chosen.name)
+             .map(r => `<option value="${h(r.name)}">${h(r.name)} (${r.privileges.length})</option>`)
+             .join("")}</select></label>`
+    : "";
+
+  const held = new Set(chosen.privileges);
+
+  // <b>Grouped by the prefix the privilege already carries.</b> `content:`, `sharing:`, `groups:`
+  // and so on are categories the names state; inventing a second grouping here would be a mapping
+  // to maintain, and the reference groups the same way.
+  const section = administrative => {
+    const mine = catalogue.filter(c => !!c.administrative === administrative);
+    const groups = new Map();
+
+    for (const c of mine) {
+      const key = c.name.split(":")[0];
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+
+    const on = mine.filter(c => held.has(c.name)).length;
+
+    return `<div class="rolesection">
+      <h4>${administrative ? "Administrative privileges" : "General privileges"}
+        <span class="val">${num(on)}/${num(mine.length)}</span>
+        ${chosen.editable
+          ? `<button class="tiny ghost" data-role-all="${administrative ? "admin" : "general"}"
+               >${on === mine.length ? "Disable all" : "Enable all"}</button>` : ""}</h4>
+      ${[...groups.entries()].map(([key, items]) => `
+        <div class="rolegroup">
+          <div class="rolegrouphead">${h(key)}
+            <span class="val">${num(items.filter(c => held.has(c.name)).length)}/${num(items.length)}</span></div>
+          ${items.map(c => `
+            <label class="roleprivilege">
+              <input type="checkbox" data-privilege="${h(c.name)}"
+                ${held.has(c.name) ? "checked" : ""}
+                ${chosen.editable ? "" : "disabled"}>
+              <span class="mono">${h(c.name)}</span>
+              ${c.requires.length
+                ? `<span class="val">needs ${c.requires.map(h).join(", ")}</span>` : ""}
+              ${c.includes.length
+                ? `<span class="val">includes ${c.includes.map(h).join(", ")}</span>` : ""}
+            </label>`).join("")}
+        </div>`).join("")}
+    </div>`;
+  };
+
+  $("rolePrivileges").innerHTML = section(false) + section(true);
+
+  // <b>Which user types may hold this, derived rather than asked.</b> Esri states the rule plainly
+  // — a role carrying administrative privileges can only be held by the higher user types — so it
+  // is a consequence of what is ticked and the screen says it instead of offering a control.
+  const anyAdmin = catalogue.some(c => c.administrative && held.has(c.name));
+
+  $("roleCompatibility").innerHTML = chosen.editable
+    ? `<p class="hint"><b>${anyAdmin
+        ? "Only the unrestricted user type can hold this role"
+        : "Any user type can hold this role"}</b> — ${anyAdmin
+        ? "it carries administrative privileges, and ADR-018 §3a's ceiling withholds those from "
+          + "viewer, editor and creator. A member with a lower type keeps the role and the "
+          + "privileges do nothing, which the refusal says in words."
+        : "nothing here is administrative, so each member's type narrows only what their own "
+          + "type withholds."}</p>`
+    : `<p class="hint"><b>This role cannot be edited or removed.</b> An administrator passes every
+         privilege check without consulting these rows (ADR-035 §4b), so the ticks are what it holds
+         and not what limits it. To take administrative power from somebody, change their role.</p>`;
+
+  $("roleSave").hidden = !chosen.editable;
+}
+
+/**
  * Ten rows a page, on every Server listing, from one place.
  *
  * <b>Owner 2026-08-18:</b> *"server tarafında görüntülenen max item sayısı 10 olmalı. 10 üstü
@@ -276,6 +443,12 @@ const SURFACES = {
       // everywhere else. The tab is drawn for everybody who can enter Server, which today is the
       // same set: the administrator role carries both privileges.
       ["members", "Members"],
+
+      // <b>Roles, needing `admin:manageRoles` — ADR-035.</b> Server's, because granting a
+      // capability is administrative even though most of the capabilities it hands out are
+      // Studio's: the same split ADR-034 §5c draws everywhere else. The tab sits beside Members
+      // because *who is there* and *what they may do* are read together.
+      ["roles", "Roles"],
 
       ["operations", "Operations"],
     ],
@@ -544,6 +717,7 @@ function openScreen(surface, screen, folder) {
 
   if (screen === "content") section("your content", loadMyContent, "mine");
   if (screen === "members") section("members", loadMembers, "members");
+  if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
 }
@@ -3890,6 +4064,87 @@ async function handleClick(event) {
   // the router honours it on the next render. Recorded rather than worked around: layer pages *are*
   // addressable (`#/layer/x/sharing`, ADR-034 §5c) and service pages are not, which is an
   // inconsistency and not a decision.
+  // ---------------------------------------------------------------- roles (ADR-035)
+  if (t.dataset?.role) {
+    roleOpen = t.dataset.role;
+    await section("roles", loadRoles, "roleRows");
+    return;
+  }
+
+  if (t.dataset?.roleDelete) {
+    const name = t.dataset.roleDelete;
+
+    // <b>Asked, because it cannot be undone and the count is the thing at stake.</b> The server
+    // refuses while members hold it, so the only deletable role is one nobody has — which makes
+    // this a cheap confirmation rather than a warning about consequences.
+    if (!confirm(`Delete the role '${name}'? Nobody holds it, so nothing loses a privilege.`)) return;
+
+    try {
+      await api(`/admin/roles/${encodeURIComponent(name)}`, { method: "DELETE" });
+      toast(`${name}: removed`, true);
+      if (roleOpen === name) roleOpen = null;
+    } catch (e) { toast(e.message); }
+
+    await section("roles", loadRoles, "roleRows");
+    return;
+  }
+
+  if (t.dataset?.roleAll) {
+    // <b>Enable all, or disable all if everything in the section is already on.</b> One control
+    // rather than two, because a section is either fully on or not and the label says which act it
+    // is about to perform.
+    const wantAdmin = t.dataset.roleAll === "admin";
+    const boxes = [...document.querySelectorAll("#rolePrivileges .rolesection")]
+      [wantAdmin ? 1 : 0]?.querySelectorAll("input[data-privilege]:not([disabled])") ?? [];
+
+    const allOn = [...boxes].every(b => b.checked);
+    for (const box of boxes) box.checked = !allOn;
+
+    recountRoleSections();
+    return;
+  }
+
+  if (t.id === "roleSave") {
+    const name = roleOpen;
+    if (!name) return;
+
+    const wanted = [...document.querySelectorAll("#rolePrivileges input[data-privilege]")]
+      .filter(b => b.checked).map(b => b.dataset.privilege);
+
+    try {
+      const saved = await api(`/admin/roles/${encodeURIComponent(name)}/privileges`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ privileges: wanted }),
+      });
+      toast(saved.note ? `${name}: saved. ${saved.note}` : `${name}: saved`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("roles", loadRoles, "roleRows");
+    return;
+  }
+
+  if (t.id === "roleNew") {
+    const name = prompt("Name for the new role (lower case, no spaces):");
+    if (!name) return;
+
+    try {
+      // <b>Created empty, and the editor is where privileges are chosen.</b> A creation dialog with
+      // eighteen ticks in it would be a second copy of the editor, and `set from existing role`
+      // exists precisely so an empty start is a step rather than a burden.
+      await api("/admin/roles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), description: "", privileges: [] }),
+      });
+      roleOpen = name.trim();
+      toast(`${name.trim()}: created, granting nothing yet`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("roles", loadRoles, "roleRows");
+    return;
+  }
+
   if (t.dataset?.openServicePage) {
     SERVICE_PAGE_OPEN = t.dataset.openServicePage;
     // No preventDefault: the href is a real address and navigating to it is what draws the service.
@@ -4075,6 +4330,35 @@ document.addEventListener("change", async event => {
   // <b>A service's scope, applied on choosing it.</b> The `data-service-share` name is already
   // taken by the Server list's system-service select, so this carries the folder too and goes to
   // the same endpoint — which since 2026-08-18 accepts an ordinary service as well as a system one.
+  // <b>Set from existing role: copies the ticks and does not save.</b> Applying it immediately
+  // would make *look at what publisher has* into *become publisher*, and the whole point is to then
+  // narrow it.
+  if (event.target.id === "roleFromPick") {
+    const from = event.target.value;
+    if (!from) return;
+
+    const answer = await api("/admin/roles") || {};
+    const source = (answer.roles || []).find(r => r.name === from);
+    if (!source) return;
+
+    const held = new Set(source.privileges);
+
+    for (const box of document.querySelectorAll("#rolePrivileges input[data-privilege]")) {
+      if (!box.disabled) box.checked = held.has(box.dataset.privilege);
+    }
+
+    recountRoleSections();
+    event.target.value = "";
+    toast(`Copied ${from}'s ${held.size} privilege(s). Narrow them, then Save.`, true);
+    return;
+  }
+
+  // A tick moves two counters and the compatibility line; recomputing is cheaper than tracking.
+  if (event.target.dataset?.privilege) {
+    recountRoleSections();
+    return;
+  }
+
   if (d.serviceSharing) {
     try {
       const at = event.target.dataset.folder || "";
@@ -4163,6 +4447,7 @@ document.addEventListener("click", event => {
   if (id === "services") section("services", loadServices, "services");
   else if (id === "members") section("members", loadMembers, "members");
   else if (id === "sources") section("data sources", loadSources, "sources");
+  else if (id === "roleRows") section("roles", loadRoles, "roleRows");
 });
 
 document.addEventListener("input", event => {
