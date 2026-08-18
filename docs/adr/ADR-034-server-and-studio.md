@@ -438,6 +438,14 @@ sometimes *"3 layers, 1 group"*.
    was verified by putting the CSS defect back: with `[hidden] { display: none !important }`
    removed, the test fails at that assertion with the sentence naming D-46 #9.
 
+   **The remaining half is now buildable, 2026-08-18.** Q-116 is answered — ADR-015 §6c — and
+   `DELETE /admin/members/{name}` exists, so a suite can create the publisher this condition needs
+   and remove them afterwards without leaving an account behind. The condition is not discharged
+   here because the test has not been rewritten to do that: the console suite still edits
+   `admin:manageServer` out of the server's own `/rest/whoami`, which asks the console the real
+   question with a synthetic reader. What changed is that the blocker was *there is no way to clean
+   up* and now it is *the test has not been changed*.
+
    **Still PARTLY DISCHARGED, and the remaining half is one sentence long.** This condition says
    *a test that signs in without `admin:manageServer`*, and the test signs in as an administrator
    and removes that privilege from the server's own `/rest/whoami` answer on the way back to the

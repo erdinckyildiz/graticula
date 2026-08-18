@@ -58,6 +58,10 @@ internal sealed record PublishRequest(
     // *always reported* and the refusal is asked for by whoever wants it.
     bool RequireValidGeometry = false);
 
+/// <summary>Who receives everything a member owns.</summary>
+/// <param name="To">The receiving member's sign-in name.</param>
+internal sealed record TransferRequest(string? To);
+
 /// <summary>A folder to create in the services directory.</summary>
 /// <param name="Name">What to call it. One URL segment, matched without regard to case.</param>
 internal sealed record FolderRequest(string? Name);
@@ -226,6 +230,13 @@ internal static class AdminEndpoints
         app.MapPost("/admin/members", CreateMemberAsync);
         app.MapPut("/admin/members/{name}/role", SetMemberRoleAsync);
         app.MapPut("/admin/members/{name}/password", SetMemberPasswordAsync);
+
+        // <b>ADR-015 §6c, owner decision 2026-08-18.</b> A member who owns nothing is removed
+        // outright; one who owns something is refused unless the request says what to do with it.
+        // The holdings are readable on their own so the console can ask before it acts.
+        app.MapGet("/admin/members/{name}/holdings", GetMemberHoldingsAsync);
+        app.MapPost("/admin/members/{name}/transfer", TransferMemberContentAsync);
+        app.MapDelete("/admin/members/{name}", RemoveMemberAsync);
         app.MapPost("/admin/members/{name}/disable", (HttpContext c, string name,
             IMemberDirectory d, IIdentityStore i, IAuditLog l, CancellationToken t) =>
             SetMemberDisabledAsync(c, name, true, d, i, l, t));
@@ -3022,6 +3033,320 @@ internal static class AdminEndpoints
                   + "its owner."
                 : "They can sign in again with the password they had.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// What a member owns, so an operator can decide before removing them.
+    /// </summary>
+    /// <remarks>
+    /// <b>A read before a destructive write, the same shape as the empty-service sweep.</b>
+    /// ADR-015 §6c puts the judgement with the operator, and a judgement needs the names — *3
+    /// services* does not say whether transferring them is right.
+    /// </remarks>
+    private static async Task GetMemberHoldingsAsync(
+        HttpContext context,
+        string name,
+        IMemberDirectory members,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await members.HoldingsOfAsync(name, cancellation).ConfigureAwait(false)
+            is not { } holdings)
+        {
+            await Refuse(context, 404, $"No member '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name,
+            services = holdings.Services,
+            folders = holdings.Folders,
+            groups = holdings.Groups,
+            owns = holdings.Any,
+            note = holdings.Any
+                ? $"This member owns {holdings.Explanation}. Removing them needs a decision: "
+                    + "transfer these to another member, and nothing stops serving; or delete them, "
+                    + "which unpublishes the layers and removes the services and folders with the "
+                    + "account."
+                : "This member owns nothing, so removing them takes nothing with it.",
+
+            // <b>Named even at zero.</b> Groups are ADR-018's deferred sharing scope and have no
+            // table yet; a caller that reads this field today keeps working on the day they arrive,
+            // which is the whole reason the owner asked for them to be in the decision.
+            groupsNote = "Groups do not exist yet. When they do, they are a third owned thing and "
+                + "both dispositions cover them without a new shape here.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Moves everything one member owns to another, without removing anybody.
+    /// </summary>
+    /// <remarks>
+    /// <b>Separate from the removal because it is a separate intent.</b> Somebody changing teams
+    /// hands over their content and keeps their account; folding that into the delete would make
+    /// the only way to reassign content the destruction of an account.
+    /// </remarks>
+    private static async Task TransferMemberContentAsync(
+        HttpContext context,
+        string name,
+        TransferRequest request,
+        IMemberDirectory members,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request?.To is not { Length: > 0 } receiver)
+        {
+            await Refuse(context, 400, "'to' names the member who receives the content.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (string.Equals(name, receiver, StringComparison.OrdinalIgnoreCase))
+        {
+            await Refuse(context, 400, "A member cannot transfer their content to themselves.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (await members.HoldingsOfAsync(name, cancellation).ConfigureAwait(false) is null)
+        {
+            await Refuse(context, 404, $"No member '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (await members.HoldingsOfAsync(receiver, cancellation).ConfigureAwait(false) is null)
+        {
+            await Refuse(context, 404, $"No member '{receiver}' to transfer to.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        int moved = await members.TransferOwnershipAsync(name, receiver, cancellation)
+            .ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "member.transfer", name,
+            Detail(new { to = receiver, moved }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            from = name,
+            to = receiver,
+            moved,
+            note = moved == 0
+                ? $"'{name}' owned nothing, so nothing moved."
+                : $"{moved} thing(s) now belong to '{receiver}'. Nothing was unpublished and every "
+                    + "URL a client holds still works.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Removes a member, disposing of what they own the way the caller said.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-015 §6c.</b> No disposition and nothing owned: removed. No disposition and something
+    /// owned: **409 naming what is attached and the two choices** — the server does not pick.
+    /// <c>?transferTo=x</c> moves it; <c>?deleteOwned=true</c> takes it along.
+    /// </para>
+    /// <para>
+    /// <b>The delete disposition goes through the unpublish path, not through SQL.</b> That path
+    /// purges a layer's tiles (a republished layer would otherwise serve the previous one's
+    /// pyramid) and it is the only place that knows to. Reaching for `delete from layer` here would
+    /// be the same behaviour in a second place, which is what D-46 is about.
+    /// </para>
+    /// </remarks>
+    private static async Task RemoveMemberAsync(
+        HttpContext context,
+        string name,
+        IMemberDirectory members,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        ITileCache tiles,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (string.Equals(current.Principal.Name, name, StringComparison.OrdinalIgnoreCase))
+        {
+            await Refuse(
+                context, 409,
+                "A member cannot remove themselves: the session doing the work would be revoked "
+                + "halfway through it. Ask another administrator.").ConfigureAwait(false);
+
+            return;
+        }
+
+        if (await members.HoldingsOfAsync(name, cancellation).ConfigureAwait(false)
+            is not { } holdings)
+        {
+            await Refuse(context, 404, $"No member '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        string? transferTo = context.Request.Query["transferTo"].FirstOrDefault();
+
+        bool deleteOwned = string.Equals(
+            context.Request.Query["deleteOwned"].FirstOrDefault(),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (holdings.Any && transferTo is not { Length: > 0 } && !deleteOwned)
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' owns {holdings.Explanation}, so this request did not say enough to be "
+                + "carried out. Either transfer it — DELETE with ?transferTo=<member>, and nothing "
+                + "stops serving — or take it along, with ?deleteOwned=true, which unpublishes the "
+                + "layers and removes the services and folders.").ConfigureAwait(false);
+
+            return;
+        }
+
+        MemberRemoval outcome;
+        int unpublished = 0;
+
+        if (transferTo is { Length: > 0 } receiver)
+        {
+            if (string.Equals(name, receiver, StringComparison.OrdinalIgnoreCase))
+            {
+                await Refuse(context, 400, "A member cannot transfer their content to themselves.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+
+            outcome = await members.TransferAndRemoveAsync(name, receiver, cancellation)
+                .ConfigureAwait(false);
+        }
+        else if (deleteOwned && holdings.Any)
+        {
+            // <b>Layers first, then services, then folders.</b> `layer.service_id` is `no action`,
+            // so a service still holding a layer refuses to go — which is the same refusal
+            // DeleteServiceAsync reports as Occupied, and the reason the order is not arbitrary.
+            foreach (string qualified in holdings.Services)
+            {
+                (string? folder, string bare) = SplitQualified(qualified);
+
+                if (await layers.FindServiceAsync(folder, bare, cancellation)
+                        .ConfigureAwait(false) is { } service)
+                {
+                    foreach (PublishedLayer held in service.Layers)
+                    {
+                        if (await catalog.UnpublishLayerAsync(held.Definition.Name, cancellation)
+                                .ConfigureAwait(false))
+                        {
+                            tiles.Purge(held.Id);
+                            unpublished++;
+                        }
+                    }
+                }
+
+                await catalog.DeleteServiceAsync(bare, folder, cancellation).ConfigureAwait(false);
+            }
+
+            foreach (string folder in holdings.Folders)
+            {
+                await catalog.DeleteFolderAsync(folder, cancellation).ConfigureAwait(false);
+            }
+
+            outcome = await members.RemoveAsync(name, cancellation).ConfigureAwait(false);
+        }
+        else
+        {
+            outcome = await members.RemoveAsync(name, cancellation).ConfigureAwait(false);
+        }
+
+        if (outcome != MemberRemoval.Removed)
+        {
+            (int code, string why) = outcome switch
+            {
+                MemberRemoval.Absent => (404, $"No member '{name}'."),
+
+                MemberRemoval.LastAdministrator => (
+                    409,
+                    $"'{name}' is the only administrator who can still sign in. A server with no "
+                    + "administrator cannot be recovered without editing the database by hand, so "
+                    + "this is refused whichever disposition was asked for. Make another "
+                    + "administrator first."),
+
+                MemberRemoval.TargetAbsent => (
+                    404, $"There is no member '{transferTo}' to transfer to. Nothing was changed."),
+
+                MemberRemoval.TargetDisabled => (
+                    409,
+                    $"'{transferTo}' is disabled, so nobody could administer what was moved to "
+                    + "them. Enable them first, or choose another member. Nothing was changed."),
+
+                _ => (
+                    409,
+                    $"'{name}' still owns something, so the account was kept rather than left "
+                    + "pointing at nothing. This is a fault in the removal itself — see D-66."),
+            };
+
+            await Refuse(context, code, why).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "member.remove", name,
+            Detail(new
+            {
+                transferredTo = transferTo,
+                deletedOwned = deleteOwned,
+                services = holdings.Services.Count,
+                folders = holdings.Folders.Count,
+                unpublished,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            removed = name,
+            transferredTo = transferTo,
+            unpublished,
+            note = transferTo is { Length: > 0 }
+                ? $"'{name}' is gone and everything they owned belongs to '{transferTo}'. Nothing "
+                    + "was unpublished."
+                : holdings.Any
+                    ? $"'{name}' is gone, with {unpublished} layer(s) unpublished and "
+                        + $"{holdings.Services.Count} service(s) and {holdings.Folders.Count} "
+                        + "folder(s) removed."
+                    : $"'{name}' is gone. They owned nothing.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Splits a qualified service name into its folder and its name.</summary>
+    private static (string? Folder, string Name) SplitQualified(string qualified)
+    {
+        int slash = qualified.LastIndexOf('/');
+
+        return slash < 0
+            ? (null, qualified)
+            : (qualified[..slash], qualified[(slash + 1)..]);
     }
 
     /// <summary>Sets a member's password without knowing the old one.</summary>

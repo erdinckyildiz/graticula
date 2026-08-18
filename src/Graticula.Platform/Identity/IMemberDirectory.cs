@@ -14,9 +14,11 @@ namespace Graticula.Platform.Identity;
 /// <param name="IsDisabled">Whether they may sign in.</param>
 /// <param name="CreatedAt">When the account was made.</param>
 /// <param name="OwnsServices">
-/// How many services they own. <b>Reported because it is the reason there is no delete:</b>
-/// removing the row would orphan every one of them, and an administrator about to disable somebody
-/// should see what is attached to them first.
+/// How many services they own. <b>Reported because it decides what a removal has to ask.</b>
+/// It was here first as the reason there was <em>no</em> delete — removing the row would orphan
+/// every one of them — and ADR-015 §6c turned that into the question the delete puts to the
+/// operator instead: transfer them, or take them along. An administrator about to disable somebody
+/// wants the same number for the same reason.
 /// </param>
 public readonly record struct Member(
     Guid Id,
@@ -27,6 +29,101 @@ public readonly record struct Member(
     bool IsDisabled,
     DateTimeOffset CreatedAt,
     int OwnsServices);
+
+/// <summary>
+/// What a member owns, which is what a removal has to decide about.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Named things rather than counts alone.</b> ADR-015 §6c refuses a removal that did not say
+/// what to do with what the member owns, and a refusal saying *3 services* leaves the operator
+/// unable to judge whether transferring them is right. The names are what makes the choice a
+/// choice.
+/// </para>
+/// <para>
+/// <b><c>Groups</c> is here and is always zero.</b> A group in the ArcGIS sense — a set of members
+/// with items shared to it, on the Studio side — is
+/// <see href="../../../docs/adr/ADR-018-authorization-and-roles.md">ADR-018</see>'s deferred
+/// sharing scope and has no table yet. The owner asked for the disposition to cover them
+/// (*"şu anda grubumuz yok ama olacak"*), so the field exists now: a caller that already reads it
+/// keeps working when groups arrive, and the alternative is a response shape that changes on the
+/// day they do.
+/// </para>
+/// </remarks>
+/// <param name="Services">The services they own, qualified with their folder.</param>
+/// <param name="Folders">The folders they own.</param>
+/// <param name="Groups">How many groups they own. Zero until groups exist.</param>
+public readonly record struct MemberHoldings(
+    IReadOnlyList<string> Services,
+    IReadOnlyList<string> Folders,
+    int Groups)
+{
+    /// <summary>Whether a removal has to ask what to do.</summary>
+    public bool Any => Services.Count > 0 || Folders.Count > 0 || Groups > 0;
+
+    /// <summary>A sentence naming what is attached, for the refusal.</summary>
+    public string Explanation
+    {
+        get
+        {
+            List<string> parts = [];
+
+            if (Services.Count > 0)
+            {
+                parts.Add($"{Services.Count} service(s): {string.Join(", ", Services)}");
+            }
+
+            if (Folders.Count > 0)
+            {
+                parts.Add($"{Folders.Count} folder(s): {string.Join(", ", Folders)}");
+            }
+
+            if (Groups > 0)
+            {
+                parts.Add($"{Groups} group(s)");
+            }
+
+            return parts.Count == 0 ? "nothing" : string.Join("; ", parts);
+        }
+    }
+}
+
+/// <summary>Why a member was or was not removed.</summary>
+/// <remarks>
+/// <b>Six answers rather than a boolean, because five of them are different refusals.</b> An
+/// operator told *no* learns nothing; each of these maps to a status and a sentence that says what
+/// to do instead.
+/// </remarks>
+public enum MemberRemoval
+{
+    /// <summary>Gone, along with whatever the disposition said.</summary>
+    Removed,
+
+    /// <summary>There is no such member.</summary>
+    Absent,
+
+    /// <summary>
+    /// They own something and the request did not say what to do with it.
+    /// </summary>
+    HoldsThings,
+
+    /// <summary>
+    /// They are the only administrator who can still sign in.
+    /// </summary>
+    /// <remarks>
+    /// A server with no administrator cannot be recovered in band (D-14), and doing it by accident
+    /// while tidying up accounts is exactly how it would happen.
+    /// </remarks>
+    LastAdministrator,
+
+    /// <summary>The transfer target does not exist.</summary>
+    TargetAbsent,
+
+    /// <summary>
+    /// The transfer target cannot sign in, so nobody could administer what was moved.
+    /// </summary>
+    TargetDisabled,
+}
 
 /// <summary>
 /// Creating and administering the people with accounts.
@@ -128,11 +225,13 @@ public interface IMemberDirectory
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether they were disabled before, or null when there is no such member.</returns>
     /// <remarks>
-    /// <b>Disabling rather than deleting, and there is no delete here.</b> A member owns content:
-    /// deleting the row would orphan every service whose <c>owner_principal_id</c> points at it,
-    /// and the sharing evaluator reads that column to decide who may read what. Disabling stops
-    /// the sign-in and leaves the ownership intact, which is the reversible half of the same
-    /// intent.
+    /// <b>Disabling is the reversible half, and it is usually the one wanted.</b> A member owns
+    /// content: removing the row without disposing of it would orphan every service whose
+    /// <c>owner_principal_id</c> points at it, and the sharing evaluator reads that column to
+    /// decide who may read what. Disabling stops the sign-in and leaves the ownership intact.
+    /// <b>There is a delete now</b> — ADR-015 §6c, 2026-08-18 — and it exists precisely because
+    /// this one does not dispose of anything: it refuses unless the caller says whether to transfer
+    /// what is owned or take it along.
     /// </remarks>
     Task<bool?> SetDisabledAsync(string name, bool disabled, CancellationToken cancellationToken);
 
@@ -150,4 +249,48 @@ public interface IMemberDirectory
     /// </remarks>
     Task<bool> SetPasswordAsync(
         string name, PasswordHash password, CancellationToken cancellationToken);
+
+    /// <summary>What a member owns.</summary>
+    /// <param name="name">Their sign-in name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The holdings, or null when there is no such member.</returns>
+    Task<MemberHoldings?> HoldingsOfAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves everything a member owns to another member, then removes them.
+    /// </summary>
+    /// <remarks>
+    /// <b>One transaction, because a half-done transfer is worse than either end of it.</b> A
+    /// member removed with two of their three services moved leaves the third owned by nobody, and
+    /// nothing in the catalogue reports a dangling owner — see D-66, where the live owner columns
+    /// carry no foreign key at all.
+    /// </remarks>
+    /// <param name="name">Who to remove.</param>
+    /// <param name="transferTo">Who receives what they owned.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task<MemberRemoval> TransferAndRemoveAsync(
+        string name, string transferTo, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a member who owns nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Refuses rather than orphaning, and the refusal is the point.</b> This is the method a
+    /// caller reaches after disposing of the holdings itself — the `delete` disposition unpublishes
+    /// the layers through the path that also purges their tiles, so the destruction stays where it
+    /// already lived. If anything is still owned when this runs, that orchestration missed
+    /// something and the answer is <see cref="MemberRemoval.HoldsThings"/> rather than a principal
+    /// nothing points at.
+    /// </remarks>
+    /// <param name="name">Who to remove.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task<MemberRemoval> RemoveAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>Reassigns everything one member owns to another, without removing anybody.</summary>
+    /// <param name="current">Current owner.</param>
+    /// <param name="receiver">New owner.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many things moved.</returns>
+    Task<int> TransferOwnershipAsync(string current, string receiver, CancellationToken cancellationToken);
+
 }

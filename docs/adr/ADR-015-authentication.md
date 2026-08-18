@@ -330,6 +330,73 @@ it is single-use in effect because the account cannot do anything else until it 
 is a weaker property than an expiry and a much simpler one. And nothing checks any password against
 known breached lists, which is [D-23](../architecture-debt.md) and unchanged.
 
+## 6c. Decision — a member is removed by disposing of what they own, and the operator chooses how
+
+**Owner decision, 2026-08-18, answering [Q-116](../open-questions.md).** There was no member
+delete at all: `/admin/members` could create, list, set a role, set a password, disable and enable.
+Disabling covers the case that actually arises — somebody leaves, their account stops working, their
+content keeps serving — so the omission was defensible. What it blocked was smaller and real: a test
+or a script that makes a throwaway account and does not want to leave it behind, and it left
+[ADR-034](ADR-034-server-and-studio.md) condition 1 one sentence short of dischargeable.
+
+The owner: *"bir üye silinirken, eğer ki sahip olduğu gruplar ya da nesneler varsa onlarla ilgili
+bir ibare çıkar. şu kadar gruba, şu kadar nesneye sahip diye. ne yapayım diye sorar. sileyim mi,
+başkasına mı aktarayım. başkasına aktar dersen, o nesneleri başkasına aktarır. grupların da
+sahipliği başkasına geçer. sil dersen hem grubu hem nesneleri siler. şu anda grubumuz yok ama
+olacak."*
+
+### The shape
+
+**A member who owns nothing is removed outright.** No question, because there is nothing to ask
+about.
+
+**A member who owns something cannot be removed by a request that did not say what to do with it.**
+The refusal carries the counts — *this many services, this many folders* — and names the two
+dispositions. That is the whole of the decision: the server does not choose, and it does not
+proceed on a request that failed to.
+
+- **`transfer`** moves ownership to a named member. The services keep serving, the folders keep
+  their contents, and nothing is unpublished. Every URL a client holds keeps working, which is why
+  this is the disposition an operator should reach for by default.
+- **`delete`** removes what they owned along with them: the services, the layers inside them, and
+  the folders. Data in the datastore goes with the layers, as unpublishing already does.
+
+**Groups are in the design and not in the schema.** The owner's *"şu anda grubumuz yok ama olacak"*
+is the reason they are named here anyway: a group in the ArcGIS sense — a set of members with items
+shared to it — is [ADR-018](ADR-018-authorization-and-roles.md)'s deferred sharing scope, and when
+it arrives it is a third owned thing that both dispositions must cover. Writing the disposition
+around *owned things* rather than around *services* is what makes that an addition rather than a
+redesign.
+
+### What is owned, measured rather than assumed
+
+Three tables carry `owner_principal_id`, and only two of them mean anything:
+
+- **`service`** — live and read; the catalogue reports the owner, and a service holds its layers.
+- **`folder`** — live; a folder created by a publisher belongs to them.
+- **`layer`** — vestigial. Migration 11 moved ownership onto the service and nothing has read the
+  layer column since ([D-33](../architecture-debt.md)). It is written on transfer anyway, because
+  leaving a stale principal id in a column somebody may one day read is how the next
+  [D-24](../architecture-debt.md) starts.
+
+**Group layers are not owned and do not appear here.** `group_layer` has no owner column — measured,
+not assumed — so a group layer belongs to whoever owns its service and moves with it. That is also
+how the ambiguity in the owner's word *grup* was settled: it cannot mean a group layer, because a
+group layer has no owner to transfer.
+
+**Data sources are not owned.** Registering one is an administrative act on the deployment, and
+`data_source` carries no owner column. So removing a member never orphans a credential.
+
+### The refusals
+
+- **The last administrator cannot be removed**, whichever disposition is asked for. A server with no
+  administrator cannot be recovered in band ([D-14](../architecture-debt.md)), and doing it by
+  accident while tidying up accounts is exactly how it would happen.
+- **A member cannot transfer to themselves**, and the target must exist and not be disabled —
+  transferring to a disabled account produces content nobody can administer.
+- **A member cannot remove themselves.** Not a safety rule about the server; a rule about the
+  request, because the session doing the work would be revoked halfway through it.
+
 ## 7. What this hands to other decisions
 
 - **RLS delegation (§1a)** gets a stable principal name and an

@@ -263,6 +263,276 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
     }
 
     /// <inheritdoc/>
+    public async Task<MemberHoldings?> HoldingsOfAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>One round trip, and the names rather than the counts.</b> ADR-015 6c refuses a
+        // removal that did not say what to do with what is owned, and the refusal has to name it:
+        // *3 services* is not enough for an operator to judge whether transferring is right.
+        //
+        // <b>Groups are not queried because there is no table.</b> Reported as zero, which is the
+        // honest answer about a thing that does not exist yet -- see MemberHoldings for why it is
+        // reported at all rather than added on the day it arrives.
+        const string Sql = """
+            select p.id,
+                   coalesce((select array_agg(
+                              coalesce(nullif(s.folder, '') || '/', '') || s.name order by s.name)
+                             from service s where s.owner_principal_id = p.id), '{}'),
+                   coalesce((select array_agg(f.name order by f.name)
+                             from folder f where f.owner_principal_id = p.id), '{}')
+              from principal p
+             where lower(p.name) = lower(@name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new MemberHoldings(
+            reader.GetFieldValue<string[]>(1),
+            reader.GetFieldValue<string[]>(2),
+            0);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> TransferOwnershipAsync(
+        string current, string receiver, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(current);
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiver);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        int moved = await MoveAsync(connection, transaction, current, receiver, cancellationToken)
+            .ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return moved;
+    }
+
+    /// <inheritdoc/>
+    public async Task<MemberRemoval> TransferAndRemoveAsync(
+        string name, string transferTo, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(transferTo);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await CheckAsync(connection, transaction, name, transferTo, cancellationToken)
+                .ConfigureAwait(false) is { } refusal)
+        {
+            return refusal;
+        }
+
+        await MoveAsync(connection, transaction, name, transferTo, cancellationToken)
+            .ConfigureAwait(false);
+
+        await DeletePrincipalAsync(connection, transaction, name, cancellationToken)
+            .ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return MemberRemoval.Removed;
+    }
+
+    /// <inheritdoc/>
+    public async Task<MemberRemoval> RemoveAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (await CheckAsync(connection, transaction, name, null, cancellationToken)
+                .ConfigureAwait(false) is { } refusal)
+        {
+            return refusal;
+        }
+
+        // <b>Still owning something is a refusal here, not a cascade.</b> The caller disposes of
+        // the holdings through the paths that also purge tiles; if anything is left, that
+        // orchestration missed something, and the result would be a principal nothing points at --
+        // D-66, where the live owner columns carry no foreign key to catch it.
+        await using (NpgsqlCommand owned = connection.CreateCommand())
+        {
+            owned.Transaction = transaction;
+
+            owned.CommandText = """
+                select (select count(*) from service s
+                         join principal p on p.id = s.owner_principal_id
+                        where lower(p.name) = lower(@name))
+                     + (select count(*) from folder f
+                         join principal p on p.id = f.owner_principal_id
+                        where lower(p.name) = lower(@name))
+                """;
+
+            owned.Parameters.AddWithValue("name", name);
+
+            long still = (long)(await owned.ExecuteScalarAsync(cancellationToken)
+                .ConfigureAwait(false))!;
+
+            if (still > 0)
+            {
+                return MemberRemoval.HoldsThings;
+            }
+        }
+
+        await DeletePrincipalAsync(connection, transaction, name, cancellationToken)
+            .ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return MemberRemoval.Removed;
+    }
+
+    /// <summary>
+    /// The refusals both removals share, asked inside their transaction.
+    /// </summary>
+    /// <returns>A refusal, or null to proceed.</returns>
+    /// <remarks>
+    /// <b>Inside the transaction, and locking the row, because this is a race.</b> Counting
+    /// administrators and then deleting one in a separate statement lets two concurrent removals
+    /// each see two administrators and each remove one -- which is how a server ends up with none,
+    /// and D-14 records that there is no way back in band.
+    /// </remarks>
+    private static async Task<MemberRemoval?> CheckAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string name,
+        string? transferTo,
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+
+        command.CommandText = """
+            select p.id,
+                   exists (select 1 from principal_role r
+                            where r.principal_id = p.id and r.role_name = 'administrator'),
+                   (select count(*) from principal a
+                     join principal_role ar on ar.principal_id = a.id
+                    where ar.role_name = 'administrator' and a.disabled_at is null)
+              from principal p
+             where lower(p.name) = lower(@name)
+               for no key update of p
+            """;
+
+        command.Parameters.AddWithValue("name", name);
+
+        await using (NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return MemberRemoval.Absent;
+            }
+
+            if (reader.GetBoolean(1) && reader.GetInt64(2) <= 1)
+            {
+                return MemberRemoval.LastAdministrator;
+            }
+        }
+
+        if (transferTo is null)
+        {
+            return null;
+        }
+
+        await using NpgsqlCommand target = connection.CreateCommand();
+        target.Transaction = transaction;
+        // <b>`disabled_at`, not `is_disabled`.</b> Disabled is a timestamp here, so that the
+        // record says *when* rather than only *whether* — and writing the boolean name from
+        // memory answered 42703 on every removal until it was read out of the schema.
+        target.CommandText =
+            "select disabled_at is not null from principal where lower(name) = lower(@to)";
+        target.Parameters.AddWithValue("to", transferTo);
+
+        object? disabled = await target.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        if (disabled is null)
+        {
+            return MemberRemoval.TargetAbsent;
+        }
+
+        return (bool)disabled ? MemberRemoval.TargetDisabled : null;
+    }
+
+    /// <summary>Moves every owned thing from one principal to another.</summary>
+    /// <remarks>
+    /// <b>The dead column moves too, and that is deliberate.</b> `layer.owner_principal_id` has
+    /// been vestigial since migration 11 (D-33) and nothing reads it -- but leaving a stale
+    /// principal id in a column somebody may one day read is how the next D-24 begins, and it costs
+    /// one statement inside a transaction that is open anyway.
+    /// </remarks>
+    private static async Task<int> MoveAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string from,
+        string to,
+        CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            with giver as (select id from principal where lower(name) = lower(@from)),
+                 taker as (select id from principal where lower(name) = lower(@to)),
+                 s as (update service set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) returning 1),
+                 f as (update folder set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) returning 1),
+                 l as (update layer set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) returning 1)
+            select (select count(*) from s) + (select count(*) from f)
+            """;
+
+        await using NpgsqlCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = Sql;
+        command.Parameters.AddWithValue("from", from);
+        command.Parameters.AddWithValue("to", to);
+
+        return (int)(long)(await command.ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false))!;
+    }
+
+    /// <summary>Removes the principal row, and lets the cascades take the rest.</summary>
+    /// <remarks>
+    /// The credential, the sessions, the roles and the api keys cascade; the audit trail is
+    /// `on delete set null`, so what somebody did survives them without naming them.
+    /// </remarks>
+    private static async Task DeletePrincipalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "delete from principal where lower(name) = lower(@name)";
+        command.Parameters.AddWithValue("name", name);
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetPasswordAsync(
         string name, PasswordHash password, CancellationToken cancellationToken)
     {

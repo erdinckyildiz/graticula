@@ -965,6 +965,46 @@
   </div>
 </dialog>
 
+<!--
+  <b>The question a removal has to ask, ADR-015 §6c.</b> Owner decision 2026-08-18: a member who
+  owns something cannot be removed by a request that did not say what to do with it, and the
+  operator is the one who knows. So the counts and the names come first, and the two dispositions
+  are two buttons with neither preselected — a default here would be the console answering a
+  question the server deliberately refuses to answer.
+
+  <b>A panel rather than a `dialog`.</b> The issued-password dialog above is modal because its
+  content is a secret that must not be left on screen; this one is a decision an operator may want
+  to read the Services list against, so it does not trap the page.
+-->
+<div id="removeMember" class="wrap" style="display:none">
+  <div class="panel">
+    <h4>Remove a member</h4>
+    <p class="hint" id="removeWho">—</p>
+
+    <p class="lede">This member owns content that keeps serving after they are gone. It has to
+      belong to somebody: choose who receives it, or remove it with them.</p>
+
+    <ul class="losses" id="removeHolds"></ul>
+
+    <div class="setting" style="margin-top:14px">
+      <span class="q">Transfer everything to:</span>
+      <select id="removeTo"></select>
+      <span class="u"></span>
+    </div>
+
+    <p class="hint">Transferring changes nothing a client can see — every URL keeps working and
+      nothing is unpublished. Deleting unpublishes the layers and removes the services and folders
+      along with the account.</p>
+
+    <div class="row" style="margin-bottom:0">
+      <button id="removeCancel" class="ghost">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="primary" id="removeTransfer">Transfer and remove</button>
+      <button class="danger" id="removeDelete">Delete everything</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!--

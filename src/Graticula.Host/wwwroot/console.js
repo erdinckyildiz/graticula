@@ -1269,6 +1269,42 @@ function serviceSettingsMarkup() {
 }
 
 /**
+ * The choice a removal needs, with what is at stake named.
+ *
+ * <b>Both buttons, neither preselected.</b> ADR-015 §6c: the server refuses a removal that did
+ * not say what to do, and the console's job is to put the question rather than to answer it —
+ * a dialog with a default has answered it. The list of what is owned is above the buttons
+ * because it is what the choice is about.
+ */
+function showRemoveMember(name, held) {
+  const box = $("removeMember");
+
+  $("removeWho").dataset.member = name;
+  $("removeWho").innerHTML = `Removing <b>${h(name)}</b>.`;
+
+  const list = [];
+  if (held.services.length) list.push(`<li><b>${num(held.services.length)}</b> service(s): `
+    + `${held.services.map(h).join(", ")}</li>`);
+  if (held.folders.length) list.push(`<li><b>${num(held.folders.length)}</b> folder(s): `
+    + `${held.folders.map(h).join(", ")}</li>`);
+  if (held.groups) list.push(`<li><b>${num(held.groups)}</b> group(s)</li>`);
+
+  $("removeHolds").innerHTML = list.join("");
+
+  // <b>Only members who can sign in.</b> Transferring to a disabled account produces content
+  // nobody can administer, and the server refuses it — offering it here would be a control
+  // that exists to be told no.
+  $("removeTo").innerHTML = `<option value="">choose a member…</option>`
+    + (memberNames || []).filter(n => n !== name)
+        .map(n => `<option value="${h(n)}">${h(n)}</option>`).join("");
+
+  box.style.display = "";
+}
+
+/** The members a transfer may go to, kept from the last listing. */
+let memberNames = [];
+
+/**
  * The services that hold nothing, listed before anything is removed.
  *
  * <b>The Remove button is disabled until this has run and found something</b>, which is
@@ -1447,6 +1483,11 @@ async function loadMembers() {
 
   memberGrants = answer.grants || {};
 
+  // Kept for the transfer picker: a removal has to offer somebody, and the listing is where the
+  // names already are. Only the ones who can sign in, because the server refuses a disabled
+  // target and a control that exists to be told no is worse than no control.
+  memberNames = rows.filter(m => !m.disabled).map(m => m.name);
+
   const fill = (id, values, chosen) => {
     $(id).innerHTML = values.map(v =>
       `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(v)}</option>`).join("");
@@ -1478,6 +1519,15 @@ async function loadMembers() {
         <button class="tiny ${m.disabled ? "" : "danger"}"
           data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
           >${m.disabled ? "Enable" : "Disable"}</button>
+
+        <!--
+          <b>Remove reads before it asks, and asks before it acts.</b> ADR-015 §6c puts the
+          judgement with the operator: what a member owns keeps serving under somebody's name,
+          and only a person can say whose. So this fetches the holdings, and the dialog is
+          where the choice is made rather than a confirm that guesses one.
+        -->
+        <button class="tiny danger" data-member-remove="${h(m.name)}"
+          title="Remove this member, and decide what happens to what they own">Remove</button>
       </td>
     </tr>`).join("");
 }
@@ -3487,6 +3537,71 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
 
     t.disabled = false;
+    return;
+  }
+
+  if (d.memberRemove) {
+    t.disabled = true;
+
+    try {
+      const held = await api(`/admin/members/${encodeURIComponent(d.memberRemove)}/holdings`);
+
+      // <b>Nothing owned: one question, and it is the ordinary one.</b> Asking about a
+      // disposition for content that does not exist is a dialog nobody can answer.
+      if (!held.owns) {
+        if (confirm(`Remove ${d.memberRemove}? They own nothing, so nothing goes with them.`)) {
+          const r = await api(`/admin/members/${encodeURIComponent(d.memberRemove)}`,
+            { method: "DELETE" });
+
+          toast(r.note, true);
+          await section("members", loadMembers, "members");
+        }
+      } else {
+        showRemoveMember(d.memberRemove, held);
+      }
+    } catch (e) { toast(e.message); }
+
+    t.disabled = false;
+    return;
+  }
+
+  if (t.id === "removeTransfer" || t.id === "removeDelete") {
+    const name = $("removeWho").dataset.member;
+    const transfer = t.id === "removeTransfer";
+    const to = $("removeTo").value;
+
+    if (transfer && !to) {
+      toast("Choose who receives the content.");
+      return;
+    }
+
+    if (!transfer && !confirm(`Delete ${name} and everything they own? The layers are `
+      + `unpublished and the services and folders go with them. This cannot be undone.`)) {
+      return;
+    }
+
+    t.disabled = true;
+
+    try {
+      const query = transfer
+        ? `?transferTo=${encodeURIComponent(to)}`
+        : "?deleteOwned=true";
+
+      const r = await api(`/admin/members/${encodeURIComponent(name)}${query}`,
+        { method: "DELETE" });
+
+      $("removeMember").style.display = "none";
+      toast(r.note, true);
+      await section("members", loadMembers, "members");
+      await loadLayers();
+    } catch (e) { toast(e.message); }
+
+    t.disabled = false;
+    return;
+  }
+
+  if (t.id === "removeCancel") {
+    $("removeMember").style.display = "none";
     return;
   }
 
