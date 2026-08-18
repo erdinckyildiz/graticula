@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>a050c2b</code> · 2026-08-18 19:31</p>
+<p class="stamp">Generated from commit <code>6c15e12</code> · 2026-08-18 19:52</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">37</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">51/142</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">87 live · 4 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">54</div><div class="kpi-l">open questions</div><div class="kpi-n">61 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">43</div><div class="kpi-l">open debts</div><div class="kpi-n">41 repaid · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">43</div><div class="kpi-l">open debts</div><div class="kpi-n">42 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1236</div><div class="kpi-l">tests</div><div class="kpi-n">136 source files, 51,839 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1240</div><div class="kpi-l">tests</div><div class="kpi-n">136 source files, 51,839 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -284,6 +284,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-84</td><td>~~Studio&#x27;s content screen never paginated, at a stated scale of 100–1,000 services.~~ loadMyContent called neither pageOf nor pagerFor while every other list in the console did.</td><td class="muted-t">Found in a design review that measured the row count rather than looking at it</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-85</td><td>~~The preview cache stored the resolved shape after its own await, so overlapping passes both missed it.~~ previews.get(key) ??</td><td class="muted-t">Found by a design review that counted the requests</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-86</td><td>~~Other people&#x27;s private content was listed under a heading that said shared with you, and reading it left no record.~~ /content/layers bucketed on ownership alone, so everything not owned went into shared — including the private services an administrator…</td><td class="muted-t">Found by a design review asking whether a sentence a screen was about to show — every one of these reads is recorded…</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-87</td><td>~~The console denied a feature this server had shipped, measured and tested.~~ The import form&#x27;s own copy read &quot;GeoJSON only — a shapefile is a ZIP and this server does not open archives (Q-98)&quot;, and its file input carried…</td><td class="muted-t">Found while placing the owner&#x27;s New item → Feature layer → Upload a file screenshots against what the console actually…</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-79</td><td>A write that replaces every field is guarded by one console helper and nothing else.</td><td class="muted-t">Before a second caller exists — a script, a second screen, or an API consumer</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-80</td><td>A group&#x27;s items cannot be drawn, so the tab that should show them shows their names.</td><td class="muted-t">With maps, and the owner has said they are coming: &quot;yakında sistemde harita ekleme, icon ekleme gibi özellikler de…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-73</td><td>~~The roles screen could not select a role, so nothing could be given a privilege.~~ The click handler read t.dataset.role where t is the cell that was clicked and the row carries the name, so choosing a role did nothing and the editor stayed on whichever…</td><td class="muted-t">Reported by the owner the moment they opened it: &quot;varolan bir yetkiye yeni yetki veremiyorum.</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -445,11 +446,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:66.7%"></div></div><div class="bar-n">184</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:49.3%"></div></div><div class="bar-n">136</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:42.4%"></div></div><div class="bar-n">117</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:14.5%"></div></div><div class="bar-n">40</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:15.9%"></div></div><div class="bar-n">44</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:8.0%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">9</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>6c15e12</code><time>2026-08-18</time><span>two kinds of job worker, chosen by what bounds the work</span></li>
 <li><code>a050c2b</code><time>2026-08-18</time><span>the reader we were costing is one we should not write</span></li>
 <li><code>c54a003</code><time>2026-08-18</time><span>a refusal that names the format, and the survey that says why there is nothing to adopt</span></li>
 <li><code>203ecca</code><time>2026-08-18</time><span>the hash stays, and the reason it was rejected had stopped holding</span></li>
@@ -463,7 +465,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b77791a</code><time>2026-08-18</time><span>a design review of the Groups screen, and the stylesheet it never got</span></li>
 <li><code>5312153</code><time>2026-08-18</time><span>a picker instead of a prompt, and the privilege that made it a prompt</span></li>
 <li><code>a525a27</code><time>2026-08-18</time><span>the Groups screen, which was owed and which the owner had to ask for</span></li>
-<li><code>5868411</code><time>2026-08-18</time><span>groups, and a fourth enum value that five parsers did not know about</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

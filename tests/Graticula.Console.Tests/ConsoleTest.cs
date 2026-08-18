@@ -611,7 +611,17 @@ public abstract class ConsoleTest : IAsyncLifetime
             const method = ((init && init.method) || (input && input.method) || "GET").toUpperCase();
 
             if (method !== "GET" && method !== "HEAD") {
-              window.__writes.push(method + " " + url);
+              // <b>The fields, not only the method and the URL.</b> Knowing that a form posted
+              // somewhere is weaker than knowing what it posted, and the difference is a whole class
+              // of defect: a control that sends the right request without the field the server
+              // requires looks identical from here. Recorded as sorted names because an order is not
+              // part of a form's contract, and only for `FormData` — a JSON body is the caller's own
+              // string and reading it back would be asserting against the test's own construction.
+              const fields = init && init.body instanceof FormData
+                ? " [" + [...init.body.keys()].sort().join(",") + "]"
+                : "";
+
+              window.__writes.push(method + " " + url + fields);
 
               return new Response("{}", {
                 status: 200,

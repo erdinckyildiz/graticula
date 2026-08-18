@@ -4170,9 +4170,10 @@ function openNewLayer() {
 
     <div class="group">
       <h3>Import a file</h3>
-      <p class="hint">For data you already have. Reads the schema from the file. GeoJSON only —
-        a shapefile is a ZIP and this server does not open archives (Q-98). Coordinates must be
-        WGS 84 longitude, latitude; they are reprojected to Web Mercator once on the way in.</p>
+      <p class="hint">For data you already have. Reads the schema from the file — a
+        <b>zipped shapefile</b> or a <b>GeoJSON FeatureCollection</b>. A shapefile needs its
+        <code>srid</code> given, because matching the <code>.prj</code>'s WKT to a code by comparing
+        strings is how a layer comes to declare a system it is not in.</p>
       <form id="importForm" autocomplete="off">
         <div class="row">
           <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
@@ -4183,9 +4184,14 @@ function openNewLayer() {
           </select></label>
         </div>
         <div class="row">
-          <label class="field">GeoJSON<input id="iFile" type="file"
-            accept=".json,.geojson,application/geo+json" required></label>
+          <label class="field">File<input id="iFile" type="file"
+            accept=".zip,.json,.geojson,application/zip,application/geo+json" required></label>
+          <label class="field">Coordinate system<input type="text" id="iSrid" inputmode="numeric"
+            placeholder="4326"><span class="u"></span></label>
         </div>
+        <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
+          WGS 84 longitude, latitude by its own specification. A shapefile carries a
+          <code>.prj</code> and this server will not guess a code from it.</p>
         <button class="primary" type="submit">Import and publish</button>
       </form>
     </div>
@@ -4623,6 +4629,11 @@ async function createImported(event) {
   body.append("name", $("iName").value.trim());
   body.append("sharing", $("iShare").value);
   body.append("file", file);
+
+  // <b>Only when given.</b> The server requires it for a shapefile and refuses to infer it; sending
+  // an empty string would be a value rather than an absence, and GeoJSON needs none.
+  const srid = ($("iSrid")?.value || "").trim();
+  if (srid) body.append("srid", srid);
 
   // No Content-Type header: the browser sets it with the multipart boundary,
   // and setting it by hand produces a body the server cannot parse.
