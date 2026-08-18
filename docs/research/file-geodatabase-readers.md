@@ -263,6 +263,58 @@ they are in every one of the owner's geodatabases and not in the published speci
 specification would have met an undocumented file type in its first real archive — not as an exception,
 but as seventy-two files it had no rule for. `OpenFileGDB` read all three without complaint.
 
+## 8c. The Python half of the survey, and why the raster answer does not transfer
+
+**The owner asked the sharpest form of the question**, 2026-08-18: *"raster'i gdal'siz hallettiysek gdb
+için gdal zorunlu mu. onu gdalsız python ile kapatamaz mıyız?"* — and it found a real gap. §1–§2
+surveyed **.NET** and said so; nothing here had looked at Python, where the ecosystem is larger and the
+answer could have been different.
+
+**It is not.** Every open-source route to reading a `.gdb` from Python goes through GDAL:
+
+| Candidate | Claim | Actually |
+|---|---|---|
+| [`pyogrio`](https://github.com/geopandas/pyogrio) | GDAL bindings | GDAL, and honest about it |
+| `fiona` | GDAL bindings | GDAL |
+| [`fgdb-to-gpkg`](https://pypi.org/project/fgdb-to-gpkg/) | *"does not have a dependency on ArcPy"* | **True and not the question.** No ArcPy is not no GDAL; it reads through the GDAL stack |
+| [`esri-converter`](https://github.com/mihiarc/esri-converter) | *"No CLI Dependencies: Pure Python library"* | **Depends on Fiona.** *Pure Python* here means *no subprocess*, not *no native library*. 2 stars, 3 commits |
+
+The distinction those last two blur is worth stating once: **not shelling out to `ogr2ogr` is not the
+same as not linking GDAL**, and a README that says *pure Python* usually means the first.
+
+### Why the raster answer does not carry over, and it is not a technical limit
+
+[ADR-009](../adr/ADR-009-raster-engine.md) §2.1's answer works because **COG is already the served
+format**. A customer whose imagery is COG needs no conversion, so no reader is needed at all and GDAL
+never loads. The trick is not that raster is easier — it is that the customer's file is *already in our
+format*.
+
+**There is no such case for `.gdb`.** We store features in PostGIS and serve them as FeatureServer; a
+geodatabase is never our storage format and never our served format, so it always has to be read and
+converted. The exemption raster gets does not exist here, and no amount of Python changes that.
+
+### Which leaves four routes, and the fourth was missed
+
+1. **GDAL in the Python worker** — [ADR-037](../adr/ADR-037-job-workers-come-in-two-kinds.md). Optional
+   at the cost of exactly this one feature.
+2. **Write the parser ourselves** — §5's cost, and §8b's seventy-two `.horizon` files say what the first
+   real archive does to it.
+3. **The customer converts first** — which is today's behaviour and what the refusal says: ArcGIS Pro
+   exports a feature class to a shapefile or GeoJSON, both of which we already read. **Free, honest, and
+   the friction ADR-024 §1 says this product exists to remove.**
+4. **A one-shot migration converter, outside the deployment.** [v1-scope](../v1-scope.md) §3 already has
+   *"migration tooling — inventory scan and definition import, free"*, and a `.gdb`-to-something
+   converter is migration tooling rather than a server capability. GDAL would live in a tool the
+   customer runs once, never in anything they operate. **This is the only route that gets the feature
+   with no GDAL anywhere in the running system**, and §1–§8 missed it entirely by treating the question
+   as *which library does the server load*.
+
+**The honest weakness of the fourth** is that it is a thin wrapper over one `ogr2ogr` command, and the
+customer could run that command themselves — so what it really ships is a documented recipe and a
+support burden. For the organisation this product is aimed at, *"run this Docker command against your
+geodatabase first"* is friction of exactly the kind the product exists to remove, and it lands on the
+customer least equipped to absorb it. That is the trade, and it is the owner's to make rather than mine.
+
 ## 9. Recommendation
 
 **Changed by §8, and the change is larger than *not v1*: do not write one at all.**
