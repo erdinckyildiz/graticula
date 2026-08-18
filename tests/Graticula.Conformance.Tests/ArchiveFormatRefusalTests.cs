@@ -36,16 +36,34 @@ namespace Graticula.Conformance.Tests;
 public sealed class ArchiveFormatRefusalTests : ArcGisClient
 {
     /// <summary>
-    /// A File Geodatabase is named, and pointed at the decision that owns it.
+    /// A File Geodatabase now opens a job, and the job runs the reader and records what happened.
     /// </summary>
     /// <remarks>
-    /// <b>The archive is built here rather than committed.</b> Four empty members in a
-    /// <c>roads.gdb/</c> folder is enough to be recognised, and it carries no Esri bytes — which
-    /// matters: a real geodatabase in the test corpus would be somebody's data, and the recogniser
-    /// reads entry names only, so a real one would test nothing extra.
+    /// <para>
+    /// <b>This test asserted a 400 until 2026-08-19, and the change of answer is the feature.</b> The
+    /// endpoint used to refuse a geodatabase with a sentence naming Q-108. It now writes the archive to
+    /// the import scratch directory, opens a <c>geodatabase.inspect</c> job and answers <c>202</c> with
+    /// the address to watch — [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5j and
+    /// [ADR-037](../../docs/adr/ADR-037-job-workers-come-in-two-kinds.md).
+    /// </para>
+    /// <para>
+    /// <b>Four empty files in a `roads.gdb/` folder, and that is not a shortcut.</b> A real geodatabase
+    /// in the test corpus would be somebody's data — the owner's three are real client archives and
+    /// stay out of this repository — so the archive is built here and carries no Esri bytes. What it
+    /// buys is the whole pipeline: the recogniser reads entry names, the endpoint keeps the file, the
+    /// inspector claims the job, spawns the reader, GDAL is handed a folder that is not a geodatabase,
+    /// and the refusal comes back as a recorded failure rather than as a dead worker or a job stuck at
+    /// queued for ever.
+    /// </para>
+    /// <para>
+    /// <b>So the assertion is *it failed, with a reason*, and that is the interesting outcome.</b> A
+    /// job that succeeded here would mean GDAL had read four empty files as a geodatabase. Reading a
+    /// real one is measured instead — `docs/research/file-geodatabase-readers.md` §8f, three archives,
+    /// 12, 55 and 8 layers — because that is a fact about somebody's data and cannot live in a test.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_file_geodatabase_is_refused_by_name_and_points_at_the_question()
+    public async Task A_file_geodatabase_opens_a_job_and_the_job_says_what_happened()
     {
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
@@ -59,25 +77,81 @@ public sealed class ArchiveFormatRefusalTests : ArcGisClient
             ("roads.gdb/gdb", 64));
 
         (HttpStatusCode status, string message) = await ImportAsync(
-            root, token!, archive, "probe.gdb.zip", "zz_gdb_refusal");
+            root, token!, archive, "probe.gdb.zip", "zz_gdb_pipeline");
 
-        Assert.Equal(HttpStatusCode.BadRequest, status);
+        // <b>A deployment without the reader still refuses, and that is a different test.</b> This one
+        // is about the pipeline, so a 400 here means the reader was not shipped beside the server —
+        // which the message says, and which is worth failing loudly rather than skipping quietly.
+        Assert.True(
+            status == HttpStatusCode.Accepted,
+            $"Expected 202 with a job. Got {(int)status}: {message}");
 
-        // Named, so the reader knows what they sent.
-        Assert.Contains("File Geodatabase", message, StringComparison.Ordinal);
+        JsonElement opened = JsonDocument.Parse(message).RootElement;
 
-        // <b>And pointed somewhere.</b> A refusal that says *not supported* and stops leaves somebody
-        // guessing whether it is coming; this one names the open question and the note behind it.
-        Assert.Contains("Q-108", message, StringComparison.Ordinal);
+        string job = opened.GetProperty("job").GetString()
+            ?? throw new InvalidOperationException("The 202 carried no job id.");
 
-        // <b>And says what does work.</b> Otherwise the next thing they try is another guess.
-        Assert.Contains("shapefile", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("GeoJSON", message, StringComparison.OrdinalIgnoreCase);
+        // Where to watch, because a 202 that does not say is a 202 nobody can follow.
+        Assert.Contains(job, opened.GetProperty("watch").GetString() ?? string.Empty,
+            StringComparison.Ordinal);
 
-        // <b>What must not survive: the folder advice.</b> That is the sentence this test exists to
-        // keep out of a geodatabase's refusal, and it is still correct for a genuinely nested
-        // shapefile — so it is asserted absent here rather than deleted there.
-        Assert.DoesNotContain("zip the shapefile's files directly", message, StringComparison.OrdinalIgnoreCase);
+        (string finished, string failure) = await SettledAsync(root, token!, job);
+
+        // <b>Failed, and this is the assertion rather than a disappointment.</b> Four empty files are
+        // not a geodatabase; a success would mean GDAL had read them as one.
+        Assert.Equal("failed", finished);
+
+        // <b>And a failure carries a reason, which `IJobStore` refuses to store without.</b> A job
+        // saying only *failed* is the one thing nobody can act on.
+        Assert.False(
+            string.IsNullOrWhiteSpace(failure),
+            "The job failed without a reason, which is the state the job store exists to prevent.");
+    }
+
+    /// <summary>
+    /// Polls a job until it stops, and returns its status and failure.
+    /// </summary>
+    /// <remarks>
+    /// <b>Thirty seconds, against a claim interval of two and a reader that answers in well under
+    /// one.</b> Long enough that a loaded machine does not fail this, short enough that a job which
+    /// never gets claimed is reported as such rather than hanging the suite — and the message says
+    /// which of the two it was, because *the test timed out* is the least useful sentence a suite can
+    /// produce.
+    /// </remarks>
+    private async Task<(string Status, string Failure)> SettledAsync(
+        string root, string token, string job)
+    {
+        string last = "never asked";
+
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get, $"{root}/admin/jobs/{job}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using HttpResponseMessage response = await Http.SendAsync(request);
+
+            JsonElement found = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync()).RootElement;
+
+            last = found.GetProperty("status").GetString() ?? "unreadable";
+
+            if (last is not ("queued" or "running"))
+            {
+                return (last, found.TryGetProperty("failure", out JsonElement why)
+                    ? why.GetString() ?? string.Empty
+                    : string.Empty);
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Fail(
+            $"Job {job} was still '{last}' after thirty seconds. 'queued' means the inspector never "
+            + "claimed it — it does not run when the reader is missing, and it logs that once at "
+            + "startup. 'running' means the reader was started and did not answer inside its own "
+            + "two-minute deadline, which would be the first archive to do that.");
+
+        return (last, string.Empty);
     }
 
     /// <summary>

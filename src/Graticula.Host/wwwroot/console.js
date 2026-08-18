@@ -4234,8 +4234,15 @@ function openAddItem() {
 
 /** Draws whichever screen `itemStep` names, with the footer that screen needs. */
 function drawAddItem() {
+  // <b>Wide only where a table needs it.</b> The reading screen lists five columns against
+  // feature-class names forty characters long; every other screen is a short form and 680px is
+  // right for reading prose. Set here rather than inside the screen so that leaving it takes the
+  // width back.
+  $("addItem").classList.toggle("wide", itemStep === "inspect");
+
   if (itemStep === "item") drawItemKinds();
   else if (itemStep === "kind") drawLayerRoutes();
+  else if (itemStep === "inspect") drawInspect();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -4279,7 +4286,8 @@ function drawItemKinds() {
       ${icon("upload")}
       <p>Drag and drop a file here</p>
       <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
-      <span class="val">A zipped shapefile, or a GeoJSON FeatureCollection</span>
+      <span class="val">A zipped shapefile, a zipped File Geodatabase, or a GeoJSON
+        FeatureCollection</span>
       <input type="file" id="deviceFile" hidden
              accept=".zip,.json,.geojson,application/zip,application/geo+json">
     </div>
@@ -4464,7 +4472,9 @@ function drawDesignForm() {
 function drawImportForm() {
   $("addItemBody").innerHTML = `
     <p class="hint">For data you already have. The schema is read from the file — a
-      <b>zipped shapefile</b> or a <b>GeoJSON FeatureCollection</b>.</p>
+      <b>zipped shapefile</b>, a <b>zipped File Geodatabase</b>, or a
+      <b>GeoJSON FeatureCollection</b>. A geodatabase holds many feature classes, so it is read by a
+      separate process and this screen reports what is in it rather than publishing straight away.</p>
     <form id="importForm" autocomplete="off">
       <div class="row">
         <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
@@ -4913,6 +4923,211 @@ function reportNew(created) {
      · <a href="${h(created.services.tiles)}?f=json" target="_blank" rel="noreferrer">tile service</a>`;
 }
 
+/**
+ * What the reading screen is showing: the job being watched, and its answer once it has one.
+ *
+ * <b>Held outside the drawing, because the screen is redrawn while the job is still going.</b> The
+ * elapsed seconds tick and the status changes, and a screen that rebuilt itself from a closure would
+ * lose the job the moment anything else redrew it.
+ */
+let inspecting = null;
+
+/**
+ * Follows a geodatabase inspection on a screen of its own.
+ *
+ * <b>A screen rather than a panel under the form, and the first version was the panel.</b> Measured on
+ * the owner's archive: the result sat below the upload form inside a 680-pixel dialog, so two of the
+ * five columns were unreachable and the footer still offered *Import and publish* — which, pressed,
+ * would have uploaded the same archive again. A finished job is not an annotation on the form that
+ * started it.
+ *
+ * <b>Polled at the interval the server claims work on.</b> Two seconds is the inspector's own idle
+ * period, so asking faster only asks a database a question it cannot yet answer differently. ADR-011's
+ * queue can have a notification channel; until then this says how long it has been waiting, because a
+ * spinner with no elapsed time is indistinguishable from a stuck one.
+ */
+async function watchInspect(opened) {
+  inspecting = { opened, since: Date.now(), status: "queued", job: null, error: null };
+
+  itemStep = "inspect";
+  drawAddItem();
+
+  for (let attempt = 0; attempt < 300; attempt++) {
+    await new Promise(done => setTimeout(done, 2000));
+
+    // <b>Abandoned if the reader left this screen.</b> Closing the dialog or pressing Back does not
+    // stop the job — it is the server's — but it must stop this loop writing into a screen that is now
+    // showing something else.
+    if (itemStep !== "inspect" || inspecting?.opened.job !== opened.job) return;
+
+    try {
+      inspecting.job = await api(`/admin/jobs/${encodeURIComponent(opened.job)}`);
+      inspecting.status = inspecting.job.status;
+    } catch (e) {
+      inspecting.error = e.message || String(e);
+      drawAddItem();
+      return;
+    }
+
+    if (inspecting.status === "queued" || inspecting.status === "running") {
+      // Only the elapsed line changes, so the table is not rebuilt sixty times while nothing happens.
+      const age = $("inspectAge");
+      const seconds = Math.round((Date.now() - inspecting.since) / 1000);
+      if (age) age.textContent = `${inspecting.status} — ${seconds} second${seconds === 1 ? "" : "s"}`;
+      continue;
+    }
+
+    drawAddItem();
+    return;
+  }
+
+  inspecting.status = "lost";
+  drawAddItem();
+}
+
+/** The reading screen, in whichever of its four states the job is in. */
+function drawInspect() {
+  const state = inspecting;
+
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Close</button>`;
+
+  $("itemBack").addEventListener("click", () => {
+    itemStep = "import";
+    drawAddItem();
+  });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+
+  if (!state) {
+    itemStep = "item";
+    drawAddItem();
+    return;
+  }
+
+  if (state.error) {
+    $("addItemTitle").textContent = "Lost track of the job";
+    $("addItemBody").innerHTML = `<p class="hint">${h(state.error)} The job itself is unaffected — it
+      is the server's, and its record is at <code>${h(state.opened.watch)}</code>.</p>`;
+    return;
+  }
+
+  if (state.status === "queued" || state.status === "running") {
+    $("addItemTitle").textContent = "Reading the geodatabase";
+    $("addItemBody").innerHTML = `
+      <p class="hint">A File Geodatabase holds many feature classes, so it is read by a separate
+        process rather than inside the upload. This takes as long as the archive is large, and closing
+        this does not stop it — the job is the server's.</p>
+      <p class="val" id="inspectAge">${h(state.status)} — just started</p>`;
+    return;
+  }
+
+  if (state.status === "lost") {
+    $("addItemTitle").textContent = "Still going after ten minutes";
+    $("addItemBody").innerHTML = `<p class="hint">The reader's own deadline is two minutes, so a job
+      still unfinished has not been picked up — or was claimed by something that stopped. Its record is
+      at <code>${h(state.opened.watch)}</code> and it is safe to upload again.</p>`;
+    return;
+  }
+
+  if (state.status !== "done") {
+    $("addItemTitle").textContent = "Refused";
+    $("addItemBody").innerHTML = `<p class="hint">${h(state.job.failure
+      || "The job failed without a reason, which the job store is supposed to prevent.")}</p>`;
+    return;
+  }
+
+  drawInspected(state.job);
+}
+
+/**
+ * What a finished inspection found.
+ *
+ * <b>Every layer the driver reported, including the ones nobody would publish.</b> A geodatabase's
+ * attachment tables have no geometry — one of the owner's archives holds six of them beside six
+ * feature classes — and hiding them would leave a screen that quietly disagrees with what ArcGIS
+ * shows. They are listed and dimmed instead, which is the rule the sharing scopes follow too: say why
+ * something is not offered rather than shorten the list.
+ */
+function drawInspected(job) {
+  let found;
+
+  try {
+    found = JSON.parse(job.detail || "{}");
+  } catch {
+    $("addItemTitle").textContent = "Read, and the answer is unreadable";
+    $("addItemBody").innerHTML = `<p class="hint">The job finished and its detail is not JSON, which is
+      a version mismatch between this server and its reader rather than anything about your data.</p>`;
+    return;
+  }
+
+  const layers = found.layers || [];
+  const publishable = layers.filter(layer => layer.geometry && layer.geometry !== "wkbNone");
+
+  $("addItemTitle").textContent = "What is in the geodatabase";
+
+  $("addItemBody").innerHTML = `
+    <p class="hint">${num(layers.length)} layer${layers.length === 1 ? "" : "s"},
+      ${num(publishable.length)} of which can become a feature layer. The rest are attachment or
+      relationship tables and carry no geometry. <b>Publishing one is the next step and is not built
+      yet</b> — this reports what the archive holds.</p>
+    <div class="widetable">
+      <table>
+        <thead><tr><th>Feature class</th><th>Geometry</th><th>Features</th><th>Fields</th>
+          <th>Coordinate system</th></tr></thead>
+        <tbody>${layers.map(layer => `
+          <tr${layer.geometry && layer.geometry !== "wkbNone" ? "" : ' class="val"'}>
+            <td>${h(layer.name || "")}</td>
+            <td>${h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
+            <td>${layer.features === null || layer.features === undefined
+                  ? '<span class="val">unknown</span>' : num(layer.features)}</td>
+            <td>${num((layer.fields || []).length)}</td>
+            <td>${layer.srid ? `EPSG:${h(String(layer.srid))}`
+                  : '<span class="val">not identified</span>'}</td>
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>
+    ${(found.messages || []).length
+      ? `<p class="hint"><b>GDAL said:</b> ${h((found.messages || []).join(" "))}</p>` : ""}`;
+}
+
+/**
+ * The driver's geometry names, in the words the rest of this console uses.
+ *
+ * <b>Beside this, a formatting rule worth stating once:</b> the coordinate system's code is printed
+ * without a thousands separator, because `num()` turned EPSG:2952 into *EPSG:2,952* — an identifier
+ * formatted as a quantity. The feature count next to it does take one, and the difference is exactly
+ * whether the number counts something.
+ *
+ * <b>A lookup rather than a string trim.</b> `wkbMultiPolygon` becomes *MultiPolygon* by cutting three
+ * characters, which works until `wkbNone` becomes *None* and `wkbPoint25D` becomes something nobody
+ * asked for. D-71 is the entry about a constant that became a lookup, and this is a lookup from the
+ * start — a name that is missing falls through to the driver's own, which is worse to read and never
+ * wrong.
+ */
+const GEOMETRY_NAMES = {
+  wkbPoint: "Point",
+  wkbMultiPoint: "MultiPoint",
+  wkbLineString: "LineString",
+  wkbMultiLineString: "MultiLineString",
+  wkbPolygon: "Polygon",
+  wkbMultiPolygon: "MultiPolygon",
+  wkbNone: "none — a table",
+
+  // <b>The Z variants, because a geodatabase is full of them.</b> The owner's archives report
+  // `wkbMultiPolygon25D` — a polygon carrying an elevation — and the first version of this table did
+  // not have it, so the screen printed the driver's own name. Which is the designed fallback and is
+  // still worse to read than a name; the fix is a row here rather than trimming `wkb` and `25D` off
+  // with string arithmetic, which is what D-71 records going wrong.
+  wkbPoint25D: "Point Z",
+  wkbMultiPoint25D: "MultiPoint Z",
+  wkbLineString25D: "LineString Z",
+  wkbMultiLineString25D: "MultiLineString Z",
+  wkbPolygon25D: "Polygon Z",
+  wkbMultiPolygon25D: "MultiPolygon Z",
+};
+
 async function createDesigned(event) {
   event.preventDefault();
   const fields = [...document.querySelectorAll("#dFields tr")].map(row => ({
@@ -4963,7 +5178,18 @@ async function createImported(event) {
   // No Content-Type header: the browser sets it with the multipart boundary,
   // and setting it by hand produces a body the server cannot parse.
   try {
-    reportNew(await api("/admin/hosted/import", { method: "POST", body }));
+    const answer = await api("/admin/hosted/import", { method: "POST", body });
+
+    // <b>Two shapes come back from one address, and the difference is the format.</b> A shapefile or a
+    // GeoJSON FeatureCollection is read inside the request and answers with the layer it made; a File
+    // Geodatabase cannot be, because it holds many feature classes and is read by a separate process
+    // minutes later — so it answers 202 with a job to watch. ADR-034 §5j, ADR-037.
+    if (answer && answer.job) {
+      watchInspect(answer);
+      return;
+    }
+
+    reportNew(answer);
     $("iName").value = "";
     $("iFile").value = "";
     await loadLayers();

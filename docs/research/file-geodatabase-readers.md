@@ -424,3 +424,44 @@ go to stderr and vanish.
 - [`g-a-freitas/GeoDataToolkit`](https://github.com/g-a-freitas/GeoDataToolkit)
 - [Esri `file-geodatabase-api`](https://github.com/Esri/file-geodatabase-api)
 - [Aspose.GIS — Esri GDB in C#](https://docs.aspose.com/gis/net/gdb-file-esri/)
+
+## 8f. End to end, through the server — measured 2026-08-19
+
+The reader had been run by hand. This is the whole path: upload, job, child process, layer list, and
+the console screen that shows it.
+
+| Archive | Compressed | Layers | With geometry | Largest | Coordinate system |
+| --- | --- | --- | --- | --- | --- |
+| PointofInvestigation | 0.36 MB | 12 | 6 | 1,148 features | EPSG:2952 |
+| Environmental | 3.98 MB | 55 | 55 | 3,659 features | — |
+| Project Information | 0.08 MB | 8 | 8 | 51 features | EPSG:2952 |
+
+The owner's three real client archives. **Structure and counts only** — no attribute value was read,
+printed or stored anywhere outside the running server, and none of the three is in this repository.
+
+The six layers without geometry in the first are attachment tables, which is what §5 predicted and the
+reason the reader reports every layer the driver names rather than filtering.
+
+### Two things this found that running the reader by hand could not
+
+**The first is a measurement that proved something adjacent to its claim.** §8e recorded the reader
+listing an archive in 0.06 s, and every upload through the server then failed with *GDAL could not
+open*. The reader turned `x.zip` into `/vsizip/x.zip`, which is the **folder containing** the
+geodatabase; `OpenFileGDB` opens a directory named `something.gdb` and does not go looking for one. The
+earlier run had been pointed at an already-extracted `.gdb` directory sitting beside the archive in the
+same folder — two different things named by paths that differ by four characters. The reader now reads
+the archive's own index with `ReadDirRecursive` and descends to the shallowest `.gdb`, because
+`PointofInvestigation.gdb.zip` usually holds `PointofInvestigation.gdb/` and an archive made by
+selecting a folder in Explorer, or renamed afterwards, holds whatever it holds.
+
+**The second was not a bug in this code at all, and cost longer to find.** A job failed with
+`KeyError: 'archive'` — a Python exception, from a server whose reader is .NET. The Python worker built
+earlier the same day and then reversed ([ADR-037](../adr/ADR-037-job-workers-come-in-two-kinds.md) §5a)
+was **still running in a Docker container**, three hours after its project was deleted, still polling
+the same platform database and still claiming `geodatabase.inspect` jobs. `SELECT … FOR UPDATE SKIP
+LOCKED` did exactly what ADR-011 §3.2 designed it to do: it gave the job to whichever claimer asked
+first. Which was sometimes the stale one, which is why two uploads succeeded and the third did not.
+
+That is [D-96](../architecture-debt.md): the job table is a claim surface with no worker identity and no
+protocol version on it, so anything that can reach the database can take work and fail it, and the
+failure names nothing an operator could use to find the culprit.

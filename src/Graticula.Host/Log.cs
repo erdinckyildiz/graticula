@@ -31,7 +31,75 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1022.
+    // The next id is 1030.
+
+    [LoggerMessage(
+        EventId = 1024,
+        Level = LogLevel.Information,
+        Message = "The geodatabase inspector is not running: this deployment did not ship the reader, "
+                + "so there is nothing it could claim. Uploading a File Geodatabase is refused at the "
+                + "door with the same reason, and every other import is unaffected.")]
+    public static partial void InspectorIdleWithoutReader(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1025,
+        Level = LogLevel.Warning,
+        Message = "The geodatabase inspector could not claim work and will try again shortly. The "
+                + "platform database is the thing it asks, so this is usually that being briefly away "
+                + "— the loop does not exit, because a worker that ends on a failed claim needs a "
+                + "restart to come back.")]
+    public static partial void InspectorClaimFailed(ILogger logger, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1026,
+        Level = LogLevel.Information,
+        Message = "Job {Job} read a geodatabase and recorded what is in it. Its layers are in the "
+                + "job's detail; publishing one is a second request naming the layer.")]
+    public static partial void InspectFinished(ILogger logger, System.Guid job);
+
+    [LoggerMessage(
+        EventId = 1027,
+        Level = LogLevel.Warning,
+        Message = "Job {Job} failed: {Why} The archive has been deleted, so retrying means uploading "
+                + "it again — which is deliberate: nothing here is kept across a container "
+                + "replacement.")]
+    public static partial void InspectRefused(
+        ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1028,
+        Level = LogLevel.Information,
+        Message = "Job {Job} was claimed and the server is stopping, so it is left unfinished rather "
+                + "than failed. Its archive is deleted with the rest, so a restart will find the job "
+                + "claimed with nothing to read — which is a state worth seeing rather than hiding.")]
+    public static partial void InspectAbandoned(ILogger logger, System.Guid job);
+
+    [LoggerMessage(
+        EventId = 1029,
+        Level = LogLevel.Error,
+        Message = "Job {Job} failed with '{Why}' and the failure could not be written to the job "
+                + "store either. It stays claimed and unfinished, which nothing will retry. Both "
+                + "exceptions are here because the second one hides the first.")]
+    public static partial void InspectUnrecorded(
+        ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1022,
+        Level = LogLevel.Information,
+        Message = "Job {Job} kept a {Megabytes} MB archive at {Path} for a geodatabase reader to open. "
+                + "It is deleted when the job finishes either way; an archive still here belongs to a "
+                + "job that has not finished, and the two can be reconciled by id.")]
+    public static partial void ImportArchiveKept(
+        ILogger logger, System.Guid job, long megabytes, string path);
+
+    [LoggerMessage(
+        EventId = 1023,
+        Level = LogLevel.Warning,
+        Message = "The import archive at {Path} could not be deleted after its job finished. It still "
+                + "counts against GisServer:ImportScratchBudgetMB, so enough of these will refuse the "
+                + "next upload — delete it by hand, and look for what is holding it open.")]
+    public static partial void ImportArchiveHeld(
+        ILogger logger, string path, System.Exception? exception);
 
     [LoggerMessage(
         EventId = 1021,

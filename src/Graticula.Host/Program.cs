@@ -95,6 +95,17 @@ public static class Program
         // request would be work in exchange for nothing.
         builder.Services.AddSingleton(_ => new GlyphStore(GlyphStore.BesideThisOne()));
 
+        // <b>The geodatabase reader, and the loop that uses it.</b> Registered even when the executable
+        // is absent: `Available` is the question every caller asks, and a missing registration would
+        // turn a deployment that did not ship it into a startup failure rather than a server that
+        // refuses one kind of upload with a sentence. ADR-037 §5a, ADR-034 §5j.
+        builder.Services.AddSingleton(services => new GeodatabaseReader(
+            GeodatabaseReader.ExecutableBesideThisOne(),
+            services.GetRequiredService<ILogger<GeodatabaseReader>>()));
+
+        builder.Services.AddSingleton<ImportScratch>();
+        builder.Services.AddHostedService<GeodatabaseInspector>();
+
         builder.Services.AddSingleton<TileSingleFlight>();
 
         builder.Services.AddSingleton<LayerConnections>();

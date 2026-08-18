@@ -12,6 +12,7 @@ using System.Text;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Jobs;
 using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
 using Microsoft.AspNetCore.Builder;
@@ -101,6 +102,9 @@ internal static class HostedDataEndpoints
         PostGisImporter importer,
         IAdminCatalog catalog,
         IAuditLog audit,
+        IJobStore jobs,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -174,7 +178,7 @@ internal static class HostedDataEndpoints
         if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
         {
             (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
-                context, form, file, cancellation).ConfigureAwait(false);
+                context, form, file, jobs, reader, scratch, cancellation).ConfigureAwait(false);
 
             if (!ok)
             {
@@ -445,6 +449,9 @@ internal static class HostedDataEndpoints
         HttpContext context,
         IFormCollection form,
         IFormFile file,
+        IJobStore jobs,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
         CancellationToken cancellation)
     {
         // <b>Recognised before it is attempted, and the first version did it afterwards.</b> Putting
@@ -457,16 +464,26 @@ internal static class HostedDataEndpoints
         // zip and a `.kml` in a zip were all refused with the generic sentence.
         //
         // One open, at position zero, before anything consumes it.
-        string? recognised;
+        ForeignArchive foreign;
 
         await using (System.IO.Stream looking = file.OpenReadStream())
         {
-            recognised = RecogniseArchive(looking);
+            foreign = RecogniseArchive(looking);
         }
 
-        if (recognised is not null)
+        // <b>A geodatabase is work rather than a refusal, when the reader shipped.</b> It is read by a
+        // child process minutes after this request has been answered, so the request cannot carry the
+        // answer — it opens a job and says where to watch it. ADR-011 §3.2 decided the claim protocol;
+        // this is the first kind of work that uses it.
+        if (foreign == ForeignArchive.Geodatabase && reader.Available)
         {
-            await Fail(context, 400, recognised).ConfigureAwait(false);
+            await OpenInspectAsync(context, jobs, scratch, file, cancellation).ConfigureAwait(false);
+            return (false, null!);
+        }
+
+        if (foreign != ForeignArchive.None)
+        {
+            await Fail(context, 400, Refusal(foreign)).ConfigureAwait(false);
             return (false, null!);
         }
 
@@ -872,8 +889,7 @@ internal static class HostedDataEndpoints
     /// <summary>
     /// Names the format in an archive that is not a shapefile, when it is one we recognise.
     /// </summary>
-    /// <param name="archive">The uploaded bytes, re-opened.</param>
-    /// <returns>A refusal that names the format, or null to let the generic one stand.</returns>
+    /// <returns>What was recognised, or <c>None</c> to let the shapefile attempt proceed.</returns>
     /// <remarks>
     /// <para>
     /// <b>A recogniser for the refusal, not a step towards support.</b> It exists so that
@@ -890,7 +906,30 @@ internal static class HostedDataEndpoints
     /// reader refuses folders before it ever gets to assembling a bundle.
     /// </para>
     /// </remarks>
-    private static string? RecogniseArchive(System.IO.Stream archive)
+    /// <summary>
+    /// A format this endpoint can recognise without being able to read it.
+    /// </summary>
+    /// <remarks>
+    /// <b>An enumeration rather than a message, because one of these is no longer a refusal.</b> This
+    /// returned the sentence to say no with, which was right while the answer was no for all three. A
+    /// geodatabase now opens a job instead, and a caller cannot branch on prose.
+    /// </remarks>
+    private enum ForeignArchive
+    {
+        /// <summary>Nothing recognised — carry on and try to assemble a shapefile.</summary>
+        None,
+
+        /// <summary>A File Geodatabase: a folder named <c>x.gdb</c>, or its table files.</summary>
+        Geodatabase,
+
+        /// <summary>A GeoPackage, which is a SQLite database.</summary>
+        GeoPackage,
+
+        /// <summary>KML or KMZ.</summary>
+        Kml,
+    }
+
+    private static ForeignArchive RecogniseArchive(System.IO.Stream archive)
     {
         const int Enough = 512;
 
@@ -928,7 +967,7 @@ internal static class HostedDataEndpoints
         }
         catch (System.IO.InvalidDataException)
         {
-            return null;
+            return ForeignArchive.None;
         }
 
         if (gdbFolder
@@ -936,38 +975,131 @@ internal static class HostedDataEndpoints
             || extensions.Contains(".gdbtablx")
             || extensions.Contains(".gdbindexes"))
         {
-            // <b>The route is named, and it changed within a day of this sentence being written.</b>
-            // It first said *"there is no GDAL-free managed reader to adopt, so writing one is a
-            // project"* — true under the constraint of the hour and wrong by the evening, when the
-            // owner allowed GDAL and dropped the .NET requirement. A refusal that names a plan has to
-            // be corrected when the plan changes, or it becomes the most confidently wrong text in the
-            // product.
-            return "This is a File Geodatabase, and this server does not import one yet. It is in "
-                + "scope for migration and it is planned rather than open: a geodatabase is read in "
-                + "the job worker, which is not built. See Q-108 and "
-                + "docs/research/file-geodatabase-readers.md. What imports today is a zipped "
-                + "shapefile, or a GeoJSON FeatureCollection — ArcGIS Pro exports a feature class to "
-                + "either, which is the way in until the worker exists.";
+            return ForeignArchive.Geodatabase;
         }
 
         if (extensions.Contains(".gpkg"))
         {
-            return "This is a GeoPackage, and this server does not import one yet. ADR-024 "
-                + "condition 3 is deliberate about it: a second archive format does not reuse the "
-                + "shapefile exception without its own decision, because 'we already decompress' is "
-                + "not an argument. What imports today is a zipped shapefile, or a GeoJSON "
-                + "FeatureCollection.";
+            return ForeignArchive.GeoPackage;
         }
 
         if (extensions.Contains(".kml") || extensions.Contains(".kmz"))
         {
-            return "This looks like KML in an archive, and this server does not import one yet — "
-                + "ADR-024 condition 3. What imports today is a zipped shapefile, or a GeoJSON "
-                + "FeatureCollection.";
+            return ForeignArchive.Kml;
         }
 
-        return null;
+        return ForeignArchive.None;
     }
+
+    /// <summary>
+    /// Keeps the archive, opens a job to look inside it, and answers 202 with where to watch.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Inspect, not import, and the two are separate on purpose.</b> A geodatabase holds many
+    /// feature classes — one of the owner's holds six beside six attachment tables — so *which layer*
+    /// is a question nobody can answer before the archive has been read. The first job reports what is
+    /// in there; publishing is a second request naming a layer. Guessing here, or importing all of
+    /// them, would both be decisions this endpoint has no basis for.
+    /// </para>
+    /// <para>
+    /// <b>The order is job first, archive second.</b> The file is named after the job, so the job has
+    /// to exist to name it — and a job whose archive failed to land can be finished with a reason,
+    /// where an archive with no job is a file nobody will ever collect.
+    /// </para>
+    /// <para>
+    /// <b>202 with a `Location`, which is what the status code means.</b> The console polls it; ADR-011
+    /// §3.2's own reasoning is that a request which cannot be answered now is answered later at an
+    /// address, rather than held open.
+    /// </para>
+    /// </remarks>
+    private static async Task OpenInspectAsync(
+        HttpContext context,
+        IJobStore jobs,
+        ImportScratch scratch,
+        IFormFile file,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        JobRecord job = await jobs.CreateAsync(
+            current.Principal.Id,
+            JobKind.GeodatabaseInspect,
+            $"Reading {file.FileName}",
+
+            // <b>What a person should see, and nothing else.</b> The archive's path is not here: this
+            // string is returned to the caller verbatim by `GET /admin/jobs/{id}`, and the path is
+            // derived from the job id by whoever needs it.
+            JsonSerializer.Serialize(new
+            {
+                file = file.FileName,
+                bytes = file.Length,
+            }),
+            cancellation).ConfigureAwait(false);
+
+        try
+        {
+            await scratch.KeepAsync(file, job.Id, cancellation).ConfigureAwait(false);
+        }
+        catch (System.IO.IOException full)
+        {
+            // <b>Finished rather than left pending.</b> A job created and then abandoned is the one
+            // state `IJobStore` cannot explain to anybody: it would sit at *pending* for ever while
+            // nothing was going to claim it.
+            await jobs.FinishAsync(
+                job.Id, JobStatus.Failed, null, full.Message, cancellation).ConfigureAwait(false);
+
+            await Fail(context, 507, full.Message).ConfigureAwait(false);
+            return;
+        }
+
+        context.Response.Headers.Location = $"/admin/jobs/{job.Id}";
+
+        await Results.Json(
+            new
+            {
+                job = job.Id,
+                status = "pending",
+                watch = $"/admin/jobs/{job.Id}",
+                note = "A File Geodatabase is read by a separate process, which takes as long as the "
+                    + "archive is large. This job reports the feature classes inside it; publishing "
+                    + "one is a second request naming the layer you want.",
+            },
+            statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Why a recognised archive is being refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>The geodatabase sentence has been rewritten twice and the history is the reason it is
+    /// careful.</b> It first said *"there is no GDAL-free managed reader to adopt, so writing one is a
+    /// project"* — true under the constraint of the hour and wrong by the evening, when the owner
+    /// allowed GDAL. It then said the reader *"is not built"*, which stopped being true when it was.
+    /// A refusal that names a plan has to be corrected every time the plan moves, or it becomes the
+    /// most confidently wrong text in the product — so this one names the **deployment** instead,
+    /// which is a fact about the server answering rather than a claim about the roadmap.
+    /// </remarks>
+    private static string Refusal(ForeignArchive kind) => kind switch
+    {
+        ForeignArchive.Geodatabase =>
+            "This is a File Geodatabase. Reading one needs the geodatabase reader, which this "
+            + "deployment did not ship — it is built and copied beside the server by the solution, so "
+            + "a server without it was assembled by hand. What imports without it is a zipped "
+            + "shapefile, or a GeoJSON FeatureCollection.",
+
+        ForeignArchive.GeoPackage =>
+            "This is a GeoPackage, and this server does not import one yet. ADR-024 condition 3 is "
+            + "deliberate about it: a second archive format does not reuse the shapefile exception "
+            + "without its own decision, because 'we already decompress' is not an argument. What "
+            + "imports today is a zipped shapefile, or a GeoJSON FeatureCollection.",
+
+        ForeignArchive.Kml =>
+            "This looks like KML in an archive, and this server does not import one yet — ADR-024 "
+            + "condition 3. What imports today is a zipped shapefile, or a GeoJSON FeatureCollection.",
+
+        _ => "This archive is not one this server imports.",
+    };
 
     private static Task Fail(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message } }, statusCode: code)

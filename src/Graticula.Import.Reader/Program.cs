@@ -334,15 +334,85 @@ internal static class Program
     /// Turns a path into something GDAL reads without unpacking it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A path that is already a <c>/vsi*</c> handle passes through, which is what lets a caller point at
     /// object storage later without this method learning about it.
+    /// </para>
+    /// <para>
+    /// <b>And a zip is descended into, because the archive root is not the dataset.</b> This first
+    /// version stopped at <c>/vsizip/x.zip</c>, which is the folder holding the geodatabase rather than
+    /// the geodatabase — <c>OpenFileGDB</c> opens a directory named <c>something.gdb</c> and does not
+    /// go looking for one. Every upload failed with *GDAL could not open*, and the earlier measurement
+    /// that said this worked had been pointed at an **already-extracted** <c>.gdb</c> directory sitting
+    /// beside the archive. Two different things named by two paths that differ by four characters,
+    /// which is how a measurement comes to prove something adjacent to the claim.
+    /// </para>
     /// </remarks>
-    private static string Vsi(string archive) =>
-        archive.StartsWith("/vsi", StringComparison.Ordinal)
-            ? archive
-            : archive.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
-                ? "/vsizip/" + archive.Replace('\\', '/')
-                : archive;
+    private static string Vsi(string archive)
+    {
+        if (archive.StartsWith("/vsi", StringComparison.Ordinal))
+        {
+            return archive;
+        }
+
+        if (!archive.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            return archive;
+        }
+
+        string inside = "/vsizip/" + archive.Replace('\\', '/');
+
+        return Descend(inside) ?? inside;
+    }
+
+    /// <summary>
+    /// The geodatabase inside an archive, as a path GDAL can open.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read from the archive's own index, not guessed from its file name.</b>
+    /// <c>PointofInvestigation.gdb.zip</c> usually holds <c>PointofInvestigation.gdb/</c> and sometimes
+    /// does not — an archive made by selecting the folder in Explorer, or one renamed after the fact,
+    /// carries whatever it carries. <c>ReadDirRecursive</c> asks.
+    /// </para>
+    /// <para>
+    /// <b>The shortest match, so a nested backup does not win.</b> A geodatabase can contain another
+    /// directory ending in <c>.gdb</c>; the one nearest the archive root is the one somebody meant to
+    /// send. Null when there is none, and the caller then opens the root — which is right for the zipped
+    /// shapefile this same door will take later.
+    /// </para>
+    /// </remarks>
+    private static string? Descend(string inside)
+    {
+        string[]? entries = Gdal.ReadDirRecursive(inside);
+
+        if (entries is null)
+        {
+            return null;
+        }
+
+        string? best = null;
+
+        foreach (string entry in entries)
+        {
+            string path = entry.Replace('\\', '/').TrimEnd('/');
+
+            // The entry may be a file *inside* the geodatabase — `x.gdb/a00000001.gdbtable` — so the
+            // directory is the prefix up to and including the `.gdb` segment rather than the entry.
+            int at = path.IndexOf(".gdb/", StringComparison.OrdinalIgnoreCase);
+
+            string? candidate = at >= 0
+                ? path[..(at + 4)]
+                : path.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase) ? path : null;
+
+            if (candidate is not null && (best is null || candidate.Length < best.Length))
+            {
+                best = candidate;
+            }
+        }
+
+        return best is null ? null : inside + "/" + best;
+    }
 
     /// <summary>The layer's authority code, or null when it has none.</summary>
     /// <remarks>
