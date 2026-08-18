@@ -191,20 +191,38 @@ function metric(label, value, note) {
  */
 let groupOpen = null;
 
+/** What is typed in the Groups search box. */
+let groupFilter = "";
+
+/** Who is signed in, set by `whoami` and read only by *Leave group*. */
+let signedInAs = "";
+
 async function loadGroups() {
   const answer = await api("/admin/groups") || {};
   const groups = answer.groups || [];
 
   if (!groups.some(g => g.name === groupOpen)) groupOpen = groups[0]?.name ?? null;
 
+  const needle = groupFilter.trim().toLowerCase();
+
+  // <b>A search box, because the reference has one over seventy groups.</b> Matching the title, the
+  // name, the description and the owner: an operator looking for a group remembers one of those and
+  // not which one it was.
+  const shown = needle
+    ? groups.filter(g => [g.name, g.title, g.description, g.owner]
+        .some(v => (v || "").toLowerCase().includes(needle)))
+    : groups;
+
   $("groupCount").textContent = groups.length === 0
     ? "no groups"
-    : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
+    : needle
+      ? `${shown.length} of ${groups.length}`
+      : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
 
   $("groupRows").innerHTML = groups.length === 0
     ? `<tr><td colspan="6" class="empty">You are in no groups. <b>New group</b> makes one, and
          whoever makes it owns it.</td></tr>`
-    : pageOf("groupRows", groups).map(g => `
+    : pageOf("groupRows", shown).map(g => `
       <tr class="pick${g.name === groupOpen ? " on" : ""}" data-group="${h(g.name)}">
         <td class="name">${h(g.title || g.name)}${g.title
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
@@ -215,7 +233,7 @@ async function loadGroups() {
         <td class="num">${num(g.items)}</td>
       </tr>`).join("");
 
-  $("groupsPager").innerHTML = pagerFor("groupRows", groups.length);
+  $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
 
   const chosen = groups.find(g => g.name === groupOpen) || null;
 
@@ -269,6 +287,17 @@ async function loadGroups() {
   // offer what its reader cannot do, and a plain member of a group is a reader here.
   $("groupActions").hidden = !chosen.mayManage;
   $("groupDelete").hidden = !chosen.mayDelete;
+  $("groupPicker").hidden = true;
+
+  // <b>*You are a member* and a way out, taken from the reference's group page.</b> Absent for the
+  // owner: the store refuses to remove them — they would keep owning a group that a
+  // membership-filtered list omits — so the button would be a refusal waiting to happen.
+  $("groupStanding").innerHTML = chosen.standing === "owner"
+    ? `<p class="hint"><b>You own this group.</b> Transfer it or delete it; you cannot leave it,
+         because a group whose owner is not in it is one no membership list shows.</p>`
+    : `<p class="hint"><b>You are a ${h(chosen.standing)} of this group.</b></p>`;
+
+  $("groupLeave").hidden = chosen.standing === "owner";
 }
 
 /**
@@ -4276,30 +4305,108 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>A picker, not a prompt.</b> Owner: *"add member asks for name. why not search a user and add
+  // user from the list"*. Asking somebody to type a member's name from memory is asking them to
+  // guess, and the failure is silent — a typo is a 404 about a member who does exist.
+  //
+  // <b>The candidates come from an endpoint written for this.</b> Reading the member directory needs
+  // `admin:manageMembers`, so a publisher who owns a group could not fill a list; widening that
+  // privilege to fill a dropdown would have been the wrong repair, so
+  // `GET /admin/groups/{name}/candidates` returns names only, to somebody who already manages the
+  // group.
   if (t.id === "groupAdd") {
-    const who = prompt("Which member should join this group?");
+    if (!groupOpen) return;
+
+    const answer = await api(
+      `/admin/groups/${encodeURIComponent(groupOpen)}/candidates`) || {};
+
+    const names = answer.candidates || [];
+
+    if (names.length === 0) {
+      toast("Every member is already in this group.");
+      return;
+    }
+
+    $("groupPicker").innerHTML = `
+      <div class="setting"><span class="q">Add a member:</span>
+        <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
+        <select id="groupPickWho" size="8">${names.map(n =>
+          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
+        <label><input type="checkbox" id="groupPickManager"> as a manager</label>
+        <button class="primary" id="groupPickAdd">Add</button>
+        <button class="ghost" id="groupPickCancel">Cancel</button></div>
+      <p class="hint">A <b>manager</b> may add members and share services, and may not delete the
+        group or transfer it — ADR-036 §3, which is the difference between delegating work and
+        delegating control.</p>`;
+
+    $("groupPicker").hidden = false;
+    return;
+  }
+
+  if (t.id === "groupPickCancel") {
+    $("groupPicker").hidden = true;
+    return;
+  }
+
+  if (t.id === "groupPickAdd") {
+    const who = $("groupPickWho")?.value;
     if (!who || !groupOpen) return;
 
     try {
       await api(
-        `/admin/groups/${encodeURIComponent(groupOpen)}/members/${encodeURIComponent(who.trim())}`,
+        `/admin/groups/${encodeURIComponent(groupOpen)}/members/${encodeURIComponent(who)}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ manager: false }),
+          body: JSON.stringify({ manager: !!$("groupPickManager")?.checked }),
         });
-      toast(`${who.trim()} joined ${groupOpen}`, true);
+      toast(`${who} joined ${groupOpen}`, true);
     } catch (e) { toast(e.message); }
 
+    $("groupPicker").hidden = true;
     await section("groups", loadGroups, "groupRows");
     return;
   }
 
+  // <b>The services you may share are your own content, which is a list the server already
+  // offers.</b> `/content/layers` is what any signed-in member may read about their own things —
+  // no new endpoint, and the set is right rather than merely available: you share what you
+  // published.
   if (t.id === "groupShare") {
-    const what = prompt("Which service? Use folder/name for a service in a folder.");
+    if (!groupOpen) return;
+
+    const content = await api("/content/layers") || {};
+
+    // <b>Services, not layers.</b> The listing is per layer and a group is shared a *service*, so
+    // three layers of one service must offer one choice rather than three.
+    const services = [...new Set((content.mine || []).map(l =>
+      l.folder ? `${l.folder}/${l.service}` : l.service))].sort();
+
+    if (services.length === 0) {
+      toast("You have published nothing to share.");
+      return;
+    }
+
+    $("groupPicker").innerHTML = `
+      <div class="setting"><span class="q">Share a service:</span>
+        <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
+        <select id="groupPickWhat" size="8">${services.map(n =>
+          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
+        <button class="primary" id="groupPickShare">Share</button>
+        <button class="ghost" id="groupPickCancel">Cancel</button></div>
+      <p class="hint">Sharing it here is one of two steps: its own sharing scope must also be
+        <b>group</b>, which is set on the service's Sharing page. Either alone is a state that reads
+        as done and is not.</p>`;
+
+    $("groupPicker").hidden = false;
+    return;
+  }
+
+  if (t.id === "groupPickShare") {
+    const what = $("groupPickWhat")?.value;
     if (!what || !groupOpen) return;
 
-    const cut = what.trim().split("/");
+    const cut = what.split("/");
     const bare = cut.pop();
     const folder = cut.join("/");
 
@@ -4310,6 +4417,30 @@ async function handleClick(event) {
         { method: "PUT" });
 
       toast(done.note ? `${bare} shared. ${done.note}` : `${bare} shared`, true);
+    } catch (e) { toast(e.message); }
+
+    $("groupPicker").hidden = true;
+    await section("groups", loadGroups, "groupRows");
+    return;
+  }
+
+  // <b>Leave group, which we had no way to do at all.</b> Taken from the reference's group page,
+  // where *"You are a member"* sits above it. A member could be removed by a manager and could not
+  // walk out, which makes joining a group something done *to* somebody.
+  //
+  // <b>The owner cannot leave their own group</b> — the store refuses it, because they would keep
+  // owning a group that a membership-filtered list omits. The button is absent for them rather than
+  // present and refusing.
+  if (t.id === "groupLeave" && groupOpen) {
+    if (!confirm(
+      `Leave '${groupOpen}'? You will stop seeing the services shared with it.`)) return;
+
+    try {
+      await api(
+        `/admin/groups/${encodeURIComponent(groupOpen)}/members/${encodeURIComponent(signedInAs)}`,
+        { method: "DELETE" });
+      toast(`You left ${groupOpen}`, true);
+      groupOpen = null;
     } catch (e) { toast(e.message); }
 
     await section("groups", loadGroups, "groupRows");
@@ -4672,6 +4803,22 @@ document.addEventListener("change", async event => {
   // <b>Set from existing role: copies the ticks and does not save.</b> Applying it immediately
   // would make *look at what publisher has* into *become publisher*, and the whole point is to then
   // narrow it.
+  // The picker's own filter, which is why the reference has a search box over a list of seventy.
+  if (event.target.id === "groupPickFilter") {
+    const needle = event.target.value.trim().toLowerCase();
+
+    for (const list of [$("groupPickWho"), $("groupPickWhat")]) {
+      if (!list) continue;
+
+      for (const option of list.options) {
+        option.hidden = needle.length > 0
+          && !option.value.toLowerCase().includes(needle);
+      }
+    }
+
+    return;
+  }
+
   if (event.target.id === "roleFromPick") {
     const from = event.target.value;
     if (!from) return;
@@ -4792,6 +4939,13 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("input", event => {
+  if (event.target.id === "groupFilter") {
+    groupFilter = event.target.value;
+    resetPage("groupRows");
+    section("groups", loadGroups, "groupRows");
+    return;
+  }
+
   if (event.target.id === "serviceFilter") {
     serviceFilter = event.target.value;
 
@@ -4843,6 +4997,11 @@ async function whoami() {
   // <b>The gate's input.</b> ADR-034 §5b: Server needs `admin:manageServer`, and the router
   // reads it from here rather than probing an endpoint to see whether it is refused.
   privileges = new Set(me.privileges || []);
+
+  // <b>The signed-in name, for the one act that is about oneself.</b> *Leave group* removes the
+  // caller from a group, and every other member operation names somebody else — so this is the only
+  // place the console needs to know who it is beyond drawing the banner.
+  signedInAs = me.authenticated ? (me.name || "") : "";
   // Two lines rather than one sentence with separators: `#who b` is a block, so a leading "·" on
   // the second line was left dangling under the name. The name is the identity and the rest is what
   // it can do, which is the hierarchy this pair should read as anyway.

@@ -683,6 +683,7 @@
     </div>
 
     <div class="toolbar">
+      <input type="search" id="groupFilter" placeholder="Search groups&hellip;" autocomplete="off">
       <span class="val" id="groupCount"></span>
       <span style="flex:1"></span>
       <button class="primary" id="groupNew">New group</button>
@@ -707,9 +708,14 @@
           <button class="tiny" id="groupShare">Share a service</button>
           <button class="tiny danger" id="groupDelete" hidden>Delete group</button>
         </div>
+        <div>
+          <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
+        </div>
       </div>
 
+      <div id="groupStanding"></div>
       <div id="groupCapability"></div>
+      <div id="groupPicker" hidden></div>
 
       <h4>Members</h4>
       <table>

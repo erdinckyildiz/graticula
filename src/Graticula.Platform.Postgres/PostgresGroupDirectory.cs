@@ -379,6 +379,46 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> CandidatesAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>`anonymous` is excluded by name, because it is a row.</b> The anonymous principal exists
+        // in this table so that an unauthenticated request has an identity to be refused as; adding
+        // it to a group would make *every* unauthenticated caller a member, which is `public` by
+        // accident and by the longest possible route.
+        const string Sql = """
+            select p.name
+              from principal p
+             where p.disabled_at is null
+               and p.kind = 'user'
+               and p.name <> 'anonymous'
+               and not exists (
+                     select 1
+                       from sharing_group g
+                       join sharing_group_member m on m.group_id = g.id
+                      where lower(g.name) = lower(@group) and m.principal_id = p.id)
+             order by p.name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("group", name);
+
+        List<string> answer = [];
+
+        await using NpgsqlDataReader reader = await command
+            .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            answer.Add(reader.GetString(0));
+        }
+
+        return answer;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<string>> ItemsAsync(
         string name, CancellationToken cancellationToken)
     {

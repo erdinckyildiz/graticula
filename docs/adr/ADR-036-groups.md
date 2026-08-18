@@ -185,6 +185,47 @@ admits every scope the code knows. Its premise had to be corrected (it read migr
 migration 26 is where the answer now lives) and it is the only thing in the repository that noticed.
 The other four parsers and the ceiling were found by running the feature.
 
+### 4e. The screen's shape, from the reference the owner sent
+
+Owner, 2026-08-18: *"add member asks for name. why not search a user and add user from the list"* —
+followed by two screenshots of Portal's Groups, and *"looks good"*.
+
+**The objection was right and the cause was an authorization one.** Adding somebody to a group needs
+to know who exists; reading the member directory needs `admin:manageMembers`. So a publisher who owns
+a group could not fill a picker, and the console asked them to type a name from memory — where a typo
+is a 404 about a member who does exist. **The repair is a narrower endpoint, not a wider privilege:**
+`GET /admin/groups/{name}/candidates` returns *names only*, to somebody who already owns or manages
+that group, excluding whoever is already in it and every disabled account. Granting
+`admin:manageMembers` — which carries creating accounts, changing roles, disabling and deleting — so
+that a dropdown could be populated would have been [D-20](../architecture-debt.md)'s complaint in
+reverse.
+
+**The service picker needed no new endpoint.** `/content/layers` is what any signed-in member may
+read about their own things, and it is the *right* set rather than merely the available one: you share
+what you published. It is per layer and a group is shared a service, so three layers of one service
+offer one choice.
+
+**Taken from the screenshots, beyond the pickers:**
+
+- **Leave group**, which did not exist in any form. A member could be removed by a manager and could
+  not walk out — which makes joining a group something done *to* somebody. Absent for the owner, whom
+  the store refuses to remove, rather than present and refusing.
+- **Where you stand, said in words** — their *"You are a member"*. Ours says *"You are a member of
+  this group"* or, for an owner, why they cannot leave.
+- **Search**, over name, title, description and owner. Their list showed *1-60 of 71*; somebody
+  looking for a group remembers one of those four fields and not which one.
+
+**Deliberately not taken, because each is a decision rather than a shape**, and inventing an
+authorization axis quietly is what §3 spent a section refusing to do:
+
+| Theirs | Why it is not here |
+|---|---|
+| **Viewable by: Organization / Group members / Everyone** — a group has its own visibility, separate from what is shared with it | A fifth thing to be visible, on an object that is itself a visibility mechanism. It answers *who may discover that this group exists*, which is a real question and a different one from *who may read its items*. Recorded as [Q-118](../open-questions.md) |
+| **Members list: visible to all group members / to the owner only** | Whether members may see each other. Ours are always visible to members, which is the more open of the two and was not chosen — it fell out. [Q-118](../open-questions.md) |
+| **Contributors: all group members / owner only** — who may add items to the group | Distinct from §4b's `item_update`, which is about editing what is *already* shared. Who may *contribute* is a third setting and ours is *owners and managers* by construction. [Q-118](../open-questions.md) |
+| **Featured groups**, **My organization's groups** as separate tabs | Both are discovery over groups you are not in, which needs the visibility above to mean anything |
+| **Special groups** — Shared Update, Distributed, Administrative, Organization Settings | Product features of theirs that have no counterpart here, and adopting a tab because it exists is what §82 refuses |
+
 ## 5. Consequences
 
 - **The sharing check gains a fourth value** on `layer`, `service` and `system_service`. Expand-only.

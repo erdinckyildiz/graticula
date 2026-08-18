@@ -331,6 +331,11 @@ internal static class AdminEndpoints
         app.MapPost("/admin/groups", CreateGroupAsync);
         app.MapDelete("/admin/groups/{name}", DeleteGroupAsync);
         app.MapGet("/admin/groups/{name}", DescribeGroupAsync);
+        // <b>Who could be added, for the picker.</b> Names only, and only to somebody who already
+        // manages the group — the alternative was granting `admin:manageMembers` so a dropdown could
+        // be filled, which is a large privilege for a small need.
+        app.MapGet("/admin/groups/{name}/candidates", ListGroupCandidatesAsync);
+
         app.MapPut("/admin/groups/{name}/members/{member}", SetGroupMemberAsync);
         app.MapDelete("/admin/groups/{name}/members/{member}", RemoveGroupMemberAsync);
         app.MapPut("/admin/groups/{name}/items/{service}", ShareWithGroupAsync);
@@ -2552,6 +2557,55 @@ internal static class AdminEndpoints
                 .Select(m => new { name = m.Member, standing = m.Standing.ToString().ToLowerInvariant() }),
 
             items = await groups.ItemsAsync(found.Name, cancellation).ConfigureAwait(false),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Members who could be added to this group.</summary>
+    /// <remarks>
+    /// <b>Guarded by managing the group rather than by a privilege over members.</b> The membership
+    /// axis is the authority here (ADR-036 §3): somebody who neither owns nor manages the group has
+    /// no business enumerating who could join it, and somebody who does needs exactly this.
+    /// </remarks>
+    private static async Task ListGroupCandidatesAsync(
+        HttpContext context,
+        string name,
+        IGroupDirectory groups,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        bool all = current.Authorization.Allows(Privilege.AdminManageAllContent);
+
+        GroupSummary? found = (await groups
+                .ListAsync(current.Principal.Id, all, cancellation).ConfigureAwait(false))
+            .FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        // 404 rather than 403, for the reason DescribeGroupAsync gives.
+        if (found is null)
+        {
+            await Refuse(context, 404, $"No group '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!all && found.Standing is not (GroupStanding.Owner or GroupStanding.Manager))
+        {
+            await RefuseGroupChangeAsync(context, name, GroupChange.NotYours, null)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            group = found.Name,
+            candidates = await groups.CandidatesAsync(found.Name, cancellation)
+                .ConfigureAwait(false),
+            note = "Enabled members who are not in this group yet.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

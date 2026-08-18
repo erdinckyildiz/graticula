@@ -228,6 +228,35 @@ public interface IGroupDirectory
     Task<IReadOnlyList<(string Member, GroupStanding Standing)>> MembersAsync(
         string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Members who could be added to this group, by name.
+    /// </summary>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Enabled members not already in it, by name.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Names and nothing else, and that is the whole design.</b> Adding somebody to a group needs
+    /// to know who exists, and reading the member directory needs <c>admin:manageMembers</c> — so a
+    /// publisher who owns a group could not populate a picker and the console asked them to type a
+    /// name from memory. The owner objected, and correctly.
+    /// </para>
+    /// <para>
+    /// <b>The alternative was widening a privilege, which would have been the wrong repair.</b>
+    /// <c>admin:manageMembers</c> carries creating accounts, changing roles, disabling and deleting;
+    /// granting it so that somebody can fill a dropdown is
+    /// <see href="../../docs/architecture-debt.md">D-20</see>'s complaint in reverse. This returns
+    /// the one field a picker needs, to somebody who already manages the group — and a member's name
+    /// is not a secret from other members: it is on every item they own and in every group they share.
+    /// </para>
+    /// <para>
+    /// <b>Disabled accounts are excluded rather than shown greyed.</b> A disabled member cannot read
+    /// anything, so adding them to a group is an act with no effect, and a picker that offers it is
+    /// offering a mistake.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<string>> CandidatesAsync(string name, CancellationToken cancellationToken);
+
     /// <summary>Which services are shared with a group.</summary>
     /// <param name="name">The group.</param>
     /// <param name="cancellationToken">Cancellation.</param>
