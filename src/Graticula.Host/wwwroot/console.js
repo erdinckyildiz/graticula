@@ -2574,7 +2574,11 @@ async function loadMyContent() {
                   ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}</div></td>
             <td class="val">${i.folder ? h(i.folder) : "root"}</td>
             <td>${pill(i.status)}</td>
-            <td>${pill(i.sharing)}${
+
+            <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
+                 can reach this and the reader is going to press it either way. -->
+            <td><button class="pillbtn" data-share="${h(i.name)}"
+                  title="Set who can reach this">${pill(i.sharing)}</button>${
               // `because` only where the scope pill does not already say it. On this server the two
               // used to read `public` and `Public` three inches apart, which is one fact twice.
               i.because === "administrativeoverride"
@@ -3114,6 +3118,280 @@ async function loadServiceData() {
   } catch (e) {
     box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
   }
+}
+
+/**
+ * The three scopes, in the words the reference uses and the values this server takes.
+ *
+ * <b>Their labels, our values.</b> The owner's screen says Owner / Organization / Everyone (public);
+ * `PUT /admin/services/{name}/sharing` takes `private` / `organization` / `public`, which is what
+ * §5z's content sections are computed from. The glyphs are the ones the sharing pills already use, so a
+ * scope looks the same in the dialog that sets it as in the row that reports it.
+ */
+const SHARE_SCOPES = [
+  ["private", "Owner", "Only you and an administrator can reach it."],
+  ["organization", "Organization",
+   "Everyone signed in to this server can read it. A stranger with the address still gets nothing."],
+  ["public", "Everyone (public)",
+   "Anyone with the address can read it, signed in or not. Anonymous view shows what they receive."],
+];
+
+/** What the share dialog is editing, and what it has been told to do. */
+let sharing = null;
+
+/**
+ * Opens the share dialog for one service.
+ *
+ * <b>Read again on opening rather than taken from the row.</b> A row was drawn when the screen loaded
+ * and the scope may have moved since — and the dialog is about to write, so it starts from what the
+ * server says now.
+ */
+async function openShare(qualified) {
+  sharing = {
+    qualified,
+    scope: null,
+    groups: [],          // the groups it is in now: { name, title }
+    wanted: null,        // the set the reader has chosen, or null while unchanged
+    step: "scope",
+    filter: "",
+  };
+
+  $("shareTitle").textContent = "Share";
+  $("shareBody").innerHTML = `<p class="hint">Reading how this is shared…</p>`;
+  $("shareFoot").innerHTML = "";
+  $("share").showModal();
+
+  try {
+    const answer = await api("/content/items");
+    const item = (answer.items || []).find(i => i.name === qualified);
+
+    if (!item) {
+      $("shareBody").innerHTML = `<p class="hint">This service is no longer in your content.</p>`;
+      return;
+    }
+
+    sharing.scope = item.sharing || "private";
+
+    // <b>Absent means *not yours to know*, and it is not the same as empty.</b> The endpoint returns
+    // `sharedWith` only to an owner or an administrator (§5l), so a null here is a reader who may see
+    // the item and may not set its sharing — and the dialog says so rather than showing an empty list
+    // that reads as *shared with nobody*.
+    sharing.groups = Array.isArray(item.sharedWith) ? item.sharedWith : null;
+    sharing.wanted = sharing.groups === null
+      ? null
+      : new Set(sharing.groups.map(g => g.name).filter(Boolean));
+
+    drawShare();
+  } catch (e) {
+    $("shareBody").innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
+  }
+}
+
+/** Whichever of the two screens the dialog is on. */
+function drawShare() {
+  if (!sharing) return;
+
+  if (sharing.step === "groups") return drawShareGroups();
+
+  $("shareTitle").textContent = "Share";
+
+  const readOnly = sharing.groups === null;
+
+  $("shareBody").innerHTML = `
+    <p class="picklede">Set sharing level.</p>
+    ${SHARE_SCOPES.map(([key, label, said]) => `
+      <label class="pickrow${key === sharing.scope ? " on" : ""}" data-scope="${key}">
+        <input type="radio" name="shareScope" value="${key}"
+          ${key === sharing.scope ? "checked" : ""}${readOnly ? " disabled" : ""}>
+        <span><b>${icon(key)} ${h(label)}</b><span>${h(said)}</span></span>
+      </label>`).join("")}
+
+    <h4 style="margin-top:var(--gap-5)">Set group sharing</h4>
+    ${readOnly
+      ? `<p class="hint">Which groups this is shared with is the owner's answer, and you are neither
+           its owner nor an administrator. You can see it because of how it reached you.</p>`
+      : `<div id="shareGroupList"></div>
+         <button type="button" class="ghost" id="shareEditGroups">Edit group sharing</button>`}`;
+
+  if (!readOnly) drawShareGroupList();
+
+  $("shareFoot").innerHTML = `
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="shareCancel">Cancel</button>
+    ${readOnly ? "" : `<button type="button" class="primary" id="shareSave">Save</button>`}`;
+}
+
+/** The groups it is in, as the dialog currently intends them. */
+function drawShareGroupList() {
+  const box = $("shareGroupList");
+  if (!box || !sharing?.wanted) return;
+
+  // <b>Titles from both places it knows them.</b> The item's own `sharedWith` names the groups it is
+  // already in; a group ticked on the second screen is not in that list yet, so its title comes from the
+  // list of the caller's groups. Without the second source a newly ticked group showed as its key — the
+  // chip read `planning` where the table two clicks earlier said *Planning Group*.
+  const named = new Map([
+    ...(sharing.available || []).map(g => [g.name, g.title || g.name]),
+    ...(sharing.groups || []).map(g => [g.name, g.title]),
+  ]);
+
+  box.innerHTML = sharing.wanted.size === 0
+    ? `<p class="hint">Not shared with any group. <b>Edit group sharing</b> offers the groups you are a
+         member of.</p>`
+    : `<div class="chips">${[...sharing.wanted].map(name =>
+        `<span class="chip">${h(named.get(name) || name)}
+           <button type="button" class="tiny ghost" data-unshare="${h(name)}"
+             title="Stop sharing with this group">&#10005;</button></span>`).join("")}</div>`;
+}
+
+/**
+ * The second screen: the groups you are a member of.
+ *
+ * <b>*"üyesi olduğum gruplarla"* — the caller's own groups, and only the ones they may add to.</b>
+ * `/admin/groups` answers with `standing` and `contribute` per row, so a group whose contribution is
+ * managers-only and where you stand as a member is a group you cannot share into. Offering it would be
+ * a control that fails on press, which is what ADR-034's own rule is about.
+ */
+async function drawShareGroups() {
+  $("shareTitle").textContent = "Group sharing";
+
+  $("shareFoot").innerHTML = `
+    <button type="button" class="ghost" id="shareBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="shareCancel">Cancel</button>`;
+
+  if (!sharing.available) {
+    $("shareBody").innerHTML = `<p class="hint">Reading your groups…</p>`;
+
+    try {
+      const answer = await api("/admin/groups");
+
+      sharing.available = (answer.groups || []).filter(g =>
+        g.standing === "owner" || g.standing === "manager"
+        || (g.contribute !== "managers" && g.standing));
+    } catch (e) {
+      $("shareBody").innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
+      return;
+    }
+  }
+
+  const needle = sharing.filter.trim().toLowerCase();
+
+  const shown = sharing.available.filter(g => needle === ""
+    || (g.title || g.name).toLowerCase().includes(needle)
+    || g.name.toLowerCase().includes(needle));
+
+  $("shareBody").innerHTML = `
+    <div class="toolbar">
+      <input type="search" id="shareFilter" placeholder="Search your groups"
+        value="${h(sharing.filter)}" autocomplete="off">
+      <span class="val">Selected: ${num(sharing.wanted.size)}</span>
+      <span style="flex:1"></span>
+      <span class="val">${shown.length === sharing.available.length
+        ? `${num(sharing.available.length)} group${sharing.available.length === 1 ? "" : "s"}`
+        : `${num(shown.length)} of ${num(sharing.available.length)}`}</span>
+    </div>
+    <div class="widetable">
+      <table>
+        <thead><tr><th class="tick"></th><th>Group</th><th>You are</th><th>Already has it</th></tr></thead>
+        <tbody>${sharing.available.length === 0
+          ? `<tr><td colspan="4" class="empty">You are not in a group you can share into. A group's
+               owner or a manager can add you, and a group that only lets managers contribute cannot
+               take this from you.</td></tr>`
+          : shown.length === 0
+            ? `<tr><td colspan="4" class="empty">No group matches <b>${h(sharing.filter)}</b>.</td></tr>`
+            : shown.map(g => {
+              const has = sharing.wanted.has(g.name);
+              const had = (sharing.groups || []).some(x => x.name === g.name);
+
+              return `<tr>
+                <td class="tick"><input type="checkbox" data-share-group="${h(g.name)}"
+                  ${has ? "checked" : ""}></td>
+                <td class="name">${h(g.title || g.name)}</td>
+                <td class="val">${h(g.standing || "")}</td>
+                <td class="val">${had ? "already shared" : ""}</td>
+              </tr>`;
+            }).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
+/**
+ * Writes what the dialog intends: the scope, then the group changes.
+ *
+ * <b>The scope first, because it is the one that can fail on authorization.</b> A caller who may not set
+ * it gets a refusal before any group has moved, so a partial write is a scope that did not change and
+ * groups that did not either.
+ *
+ * <b>And each group change is reported by name if it fails.</b> Sharing with four groups and failing on
+ * the third is three that worked; a single *could not save* would leave the reader to guess which.
+ */
+async function saveShare() {
+  if (!sharing) return;
+
+  const chosen = $("shareBody").querySelector(`input[name="shareScope"]:checked`);
+  const scope = chosen ? chosen.value : sharing.scope;
+
+  const { folder, name } = splitService(sharing.qualified);
+  const failed = [];
+
+  try {
+    if (scope !== sharing.scope) {
+      await api(`/admin/services/${encodeURIComponent(name)}/sharing`
+        + `?folder=${encodeURIComponent(folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sharing: scope }),
+      });
+    }
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
+
+  const had = new Set((sharing.groups || []).map(g => g.name).filter(Boolean));
+
+  // <b>The bare name in the path and the folder in a query, which the group's own picker already
+  // does.</b> The first version passed the qualified name — `encodeURIComponent("hosted/tr_ilce")` is
+  // `hosted%2Ftr_ilce`, and the route's `{service}` segment does not put the slash back, so the server
+  // answered *'hosted%2Ftr_ilce' is not something this server has*. Found by sharing a service that was
+  // **not** already shared: the first test used one that was, so the loop skipped the write and reported
+  // success without having made a request. A test that exercises nothing passes.
+  const where = group => {
+    const cut = sharing.qualified.lastIndexOf("/");
+    const folder = cut < 0 ? "" : sharing.qualified.slice(0, cut);
+    const bare = cut < 0 ? sharing.qualified : sharing.qualified.slice(cut + 1);
+
+    return `/admin/groups/${encodeURIComponent(group)}/items/${encodeURIComponent(bare)}`
+      + `?folder=${encodeURIComponent(folder)}`;
+  };
+
+  for (const group of sharing.wanted) {
+    if (had.has(group)) continue;
+
+    try {
+      await api(where(group), { method: "PUT" });
+    } catch (e) { failed.push(`${group}: ${e.message}`); }
+  }
+
+  for (const group of had) {
+    if (sharing.wanted.has(group)) continue;
+
+    try {
+      await api(where(group), { method: "DELETE" });
+    } catch (e) { failed.push(`${group}: ${e.message}`); }
+  }
+
+  $("share").close();
+
+  toast(failed.length === 0
+    ? `${sharing.qualified}: shared ${scope}${sharing.wanted.size
+        ? ` and with ${sharing.wanted.size} group${sharing.wanted.size === 1 ? "" : "s"}` : ""}.`
+    : `Some group changes did not apply — ${failed.join("; ")}`, failed.length === 0);
+
+  sharing = null;
+
+  await section("your content", loadMyContent, "contentRows").then(paintPreviews);
 }
 
 /**
@@ -7111,6 +7389,34 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "shareClose" || t.id === "shareCancel") {
+    $("share").close();
+    sharing = null;
+    return;
+  }
+
+  if (t.id === "shareEditGroups") {
+    sharing.step = "groups";
+    drawShare();
+    return;
+  }
+
+  if (t.id === "shareBack") {
+    sharing.step = "scope";
+    drawShare();
+    return;
+  }
+
+  if (t.id === "shareSave") { await saveShare(); return; }
+
+  if (d.unshare) {
+    sharing.wanted.delete(d.unshare);
+    drawShareGroupList();
+    return;
+  }
+
+  if (d.share) { await openShare(d.share); return; }
+
   if (t.dataset?.visMode !== undefined) {
     event.preventDefault();
     visMode = t.dataset.visMode;
@@ -7468,6 +7774,30 @@ document.addEventListener("change", async event => {
   // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
+  if (event.target?.name === "shareScope") {
+    for (const row of $("shareBody").querySelectorAll(".pickrow")) {
+      row.classList.toggle("on", row.dataset.scope === event.target.value);
+    }
+    return;
+  }
+
+  if (event.target?.dataset?.shareGroup) {
+    if (event.target.checked) sharing.wanted.add(event.target.dataset.shareGroup);
+    else sharing.wanted.delete(event.target.dataset.shareGroup);
+
+    // Only the count, so a tick does not rebuild the table under the reader's finger.
+    const said = $("shareBody").querySelector(".toolbar .val");
+    if (said) said.textContent = `Selected: ${num(sharing.wanted.size)}`;
+    return;
+  }
+
+  if (event.target?.id === "shareFilter") {
+    sharing.filter = event.target.value;
+    drawShare();
+    $("shareFilter")?.focus();
+    return;
+  }
+
   if (event.target?.id === "svcLock") {
     drawServiceDelete();
     return;

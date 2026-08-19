@@ -699,12 +699,18 @@ internal static class AdminEndpoints
         // here — the fact that makes the scope actionable rather than just a label.
         Dictionary<string, string> groupTitles = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<Guid, string> groupNames = [];
+        Dictionary<Guid, string> groupKeys = [];
 
         foreach (GroupSummary g in await groups
             .ListAsync(current.Principal.Id, false, cancellation).ConfigureAwait(false))
         {
             groupTitles[g.Name] = g.Title ?? g.Name;
             groupNames[g.Id] = g.Title ?? g.Name;
+
+            // <b>The key as well as the title, because the two are used for different things.</b> A
+            // title is what a reader sees; the *name* is what `/admin/groups/{name}/items/{service}`
+            // takes, and the Share dialog has to be able to unshare what it lists (§5l).
+            groupKeys[g.Id] = g.Name;
         }
 
         List<object> items = [];
@@ -794,6 +800,33 @@ internal static class AdminEndpoints
                         .Where(n => n is not null)
                         .ToList()
                     : [],
+
+                // <b>Every group it is shared with, and only for somebody who may change that.</b>
+                // `throughGroups` above answers *how this reached you* and is empty for any other
+                // scope, which is what the content sections need. The Share dialog needs a different
+                // fact — [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5l — and that fact is
+                // more sensitive: the set of groups an item is in names other people's teams to
+                // anybody who can see the item, including groups they are not in.
+                //
+                // <b>So it is the owner's answer, or an administrator's.</b> ADR-018's reasoning one
+                // level down: a scope is public information about an item, and the set of groups is
+                // information about the groups. Absent rather than empty for everybody else, so a
+                // reader cannot tell *shared with nothing* from *not yours to know*.
+                sharedWith = owned || current.Authorization.Allows(Privilege.AdminManageAllContent)
+                    ? service.SharedWith
+                        .Select(g => new
+                        {
+                            // <b>Null when the caller is not in it, which an owner can be.</b> An
+                            // administrator may share somebody's item into a group its owner does not
+                            // belong to; the owner then sees that it is shared and cannot name the
+                            // group, which is the honest answer rather than an invented one.
+                            name = groupKeys.TryGetValue(g, out string? keyed) ? keyed : null,
+                            title = groupNames.TryGetValue(g, out string? titled)
+                                ? titled
+                                : "a group you are not in",
+                        })
+                        .ToList<object>()
+                    : null,
 
                 // <b>Why the caller may read it, beside whose it is.</b> The two differ for an owner's
                 // public service — theirs, and readable by anybody — and both facts are worth showing:

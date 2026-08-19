@@ -1358,6 +1358,26 @@
   </div>
 </div>
 
+<!-- ------------------------------------------------------------------- share -->
+<!--
+  <b>Sharing set from the item, which this console could only do from the group.</b>
+  [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5l, from the owner's screenshots: the row's own
+  control opens *Share*, which sets the scope and lists the groups the item is in, and *Edit group
+  sharing* offers the groups you are a member of.
+
+  <b>Two screens in one `dialog`, like New item's.</b> The scope and the groups are one transaction —
+  *organization and also this team* is a single intent — so they are two steps of one dialog rather than
+  two dialogs. Nothing is written until Save, which is why the second screen's Back is not a cancel.
+-->
+<dialog id="share" aria-labelledby="shareTitle">
+  <header class="dialoghead">
+    <h3 id="shareTitle" tabindex="-1">Share</h3>
+    <button class="tiny ghost" id="shareClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="shareBody"></div>
+  <footer class="dialogfoot" id="shareFoot"></footer>
+</dialog>
+
 <!-- ---------------------------------------------------------------- new item -->
 <!--
   <b>The owner sent this screen twice and then pointed at the button.</b> ArcGIS Portal's *New item*
