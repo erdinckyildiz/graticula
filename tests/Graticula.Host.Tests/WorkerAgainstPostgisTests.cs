@@ -507,4 +507,155 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
 
         Assert.True(matched >= left.Count, $"only {matched} pairs intersected at all.");
     }
+
+    // ---------- Q-20: the two engines, on the cases a corpus does not contain ----------
+
+    /// <summary>
+    /// Every predicate both engines can answer, on the cases where engines diverge.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-20](../../docs/open-questions.md) asks how many geometry engines end up evaluating our
+    /// predicates and how divergence is prevented. In v1 the answer is two</b> — PostGIS's GEOS for every
+    /// spatial filter on a query, and NetTopologySuite's JTS port in the overlay worker for
+    /// <c>GeometryServer/relation</c> — and six predicates are answerable by both. Until 2026-08-19
+    /// nothing had compared them beyond <c>intersects</c> on a corpus.
+    /// </para>
+    /// <para>
+    /// <b>The cases are not from the corpus, and that is the point.</b>
+    /// <c>Relation_picks_the_same_pairs_as_PostGIS</c> above runs on real polygons from the datastore,
+    /// which is the right test for *does this work at all* and the wrong one for divergence: real data
+    /// contains almost no self-intersecting bowties, no pairs a nanometre apart, and no polygon sitting
+    /// inside another's hole. Those are where GEOS and JTS are documented to be able to part company, so
+    /// they are written out here by hand — the fifteen cases from
+    /// <c>experiments/geometry-oracle</c>, which measured all six predicates over HTTP and found the two
+    /// engines agreeing on every one.
+    /// </para>
+    /// <para>
+    /// <b>What this guards is a version, not a design.</b> The experiment established agreement once;
+    /// this fails when an NetTopologySuite upgrade, a GEOS upgrade, or a change to
+    /// <c>Satisfies</c> moves an answer. That is the only way the agreement can be lost, and it is
+    /// exactly the kind of change that arrives in a dependency bump nobody reads.
+    /// </para>
+    /// <para>
+    /// <b>PostGIS is the oracle and it is not being called correct.</b> Where they agree, both are
+    /// consistent — that is all this asserts. If a future case is found where the two differ, the
+    /// question of which is right is a decision for an ADR, not for a test.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("shared edge")]
+    [InlineData("shared vertex only")]
+    [InlineData("identical")]
+    [InlineData("point on the boundary")]
+    [InlineData("point in the middle")]
+    [InlineData("line ending on the boundary")]
+    [InlineData("line through")]
+    [InlineData("line along the boundary")]
+    [InlineData("invalid bowtie against a square")]
+    [InlineData("invalid bowtie against itself")]
+    [InlineData("a nanometre apart")]
+    [InlineData("a nanometre overlapping")]
+    [InlineData("collapsed sliver")]
+    [InlineData("polygon inside a hole")]
+    [InlineData("multipolygon touching at one part")]
+    public async Task Both_engines_agree_on_the_case_engines_disagree_about(string which)
+    {
+        Require();
+
+        (Geometry left, Geometry right) = HardCase(which);
+
+        // The six predicates with a name on both surfaces. `st_relate` and `st_dwithin` are the query
+        // path's alone — no Esri relation maps to them — so there is no second answer to compare.
+        (string Sql, string Esri)[] predicates =
+        [
+            ("ST_Intersects", "esriGeometryRelationIntersection"),
+            ("ST_Within", "esriGeometryRelationWithin"),
+            ("ST_Crosses", "esriGeometryRelationCross"),
+            ("ST_Overlaps", "esriGeometryRelationOverlap"),
+            ("ST_Touches", "esriGeometryRelationTouch"),
+            ("ST_Disjoint", "esriGeometryRelationDisjoint"),
+        ];
+
+        foreach ((string sql, string esri) in predicates)
+        {
+            bool theirs = await ScalarAsync(
+                $"select case when {sql}(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1)) then 1 else 0 end",
+                left, right) == 1;
+
+            EngineResult ours = await RunAsync(
+                EngineOperation.Relate, [left], [right], pattern: esri);
+
+            bool mine = ours.Pairs is { Count: > 0 };
+
+            Assert.True(
+                theirs == mine,
+                $"'{which}': PostGIS says {sql} is {theirs} and this server's own engine says {mine}. "
+                + "Two engines answering the same question differently is Q-20 arriving with an "
+                + "instance — and a query and a GeometryServer call can both be asked this. Which "
+                + "answer is right is a decision for an ADR; what is certain is that the product must "
+                + "not give both.");
+        }
+    }
+
+    /// <summary>
+    /// The fifteen pairs, built here so that both engines are handed the same numbers.
+    /// </summary>
+    /// <remarks>
+    /// <b>One definition, two consumers.</b> The worker gets these objects and PostGIS gets their WKB,
+    /// so a disagreement cannot be a transcription error — which is what writing the same polygon twice,
+    /// once as WKT and once as rings, would risk. The oracle in <c>experiments/geometry-oracle</c> makes
+    /// the same arrangement over HTTP and had to compute ring winding to do it; here there is no
+    /// winding question, because <c>Polygon</c> carries shell and holes as separate rings.
+    /// </remarks>
+    private static (Geometry Left, Geometry Right) HardCase(string which)
+    {
+        Polygon Square(double x0, double y0, double x1, double y1) =>
+            new(new LinearRing(XySequence.Wrap([x0, y0, x0, y1, x1, y1, x1, y0, x0, y0])));
+
+        Polygon unit = Square(0, 0, 10, 10);
+
+        return which switch
+        {
+            "shared edge" => (unit, Square(10, 0, 20, 10)),
+            "shared vertex only" => (unit, Square(10, 10, 20, 20)),
+            "identical" => (unit, Square(0, 0, 10, 10)),
+
+            "point on the boundary" => (new Point(0, 5), unit),
+            "point in the middle" => (new Point(5, 5), unit),
+
+            "line ending on the boundary" => (
+                new LineString(XySequence.Wrap([-5, 5, 0, 5])), unit),
+            "line through" => (
+                new LineString(XySequence.Wrap([-5, 5, 15, 5])), unit),
+            "line along the boundary" => (
+                new LineString(XySequence.Wrap([0, 2, 0, 8])), unit),
+
+            // Self-intersecting: the diagonals cross, so this is invalid and both engines are being
+            // asked what they make of it rather than being expected to refuse.
+            "invalid bowtie against a square" => (
+                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0]))),
+                Square(2, 2, 8, 8)),
+            "invalid bowtie against itself" => (
+                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0]))),
+                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0])))),
+
+            "a nanometre apart" => (unit, Square(10.000000001, 0, 20, 10)),
+            "a nanometre overlapping" => (unit, Square(9.999999999, 0, 20, 10)),
+            "collapsed sliver" => (Square(0, 0, 10, 0.000000001), unit),
+
+            // Inside the hole, so disjoint from the polygon rather than within it.
+            "polygon inside a hole" => (
+                Square(3, 3, 7, 7),
+                new Polygon(
+                    new LinearRing(XySequence.Wrap([0, 0, 0, 10, 10, 10, 10, 0, 0, 0])),
+                    [new LinearRing(XySequence.Wrap([2, 2, 2, 8, 8, 8, 8, 2, 2, 2]))])),
+
+            "multipolygon touching at one part" => (
+                new MultiPolygon([Square(0, 0, 5, 5), Square(20, 20, 25, 25)]),
+                Square(5, 0, 10, 5)),
+
+            _ => throw new ArgumentOutOfRangeException(nameof(which), which, "No such case."),
+        };
+    }
 }
