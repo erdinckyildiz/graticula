@@ -177,14 +177,20 @@ public sealed class ScreenReviewTests : ConsoleTest
             "A content row did not open the service's own page on Overview. §5k: the row opens the "
             + "item, and the item lists its layers.");
 
-        // <b>The address is there, which is the reason that column exists.</b> The owner pointed at it:
-        // *"burada da servisin url'i var."* Derivable by somebody who already knows the shape of a REST
-        // path, and shown nowhere before this.
-        string url = await Browser.EvaluateAsync<string>(
-            "document.getElementById('svcUrl')?.value || ''") ?? string.Empty;
+        // <b>Waited for, because Overview is visible before the details are.</b> The tab strip is drawn
+        // while the FeatureServer document is still in flight so the page is usable, and the address
+        // column is written when that lands — so a read taken the moment Overview appears finds an empty
+        // field. Third time tonight that two reads with a gap became one atomic condition.
+        await WaitForAsync(
+            "(document.getElementById('svcUrl')?.value || '').includes('/rest/services/')",
+            "The service's address never appeared in the details column. The owner pointed at it — "
+            + "*burada da servisin url'i var* — and it is the reason that column exists.");
 
-        Assert.Contains("/rest/services/", url, StringComparison.Ordinal);
-        Assert.EndsWith("/FeatureServer", url, StringComparison.Ordinal);
+        Assert.EndsWith(
+            "/FeatureServer",
+            await Browser.EvaluateAsync<string>("document.getElementById('svcUrl').value")
+                ?? string.Empty,
+            StringComparison.Ordinal);
 
         // <b>And Overview's own row is the way into a layer.</b> A group layer is deliberately not a
         // link — it holds no data and has no page — so this waits for one that is.

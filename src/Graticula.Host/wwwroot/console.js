@@ -2926,22 +2926,50 @@ function drawServiceLayers(layers, qualified) {
   const box = $("serviceLayerRows");
   if (!box) return;
 
-  box.innerHTML = serviceLayers.length === 0
-    ? `<tr><td colspan="5" class="empty">This service holds no layers. A service can exist before its
+  // <b>Ordered here rather than trusted to arrive ordered.</b> A group's children are its own rows in the
+  // service document and today they happen to follow it; the review pointed out that the nesting reads
+  // correctly by accident. `parentLayerId` is in the document and was being ignored.
+  const top = serviceLayers.filter(l => (l.parentLayerId ?? -1) < 0);
+  const under = id => serviceLayers.filter(l => (l.parentLayerId ?? -1) === id);
+
+  const ordered = [];
+
+  for (const one of top) {
+    ordered.push([one, false]);
+
+    for (const child of under(one.id)) ordered.push([child, true]);
+  }
+
+  // Anything the walk did not reach — a child whose parent is not in the document — is listed rather
+  // than dropped. A layer this page cannot place is still a layer somebody has.
+  for (const one of serviceLayers) {
+    if (!ordered.some(([had]) => had === one)) ordered.push([one, false]);
+  }
+
+  box.innerHTML = ordered.length === 0
+    ? `<tr><td colspan="2" class="empty">This service holds no layers. A service can exist before its
          layers do, which is the order you need when the structure matters.</td></tr>`
-    : serviceLayers.map(layer => {
+    : ordered.map(([layer, nested]) => {
       const group = (layer.type || "").toLowerCase().includes("group");
       const geometry = GEOMETRY_NAMES[layer.geometryType]
         || (layer.geometryType || "").replace(/^esriGeometry/, "")
-        || (group ? "—" : "unknown");
+        || null;
+
+      const children = group ? under(layer.id).length : 0;
+
+      const said = [
+        group
+          ? `group layer${children ? ` · ${num(children)} layer${children === 1 ? "" : "s"}` : ""}`
+          : `${geometry ? `${geometry} layer` : "feature layer"}`,
+        `id ${num(layer.id ?? 0)}`,
+      ].join(" · ");
 
       return `<tr>
-        <td class="name">${group
-          ? h(layer.name || "")
-          : `<a href="#/layer/${encodeURIComponent(layer.name || "")}">${h(layer.name || "")}</a>`}</td>
-        <td>${h(geometry)}</td>
-        <td class="num">${num(layer.id ?? 0)}</td>
-        <td class="val">${group ? "group layer" : "feature layer"}</td>
+        <td class="name${nested ? " nested" : ""}">${group ? `<span class="rowicon">${
+          icon("folder")}</span>` : ""}${group
+            ? h(layer.name || "")
+            : `<a href="#/layer/${encodeURIComponent(layer.name || "")}">${h(layer.name || "")}</a>`}
+          <div class="rowmeta">${h(said)}</div></td>
         <td class="acts">${group ? "" : `<a class="tiny"
           href="${h(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`)}/FeatureServer/${
             num(layer.id ?? 0)}?f=json" target="_blank" rel="noreferrer">document</a>`}</td>
@@ -2982,14 +3010,22 @@ async function drawServiceDetails(qualified) {
 
   // The address first and without waiting, because it is derivable here and is the one thing on this
   // column somebody came for.
+  //
+  // <b>`title`, because the field truncates.</b> Measured at 1440: a 260-pixel box against a 70-character
+  // address, cut off mid-word, so Copy worked and nobody could read what they were about to copy. And
+  // the ground is `--surface-2` so it does not read as one of the editable boxes on the Settings page.
+  //
+  // <b>And the facts get a heading of their own.</b> One `h4` was governing both the address and six
+  // unrelated facts, so everything below it read as part of the address.
   box.innerHTML = `
     <h4>The service's address</h4>
     <div class="urlrow">
-      <input type="text" id="svcUrl" readonly value="${h(root)}">
+      <input type="text" id="svcUrl" readonly value="${h(root)}" title="${h(root)}">
       <button class="tiny" id="svcUrlCopy" title="Copy this address">Copy</button>
     </div>
     <p class="hint"><a href="${h(root)}?f=json" target="_blank" rel="noreferrer">Open it</a> — the
       service document, which is what a client reads first.</p>
+    <h4>About this service</h4>
     <dl class="facts" id="svcFacts"></dl>`;
 
   try {
@@ -3005,10 +3041,13 @@ async function drawServiceDetails(qualified) {
       ["Sharing", pill(item.sharing)],
       ["Layers", num(item.layers || 0)],
       ["Published", item.created ? h(String(item.created).slice(0, 10)) : `<span class="val">—</span>`],
+      ["Updated", item.updated ? h(String(item.updated).slice(0, 10)) : `<span class="val">—</span>`],
     ];
 
     $("svcFacts").innerHTML = rows.map(([label, value]) =>
       `<dt>${label}</dt><dd>${value}</dd>`).join("");
+
+    drawServiceHead(item);
   } catch {
     // The column's own reason — the address — is already on screen and needed no request. A failure
     // here loses the facts beside it and nothing somebody came for.
@@ -3203,7 +3242,7 @@ function drawShare() {
       <label class="pickrow${key === sharing.scope ? " on" : ""}" data-scope="${key}">
         <input type="radio" name="shareScope" value="${key}"
           ${key === sharing.scope ? "checked" : ""}${readOnly ? " disabled" : ""}>
-        <span><b>${icon(key)} ${h(label)}</b><span>${h(said)}</span></span>
+        <span><b>${icon(key)} ${h(label)}</b><span class="lede">${h(said)}</span></span>
       </label>`).join("")}
 
     <h4 style="margin-top:var(--gap-5)">Set group sharing</h4>
@@ -3241,6 +3280,7 @@ function drawShareGroupList() {
     : `<div class="chips">${[...sharing.wanted].map(name =>
         `<span class="chip">${h(named.get(name) || name)}
            <button type="button" class="tiny ghost" data-unshare="${h(name)}"
+             aria-label="Stop sharing with ${h(named.get(name) || name)}"
              title="Stop sharing with this group">&#10005;</button></span>`).join("")}</div>`;
 }
 
@@ -3275,25 +3315,56 @@ async function drawShareGroups() {
     }
   }
 
+  $("shareBody").innerHTML = `
+    <div class="toolbar">
+      <input type="search" id="shareFilter" placeholder="Search your groups"
+        value="${h(sharing.filter)}" autocomplete="off">
+      <span class="val" id="shareCount"></span>
+      <span style="flex:1"></span>
+      <span class="val" id="shareShown"></span>
+    </div>
+    <p class="hint">Choices here are kept if you go <b>Back</b> — nothing is sent until <b>Save</b>.</p>
+    <div id="shareRows"></div>`;
+
+  drawShareRows();
+}
+
+/**
+ * The group table, redrawn on its own.
+ *
+ * <b>Separate from the screen around it so a keystroke does not replace the box being typed in.</b> The
+ * first version redrew everything and then re-focused the input, which works and loses the caret
+ * position — this leaves the toolbar alone.
+ *
+ * <b>No pager, at 54 groups or well beyond.</b> The design review simulated 54 and measured five screens
+ * of scroll inside the dialog's own `max-height`; its conclusion was that a search box resolves finding
+ * one in two keystrokes and a pager would be complexity for a count nowhere near this product's stated
+ * scale. The reference's filter rail — Owner, Special groups, Date modified, Date created — is not
+ * copied either: `/admin/groups` answers with `standing` and `contribute` and no dates at all, so those
+ * would be filters over facts this model does not have.
+ */
+function drawShareRows() {
   const needle = sharing.filter.trim().toLowerCase();
 
   const shown = sharing.available.filter(g => needle === ""
     || (g.title || g.name).toLowerCase().includes(needle)
     || g.name.toLowerCase().includes(needle));
 
-  $("shareBody").innerHTML = `
-    <div class="toolbar">
-      <input type="search" id="shareFilter" placeholder="Search your groups"
-        value="${h(sharing.filter)}" autocomplete="off">
-      <span class="val">Selected: ${num(sharing.wanted.size)}</span>
-      <span style="flex:1"></span>
-      <span class="val">${shown.length === sharing.available.length
-        ? `${num(sharing.available.length)} group${sharing.available.length === 1 ? "" : "s"}`
-        : `${num(shown.length)} of ${num(sharing.available.length)}`}</span>
-    </div>
+  const count = $("shareCount");
+  const said = $("shareShown");
+
+  if (count) count.textContent = `Selected: ${num(sharing.wanted.size)}`;
+
+  if (said) {
+    said.textContent = shown.length === sharing.available.length
+      ? `${num(sharing.available.length)} group${sharing.available.length === 1 ? "" : "s"}`
+      : `${num(shown.length)} of ${num(sharing.available.length)}`;
+  }
+
+  $("shareRows").innerHTML = `
     <div class="widetable">
       <table>
-        <thead><tr><th class="tick"></th><th>Group</th><th>You are</th><th>Already has it</th></tr></thead>
+        <thead><tr><th class="tick"></th><th>Group</th><th>You are</th><th>Already shared</th></tr></thead>
         <tbody>${sharing.available.length === 0
           ? `<tr><td colspan="4" class="empty">You are not in a group you can share into. A group's
                owner or a manager can add you, and a group that only lets managers contribute cannot
@@ -3392,6 +3463,43 @@ async function saveShare() {
   sharing = null;
 
   await section("your content", loadMyContent, "contentRows").then(paintPreviews);
+}
+
+/**
+ * What the item is, above the list of what is in it.
+ *
+ * <b>Nothing here is invented to fill space.</b> The design review's answer to *most of this page is
+ * white at one layer* was that padding it with a completeness meter or a description nobody wrote is
+ * exactly the filler ADR-034 argues against — but three real things were already being fetched and
+ * discarded: the cover layer's URL, which is what the content list already paints a live preview from;
+ * the description, when the create form was given one; and the update date.
+ *
+ * <b>The preview is the canvas the content list already draws.</b> `paintPreviews` walks every
+ * `canvas[data-preview]` in the document, so placing one here needs no new mechanism — and it is
+ * generated from the layer's own geometry rather than stored, which is why a product with no thumbnail
+ * storage can still show a picture.
+ */
+function drawServiceHead(item) {
+  const box = $("serviceHead");
+  if (!box) return;
+
+  box.innerHTML = `
+    <div class="itemhead">
+      ${item.cover
+        ? `<canvas class="thumb" width="104" height="70"
+             data-preview="${h(item.cover.url)}" data-colour=""></canvas>`
+        : `<div class="thumb empty"></div>`}
+      <div>
+        <b>${h(item.bare || item.name || "")}</b>
+        <div class="rowmeta">${h(item.kind || "feature service")} · ${num(item.layers || 0)}
+          layer${(item.layers || 0) === 1 ? "" : "s"} · ${h(item.sharing || "")}</div>
+        ${item.description ? `<p class="hint">${h(item.description)}</p>` : ""}
+        <div class="rowmeta">${item.updated ? `Updated ${h(String(item.updated).slice(0, 10))}` : ""}${
+          item.created ? ` · published ${h(String(item.created).slice(0, 10))}` : ""}</div>
+      </div>
+    </div>`;
+
+  paintPreviews();
 }
 
 /**
@@ -3591,11 +3699,18 @@ function drawServiceSettings(name, folder) {
     `<a href="#" data-service-page="${p}"${p === page ? ' aria-current="page"' : ""}>${
       p[0].toUpperCase() + p.slice(1)}</a>`).join("");
 
+  // <b>No Save on the Sharing page, because that page has nothing to save.</b> The scope applies the
+  // moment it is chosen — ADR-031 §2b, so that an owner narrowing who may read a service can trust it
+  // happened rather than press a button afterwards — and the page said so in its own copy while a Save
+  // sat underneath it. The owner: *"combo değiştiğinde kaydoluyor gibi. save neden dikkate alınmıyor."*
+  // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
-    + `<div class="row" style="margin-top:22px">
-         <button class="primary" data-service-save="${h(name)}"
-           data-folder="${h(folder || "")}">Save</button>
-       </div>`;
+    + (page === "sharing"
+      ? ""
+      : `<div class="row" style="margin-top:22px">
+           <button class="primary" data-service-save="${h(name)}"
+             data-folder="${h(folder || "")}">Save</button>
+         </div>`);
 
   for (const section of document.querySelectorAll("#servicePagesBody .page")) {
     section.classList.toggle("on", section.id === `page-${page}`);
@@ -3627,6 +3742,20 @@ let SERVICE_PAGE_OPEN = null;
 const OPERATIONS = ["Query", "Create", "Update", "Delete", "Extract"];
 
 function serviceSettingsMarkup(name, folder) {
+  // <b>Three scopes, not four — owner instruction 2026-08-19: *"group shall not be part of this."*</b>
+  // `group` is a value this server stores (`SharingScope.Group`) and it is not a thing you pick: a
+  // service reaches a group because it was shared into one, which is the Share dialog's second screen
+  // (ADR-034 §5l). Offering it here invited an operator to set a scope that grants nothing on its own —
+  // and the group page's own repair desk exists because that half-done state is reachable.
+  //
+  // It is still rendered when it is the *current* value, disabled, so the select reports the state
+  // rather than silently changing it. Which is also the honest shape of the model question this raises,
+  // recorded rather than decided: whether `group` should remain a scope at all.
+  //
+  // <b>And this comment is out here because the last one was not.</b> D-77, for the fourth time: a
+  // backtick inside an HTML comment inside a template literal closes the literal. `node --check` caught
+  // it. An explanation does not go inside a string.
+
   return `
     <section class="page" id="page-capabilities">
       <h4>Faces this service offers</h4>
@@ -3651,9 +3780,12 @@ function serviceSettingsMarkup(name, folder) {
     <section class="page" id="page-sharing">
       <h4>Who may read this service</h4>
       <div class="setting"><span class="q">Sharing scope:</span>
+
         <select id="capSharing" data-service-sharing="${h(name || "")}"
-          data-folder="${h(folder || "")}">${SCOPES.map(v =>
-          `<option value="${v}">${v}</option>`).join("")}</select></div>
+          data-folder="${h(folder || "")}">${
+          ["private", "organization", "public"].map(v =>
+            `<option value="${v}">${v}</option>`).join("")}<option value="group" disabled
+              >group — shared into a group; set on the item, not here</option></select></div>
       <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
         a service has to be able to trust that it happened rather than press Save afterwards
         (ADR-031 §2b, the same rule the role select follows).</p>
@@ -5450,7 +5582,7 @@ function drawLayerRoutes() {
       <label class="pickrow${route.id === itemRoute ? " on" : ""}" data-route="${route.id}">
         <input type="radio" name="layerRoute" value="${route.id}"
                ${route.id === itemRoute ? "checked" : ""}>
-        <span><b>${h(route.title)}</b><span>${h(route.lede)}</span></span>
+        <span><b>${h(route.title)}</b><span class="lede">${h(route.lede)}</span></span>
       </label>`).join("")}`;
 
   $("addItemFoot").innerHTML = `
@@ -7404,10 +7536,23 @@ async function handleClick(event) {
   if (t.id === "shareBack") {
     sharing.step = "scope";
     drawShare();
+
+    // <b>Focus follows, as it does when the dialog opens.</b> Pressing Back left `activeElement` on the
+    // body: the trap held, so nothing escaped, and a screen-reader user was told nothing about having
+    // moved and the next Tab skipped the whole scope list. Design review 2026-08-19.
+    $("shareTitle")?.focus({ preventScroll: true });
     return;
   }
 
   if (t.id === "shareSave") { await saveShare(); return; }
+
+  const unshared = t.closest?.("[data-unshare]");
+
+  if (unshared) {
+    sharing.wanted.delete(unshared.dataset.unshare);
+    drawShareGroupList();
+    return;
+  }
 
   if (d.unshare) {
     sharing.wanted.delete(d.unshare);
@@ -7415,7 +7560,15 @@ async function handleClick(event) {
     return;
   }
 
-  if (d.share) { await openShare(d.share); return; }
+  // <b>`closest`, because a real mouse click never lands on the button.</b> The pill inside it fills its
+  // box exactly, so `elementFromPoint` at the button's own centre returns the `span` — and reading
+  // `event.target.dataset.share` found nothing and swallowed the click. It worked from the keyboard,
+  // where the browser dispatches with the button as the target, which is how it passed: my own test
+  // called `.click()` on the button element directly and set the target itself. A test that presses a
+  // control the way nobody presses it proves nothing. Design review 2026-08-19.
+  const shared = t.closest?.("[data-share]");
+
+  if (shared) { await openShare(shared.dataset.share); return; }
 
   if (t.dataset?.visMode !== undefined) {
     event.preventDefault();
@@ -7786,17 +7939,11 @@ document.addEventListener("change", async event => {
     else sharing.wanted.delete(event.target.dataset.shareGroup);
 
     // Only the count, so a tick does not rebuild the table under the reader's finger.
-    const said = $("shareBody").querySelector(".toolbar .val");
+    const said = $("shareCount");
     if (said) said.textContent = `Selected: ${num(sharing.wanted.size)}`;
     return;
   }
 
-  if (event.target?.id === "shareFilter") {
-    sharing.filter = event.target.value;
-    drawShare();
-    $("shareFilter")?.focus();
-    return;
-  }
 
   if (event.target?.id === "svcLock") {
     drawServiceDelete();
@@ -7892,6 +8039,18 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("input", async event => {
+  // <b>The share dialog's own search, for the reason the comment below gives.</b> It was wired on
+  // `change` — the same defect this file already records fixing for `#groupPickFilter`, and it was not
+  // migrated with it. Measured 2026-08-19: typing *Roads* against 54 groups left all 54 on screen until
+  // Enter was pressed. Three search boxes on one product had two behaviours.
+  if (event.target.id === "shareFilter") {
+    sharing.filter = event.target.value;
+
+    // Only the table, so the box the reader is typing in is not replaced under their cursor.
+    drawShareRows();
+    return;
+  }
+
   // <b>On `input`, and it was on `change` — so typing in it did nothing.</b> A `<input
   // type=search>` reports `change` on blur or Enter only, and `#groupFilter` twenty lines below was
   // already on `input`: two search boxes on one screen with two behaviours, which is worse than

@@ -1159,11 +1159,30 @@
       went — see [D-98](../../docs/architecture-debt.md).
     -->
     <div class="itemgrid" id="serviceOverview" hidden>
+      <!--
+        <b>What the item is, above the list of what is in it.</b> The design review's answer to *most of
+        this page is white at one layer*: not filler, but two things already fetched and thrown away —
+        the live preview canvas the content list already draws from `cover.url`, and the dates. A
+        description shows when the service was given one.
+      -->
+      <!--
+        <b>One child per column, and the first version had three.</b> `.itemgrid` is two columns, so
+        adding the head panel beside the table and the aside put the table in the right column and the
+        aside underneath it. The left column is one element that stacks its own contents.
+      -->
+      <div class="itemmain">
+      <div class="panel" id="serviceHead"></div>
+
+      <!--
+        <b>Two columns, not five — the design review's shape.</b> Theirs is a list with a subtitle; this
+        codebase has no list idiom and every itemised collection here is a `widetable`, so inventing one
+        would be D-46's sixth instance. What made their list read better is that geometry and kind sit in
+        one subtitle under the name, and `.rowmeta` is the idiom that already does that on the content
+        list. A one-layer service is one compact row now rather than five mostly empty cells.
+      -->
       <div class="panel widetable">
         <table>
-          <thead><tr>
-            <th>Layer</th><th>Geometry</th><th class="num">Id</th><th>Kind</th><th></th>
-          </tr></thead>
+          <thead><tr><th>Layer</th><th></th></tr></thead>
           <tbody id="serviceLayerRows"></tbody>
         </table>
       </div>
@@ -1175,6 +1194,8 @@
         categories, tags, credits, metadata — has nothing to be stored in and is listed as omitted
         rather than left to be noticed.
       -->
+      </div>
+
       <aside class="panel" id="serviceDetails"></aside>
     </div>
 

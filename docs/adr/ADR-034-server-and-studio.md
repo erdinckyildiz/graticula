@@ -546,6 +546,40 @@ then was filtered out and lost — the request is now held and granted on the dr
 `drawServiceVis` re-read `?mode=` on every redraw, so pressing *Tiles* set the mode and the next draw put
 it back: an address is an instruction on arrival, not a standing one.
 
+#### Deleting a hosted service takes its data with it — owner instruction, 2026-08-19
+
+*"yanlış ifade. servis hosted sa ve silindiyse, datastore dan silinmesi lazım."* The delete panel said
+the opposite — *the tables in the datastore are not dropped* — and that sentence was accurate about what
+the server does and wrong about what it should do.
+
+**This reverses a deliberate refusal, and the refusal is worth naming before it goes.**
+`DELETE /admin/featureservices/{name}` answers *"'{name}' still holds N layers. Deleting a service does
+not delete what is in it — unpublish the layers first"*, and `DELETE /admin/layers/{name}` removes the
+registration and says *the table in the data source was not touched*. Between them there is **no route
+that drops a hosted table at all**: an operator who imports a geodatabase and changes their mind is left
+with fifty-five tables and a database client.
+
+**The hosted / registered line is what makes it safe, and it is the line this whole product is built
+on.** A hosted table is ours — created by `PostGisImporter`, named by us, owned by the service. A
+registered one points at somebody else's database and must never be touched. So:
+
+| the layer is | deleting the service does |
+| --- | --- |
+| hosted | unpublishes it **and drops its table** |
+| registered | unpublishes it, and the table is left exactly as it was |
+| a group layer | removes it; it holds no data |
+
+**The guards are the two the owner already asked for, and they are now load-bearing rather than
+polite.** The lock starts closed and has to be cleared; the confirmation names the service, the number of
+layers and — this is the part the copy was getting wrong — **how many tables will be dropped**. A
+confirmation that says *are you sure* in front of an irreversible drop is a confirmation that has not
+said anything.
+
+**And the response says what happened per layer**, because a service holding one hosted and one
+registered layer does two different things, and a single *deleted* would hide the half that was left
+alone. Same reasoning as the geodatabase import's per-layer report in
+[ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md) §5.
+
 **Settings gets delete, and delete gets two guards.** *"yanlışlıkla kullanıcının silme durumu
 engellensin. silerken de emin misin diye sorarız."* A checkbox that prevents accidental deletion —
 their *Prevent this item from being accidentally deleted* — and a confirmation that names what goes.
