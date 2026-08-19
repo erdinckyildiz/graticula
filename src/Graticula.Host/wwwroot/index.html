@@ -1155,6 +1155,63 @@
     </div>
 
     <!--
+      <b>Four tabs, from the owner's screenshots of the reference's item page.</b>
+      [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5k: Overview with the list of layers in
+      the service, Data with a layer's rows and its fields, Visualization with the service on a map, and
+      Settings holding what was already here.
+
+      <b>The tab is held in a variable rather than in the address, which is a known gap and not a new
+      one.</b> `route()` splits the hash on `/` before a service's `folder/name` is reassembled, so
+      `#/service/hosted/x/overview` cannot be told from a service named `x/overview` in a folder called
+      `hosted`. The layer editor's pages are addressable because a layer is one segment; a group's tabs
+      are for the same reason. Making a service's addressable needs the router to try the whole string as
+      a service first and split a tab off only when that fails — worth doing, not done here.
+    -->
+    <nav class="tabstrip" id="serviceTabs"></nav>
+
+    <!--
+      <b>The layer list the owner removed on 2026-08-18 and asked for again on 2026-08-19</b>, and the
+      reversal is in §5k rather than implied here. What changed between the two is a fact: a geodatabase
+      import makes one service with twenty-odd layers, and a page that says *23 entries* and lists none
+      of them is a page you cannot work from.
+
+      <b>It is also the route to a layer's own page from Server</b>, which nothing had since the list
+      went — see [D-98](../../docs/architecture-debt.md).
+    -->
+    <div class="panel widetable" id="serviceOverview" hidden>
+      <table>
+        <thead><tr>
+          <th>Layer</th><th>Geometry</th><th class="num">Id</th><th>Kind</th><th></th>
+        </tr></thead>
+        <tbody id="serviceLayerRows"></tbody>
+      </table>
+    </div>
+
+    <!--
+      <b>Data: one layer at a time, its rows or its fields.</b> Their screen puts the layer picker on the
+      left and a Table/Fields switch on the right, and the switch is the same control this console uses
+      for a scope — a tab strip of two.
+    -->
+    <div id="serviceData" hidden>
+      <div class="toolbar">
+        <label class="field" style="flex:0 1 320px">Layer
+          <select id="dataLayer"></select></label>
+        <span style="flex:1"></span>
+        <nav class="tabstrip" id="dataViews"></nav>
+      </div>
+      <div class="panel widetable" id="dataRows"></div>
+    </div>
+
+    <!--
+      <b>Visualization is not built here yet, and this is deliberately absent rather than empty.</b>
+      §5k's instruction is that it *absorbs* the map and tiles screens rather than adding a third, so the
+      tab appears when the move happens. ADR-034's own rule is that a control is not drawn for a feature
+      that does not exist.
+    -->
+
+    <div id="serviceSettings" hidden>
+
+    <!--
       <b>What one operation may spend, for a service that has no layers.</b> Two owner questions
       built this: *"geometry server'in, startı stop'u, timeout'u vs si yok mu?"* and then, on being
       told the timeout was a configuration-file value, *"iyi de neden yok. yani ben neden max
@@ -1217,7 +1274,30 @@
       a setting. What it cost is stated rather than hidden: a layer's own page is no longer reachable
       from Server, only from Studio's content list and by its address.
     -->
-  </section>
+  
+    <!--
+      <b>Delete, with the two guards the owner asked for.</b> *"yanlışlıkla kullanıcının silme durumu
+      engellensin. silerken de emin misin diye sorarız."* The lock is their *Prevent this item from
+      being accidentally deleted*: a checkbox that has to be cleared before the button will do anything,
+      so a misplaced click cannot destroy a service. The confirmation then names what goes.
+
+      <b>Locked by default, which their screen does not do.</b> Theirs starts unlocked and the operator
+      opts into protection. A default that protects is the right way round for the one irreversible
+      action on this page, and it costs one click on the rare occasion somebody means it.
+    -->
+    <div class="panel" id="serviceDanger">
+      <h4>Deleting this service</h4>
+      <div class="setting wide"><span class="q">Protect this service from being deleted:</span>
+        <label><input type="checkbox" id="svcLock" checked
+          aria-label="Protect this service from being deleted">
+          <span id="svcLockState">Locked</span></label>
+        <span class="u"></span></div>
+      <p class="hint" id="svcDeleteNote"></p>
+      <button class="danger" id="svcDelete" disabled>Delete this service</button>
+    </div>
+
+    </div>
+</section>
 
   <section class="view" id="view-layer">
     <div id="editHead">

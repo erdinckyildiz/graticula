@@ -2627,6 +2627,38 @@ async function loadMyContent() {
  */
 let serviceOpen = null;
 
+/**
+ * A service's four tabs, and which of them this surface can show.
+ *
+ * <b>[ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5k, from the owner's screenshots.</b>
+ * Overview is the list of layers in the service — removed on 2026-08-18 and asked for again on
+ * 2026-08-19, which §5k records as a reversal rather than as a new idea. Settings holds what was already
+ * on this page.
+ *
+ * <b>Visualization is not in this list because it is not built.</b> §5k says it *absorbs* the map and
+ * tiles screens rather than adding a third, so it appears when that move happens — ADR-034's own rule
+ * is that a control is not drawn for a feature that does not exist, and a tab that opens onto nothing is
+ * the clearest possible breach of it.
+ */
+const SERVICE_TABS = [
+  ["overview", "Overview"],
+  ["data", "Data"],
+  ["settings", "Settings"],
+];
+
+/** Which tab the service page is showing. */
+let serviceTab = "overview";
+
+/**
+ * Whether the open service is a system service — one with no layers at all.
+ *
+ * <b>It decides which tabs exist, and the alternative was worse.</b> A GeometryServer has nothing to
+ * list and no rows to read, so Overview and Data would be two tabs that open onto a sentence explaining
+ * why they are empty. ADR-034's rule is that a control is not drawn for a feature that does not exist,
+ * and *this service has no data* is not a feature.
+ */
+let serviceIsSystem = false;
+
 async function showService(qualified) {
   editing = null;
   showView("view-service", "services");
@@ -2649,14 +2681,31 @@ async function showService(qualified) {
   if (limits) {
     $("serviceFacts").textContent = `${limits.kind} · no layers`;
 
+    // <b>Only Settings, and the wrapper has to be revealed for it.</b> A system service has nothing to
+    // list and no rows to read; its Limits page is the whole page. Without this the four-tab wrapper
+    // stayed hidden and the Geometry service's page rendered blank — which is the shape of defect this
+    // repository has shipped three times, a control that exists and cannot be seen.
+    //
+    // <b>And the layer list is cleared, not merely hidden.</b> Measured 2026-08-19: going from
+    // `hosted/look_EarlyAlert` to `Utilities/Geometry` left four rows of the previous service's layers
+    // sitting in Overview, so pressing that tab showed somebody else's layers under this service's name.
+    // Setting the array empty was not enough — the table is drawn from it and had to be redrawn.
+    serviceIsSystem = true;
+    serviceTab = "settings";
+    drawServiceLayers([], qualified);
+
     return;
   }
 
+
+  serviceIsSystem = false;
 
   // <b>The service's own settings, on the service.</b> Rendered before the layer list, because they
   // are what this page is now for: the list below says what is inside, and these say what the
   // container offers. Same `.setting` rows and `h4` groups as everywhere else.
   drawServiceSettings(name, folder);
+  drawServiceDelete();
+  drawServiceTabs();
 
   try {
     const doc = await api(
@@ -2678,14 +2727,256 @@ async function showService(qualified) {
       + ` · max ${num(doc.maxRecordCount)} rows`
       + ` · ${doc.capabilities ? `operations: ${doc.capabilities}` : "no editing operations"}`;
 
-    // The layer list was here until 2026-08-18, when the owner asked for it to go: this page is
-    // the service's settings, and the counts are in the facts line above. What went with it is a
-    // route — a layer's own page is reachable from Studio's content list and by its address, and no
-    // longer from Server.
+    drawServiceLayers(layers, qualified);
   } catch (e) {
     $("serviceFacts").textContent = "";
     toast(`${qualified}: ${e.message || e}`);
   }
+}
+
+/**
+ * The tab strip, and which panel it reveals.
+ *
+ * <b>Only the tabs this surface has something to put in.</b> Studio owns `sharing` and Server owns
+ * `capabilities` and `limits`, so Settings is drawn for both but holds different pages — §5c's split,
+ * unchanged. A surface with no settings pages at all would show no Settings tab rather than an empty
+ * one.
+ */
+function drawServiceTabs() {
+  const strip = $("serviceTabs");
+  if (!strip) return;
+
+  const mine = SERVICE_TABS.filter(([key]) => {
+    // A system service is settings and nothing else.
+    if (serviceIsSystem) return key === "settings";
+
+    // Data needs a layer to read. Overview stays either way: *this service holds no layers* is a fact
+    // about the service and belongs on the page that describes it.
+    if (key === "data") return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
+
+    return key !== "settings"
+      || servicePagesOf(surfaceOfPath()).length > 0
+      || $("serviceLimits").hidden === false;
+  });
+
+  if (!mine.some(([key]) => key === serviceTab)) serviceTab = mine[0]?.[0] ?? "overview";
+
+  strip.innerHTML = mine.map(([key, label]) =>
+    `<a href="#" data-service-tab="${key}"${key === serviceTab ? ' aria-current="page"' : ""}
+      >${label}${key === "overview" && serviceLayers.length
+        ? ` <span class="count">${num(serviceLayers.length)}</span>` : ""}</a>`).join("");
+
+  showServiceTab(serviceTab);
+}
+
+/** Reveals one tab's panels and hides the others. */
+function showServiceTab(which) {
+  serviceTab = which;
+
+  for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
+                           ["settings", "serviceSettings"]]) {
+    const panel = $(id);
+    if (panel) panel.hidden = key !== which;
+  }
+
+  // <b>The head bar's Save belongs to the Limits page and to nothing else.</b> Leaving it on Overview
+  // would offer to save a list.
+  for (const id of ["limSave", "limClear"]) {
+    const button = $(id);
+    if (button && which !== "settings") button.hidden = true;
+  }
+
+  for (const link of $("serviceTabs").querySelectorAll("a")) {
+    if (link.dataset.serviceTab === which) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+
+  if (which === "data") drawServiceData();
+}
+
+/** The layers in the open service, from its own FeatureServer document. */
+let serviceLayers = [];
+
+/**
+ * Overview's list of what is in the service.
+ *
+ * <b>And it is the route to a layer's own page from Server, which nothing had.</b> D-98: the editor was
+ * reachable only by typing an address with a bare layer name that no screen displayed. A row here links
+ * to it by name, so the five settings pages behind it have a way in again.
+ *
+ * <b>A group layer is listed and is not a link.</b> It holds no data and has no settings of its own, so
+ * a row that offered a page would offer an empty one — the same reasoning that keeps a service's
+ * attachment tables visible but unpublishable on the geodatabase screen.
+ */
+function drawServiceLayers(layers, qualified) {
+  serviceLayers = layers || [];
+
+  const box = $("serviceLayerRows");
+  if (!box) return;
+
+  box.innerHTML = serviceLayers.length === 0
+    ? `<tr><td colspan="5" class="empty">This service holds no layers. A service can exist before its
+         layers do, which is the order you need when the structure matters.</td></tr>`
+    : serviceLayers.map(layer => {
+      const group = (layer.type || "").toLowerCase().includes("group");
+      const geometry = GEOMETRY_NAMES[layer.geometryType]
+        || (layer.geometryType || "").replace(/^esriGeometry/, "")
+        || (group ? "—" : "unknown");
+
+      return `<tr>
+        <td class="name">${group
+          ? h(layer.name || "")
+          : `<a href="#/layer/${encodeURIComponent(layer.name || "")}">${h(layer.name || "")}</a>`}</td>
+        <td>${h(geometry)}</td>
+        <td class="num">${num(layer.id ?? 0)}</td>
+        <td class="val">${group ? "group layer" : "feature layer"}</td>
+        <td class="acts">${group ? "" : `<a class="tiny"
+          href="${h(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`)}/FeatureServer/${
+            num(layer.id ?? 0)}?f=json" target="_blank" rel="noreferrer">document</a>`}</td>
+      </tr>`;
+    }).join("");
+
+  // <b>Redrawn here, because the strip is built before the document arrives.</b> `showService` draws the
+  // tabs so the page is usable while the FeatureServer document is in flight; the count on Overview and
+  // the sentence under Delete both depend on the answer, so both are drawn again when it lands.
+  drawServiceDelete();
+  drawServiceTabs();
+}
+
+/**
+ * Data: one layer's rows, or its fields.
+ *
+ * <b>The geometry column is shown, and theirs hides it — owner decision.</b> *"coğrafi kolonlar
+ * özellikle gizlenmiş ama bizde açık olabilir çok sorun değil."* So the query asks for the geometry and
+ * the table states it as its type and vertex count rather than as coordinates, because a WKB blob in a
+ * cell is not information.
+ */
+let dataView = "table";
+
+function drawServiceData() {
+  const picker = $("dataLayer");
+  const views = $("dataViews");
+  if (!picker || !views) return;
+
+  const publishable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+
+  picker.innerHTML = publishable.length === 0
+    ? `<option value="">this service holds no layers</option>`
+    : publishable.map(l =>
+        `<option value="${num(l.id ?? 0)}">${h(l.name || `layer ${l.id}`)}</option>`).join("");
+
+  picker.disabled = publishable.length === 0;
+
+  views.innerHTML = [["table", "Table"], ["fields", "Fields"]].map(([key, label]) =>
+    `<a href="#" data-data-view="${key}"${key === dataView ? ' aria-current="page"' : ""}>${label}</a>`)
+    .join("");
+
+  picker.onchange = loadServiceData;
+
+  if (publishable.length > 0) loadServiceData();
+  else $("dataRows").innerHTML = "";
+}
+
+/** Reads whichever of the two views is chosen. */
+async function loadServiceData() {
+  const box = $("dataRows");
+  const index = $("dataLayer").value;
+
+  if (!serviceOpen || index === "") return;
+
+  const root = `/rest/services/${
+    serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${
+    encodeURIComponent(index)}`;
+
+  box.innerHTML = `<p class="hint">Reading…</p>`;
+
+  try {
+    const document = await api(`${root}?f=json`);
+    const fields = document.fields || [];
+
+    if (dataView === "fields") {
+      // <b>Named as the reference names them: what it is called and what it is called on the wire.</b>
+      // Their screen has Display Name, Field Name and Type, and the distinction is real here too — an
+      // alias is what an operator reads and the column is what a query names.
+      box.innerHTML = `
+        <table>
+          <thead><tr><th>Display name</th><th>Field</th><th>Type</th><th>Length</th></tr></thead>
+          <tbody>${fields.map(field => `
+            <tr>
+              <td class="name">${h(field.alias || field.name || "")}</td>
+              <td class="mono">${h(field.name || "")}</td>
+              <td class="val">${h((field.type || "").replace(/^esriFieldType/, ""))}</td>
+              <td class="num">${field.length ? num(field.length) : ""}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+        <p class="hint"><b>Dropping a column is not built yet.</b> It is acceptable on hosted data and
+          has to be planned for a registered table, which points at somebody else's database — ADR-034
+          §5k. The list is what the service document declares.</p>`;
+      return;
+    }
+
+    // <b>Twenty rows and no geometry in the cells.</b> The count is what makes a table readable at a
+    // glance and the geometry is what makes it unreadable: `returnGeometry=false` keeps the request
+    // small, and the geometry's presence is a fact about the layer rather than about a row.
+    const shown = fields.filter(f => (f.type || "") !== "esriFieldTypeGeometry").slice(0, 12);
+
+    const answer = await api(`${root}/query?where=1%3D1&outFields=*&returnGeometry=false`
+      + `&resultRecordCount=20&resultOffset=0&f=json`);
+
+    const rows = answer.features || [];
+
+    box.innerHTML = `
+      <table>
+        <thead><tr>${shown.map(f => `<th>${h(f.alias || f.name)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.length === 0
+          ? `<tr><td colspan="${Math.max(1, shown.length)}" class="empty">No rows in this layer
+               yet.</td></tr>`
+          : rows.map(feature => `<tr>${shown.map(f => {
+              const value = (feature.attributes || {})[f.name];
+              return `<td${typeof value === "number" ? ' class="num"' : ""}>${
+                value === null || value === undefined ? '<span class="val">—</span>' : h(String(value))
+              }</td>`;
+            }).join("")}</tr>`).join("")}</tbody>
+      </table>
+      <p class="hint">The first ${num(rows.length)} row${rows.length === 1 ? "" : "s"}${
+        shown.length < fields.length - 1
+          ? ` and the first ${num(shown.length)} of ${num(fields.length)} columns`
+          : ""}. The geometry is not asked for — a layer's geometry is a fact about the layer, and
+        <b>Fields</b> states it.</p>`;
+  } catch (e) {
+    box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
+  }
+}
+
+/**
+ * Settings' delete, behind a lock that starts closed.
+ *
+ * <b>Two guards, both the owner's.</b> *"yanlışlıkla kullanıcının silme durumu engellensin. silerken de
+ * emin misin diye sorarız."* The lock has to be cleared before the button does anything, and clearing it
+ * is not the same gesture as pressing it — so a misplaced click cannot destroy a service. Then the
+ * confirmation names what goes, because *are you sure* is a question nobody reads and *delete
+ * hosted/Environmental_gdb and its 23 layers* is one they do.
+ *
+ * <b>Locked by default, where the reference starts unlocked.</b> A default that protects is the right
+ * way round for the only irreversible action on this page.
+ */
+function drawServiceDelete() {
+  const lock = $("svcLock");
+  const button = $("svcDelete");
+  const note = $("svcDeleteNote");
+
+  if (!lock || !button || !note) return;
+
+  const count = serviceLayers.length;
+
+  note.innerHTML = count === 0
+    ? `This service holds no layers, so deleting it removes the service and no data.`
+    : `Deleting this service removes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> from the
+       directory. The tables in the datastore are not dropped — unpublishing is not deleting data, and
+       this server will not silently do the second when you asked for the first.`;
+
+  button.disabled = lock.checked;
+  $("svcLockState").textContent = lock.checked ? "Locked" : "Not locked";
 }
 
 /**
@@ -6475,6 +6766,44 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.dataset?.serviceTab !== undefined) {
+    event.preventDefault();
+    showServiceTab(t.dataset.serviceTab);
+    return;
+  }
+
+  if (t.dataset?.dataView !== undefined) {
+    event.preventDefault();
+    dataView = t.dataset.dataView;
+    drawServiceData();
+    return;
+  }
+
+  if (t.id === "svcDelete") {
+    if (!serviceOpen) return;
+
+    const count = serviceLayers.length;
+
+    if (!confirm(
+      `Delete '${serviceOpen.qualified}'`
+      + (count ? ` and its ${count} layer${count === 1 ? "" : "s"}` : "")
+      + "? The directory entry goes; the tables in the datastore are not dropped.")) {
+      return;
+    }
+
+    try {
+      const answer = await api(
+        `/admin/featureservices/${encodeURIComponent(serviceOpen.name)}`
+        + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`,
+        { method: "DELETE" });
+
+      toast(answer.note || `${serviceOpen.qualified}: deleted`, true);
+      location.hash = "#/services";
+    } catch (e) { toast(e.message); }
+
+    return;
+  }
+
   if (t.dataset?.servicePage) {
     event.preventDefault();
     SERVICE_PAGE_OPEN = t.dataset.servicePage;
@@ -6772,6 +7101,11 @@ document.addEventListener("change", async event => {
   // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
+  if (event.target?.id === "svcLock") {
+    drawServiceDelete();
+    return;
+  }
+
   if (d.memberRole) {
     // <b>Instant and unconfirmed, which is right for a sharing toggle and not for handing out
     // administration.</b> Same reasoning as *Save privileges* above, and the same narrow trigger: only

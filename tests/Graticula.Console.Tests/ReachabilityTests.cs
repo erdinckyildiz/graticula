@@ -91,6 +91,24 @@ public sealed class ReachabilityTests : ConsoleTest
                 + " || !document.getElementById('serviceLimits').hidden",
                 $"'{service}' opened, and offered nowhere to read or change its limits. They are "
                 + "stored on the service and no other screen edits them.");
+
+            // <b>And it is reached rather than merely present, which this test did not check until
+            // ADR-034 §5k put the settings behind a tab.</b> The assertion above passed on a page whose
+            // Settings panel was hidden, because it asks whether the element exists — and *reaches* is
+            // the word in this test's own name. So: press Settings when the page has one, then require
+            // the control to be visible by `offsetParent`, which is the check this repository uses after
+            // shipping an invisible control three times.
+            await ClickIfPresentAsync("#serviceTabs a[data-service-tab=\"settings\"]");
+
+            await WaitForAsync(
+                "(() => { const nav = document.querySelector("
+                + "'#serviceNav a[data-service-page=\"limits\"]');"
+                + " const own = document.getElementById('serviceLimits');"
+                + " return (nav && nav.offsetParent !== null)"
+                + " || (own && own.offsetParent !== null); })()",
+                $"'{service}' has a limits page in its markup and the operator cannot see it. That is "
+                + "the defect shape this console has shipped three times — a control that exists and "
+                + "is not on screen.");
         }
     }
 }

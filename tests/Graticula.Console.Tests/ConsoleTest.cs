@@ -707,6 +707,25 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// its reader to run it again. Polling one atomic expression removes the gap
     /// rather than making it narrower.
     /// </remarks>
+    /// <summary>
+    /// Clicks the selector if the page has one, and does nothing if it does not.
+    /// </summary>
+    /// <remarks>
+    /// <b>For a control that exists on some of a screen's shapes and not others.</b> A service with
+    /// layers has a tab strip and a system service does not, and a test walking every service wants the
+    /// same steps for both — `ClickAsync` fails after ten seconds when nothing matches, which is right
+    /// for a control that must be there and wrong for one that is conditional. Returns whether it
+    /// clicked, so a caller can say which case it was in.
+    /// </remarks>
+    protected async Task<bool> ClickIfPresentAsync(string selector)
+    {
+        string quoted = JsonSerializer.Serialize(selector);
+
+        return await Browser.EvaluateAsync<bool>(
+            $"(() => {{ const e = document.querySelector({quoted}); "
+            + "if (!e || e.offsetParent === null) return false; e.click(); return true; })()");
+    }
+
     protected async Task ClickAsync(string selector)
     {
         string quoted = JsonSerializer.Serialize(selector);
