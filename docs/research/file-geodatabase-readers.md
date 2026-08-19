@@ -481,7 +481,7 @@ was deleted afterwards — verified by asking `geometry_columns` for what was le
 |---|---|---|---|---|---|
 | Project Information (81 KB) | 8 | 8 | **8** | 116 | 5 s |
 | PointofInvestigation (364 KB) | 12 | 6 | **6** | 3,079 | 5 s |
-| Environmental (4.1 MB) | 55 | 55 | **53** | 16,806 | 28 s |
+| Environmental (4.1 MB) | 55 | 55 | **53**, then **55** | 16,806, then 20,971 | 28 s, then 32 s |
 
 Every published layer's row count equals what the inspection reported. Every table stored **EPSG:2952**
 without reprojection — the reader resolves the layer's own code, the importer stores it, and nothing in
@@ -504,10 +504,18 @@ carries eight hex characters of a SHA-256 of the whole one, and a test reproduce
 old rule. This is the defect that most justifies §8b's rule — *verify against files this project did not
 write* — because nothing in a hand-made fixture has a sixty-three character field name.
 
-**`AECOM_Monitoring_Well_Inventory` holds no features.** Refused, because this server infers a hosted
-table's columns from the features it reads and there are none. The archive *does* declare that layer's
-fields, and using them is [D-106](../architecture-debt.md); the console no longer offers the tick, so the
-refusal happens before a 28-second job rather than at the end of one.
+**`AECOM_Monitoring_Well_Inventory` holds no features.** Refused at first, because this server infers
+a hosted table's columns from the features it reads and there are none. **Fixed the same day
+([D-106](../architecture-debt.md)) and re-run: 55 of 55, 32 seconds.** The archive declares that layer's
+fields, so it now becomes an empty hosted layer — nine fields, `esriGeometryPoint`, and
+`returnCountOnly` answering `{"count":0}`. The type map falls back rather than refusing (an unmapped OGR
+type becomes text; `25D` becomes its 2D kind, which is what the geometry does anyway), and only an
+unstorable *geometry* type is still refused, which is an attachment table.
+
+**So the whole archive publishes, and both of the morning's refusals were real defects rather than
+limits.** One was ours to fix in the importer and one was ours to fix in the naming rule; neither was
+anything about the data. That is the argument for ADR-024 condition 2's rule in one paragraph — a corpus
+this project did not write found two faults in a day, and a hand-made fixture would have found neither.
 
 ### What the round trip settled that reading a layer could not
 

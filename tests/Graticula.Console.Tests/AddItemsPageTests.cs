@@ -54,8 +54,14 @@ public sealed class AddItemsPageTests : ConsoleTest
 
             // <b>Not an empty state.</b> If the suite's server has no content of the signed-in
             // account's own, this test is about nothing and should say so rather than pass.
+            // <b>`td.empty`, not `.empty`.</b> The empty-list message is a `<td>` spanning the
+            // table; a row whose item has no cover renders a `<div class="thumb empty">`
+            // placeholder, so the looser selector is true whenever *any* row lacks a cover —
+            // which would make this read a full page as an empty one. Found 2026-08-19 in
+            // `ListPagingTests`, where the same collision made a passing assertion
+            // unsatisfiable instead.
             bool empty = await Browser.EvaluateAsync<bool>(
-                "!!document.querySelector('#addRows .empty')");
+                "!!document.querySelector('#addRows td.empty')");
 
             Assert.False(
                 empty,

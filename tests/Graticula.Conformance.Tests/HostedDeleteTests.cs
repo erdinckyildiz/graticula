@@ -33,6 +33,7 @@ namespace Graticula.Conformance.Tests;
 /// and is named so the other suites' filters skip it.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class HostedDeleteTests : ArcGisClient
 {
     [Fact]

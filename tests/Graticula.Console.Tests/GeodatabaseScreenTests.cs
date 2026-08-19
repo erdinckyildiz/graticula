@@ -237,21 +237,36 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
                 + "name needs `white-space: nowrap`; the name is the one with genuinely long content "
                 + "and is allowed the extra line.");
 
-            // Two rows cannot be ticked here — the attachment table and the empty feature class — and
-            // they must say which they are, in words, to somebody who never hovers.
+            // <b>One row cannot be ticked, and it was two until D-106 closed the same afternoon.</b>
+            // The empty feature class became publishable — the archive declares its fields, so it lands
+            // as an empty layer — leaving only the attachment table, which has no geometry and
+            // therefore nothing to create a column as. This test asserted two and failed on the change,
+            // which is the assertion doing its job: the fixture's shapes did not move, the rule did.
             string[] said = await Browser.EvaluateAsync<string[]>(
                 """
                 [...document.querySelectorAll('.gdbpick td.tick span.val')]
                   .map(s => s.getAttribute('aria-label') || '')
                 """) ?? [];
 
-            Assert.Equal(2, said.Length);
+            Assert.Single(said);
 
             Assert.All(said, one => Assert.StartsWith("Cannot be published:", one, StringComparison.Ordinal));
+            Assert.Contains("no geometry", said[0], StringComparison.Ordinal);
 
-            // The two reasons are different reasons, and saying the wrong one is worse than saying none.
-            Assert.Contains("no geometry", string.Join(" | ", said), StringComparison.Ordinal);
-            Assert.Contains("no features", string.Join(" | ", said), StringComparison.Ordinal);
+            // And the empty one is offered, with its count reading as a schema rather than as a zero.
+            Assert.True(
+                await Browser.EvaluateAsync<bool>(
+                    """
+                    (() => {
+                      const rows = [...document.querySelectorAll('.gdbpick tbody tr')];
+                      const empty = rows.find(r => r.textContent.includes('Monitoring_Well'));
+                      return empty !== null
+                          && empty.querySelector('.gdbPick') !== null
+                          && /schema only/i.test(empty.textContent);
+                    })()
+                    """),
+                "The empty feature class is not offered, or its row does not say that publishing it "
+                + "creates a schema rather than nothing. `0` in a features column reads as a fault.");
 
             // <b>The page must not carry the navigation column out sideways</b> — the table has its own
             // scroller for that, which is the rule `ScreenReviewTests` asserts for every other screen.

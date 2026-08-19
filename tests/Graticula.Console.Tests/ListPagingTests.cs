@@ -159,9 +159,16 @@ public sealed class ListPagingTests : ConsoleTest
                 + $" f.value = {JsonSerializer.Serialize(Prefix)};"
                 + " f.dispatchEvent(new Event('input', { bubbles: true })); })()");
 
+            // <b>`td.empty`, not `.empty` — and the difference cost a diagnosis.</b> The empty-list
+            // message is a `<td class="empty">` spanning the table; a *row* whose service has no cover
+            // renders a `<div class="thumb empty">` placeholder. `.empty` matches both, so this
+            // condition could never be true when the filtered list held only services without covers —
+            // which is what `zz_paging_probe_*` are, since they have no layers by construction. It
+            // passed for as long as the first filtered row happened to belong to a service with a
+            // cover, which is luck rather than a test.
             await WaitForAsync(
                 "document.querySelectorAll('#services tr').length > 0"
-                + " && !document.querySelector('#services .empty')",
+                + " && !document.querySelector('#services td.empty')",
                 "Filtering left the table empty while there were matches, which is the page index "
                 + "surviving a filter that shortened the list.");
 

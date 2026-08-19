@@ -46,8 +46,14 @@ public sealed class ContentScopesPageTests : ConsoleTest
             "document.querySelectorAll('#contentRows tr').length > 0",
             "My content listed nothing at all.");
 
+        // <b>`td.empty`, not `.empty`.</b> The empty-list message is a `<td>` spanning the
+        // table; a row whose item has no cover renders a `<div class="thumb empty">`
+        // placeholder, so the looser selector is true whenever *any* row lacks a cover —
+        // which would make this read a full page as an empty one. Found 2026-08-19 in
+        // `ListPagingTests`, where the same collision made a passing assertion
+        // unsatisfiable instead.
         bool empty = await Browser.EvaluateAsync<bool>(
-            "!!document.querySelector('#contentRows .empty')");
+            "!!document.querySelector('#contentRows td.empty')");
 
         // <b>The failure carries the screen's own words, which is how this test earned its keep.</b>
         // A bare `Assert.False(empty)` said *this account can see no content*; the diagnostic said

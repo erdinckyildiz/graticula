@@ -6639,9 +6639,10 @@ function drawInspected(job) {
 
   $("addItemBody").innerHTML = `
     <p class="hint">The archive holds ${num(layers.length)} layer${layers.length === 1 ? "" : "s"},
-      ${num(publishable.length)} of which can become a feature layer. The rest are listed and cannot be
-      ticked: an attachment or relationship table carries no geometry, and an empty feature class has no
-      features to take a schema from.</p>
+      ${num(publishable.length)} of which can become a feature layer. The rest are attachment or
+      relationship tables — they carry no geometry, so they are listed and cannot be ticked. A feature
+      class with <b>no features</b> can be published: it becomes an empty layer with the fields the
+      archive declares.</p>
 
     <label class="field">Service name
       <input id="gdbService" value="${h(inspecting.asked.name || "")}" maxlength="128"
@@ -6670,12 +6671,9 @@ function drawInspected(job) {
                   picked.has(name) ? " checked" : ""} aria-label="${h(name)}">`
               : (() => {
                   // <b>`aria-label` beside the `title`, because a title is a mouse.</b> A reader who
-                  // never hovers had only the row's own cells — `none — a table`, or `0` features —
-                  // to infer from, which is one inference more than the sentence costs. Design review
-                  // 2026-08-19.
-                  const why = layer.features === 0
-                    ? "an empty feature class has no features to take a schema from"
-                    : "a table with no geometry cannot become a feature layer";
+                  // never hovers had only the row's own cells — `none — a table` — to infer from,
+                  // which is one inference more than the sentence costs. Design review 2026-08-19.
+                  const why = "a table with no geometry cannot become a feature layer";
 
                   return `<span class="val" title="${h(why)}"
                     aria-label="${h(`Cannot be published: ${why}`)}">—</span>`;
@@ -6683,7 +6681,10 @@ function drawInspected(job) {
             <td>${h(name)}</td>
             <td>${h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
             <td>${layer.features === null || layer.features === undefined
-                  ? '<span class="val">unknown</span>' : num(layer.features)}</td>
+                  ? '<span class="val">unknown</span>'
+                  : layer.features === 0
+                    ? '<span class="val" title="Publishing this creates the layer and its fields with no rows in it">none — schema only</span>'
+                    : num(layer.features)}</td>
             <td>${num((layer.fields || []).length)}</td>
             <td>${layer.srid ? `EPSG:${h(String(layer.srid))}`
                   : '<span class="val">not identified</span>'}</td>
@@ -6741,19 +6742,19 @@ function drawInspected(job) {
 /**
  * Whether a layer the reader described can become a feature layer at all.
  *
- * <b>Two reasons it cannot, and the second was measured rather than predicted.</b> No geometry means an
- * attachment or relationship table. No features means there is nothing to infer a schema from — the
- * archive declares its fields and this server does not yet read them for an empty layer, which is
- * D-106. The owner's 55-layer archive holds exactly one of these, and it was refused at the end of a
- * 28-second publish; a tick that cannot succeed should not be offered.
+ * <b>One reason it cannot: no geometry.</b> That is an attachment or relationship table — one of the
+ * owner's archives holds six of them beside six feature classes — and there is nothing to create a
+ * geometry column as.
  *
- * <b>An unknown count stays tickable.</b> `features` is null when the driver would not say without
- * reading, and refusing on *unknown* would hide a real layer behind a fact nobody established.
+ * <b>An empty feature class *is* publishable again, and the round trip is why.</b> For half a day this
+ * also refused `features === 0`, because every import path in this server built its columns by reading
+ * rows and an empty layer left nothing to read. A geodatabase is not GeoJSON: the reader's header
+ * carries the field list and the geometry type, which is exactly what an empty hosted layer needs, so
+ * D-106 was closed by using it. The tick is offered because it now succeeds — a survey layer exported
+ * before anybody filled it in is the ordinary case, and ArcGIS publishes those.
  */
 function canPublish(layer) {
-  return Boolean(layer.geometry)
-    && layer.geometry !== "wkbNone"
-    && layer.features !== 0;
+  return Boolean(layer.geometry) && layer.geometry !== "wkbNone";
 }
 
 /**
@@ -6994,7 +6995,11 @@ function drawPublish() {
         <thead><tr><th>Feature class</th><th>Features</th><th>Outcome</th></tr></thead>
         <tbody>${rows.map(row => `<tr>
           <td>${h(row.layer || "")}</td>
-          <td>${row.published ? num(row.rows ?? 0) : "—"}</td>
+          <td>${row.published
+            ? (row.rows === 0
+                ? `<span class="val">schema only</span>`
+                : num(row.rows ?? 0))
+            : "—"}</td>
           <td${row.published ? ' class="val"' : ' class="bad-inline"'}>${row.published
             ? "published"
             : h(row.why || "refused")}</td>

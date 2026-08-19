@@ -140,6 +140,20 @@ a second one.
 **Nothing about the coordinate system changes.** The reader resolves each layer's own EPSG code through
 PROJ; a layer it cannot resolve is refused with the layer named, not imported into a guess.
 
+**An empty feature class is published from the archive's own declaration, not from its rows.** Added
+2026-08-19 (D-106) after the first full run refused one: every other import path in this server builds a
+hosted table's columns by observing the features it read, which is the only thing a GeoJSON file offers.
+A geodatabase declares its schema — the reader's header carries the field list with types and the
+geometry type — so an empty layer becomes an empty hosted layer with its fields, which is what
+`POST /admin/hosted/define` already does for a designed one. ArcGIS publishes these, and a survey layer
+exported before anybody filled it in is the ordinary case rather than an oddity.
+
+Two things that fall back rather than refuse, because refusing a whole feature class over one column
+would be the wrong trade: an OGR field type this server does not map becomes text, and a `25D`
+declaration becomes its 2D kind — which is what the import does with the geometry itself either way
+(D-107). What is still refused is a layer whose *geometry* type is unstorable, because there is nothing
+to create the column as. That is an attachment table, and the inspection already says so.
+
 **A partly finished import is reported as partly finished.** Fifty-five layers is fifty-five chances to
 fail, and a job that reports only *failed* after importing forty is a job nobody can act on — which is
 what `IJobStore` refuses. The job's detail carries, per layer, whether it landed and why not.

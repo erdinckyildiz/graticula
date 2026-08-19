@@ -33,6 +33,7 @@ namespace Graticula.Conformance.Tests;
 /// code, which is why this suite asserts the sentence rather than the status code.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class ArchiveFormatRefusalTests : ArcGisClient
 {
     /// <summary>

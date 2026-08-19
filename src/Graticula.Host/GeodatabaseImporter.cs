@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Features;
 using Graticula.Formats;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
@@ -185,7 +186,18 @@ internal sealed class GeodatabaseImporter : BackgroundService
                     // <b>`flattened` is in the report even when it is zero</b>, because *this layer
                     // kept its elevation* and *this server did not look* are different answers and a
                     // missing field cannot tell them apart.
-                    done.Add(new { layer, published = true, rows = made.Rows, flattened = made.Flattened });
+                    done.Add(new
+                    {
+                        layer,
+                        published = true,
+                        rows = made.Rows,
+                        flattened = made.Flattened,
+
+                        // <b>Only when it is the whole story.</b> A layer with rows says nothing about
+                        // being schema-only; a layer with none needs to, because otherwise *published,
+                        // 0 features* reads as a failure somebody should investigate.
+                        schemaOnly = made.Rows == 0 ? made.Declared : (int?)null,
+                    });
                 }
                 catch (Exception refused)
                 {
@@ -241,7 +253,12 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// <summary>What one published layer turned out to be.</summary>
     /// <param name="Rows">How many features landed.</param>
     /// <param name="Flattened">How many of them arrived with a Z this server does not store.</param>
-    private readonly record struct Landed(int Rows, int Flattened);
+    /// <param name="Declared">
+    /// How many columns came from the archive's own declaration rather than from reading rows — zero
+    /// unless the layer was empty, which is D-106's case and worth reporting because *published with no
+    /// features* and *failed* look the same from a distance.
+    /// </param>
+    private readonly record struct Landed(int Rows, int Flattened, int Declared = 0);
 
     /// <summary>Streams one layer out of the archive and publishes it into the service.</summary>
     private async Task<Landed> PublishAsync(
@@ -345,6 +362,46 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ? code.GetInt32()
             : 0;
 
+        // <b>The header's own schema, kept before the document is disposed.</b> It is what makes an
+        // empty feature class publishable — see below — and reading it out here rather than inside the
+        // branch keeps the lifetime of `header` in one place.
+        List<FieldDescription> declared = [];
+        GeometryKind? declaredKind = null;
+
+        if (header is not null)
+        {
+            if (header.RootElement.TryGetProperty("fields", out JsonElement fields)
+                && fields.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement field in fields.EnumerateArray())
+                {
+                    if (field.TryGetProperty("name", out JsonElement named)
+                        && named.GetString() is { Length: > 0 } name)
+                    {
+                        declared.Add(new FieldDescription(
+                            name,
+                            FieldTypeOf(field.TryGetProperty("type", out JsonElement declaredType)
+                                ? declaredType.GetString()
+                                : null),
+
+                            // <b>Nullable, always, and not because we do not know.</b> OGR reports a
+                            // field's nullability and a geodatabase's *required* flag is Esri's own
+                            // notion, enforced by Esri's editors rather than by the data — so a column
+                            // declared `not null` here would refuse rows the source itself holds. The
+                            // one import path that does honour a `not null` is the designed one, where
+                            // a person chose it.
+                            Nullable: true,
+                            MaxLength: null));
+                    }
+                }
+            }
+
+            declaredKind = GeometryKindOf(
+                header.RootElement.TryGetProperty("geometry", out JsonElement geometry)
+                    ? geometry.GetString()
+                    : null);
+        }
+
         header?.Dispose();
         trailer?.Dispose();
 
@@ -358,11 +415,48 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
         if (features.Count == 0)
         {
-            throw new InvalidOperationException(
-                $"'{layer}' holds no features, and this server builds a hosted table's columns by "
-                + "reading them — so there is nothing here to build one from. The archive does declare "
-                + "this layer's fields, and using that instead is D-106; until then an empty feature "
-                + "class is refused rather than published as a layer with no columns.");
+            // <b>D-106: the archive declares its schema, so an empty feature class is publishable.</b>
+            // Every other import path in this server infers columns from the rows it read, which is the
+            // only thing a GeoJSON file offers — so an empty layer was refused, and the owner's
+            // 55-layer archive holds one (`AECOM_Monitoring_Well_Inventory`). A geodatabase is not
+            // GeoJSON: the reader's header carries the field list with types and the geometry type,
+            // which is exactly what `DefineAsync` takes. ArcGIS publishes these; a survey layer
+            // exported before anybody had filled it in is the ordinary case.
+            //
+            // <b>Refused only when the header is silent.</b> No geometry type means there is nothing to
+            // declare the column as, and a layer with no fields and no geometry is not a layer.
+            if (declaredKind is null)
+            {
+                throw new InvalidOperationException(
+                    $"'{layer}' holds no features and declares no geometry type this server stores, "
+                    + "so there is nothing to create the geometry column as. An attachment table "
+                    + "looks like this, and the inspection lists those and says so.");
+            }
+
+            ImportResult defined = await _importer
+                .DefineAsync(declared, declaredKind.Value, srid, layer, stopping)
+                .ConfigureAwait(false);
+
+            await _catalog.PublishLayerAsync(
+                new LayerPublication(
+                    layer,
+                    asked.Datastore,
+                    defined.SchemaName,
+                    defined.TableName,
+                    "geom",
+                    "objectid",
+                    "objectid",
+                    srid,
+                    declaredKind.Value,
+                    Enum.TryParse(asked.Sharing, ignoreCase: true, out SharingScope emptyScope)
+                        ? emptyScope
+                        : SharingScope.Private,
+                    ServiceName: asked.Service,
+                    Folder: asked.Folder ?? "hosted"),
+                asked.Owner,
+                stopping).ConfigureAwait(false);
+
+            return new Landed(0, 0, Declared: declared.Count);
         }
 
         if (kind is null)
@@ -410,6 +504,53 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
         return new Landed(features.Count, flattened);
     }
+
+    /// <summary>
+    /// An OGR field type name as this server's own field type.
+    /// </summary>
+    /// <remarks>
+    /// <b>The names are GDAL's `OGR_GetFieldTypeName` output, and the fallback is text.</b> A type this
+    /// map does not know becomes `Text`, which is what `FieldType.Unknown` already means everywhere
+    /// else in this server — *rendered as text* — rather than a refusal. A geodatabase's exotic field
+    /// types (raster, blob, XML) do carry values a client can be shown; refusing the whole layer over a
+    /// column nobody asked about would be the wrong trade.
+    /// </remarks>
+    private static FieldType FieldTypeOf(string? ogr) => ogr switch
+    {
+        "Integer" => FieldType.Integer,
+        "Integer64" => FieldType.BigInteger,
+        "Real" => FieldType.Double,
+        "Date" or "Time" or "DateTime" => FieldType.Date,
+        "Binary" => FieldType.Binary,
+
+        // Includes "String", "IntegerList", "RealList", "StringList" and anything new: a list has no
+        // column type here and its text form is what a client can read.
+        _ => FieldType.Text,
+    };
+
+    /// <summary>
+    /// A WKB geometry type name as this server's own geometry kind, or null when it stores none.
+    /// </summary>
+    /// <remarks>
+    /// <b>The `25D` suffix is dropped rather than refused</b>, because that is what the import does with
+    /// the geometry itself: `WkbReader` drops Z and says it did (D-107). A layer declared
+    /// `wkbMultiPolygon25D` becomes a 2D MultiPolygon column, which is the same answer the non-empty
+    /// path arrives at one feature at a time.
+    ///
+    /// <b>`wkbNone` and anything unrecognised are null</b> — an attachment table, or a curve type
+    /// ADR-005 §3.3c refuses. Null is a refusal with a sentence, not a guess.
+    /// </remarks>
+    private static GeometryKind? GeometryKindOf(string? wkb) =>
+        (wkb ?? string.Empty).Replace("25D", string.Empty, StringComparison.Ordinal) switch
+        {
+            "wkbPoint" => GeometryKind.Point,
+            "wkbMultiPoint" => GeometryKind.MultiPoint,
+            "wkbLineString" => GeometryKind.LineString,
+            "wkbMultiLineString" => GeometryKind.MultiLineString,
+            "wkbPolygon" => GeometryKind.Polygon,
+            "wkbMultiPolygon" => GeometryKind.MultiPolygon,
+            _ => null,
+        };
 
     private static async Task Wait(CancellationToken stopping)
     {

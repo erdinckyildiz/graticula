@@ -50,6 +50,14 @@ namespace Graticula.Conformance.Tests;
 /// and the same signature sent a commit message to blame the wrong debt earlier the same day.
 /// </para>
 /// <para>
+/// <b>The rule, so that the next class does not have to be bitten first: a conformance class that
+/// publishes anything into the catalogue belongs in this collection.</b> Four were added when the
+/// failures were traced; `HostedDeleteTests` and `ArchiveFormatRefusalTests` were added an hour later
+/// after a run failed on `zz_drop_…`, which is the same fault with a different fixture name. The
+/// membership is the whole mechanism — there is nothing to configure and nothing that detects a class
+/// which forgot.
+/// </para>
+/// <para>
 /// <b>A collection rather than a filter on the walk.</b> Skipping names that look like fixtures would
 /// hide the one thing these tests exist to check — that *every* service in the catalogue can actually
 /// be opened — and would keep hiding it after somebody published a real service called `zz_anything`.
