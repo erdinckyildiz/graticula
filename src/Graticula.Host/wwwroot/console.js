@@ -3661,11 +3661,21 @@ function drawServiceDelete() {
 
   const count = serviceLayers.length;
 
+  // <b>What actually goes, per the owner's correction.</b> The old sentence said the tables are not
+  // dropped, which was true of the server and wrong as a policy: *"servis hosted sa ve silindiyse,
+  // datastore dan silinmesi lazım."* ADR-034 §5k. A hosted layer's table is ours and goes with it; a
+  // registered layer points at somebody else's database and its table is never touched.
+  const hostedHere = (serviceOpen?.folder || "") === "hosted";
+
   note.innerHTML = count === 0
     ? `This service holds no layers, so deleting it removes the service and no data.`
-    : `Deleting this service removes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> from the
-       directory. The tables in the datastore are not dropped — unpublishing is not deleting data, and
-       this server will not silently do the second when you asked for the first.`;
+    : hostedHere
+      ? `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> and
+         <b>drops their tables from the datastore</b>. Hosted data belongs to the service that holds it,
+         so this cannot be undone — there is no unpublished copy left behind.`
+      : `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b>. These
+         are registered layers: they point at a database that is not ours, so <b>no table is
+         dropped</b> — the registration goes and the data stays exactly as it is.`;
 
   button.disabled = lock.checked;
   $("svcLockState").textContent = lock.checked ? "Locked" : "Not locked";
@@ -7610,17 +7620,27 @@ async function handleClick(event) {
 
     const count = serviceLayers.length;
 
+    // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
+    // in front of a drop has not said anything; *drops 55 tables* has.
+    const hosted = (serviceOpen.folder || "") === "hosted";
+
     if (!confirm(
       `Delete '${serviceOpen.qualified}'`
       + (count ? ` and its ${count} layer${count === 1 ? "" : "s"}` : "")
-      + "? The directory entry goes; the tables in the datastore are not dropped.")) {
+      + "? "
+      + (count === 0
+        ? "It holds no layers, so no data goes with it."
+        : hosted
+          ? `This drops ${count} table${count === 1 ? "" : "s"} from the datastore and cannot be undone.`
+          : "These are registered layers, so their tables are not touched — only the registration "
+            + "goes."))) {
       return;
     }
 
     try {
       const answer = await api(
         `/admin/featureservices/${encodeURIComponent(serviceOpen.name)}`
-        + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`,
+        + `?folder=${encodeURIComponent(serviceOpen.folder || "")}&drop=true`,
         { method: "DELETE" });
 
       toast(answer.note || `${serviceOpen.qualified}: deleted`, true);

@@ -1417,7 +1417,12 @@ internal static class AdminEndpoints
         HttpContext context,
         string name,
         string? folder,
+        bool? drop,
         IAdminCatalog catalog,
+        PostgresLayerCatalog published,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -1429,12 +1434,106 @@ internal static class AdminEndpoints
 
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
 
+        // <b>`drop=true` empties the service on the way out — owner instruction, ADR-034 §5k.</b> The
+        // copy under the delete button used to read *the tables in the datastore are not dropped*, and
+        // the owner's answer was that it should not be true: *"servis hosted sa ve silindiyse, datastore
+        // dan silinmesi lazım."* Between the two refusals this server had — a service that will not go
+        // while it holds layers, and an unpublish that will not touch the table — there was **no route
+        // that dropped a hosted table at all**, so importing a geodatabase and changing your mind left
+        // fifty-five tables and a database client.
+        //
+        // <b>Hosted only, and that line is the one this product is built on.</b> A hosted table was
+        // created by `PostGisImporter`, named by us, and belongs to the service. A registered one points
+        // at somebody else's database and is never touched — its registration goes and the table stays
+        // exactly as it was.
+        //
+        // <b>Off by default, so nothing but the console's own confirmed button does this.</b> A script
+        // calling the endpoint the way it always has still gets the 409, which is the answer it was
+        // written against.
+        List<object> emptied = [];
+
+        if (drop == true)
+        {
+            IReadOnlyList<PublishedLayer> inside =
+                (await published.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(l => string.Equals(l.ServiceName, name, StringComparison.Ordinal)
+                    && string.Equals(l.Folder ?? null, at, StringComparison.Ordinal))
+                .ToList();
+
+            foreach (PublishedLayer layer in inside)
+            {
+                string layerName = layer.Definition.Name;
+                bool hosted = layer.Definition.IsHosted;
+                bool dropped = false;
+                string? failure = null;
+
+                bool unpublished = await catalog
+                    .UnpublishLayerAsync(layerName, cancellation).ConfigureAwait(false);
+
+                if (unpublished)
+                {
+                    contexts.Forget(layer);
+
+                    // ADR-010 §5.1's *wrong* class rather than the stale one, for the reason
+                    // `UnpublishAsync` gives: a name republished over a different table would otherwise
+                    // serve the old table's pictures until the TTL ran out.
+                    tiles.Purge(layer.Id);
+                }
+
+                if (unpublished && hosted)
+                {
+                    try
+                    {
+                        await importer.DropAsync(
+                            layer.Definition.SchemaName,
+                            layer.Definition.TableName,
+                            cancellation).ConfigureAwait(false);
+
+                        dropped = true;
+                    }
+                    catch (Exception refused)
+                    {
+                        // <b>Reported, not swallowed, and not fatal to the rest.</b> One table that will
+                        // not drop — a lock, a permission — must not leave the other fifty-four
+                        // unpublished and unaccounted for. The response says which.
+                        failure = refused.Message;
+                    }
+                }
+
+                emptied.Add(new
+                {
+                    layer = layerName,
+                    hosted,
+                    unpublished,
+                    dropped,
+                    table = hosted ? $"{layer.Definition.SchemaName}.{layer.Definition.TableName}" : null,
+                    failure,
+                });
+            }
+
+            // <b>The group layers go too, and counting them was where the first version went wrong.</b>
+            // I called `DeleteServiceAsync` to learn how many were left — and that call **deletes the
+            // service when it can**, so with the layers already unpublished it succeeded, and the real
+            // call afterwards answered *no service* while the tables had in fact been dropped. A right
+            // outcome reported as a 404. Found by deleting a service I had made for the purpose.
+            //
+            // So nothing is asked twice: the group layers are removed by walking indices until the walk
+            // stops removing anything, and the service is deleted exactly once, below.
+            for (int index = 0, quiet = 0; index < 256 && quiet < 8; index++)
+            {
+                (Removal went, _) = await catalog
+                    .DeleteGroupLayerAsync(name, at, index, cancellation).ConfigureAwait(false);
+
+                quiet = went == Removal.Removed ? 0 : quiet + 1;
+            }
+        }
+
         (Removal outcome, int layers, int groups) = await catalog
             .DeleteServiceAsync(name, at, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "service.delete", name,
-            Detail(new { folder = at, outcome = outcome.ToString(), layers, groups }),
+            Detail(new { folder = at, outcome = outcome.ToString(), layers, groups, dropped = emptied }),
             succeeded: outcome == Removal.Removed, cancellation).ConfigureAwait(false);
 
         if (outcome == Removal.Absent)
@@ -1449,11 +1548,18 @@ internal static class AdminEndpoints
         {
             await Refuse(context, 409,
                 $"'{name}' still holds {Count(layers, "layer")} and {Count(groups, "group layer")}. "
-                + "Deleting a service does not delete what is in it — unpublish the layers first, "
-                + "which also purges their tiles and tells you the source tables were not touched.")
+                + "Deleting a service does not delete what is in it — unpublish the layers first, or "
+                + "ask for it with drop=true, which unpublishes them and drops the tables of the "
+                + "hosted ones. A registered layer's table is never touched.")
                 .ConfigureAwait(false);
             return;
         }
+
+        int droppedTables = emptied.Count(e =>
+            e.GetType().GetProperty("dropped")?.GetValue(e) is true);
+
+        int leftAlone = emptied.Count(e =>
+            e.GetType().GetProperty("hosted")?.GetValue(e) is false);
 
         await Results.Json(new
         {
@@ -1461,10 +1567,21 @@ internal static class AdminEndpoints
             folder = at,
             removed = true,
 
-            // What a service is, said at the moment it stops existing: it held no data
-            // of its own, so nothing of anybody's went with it.
-            note = "The service held no layers, so nothing was published through it and no data "
-                 + "was removed with it.",
+            // <b>Per layer, because a service holding one hosted and one registered layer does two
+            // different things.</b> A single *deleted* would hide the half that was left alone, which is
+            // the half somebody else's database is on the other end of.
+            layers = emptied,
+
+            note = emptied.Count == 0
+                ? "The service held no layers, so nothing was published through it and no data was "
+                  + "removed with it."
+                : $"Unpublished {Count(emptied.Count, "layer")}"
+                  + (droppedTables > 0 ? $", dropped {Count(droppedTables, "table")}" : "")
+                  + (leftAlone > 0
+                      ? $", and left {Count(leftAlone, "registered table")} untouched — a registered "
+                        + "layer points at a database that is not ours"
+                      : "")
+                  + ".",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
