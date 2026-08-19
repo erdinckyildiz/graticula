@@ -367,4 +367,68 @@ public sealed class PostGisImporterTests : PostgresFixture
             await DropAsync(result);
         }
     }
+
+    /// <summary>
+    /// Two field names that agree for their first sixty characters become two columns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test fails against the code that shipped until 2026-08-19</b>, with PostgreSQL's own
+    /// <c>42701: column "…" specified more than once</c> — and that is the whole point of writing it.
+    /// A column name was cut to sixty characters with nothing to distinguish it from the next name cut
+    /// to the same sixty, so a table with two such fields could not be created at all.
+    /// </para>
+    /// <para>
+    /// <b>Found in real data rather than imagined.</b> Publishing the owner's 55-layer geodatabase
+    /// refused exactly one feature class for exactly this reason: two <c>FID_…</c> fields from an ArcGIS
+    /// spatial join, whose names differ only past the sixtieth character. Fifty-three layers landed and
+    /// one was lost, which is the shape of failure a per-layer report exists to make visible.
+    /// </para>
+    /// <para>
+    /// <b>What is asserted is *two columns*, not what they are called.</b> The disambiguation is a
+    /// digest and the test does not spell it out: pinning the exact name here would make a future change
+    /// of scheme look like a regression, where the property that matters is that no field is silently
+    /// merged into another.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Two_field_names_that_agree_for_sixty_characters_become_two_columns()
+    {
+        // 63 characters each, identical through the 60th. Both are legal GeoJSON property names and
+        // ArcGIS produces this shape by joining a layer whose own name is already long.
+        const string One = "fid_aecom_arch_previously_assessed_archaeological_area_north_aa";
+        const string Two = "fid_aecom_arch_previously_assessed_archaeological_area_north_bb";
+
+        ImportResult result = await new PostGisImporter(DataSource).ImportAsync(
+            Parse(
+                """
+                {"type":"FeatureCollection","features":[
+                  {"type":"Feature",
+                   "geometry":{"type":"Point","coordinates":[28.97,41.00]},
+                   "properties":{
+                """
+                + $"\"{One}\":1,\"{Two}\":2"
+                + "}}]}"),
+            "long names",
+            CancellationToken.None);
+
+        try
+        {
+            Assert.Equal(1, result.Rows);
+
+            long columns = await ScalarAsync<long>(
+                $"""
+                 select count(*) from information_schema.columns
+                 where table_schema = '{result.SchemaName}'
+                   and table_name = '{result.TableName}'
+                   and column_name not in ('objectid', 'geom')
+                 """);
+
+            Assert.Equal(2L, columns);
+        }
+        finally
+        {
+            await DropAsync(result);
+        }
+    }
 }

@@ -180,6 +180,82 @@ internal sealed class ImportScratch
     /// disk fill. The directory holds one file per unfinished job, which at this server's scale is a
     /// handful.
     /// </remarks>
+    /// <summary>How long an archive nobody has acted on is kept before the sweep takes it.</summary>
+    /// <remarks>
+    /// <b>Six hours, and the number is about a person rather than a process.</b> An inspection finishes
+    /// in seconds; what this waits for is the operator who left the selection screen open over lunch, or
+    /// went to ask a colleague which of fifty-five feature classes they actually need. Anything under an
+    /// hour would delete an archive somebody is still choosing from. A day would let one forgotten
+    /// upload hold the budget through a working day — the state whose refusal message would then be
+    /// misleading, which is the whole reason the sweep exists.
+    /// </remarks>
+    public static readonly TimeSpan Patience = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Deletes archives nothing has acted on for longer than <paramref name="patience"/>.
+    /// </summary>
+    /// <param name="patience">How long an archive may sit here untouched.</param>
+    /// <returns>How many were deleted.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>This exists because of a decision made on 2026-08-19, and it is that decision's other half.</b>
+    /// An inspection used to release its archive as soon as it finished. ADR-038 needed it kept — the
+    /// operator chooses which feature classes to publish *from what the inspection found*, so releasing
+    /// it would mean uploading two gigabytes again to act on the answer — and the publish releases it.
+    /// Which leaves the case where nobody publishes: a browser closed on the selection screen holds its
+    /// archive for ever, and <see cref="KeepAsync"/>'s budget then refuses the next upload with a
+    /// message about jobs failing to clean up, which would not be what happened.
+    /// </para>
+    /// <para>
+    /// <b>By age, not by asking the job store.</b> A file whose job is finished is already released by
+    /// whoever finished it; what is left here is either being chosen from right now or abandoned, and no
+    /// row anywhere distinguishes those two. Age does, and it needs no query.
+    /// </para>
+    /// <para>
+    /// <b>Every failure is swallowed and counted, not thrown.</b> This runs on a worker's idle tick: a
+    /// file held open by an antivirus scanner must not stop the loop that claims jobs, and it will be
+    /// swept on the next pass anyway.
+    /// </para>
+    /// </remarks>
+    public int Sweep(TimeSpan patience)
+    {
+        if (!System.IO.Directory.Exists(_settings.ImportScratchPath))
+        {
+            return 0;
+        }
+
+        DateTime cutoff = DateTime.UtcNow - patience;
+        int swept = 0;
+
+        foreach (FileInfo file in new DirectoryInfo(_settings.ImportScratchPath)
+                     .EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+        {
+            // <b>Last write, not creation.</b> A copy in progress has a creation time in the past and is
+            // still arriving; its last write moves as it does.
+            if (file.LastWriteTimeUtc > cutoff)
+            {
+                continue;
+            }
+
+            try
+            {
+                long megabytes = Megabytes(file.Length);
+
+                file.Delete();
+                swept++;
+
+                Log.ImportArchiveSwept(_log, file.Name, megabytes);
+            }
+            catch (Exception unreachable) when (unreachable is IOException
+                or UnauthorizedAccessException)
+            {
+                // Next pass. Nothing here is urgent enough to fail a worker over.
+            }
+        }
+
+        return swept;
+    }
+
     public long Resident()
     {
         if (!System.IO.Directory.Exists(_settings.ImportScratchPath))

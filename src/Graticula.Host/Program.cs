@@ -105,6 +105,7 @@ public static class Program
 
         builder.Services.AddSingleton<ImportScratch>();
         builder.Services.AddHostedService<GeodatabaseInspector>();
+        builder.Services.AddHostedService<GeodatabaseImporter>();
 
         builder.Services.AddSingleton<TileSingleFlight>();
 

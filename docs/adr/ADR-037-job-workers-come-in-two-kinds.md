@@ -318,8 +318,14 @@ dependency that leaks.
    decision, and a sentence is not a guard. **So it now applies to the reader, which is the process a
    path could reach.** What is met: the wire is three named operations with named string arguments,
    nothing evaluates, and `GeodatabaseReaderTests` asserts that an operation the reader does not have
-   comes back as a refusal rather than being attempted. **What is not:** no test asserts that the set of
-   operations stays closed. A fourth op that took a script would pass every test in this repository.
+   comes back as a refusal rather than being attempted. ***(Discharged later the same day, in full, and by
+   the event it anticipated: ADR-038 added a fourth operation — `features` — and the closing test was
+   written with it.
+   `GeodatabaseReaderTests.The_reader_answers_exactly_the_operations_its_refusal_names` parses the
+   reader's own refusal for the names it lists, asserts that set is exactly `ping`, `layers`, `convert`,
+   `features`, and then asks for each one to check the sentence is not listing something the reader does
+   not answer. Falsified by staling the sentence. `PARTLY DISCHARGED` above is left standing rather than
+   rewritten, because the state it recorded was true for six hours.)***
 4. ~~**No GDAL or OSGeo package reference appears in the solution.** Verified absent 2026-08-18;
    Q-28's stricter form is mechanically checkable where an image boundary is not, so it is checked.~~
    ***(Withdrawn 2026-08-19 — §5a spent it the same day it was written. There is a
@@ -336,9 +342,15 @@ dependency that leaks.
    in the shapefile reader. **The corpus exists:** the owner supplied three of their own geodatabases,
    and `OpenFileGDB` opened all three and listed 12, 55 and 8 layers with relationships, domains, field
    aliases and resolved EPSG codes. So the adopted reader is verified against data this project did not
-   write, which is the half that could be done before a worker exists. **What is still owed is an
+   write, which is the half that could be done before a worker exists. ~~**What is still owed is an
    actual import** — reading a layer is not writing one, and the geometry, the encoding and the Z drop
-   are only settled by a round trip. Details, including a file type the published specification does
+   are only settled by a round trip.~~ ***(Discharged 2026-08-19: all three archives round-tripped into
+   PostGIS through ADR-038's publish. 67 of 69 publishable layers landed — 20,001 features, EPSG:2952
+   stored without reprojection, counts equal to what the inspection reported — and the two that did not
+   are D-105 and D-106, both found by this round trip and neither predicted by reading a layer. The Z
+   drop is settled and is not free: 25D is the common case in this data, the hosted table is 2D, and the
+   job now reports per layer how many features carried an elevation (D-107). §8g has the numbers.)***
+   Details, including a file type the published specification does
    not cover, in [file-geodatabase-readers.md](../research/file-geodatabase-readers.md) §8b.
 6. ~~**The temporary extraction directory has stated bounds and is cleaned**, with the same shape of
    argument `ArchiveLimits.ForShapefile` carries: numbers derived from the format rather than round.~~

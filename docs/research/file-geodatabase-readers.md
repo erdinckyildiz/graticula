@@ -465,3 +465,67 @@ first. Which was sometimes the stale one, which is why two uploads succeeded and
 That is [D-96](../architecture-debt.md): the job table is a claim surface with no worker identity and no
 protocol version on it, so anything that can reach the database can take work and fail it, and the
 failure names nothing an operator could use to find the culprit.
+
+## 8g. Published — all three archives, end to end, measured 2026-08-19
+
+§8f took an archive as far as *what is inside it*. This is the other half: the layers chosen from that
+answer become layers in one service, in the datastore, answering on the ArcGIS surface. One archive, one
+service, N layers — the owner's rule, *"servis ve katman ayrı şeyler. bir serviste n katman olabilir"*,
+and [ADR-038](../adr/ADR-038-how-a-geodatabase-becomes-a-service.md).
+
+**The archives are the owner's client data.** Structure and counts are recorded here; no attribute value
+is quoted, nothing was copied into this repository, and every service and table created by these runs
+was deleted afterwards — verified by asking `geometry_columns` for what was left, which was nothing.
+
+| Archive | Layers | Publishable | Published | Features | Wall clock |
+|---|---|---|---|---|---|
+| Project Information (81 KB) | 8 | 8 | **8** | 116 | 5 s |
+| PointofInvestigation (364 KB) | 12 | 6 | **6** | 3,079 | 5 s |
+| Environmental (4.1 MB) | 55 | 55 | **53** | 16,806 | 28 s |
+
+Every published layer's row count equals what the inspection reported. Every table stored **EPSG:2952**
+without reprojection — the reader resolves the layer's own code, the importer stores it, and nothing in
+between guesses. `/rest/services/hosted/{name}/FeatureServer` listed the layers with the right geometry
+types, and `?returnCountOnly=true` answered on each. Six of PointofInvestigation's twelve entries are
+attachment and relationship tables with no geometry: listed, dimmed, not offered.
+
+**Twenty-eight seconds for fifty-five layers is not the interesting number.** The interesting number is
+that the job reported progress after each layer — 2%, 11%, 22%, … — because the alternative is twenty-eight
+seconds of a screen that cannot be distinguished from a stuck one.
+
+### The two that did not publish, which is why this was worth running
+
+**`AECOM_Archeological_Assessment_Results` died on PostgreSQL `42701`.** Two of its fields — the
+`FID_…` columns an ArcGIS spatial join leaves behind — agree for their first sixty characters, and
+`PostGisImporter.ColumnNameFor` cut both to the same identifier. So `create table` named one column
+twice and the whole feature class was refused, with a message to the operator that quoted an identifier
+they had never written. **[D-105](../architecture-debt.md), fixed the same day:** a truncated name now
+carries eight hex characters of a SHA-256 of the whole one, and a test reproduces the 42701 against the
+old rule. This is the defect that most justifies §8b's rule — *verify against files this project did not
+write* — because nothing in a hand-made fixture has a sixty-three character field name.
+
+**`AECOM_Monitoring_Well_Inventory` holds no features.** Refused, because this server infers a hosted
+table's columns from the features it reads and there are none. The archive *does* declare that layer's
+fields, and using them is [D-106](../architecture-debt.md); the console no longer offers the tick, so the
+refusal happens before a 28-second job rather than at the end of one.
+
+### What the round trip settled that reading a layer could not
+
+**The wire could not be GeoJSON, and one measurement was enough to prove it.** ADR-038 §4B chose GeoJSON
+for the pipe between the reader and the host: GDAL writes it in one call, this server has read it since
+its first import. The first real publish refused all eight layers of the first archive — *position
+(271963.2, 4790579.1) is outside WGS 84* — because RFC 7946 defines GeoJSON coordinates as WGS 84
+longitude and latitude and `GeoJsonGeometry` enforces it. The data is EPSG:2952, in metres. The guard was
+right; the format was wrong. The wire is **base64 WKB** now: no opinion about the coordinate system, read
+by `WkbReader` straight into the server's own geometry model, and it reports what it drops.
+
+**Z is the common case, not an edge, and it is dropped.** Six of the eight layers in the smallest archive
+are `25D`. The publish job now reports per layer how many features carried an elevation, which surfaced
+something a declaration cannot: `HaLRT_Locate_Areas` is declared `wkbMultiPolygon25D` and **49 of its 51
+features** have a Z. The declared type says what the layer is for; only the features say what is in it.
+[D-107](../architecture-debt.md).
+
+**And the ceiling did not move — it changed owner.** The pipe has no limit and the importer collects the
+whole layer into an `ImportedDataset`, so `ImportLimits.Default`'s million features is now bounded by
+memory instead of by a format. [D-108](../architecture-debt.md) carries that, and it is ADR-038's own
+condition 1 restated as a debt rather than quietly discharged.

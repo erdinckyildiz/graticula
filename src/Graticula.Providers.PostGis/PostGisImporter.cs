@@ -388,10 +388,37 @@ public sealed class PostGisImporter
     /// A column name safe to quote, derived from the property name.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// PostgreSQL will accept almost anything inside double quotes, including a
     /// newline. It is accepted here and everywhere afterwards — every query this
     /// server writes quotes its identifiers — but a column called
     /// <c>"drop table"</c> in an error message is a support call nobody needs.
+    /// </para>
+    /// <para>
+    /// <b>A name that had to be cut short carries a digest of the whole one, and that is D-105.</b>
+    /// Cutting at sixty characters is what an identifier limit requires; cutting <em>two</em> names to
+    /// the same sixty characters is how a layer is lost. Measured on the owner's archive 2026-08-19:
+    /// <c>AECOM_Archeological_Assessment_Results</c> holds two fields whose first sixty characters
+    /// agree, and the import died on <c>42701: column … specified more than once</c> — a whole feature
+    /// class refused, with a message from PostgreSQL about an identifier the operator never wrote.
+    /// </para>
+    /// <para>
+    /// <b>The digest is of the source name, so it does not depend on what else is in the table.</b>
+    /// Four places derive a column name from a property name — the two <c>create table</c> builders and
+    /// the two that name columns for the write — and they do it independently. A scheme that numbered
+    /// collisions would have to agree on the order they were seen in; a hash of the name itself needs
+    /// no agreement at all.
+    /// </para>
+    /// <para>
+    /// <b>SHA-256 rather than <c>GetHashCode</c>.</b> String hashing in .NET is randomised per process,
+    /// so the same import run twice would produce different column names — and a table whose schema
+    /// depends on which process created it is not a table anybody can write a migration for.
+    /// </para>
+    /// <para>
+    /// <b>Names short enough to keep are untouched</b>, byte for byte, which is what keeps this from
+    /// being a change to every hosted table's schema. Only a name that was already being truncated —
+    /// already unreadable, and already the one at risk — moves.
+    /// </para>
     /// </remarks>
     private static string ColumnNameFor(string property)
     {
@@ -400,17 +427,21 @@ public sealed class PostGisImporter
         foreach (char c in property.ToLowerInvariant())
         {
             safe.Append(char.IsAsciiLetterOrDigit(c) ? c : '_');
-
-            if (safe.Length >= 60)
-            {
-                break;
-            }
         }
 
         string name = safe.ToString();
 
+        if (name.Length > 60)
+        {
+            name = string.Concat(name.AsSpan(0, 51), "_", Digest(property));
+        }
+
         return name.Length == 0 || !char.IsAsciiLetter(name[0]) ? "f_" + name : name;
     }
+
+    /// <summary>Eight hex characters that stand for the whole name.</summary>
+    private static string Digest(string property) => Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(property)))[..8];
 
     private static string SqlTypeFor(InferredColumn column) => column.Type switch
     {

@@ -213,6 +213,134 @@ public sealed class ArchiveFormatRefusalTests : ArcGisClient
 
     // ------------------------------------------------------------------------------ helpers
 
+    /// <summary>
+    /// Everything <c>POST /admin/hosted/geodatabase</c> refuses, refused before anything is written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One test with five claims, because they share an expensive fixture and nothing else.</b> Each
+    /// needs an inspection job that belongs to this caller, and getting one means uploading an archive
+    /// and waiting for a worker to claim it. Five tests would be five uploads of the same four empty
+    /// files for five one-line assertions.
+    /// </para>
+    /// <para>
+    /// <b>The archive is four empty files in a `roads.gdb/` folder, and its inspection fails.</b> That
+    /// is what makes it the right fixture here: this endpoint's job is to refuse, and an inspection that
+    /// failed is one of the things it must refuse to publish from. What it cannot test is the happy
+    /// path — a real geodatabase is somebody's data and stays out of this repository, so the round trip
+    /// is measured by hand instead and written down with its numbers
+    /// ([file-geodatabase-readers.md](../../docs/research/file-geodatabase-readers.md) §8g).
+    /// </para>
+    /// <para>
+    /// <b>Every refusal here is checked for a *reason*, not only a status.</b> A 400 that does not say
+    /// which layer was not in the archive, or that a name is a URL segment, sends the operator to the
+    /// server log — which is the failure mode this repository keeps finding in its own error paths.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Publishing_from_a_geodatabase_refuses_what_it_cannot_do()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        byte[] archive = Zip(
+            ("roads.gdb/a00000001.gdbtable", 64),
+            ("roads.gdb/a00000001.gdbtablx", 64),
+            ("roads.gdb/a00000004.gdbindexes", 64),
+            ("roads.gdb/gdb", 64));
+
+        (HttpStatusCode opening, string opened) = await ImportAsync(
+            root, token!, archive, "probe.gdb.zip", "zz_gdb_publish_refusals");
+
+        Assert.True(
+            opening == HttpStatusCode.Accepted,
+            $"Expected 202 with a job. Got {(int)opening}: {opened}");
+
+        string job = JsonDocument.Parse(opened).RootElement.GetProperty("job").GetString()!;
+
+        // 1. No service name. The whole point of this endpoint is that N layers go into one service.
+        (HttpStatusCode nameless, string why) = await PublishAsync(
+            root, token!, $"{{\"archive\":\"{job}\",\"layers\":[\"anything\"]}}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, nameless);
+        Assert.Contains("service", why, StringComparison.OrdinalIgnoreCase);
+
+        // 2. A name that cannot be a URL segment. A service name is addressable or it is nothing.
+        (HttpStatusCode slashed, string slashWhy) = await PublishAsync(
+            root, token!, $"{{\"archive\":\"{job}\",\"service\":\"a/b\",\"layers\":[\"x\"]}}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, slashed);
+        Assert.Contains("URL", slashWhy, StringComparison.OrdinalIgnoreCase);
+
+        // 3. No layers. Publishing nothing is not a request with an outcome.
+        (HttpStatusCode empty, string emptyWhy) = await PublishAsync(
+            root, token!, $"{{\"archive\":\"{job}\",\"service\":\"zz_x\",\"layers\":[]}}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, empty);
+        Assert.Contains("layers", emptyWhy, StringComparison.OrdinalIgnoreCase);
+
+        // 4. An archive that is not a job of this caller's. Not found rather than forbidden, which is
+        //    `IJobStore.FindAsync`'s own rule: a 403 on an id confirms the id.
+        (HttpStatusCode absent, _) = await PublishAsync(
+            root, token!,
+            "{\"archive\":\"00000000-0000-0000-0000-000000000000\","
+            + "\"service\":\"zz_x\",\"layers\":[\"x\"]}");
+
+        Assert.Equal(HttpStatusCode.NotFound, absent);
+
+        // 5. The inspection has to have finished before there is a list to choose from. This fixture's
+        //    inspection fails — four empty files are not a geodatabase — so once it has settled, the
+        //    refusal is about the inspection's state rather than about the layer name.
+        (string settled, _) = await SettledAsync(root, token!, job);
+
+        Assert.Equal("failed", settled);
+
+        (HttpStatusCode unusable, string unusableWhy) = await PublishAsync(
+            root, token!,
+            $"{{\"archive\":\"{job}\",\"service\":\"zz_x\",\"layers\":[\"anything\"]}}");
+
+        // <b>409, not 400</b>: nothing is wrong with the request, and the operator's next move is to
+        // look at why the inspection failed rather than to change what they asked for.
+        Assert.Equal(HttpStatusCode.Conflict, unusable);
+        Assert.Contains("failed", unusableWhy, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"/admin/jobs/{job}", unusableWhy, StringComparison.Ordinal);
+    }
+
+    private async Task<(HttpStatusCode Status, string Message)> PublishAsync(
+        string root, string token, string body)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{root}/admin/hosted/geodatabase")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        string said = await response.Content.ReadAsStringAsync();
+        string message = said;
+
+        try
+        {
+            JsonElement answered = JsonDocument.Parse(said).RootElement;
+
+            if (answered.TryGetProperty("error", out JsonElement error)
+                && error.TryGetProperty("message", out JsonElement told))
+            {
+                message = told.GetString() ?? said;
+            }
+        }
+        catch (JsonException)
+        {
+            // The raw body, which is more useful in a failure than an empty string.
+        }
+
+        return (response.StatusCode, message);
+    }
+
     private static byte[] Zip(params (string Name, int Bytes)[] members)
     {
         using MemoryStream buffer = new();

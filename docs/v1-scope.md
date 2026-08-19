@@ -187,10 +187,22 @@ exist depend on Esri's closed SDK or are commercial. Details and the two format
 limits — **SDC and CDF compressed geodatabases cannot be read at all** — are in
 [Q-108](open-questions.md).
 
-**What is still missing is one sentence in the product**, not a decision: a
+~~**What is still missing is one sentence in the product**, not a decision: a
 `.gdb.zip` uploaded today is sniffed as a ZIP, enters the shapefile path, and is
 refused with *"no shapefile in this archive"*. The refusal is correct and the
-sentence is wrong — nothing says *this format is not imported yet*.
+sentence is wrong — nothing says *this format is not imported yet*.~~
+
+**Built 2026-08-19.** A `.gdb.zip` is now recognised, kept, read by a separate
+process, and published: one archive becomes **one service holding N layers**, which
+is [ADR-038](adr/ADR-038-how-a-geodatabase-becomes-a-service.md) and the owner's
+rule — *"servis ve katman ayrı şeyler. bir serviste n katman olabilir."* All three
+of the owner's archives round-tripped into PostGIS the same day; the numbers, and
+the two layers that were refused for reasons in the data, are in
+[file-geodatabase-readers.md](research/file-geodatabase-readers.md) §8g. What is
+**not** built is anything past import: no writing a geodatabase, no SDC or CDF
+(unreadable by any open route), no schema-only publish of an empty feature class
+(D-106), and the 2.5D geometries these archives are full of are stored as 2D with
+the loss counted rather than carried (D-107).
 
 ---
 

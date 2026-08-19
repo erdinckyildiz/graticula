@@ -5490,11 +5490,12 @@ function drawAddItem() {
   // feature-class names forty characters long; every other screen is a short form and 680px is
   // right for reading prose. Set here rather than inside the screen so that leaving it takes the
   // width back.
-  $("addItem").classList.toggle("wide", itemStep === "inspect");
+  $("addItem").classList.toggle("wide", itemStep === "inspect" || itemStep === "publish");
 
   if (itemStep === "item") drawItemKinds();
   else if (itemStep === "kind") drawLayerRoutes();
   else if (itemStep === "inspect") drawInspect();
+  else if (itemStep === "publish") drawPublish();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -6242,8 +6243,20 @@ let inspecting = null;
  * queue can have a notification channel; until then this says how long it has been waiting, because a
  * spinner with no elapsed time is indistinguishable from a stuck one.
  */
-async function watchInspect(opened) {
-  inspecting = { opened, since: Date.now(), status: "queued", job: null, error: null };
+async function watchInspect(opened, asked) {
+  inspecting = {
+    opened,
+    asked: asked || { name: "", sharing: "private" },
+    since: Date.now(),
+    status: "queued",
+    job: null,
+    error: null,
+
+    // <b>Which feature classes the operator has ticked, held here for the same reason the job is.</b>
+    // The screen is redrawn whenever anything changes — the select-all box, a service name that is
+    // refused — and a selection kept in the DOM would be lost every time.
+    picked: null,
+  };
 
   itemStep = "inspect";
   drawAddItem();
@@ -6338,13 +6351,23 @@ function drawInspect() {
 }
 
 /**
- * What a finished inspection found.
+ * What a finished inspection found, and which of it to publish.
  *
  * <b>Every layer the driver reported, including the ones nobody would publish.</b> A geodatabase's
  * attachment tables have no geometry — one of the owner's archives holds six of them beside six
  * feature classes — and hiding them would leave a screen that quietly disagrees with what ArcGIS
  * shows. They are listed and dimmed instead, which is the rule the sharing scopes follow too: say why
  * something is not offered rather than shorten the list.
+ *
+ * <b>One service, N layers, which is the owner's rule and the whole point of this screen.</b>
+ * *"servis ve katman ayrı şeyler. bir serviste n katman olabilir."* Every other route into hosted data
+ * makes one service per layer; here the operator names one service and ticks what goes into it.
+ * ADR-038.
+ *
+ * <b>Everything publishable is ticked on arrival.</b> Fifty-five checkboxes is not a decision anybody
+ * wants to make one row at a time, and *all of it* is what somebody uploading a geodatabase almost
+ * always means. Unticking three is quicker than ticking fifty-two, and the count on the button says
+ * what will happen either way.
  */
 function drawInspected(job) {
   let found;
@@ -6359,33 +6382,383 @@ function drawInspected(job) {
   }
 
   const layers = found.layers || [];
-  const publishable = layers.filter(layer => layer.geometry && layer.geometry !== "wkbNone");
+  const publishable = layers.filter(canPublish);
 
-  $("addItemTitle").textContent = "What is in the geodatabase";
+  // First draw only: everything that can go, goes.
+  if (inspecting.picked === null) {
+    inspecting.picked = new Set(publishable.map(layer => layer.name));
+  }
+
+  const picked = inspecting.picked;
+
+  $("addItemTitle").textContent = "Choose what to publish";
 
   $("addItemBody").innerHTML = `
-    <p class="hint">${num(layers.length)} layer${layers.length === 1 ? "" : "s"},
-      ${num(publishable.length)} of which can become a feature layer. The rest are attachment or
-      relationship tables and carry no geometry. <b>Publishing one is the next step and is not built
-      yet</b> — this reports what the archive holds.</p>
+    <p class="hint">The archive holds ${num(layers.length)} layer${layers.length === 1 ? "" : "s"},
+      ${num(publishable.length)} of which can become a feature layer. The rest are listed and cannot be
+      ticked: an attachment or relationship table carries no geometry, and an empty feature class has no
+      features to take a schema from.</p>
+
+    <label class="field">Service name
+      <input id="gdbService" value="${h(inspecting.asked.name || "")}" maxlength="128"
+             autocomplete="off" spellcheck="false">
+      <span class="val">Every layer you tick becomes a layer inside this one service, at
+        <code>/rest/services/hosted/<b id="gdbEcho">${h(inspecting.asked.name || "…")}</b
+        >/FeatureServer</code>. It will be ${h(SHARE_WORDS[inspecting.asked.sharing]
+          || "private to you")}, which is what you chose on the upload screen.</span></label>
+
+    <p class="hint bad-inline" id="gdbRefused" hidden role="alert"></p>
+
     <div class="widetable">
       <table>
-        <thead><tr><th>Feature class</th><th>Geometry</th><th>Features</th><th>Fields</th>
-          <th>Coordinate system</th></tr></thead>
-        <tbody>${layers.map(layer => `
-          <tr${layer.geometry && layer.geometry !== "wkbNone" ? "" : ' class="val"'}>
-            <td>${h(layer.name || "")}</td>
+        <thead><tr>
+          <th class="tick"><input type="checkbox" id="gdbAll" aria-label="Every feature class"></th>
+          <th>Feature class</th><th>Geometry</th><th>Features</th><th>Fields</th>
+          <th>Coordinate system</th>
+        </tr></thead>
+        <tbody>${layers.map(layer => {
+          const may = canPublish(layer);
+          const name = layer.name || "";
+
+          return `<tr${may ? "" : ' class="val"'}>
+            <td class="tick">${may
+              ? `<input type="checkbox" class="gdbPick" data-layer="${h(name)}"${
+                  picked.has(name) ? " checked" : ""} aria-label="${h(name)}">`
+              : `<span class="val" title="${layer.features === 0
+                    ? "An empty feature class has no features to take a schema from"
+                    : "A table with no geometry cannot become a feature layer"}">—</span>`}</td>
+            <td>${h(name)}</td>
             <td>${h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
             <td>${layer.features === null || layer.features === undefined
                   ? '<span class="val">unknown</span>' : num(layer.features)}</td>
             <td>${num((layer.fields || []).length)}</td>
             <td>${layer.srid ? `EPSG:${h(String(layer.srid))}`
                   : '<span class="val">not identified</span>'}</td>
-          </tr>`).join("")}</tbody>
+          </tr>`;
+        }).join("")}</tbody>
       </table>
     </div>
     ${(found.messages || []).length
       ? `<p class="hint"><b>GDAL said:</b> ${h((found.messages || []).join(" "))}</p>` : ""}`;
+
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="gdbPublish"></button>`;
+
+  $("itemBack").addEventListener("click", () => {
+    itemStep = "import";
+    drawAddItem();
+  });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+  $("gdbPublish").addEventListener("click", () => publishGeodatabase(publishable));
+
+  // <b>The address echoes what is typed, because a service name is a URL and that is not obvious.</b>
+  // `Project Information` is a legal service name and an unpleasant address; seeing it appear inside
+  // `/rest/services/hosted/…` is what makes the operator rename it before it exists rather than after.
+  $("gdbService").addEventListener("input", () => {
+    const echo = $("gdbEcho");
+    if (echo) echo.textContent = $("gdbService").value.trim() || "…";
+  });
+
+  $("gdbAll").addEventListener("change", () => {
+    const on = $("gdbAll").checked;
+
+    picked.clear();
+    if (on) for (const layer of publishable) picked.add(layer.name);
+
+    for (const box of document.querySelectorAll(".gdbPick")) box.checked = on;
+
+    countPicked(publishable);
+  });
+
+  for (const box of document.querySelectorAll(".gdbPick")) {
+    box.addEventListener("change", () => {
+      if (box.checked) picked.add(box.dataset.layer);
+      else picked.delete(box.dataset.layer);
+
+      countPicked(publishable);
+    });
+  }
+
+  countPicked(publishable);
+}
+
+/**
+ * Whether a layer the reader described can become a feature layer at all.
+ *
+ * <b>Two reasons it cannot, and the second was measured rather than predicted.</b> No geometry means an
+ * attachment or relationship table. No features means there is nothing to infer a schema from — the
+ * archive declares its fields and this server does not yet read them for an empty layer, which is
+ * D-106. The owner's 55-layer archive holds exactly one of these, and it was refused at the end of a
+ * 28-second publish; a tick that cannot succeed should not be offered.
+ *
+ * <b>An unknown count stays tickable.</b> `features` is null when the driver would not say without
+ * reading, and refusing on *unknown* would hide a real layer behind a fact nobody established.
+ */
+function canPublish(layer) {
+  return Boolean(layer.geometry)
+    && layer.geometry !== "wkbNone"
+    && layer.features !== 0;
+}
+
+/**
+ * The words the scopes are called on the screen that chose them.
+ *
+ * <b>Not the enum's own names.</b> *Organization* is a value; *visible to everybody in your
+ * organisation* is what it does — and this sentence is the last chance to notice that a public
+ * service is about to be created.
+ */
+const SHARE_WORDS = {
+  private: "private to you",
+  organization: "visible to everyone in your organisation",
+  public: "public — visible to anybody on the internet, signed in or not",
+};
+
+/**
+ * Keeps the button and the select-all box honest about the ticks.
+ *
+ * <b>The count is on the button because that is where the decision is made.</b> A footer that says
+ * *Publish* under a table of fifty-five rows does not tell you how many you are about to create, and
+ * the number is the whole difference between the two most likely mistakes here — publishing one layer
+ * by accident, and publishing all of them.
+ */
+function countPicked(publishable) {
+  const picked = inspecting.picked;
+  const button = $("gdbPublish");
+  const all = $("gdbAll");
+
+  if (all) {
+    all.checked = publishable.length > 0 && picked.size === publishable.length;
+    all.indeterminate = picked.size > 0 && picked.size < publishable.length;
+  }
+
+  if (!button) return;
+
+  button.textContent = picked.size === 0
+    ? "Publish"
+    : `Publish ${num(picked.size)} layer${picked.size === 1 ? "" : "s"}`;
+
+  // <b>Disabled rather than refusing on press.</b> Nothing ticked has one possible outcome and no
+  // useful error, which is the case for a control that cannot be pressed — unlike an empty name, where
+  // the refusal has something to say.
+  button.disabled = picked.size === 0;
+}
+
+/**
+ * Asks the server to publish the ticked feature classes into one service.
+ *
+ * <b>The name is checked here as well as on the server, and the two say the same thing.</b> The server
+ * is what makes it true; this is what makes it quick, and it is the difference between a refusal
+ * beside the field you typed and one at the top of a screen.
+ */
+async function publishGeodatabase(publishable) {
+  const refused = $("gdbRefused");
+  const service = $("gdbService").value.trim();
+
+  const say = why => {
+    refused.hidden = false;
+    refused.textContent = why;
+    $("gdbService").focus();
+  };
+
+  if (service.length === 0) {
+    say("A service needs a name. Every layer you ticked goes inside it, and it becomes part of the "
+      + "URL clients will use.");
+    return;
+  }
+
+  if (/[/\\?#%]/.test(service)) {
+    say(`'${service}' cannot be a service name: it becomes one segment of a URL, so it may not `
+      + "contain / \\ ? # or %.");
+    return;
+  }
+
+  refused.hidden = true;
+
+  const button = $("gdbPublish");
+  button.disabled = true;
+  button.textContent = "Opening the job…";
+
+  try {
+    const answer = await api("/admin/hosted/geodatabase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        archive: inspecting.opened.job,
+        service,
+        sharing: inspecting.asked.sharing,
+        layers: [...inspecting.picked],
+      }),
+    });
+
+    watchPublish(answer, service);
+  } catch (e) {
+    // <b>Back to the screen, with the reason.</b> Every refusal this endpoint gives is something the
+    // operator can act on here — a name in use, a layer the inspection did not report, an archive that
+    // has already been swept — so none of them is a reason to lose the selection.
+    say(e.message || String(e));
+
+    button.disabled = false;
+    countPicked(publishable);
+  }
+}
+
+/** The publish job being followed, held outside the drawing for the reason `inspecting` is. */
+let publishing = null;
+
+/**
+ * Follows the publish, which is minutes rather than seconds.
+ *
+ * <b>Per layer, because the job reports per layer.</b> Twenty-three feature classes is twenty-three
+ * chances to fail, and a screen that said only *failed* after nineteen had landed would be describing
+ * something nobody can act on. The percentage moves as each one lands; the table at the end says which
+ * ones did.
+ */
+async function watchPublish(opened, service) {
+  publishing = {
+    opened, service, since: Date.now(), status: "queued", job: null, error: null, done: false,
+  };
+
+  itemStep = "publish";
+  drawAddItem();
+
+  for (let attempt = 0; attempt < 600; attempt++) {
+    await new Promise(done => setTimeout(done, 2000));
+
+    if (itemStep !== "publish" || publishing?.opened.job !== opened.job) return;
+
+    try {
+      publishing.job = await api(`/admin/jobs/${encodeURIComponent(opened.job)}`);
+      publishing.status = publishing.job.status;
+    } catch (e) {
+      publishing.error = e.message || String(e);
+      drawAddItem();
+      return;
+    }
+
+    if (publishing.status === "queued" || publishing.status === "running") {
+      const age = $("publishAge");
+      const seconds = Math.round((Date.now() - publishing.since) / 1000);
+
+      if (age) {
+        const percent = publishing.job.progress ?? 0;
+
+        age.textContent = `${publishing.status}${percent > 0 ? ` — ${num(percent)}%` : ""} — ${
+          seconds} second${seconds === 1 ? "" : "s"}`;
+      }
+
+      continue;
+    }
+
+    drawAddItem();
+
+    // <b>The lists are reloaded whatever the outcome.</b> A partly failed publish still created a
+    // service with the layers that landed, so a console still showing the old content list would be
+    // wrong in the more confusing direction.
+    await loadLayers();
+    return;
+  }
+
+  publishing.status = "lost";
+  drawAddItem();
+}
+
+/** The publishing screen, in whichever of its states the job is in. */
+function drawPublish() {
+  const state = publishing;
+
+  if (!state) {
+    itemStep = "item";
+    drawAddItem();
+    return;
+  }
+
+  $("addItemFoot").innerHTML = `
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Close</button>`;
+
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+
+  if (state.error) {
+    $("addItemTitle").textContent = "Lost track of the job";
+    $("addItemBody").innerHTML = `<p class="hint">${h(state.error)} The publish itself is unaffected —
+      it is the server's, and its record is at <code>${h(state.opened.watch)}</code>.</p>`;
+    return;
+  }
+
+  if (state.status === "queued" || state.status === "running") {
+    $("addItemTitle").textContent = `Publishing into ${state.service}`;
+    $("addItemBody").innerHTML = `
+      <p class="hint">Each feature class is read out of the archive and written into the datastore as
+        its own table, then published as a layer in <b>${h(state.service)}</b>. Closing this does not
+        stop it — the job is the server's.</p>
+      <p class="val" id="publishAge">${h(state.status)} — just started</p>`;
+    return;
+  }
+
+  if (state.status === "lost") {
+    $("addItemTitle").textContent = "Still going after twenty minutes";
+    $("addItemBody").innerHTML = `<p class="hint">The reader's own deadline is ten minutes per layer, so
+      a job still unfinished has either been claimed by something that stopped or is working through a
+      very long list. Its record is at <code>${h(state.opened.watch)}</code>, and the service holds
+      whatever landed.</p>`;
+    return;
+  }
+
+  let report = null;
+
+  try {
+    report = JSON.parse(state.job.detail || "null");
+  } catch {
+    report = null;
+  }
+
+  const rows = report?.layers || [];
+  const landed = rows.filter(row => row.published);
+
+  // <b>Done and failed share this screen, because a partly failed publish is both.</b> Nineteen layers
+  // in a service and four refused is not two outcomes to choose between; the table is the answer and
+  // the heading only says which way it leaned.
+  $("addItemTitle").textContent = state.status === "done"
+    ? `${state.service} is published`
+    : landed.length > 0
+      ? `${state.service} is published, with ${num(rows.length - landed.length)} refused`
+      : "Nothing was published";
+
+  const address = `#/service/hosted/${encodeURIComponent(state.service)}`;
+
+  $("addItemBody").innerHTML = `
+    <p class="hint">${landed.length > 0
+      ? `${num(landed.length)} of ${num(rows.length)} feature class${rows.length === 1 ? "" : "es"}
+         became layers in <a href="${h(address)}" id="gdbOpen">${h(state.service)}</a>.`
+      : h(state.job.failure || "The job failed without a reason, which the job store is supposed to "
+          + "prevent.")}</p>
+
+    ${rows.length > 0 ? `<div class="widetable">
+      <table>
+        <thead><tr><th>Feature class</th><th>Features</th><th>Outcome</th></tr></thead>
+        <tbody>${rows.map(row => `<tr${row.published ? "" : ' class="val"'}>
+          <td>${h(row.layer || "")}</td>
+          <td>${row.published ? num(row.rows ?? 0) : "—"}</td>
+          <td>${row.published ? "published" : h(row.why || "refused")}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>` : ""}
+
+    ${state.status !== "done" && landed.length > 0
+      ? `<p class="hint"><b>What was refused is not retried by this screen.</b> The service exists with
+          the layers that landed; upload the archive again and tick only the ones that were refused, or
+          fix them at the source. Nothing is half-written — a layer either has its table and its
+          catalogue row, or neither.</p>`
+      : ""}`;
+
+  const open = $("gdbOpen");
+
+  if (open) {
+    open.addEventListener("click", () => $("addItem").close());
+  }
 }
 
 /**
@@ -6481,7 +6854,11 @@ async function createImported(event) {
     // Geodatabase cannot be, because it holds many feature classes and is read by a separate process
     // minutes later — so it answers 202 with a job to watch. ADR-034 §5j, ADR-037.
     if (answer && answer.job) {
-      watchInspect(answer);
+      // <b>The name and the scope are carried, because the screen that asked for them is about to be
+      // replaced.</b> `drawInspect` rewrites the dialog's body, so `#iName` and `#iShare` stop existing
+      // — and the selection screen after it needs both: the cleaned file name becomes the service name
+      // it offers, and the scope the operator already chose is the scope the service is created with.
+      watchInspect(answer, { name: $("iName").value.trim(), sharing: $("iShare").value });
       return;
     }
 

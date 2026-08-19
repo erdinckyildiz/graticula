@@ -120,6 +120,12 @@ internal sealed class GeodatabaseInspector : BackgroundService
 
             if (job is null)
             {
+                // <b>Swept while there is nothing to do, and never while working.</b> An archive being
+                // chosen from is younger than the patience by orders of magnitude, so this cannot take
+                // one out from under a selection screen; and doing it on the idle tick rather than on a
+                // timer means the sweep stops when the worker does.
+                Sweep();
+
                 await Wait(stopping).ConfigureAwait(false);
                 continue;
             }
@@ -133,6 +139,7 @@ internal sealed class GeodatabaseInspector : BackgroundService
         Interlocked.Increment(ref _ran);
 
         string archive = _scratch.PathFor(job.Id);
+        bool kept = false;
 
         try
         {
@@ -164,6 +171,8 @@ internal sealed class GeodatabaseInspector : BackgroundService
             await _jobs.FinishAsync(
                 job.Id, JobStatus.Done, root.GetRawText(), null, stopping).ConfigureAwait(false);
 
+            kept = true;
+
             Log.InspectFinished(_log, job.Id);
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
@@ -179,9 +188,19 @@ internal sealed class GeodatabaseInspector : BackgroundService
         }
         finally
         {
-            // <b>Both ways, and the failure path is the one that matters</b> — see `ImportScratch`. An
-            // archive left behind counts against the budget and refuses the next upload.
-            _scratch.Release(archive);
+            // <b>Kept when the inspection succeeded, and only then.</b> ADR-038: the operator chooses
+            // which feature classes to publish *from what this job found*, so releasing the archive here
+            // would mean uploading it again to act on the answer. The import job releases it — either
+            // way — and a failure releases it now, because there is nothing to choose from.
+            //
+            // <b>An inspection nobody acts on is swept by age</b> — `ImportScratch.Sweep`, run on this
+            // worker's idle tick. Without it a browser closed on the selection screen would hold its
+            // archive for ever, and the budget would eventually refuse an upload with a message about
+            // jobs failing to clean up, which would not be what had happened.
+            if (!kept)
+            {
+                _scratch.Release(archive);
+            }
         }
     }
 
@@ -201,6 +220,31 @@ internal sealed class GeodatabaseInspector : BackgroundService
         }
 
         Log.InspectRefused(_log, job.Id, failed.Message, failed);
+    }
+
+    /// <summary>How often the sweep is worth running, however often the loop idles.</summary>
+    private static readonly TimeSpan SweepEvery = TimeSpan.FromMinutes(10);
+
+    private DateTimeOffset _sweptAt = DateTimeOffset.MinValue;
+
+    /// <summary>Sweeps abandoned archives, at most every ten minutes.</summary>
+    /// <remarks>
+    /// <b>Rate-limited because the idle tick is every two seconds.</b> Enumerating a directory 1,800
+    /// times an hour to find nothing is not free, and nothing here is urgent: an archive that has sat
+    /// for six hours can sit for six hours and ten minutes.
+    /// </remarks>
+    private void Sweep()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        if (now - _sweptAt < SweepEvery)
+        {
+            return;
+        }
+
+        _sweptAt = now;
+
+        _scratch.Sweep(ImportScratch.Patience);
     }
 
     private static async Task Wait(CancellationToken stopping)

@@ -31,7 +31,7 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1030.
+    // The next id is 1032.
 
     [LoggerMessage(
         EventId = 1024,
@@ -100,6 +100,26 @@ internal static partial class Log
                 + "next upload — delete it by hand, and look for what is holding it open.")]
     public static partial void ImportArchiveHeld(
         ILogger logger, string path, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1030,
+        Level = LogLevel.Information,
+        Message = "Job {Job} published {Landed} of {Asked} geodatabase layers into one service. Which "
+                + "ones landed and why the rest did not is in the job's detail, per layer — fifty-five "
+                + "layers is fifty-five chances to fail and a job saying only 'failed' is one nobody "
+                + "can act on.")]
+    public static partial void ImportFinished(
+        ILogger logger, System.Guid job, int landed, int asked);
+
+    [LoggerMessage(
+        EventId = 1031,
+        Level = LogLevel.Information,
+        Message = "Swept the import archive {File} ({Megabytes} MB): nothing acted on it for long "
+                + "enough that nobody is going to. An inspection keeps its archive so its layers can "
+                + "be chosen from, and a publish releases it — this is the case where neither "
+                + "happened, and without the sweep it would count against the scratch budget for ever.")]
+    public static partial void ImportArchiveSwept(
+        ILogger logger, string file, long megabytes);
 
     [LoggerMessage(
         EventId = 1021,

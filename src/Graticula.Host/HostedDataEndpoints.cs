@@ -80,6 +80,11 @@ internal static class HostedDataEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapPost("/admin/hosted/import", ImportAsync).DisableAntiforgery();
+
+        // <b>The other half of a geodatabase upload.</b> The upload opens an inspection and answers
+        // with what is inside; this takes the feature classes chosen from that answer and publishes
+        // them into one service. ADR-038.
+        app.MapPost("/admin/hosted/geodatabase", PublishGeodatabaseAsync);
         app.MapPost("/admin/hosted/define", DefineAsync);
 
         // The original path, kept working. It was only ever the import, and
@@ -1022,6 +1027,264 @@ internal static class HostedDataEndpoints
         }
 
         return ForeignArchive.None;
+    }
+
+    /// <summary>What a geodatabase publish request carries.</summary>
+    /// <param name="Archive">The inspection job whose archive is still on the disk.</param>
+    /// <param name="Service">The one service every chosen layer is published into.</param>
+    /// <param name="Layers">Which feature classes, by the names the inspection reported.</param>
+    /// <param name="Sharing">The scope for that service, or null for private.</param>
+    internal sealed record GeodatabasePublish(
+        Guid Archive, string? Service, IReadOnlyList<string>? Layers, string? Sharing);
+
+    /// <summary>
+    /// Publishes chosen feature classes out of an inspected archive into one service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-038](../../docs/adr/ADR-038-how-a-geodatabase-becomes-a-service.md), on the owner's
+    /// rule:</b> *"servis ve katman ayrı şeyler. bir serviste n katman olabilir."* One archive becomes
+    /// one service holding N layers. Every other route into hosted data makes one service holding one
+    /// layer, which is why the two words have been interchangeable in this product until now.
+    /// </para>
+    /// <para>
+    /// <b>It names the inspection rather than uploading again.</b> The archive is still in the scratch
+    /// directory under the inspection job's own id — that job keeps it precisely so the operator can
+    /// choose from what it found — so this request carries an id and a list of names, and a
+    /// two-gigabyte upload does not cross the wire twice.
+    /// </para>
+    /// <para>
+    /// <b>Which layers may be named is checked against the inspection, not trusted.</b> The archive is
+    /// a file somebody else wrote, and a request naming an arbitrary string would be asking GDAL to
+    /// open whatever it likes inside it.
+    /// </para>
+    /// <para>
+    /// <b>202, because this takes minutes.</b> The work is a job; this endpoint's whole responsibility
+    /// is to refuse what cannot be done before anything is written, and then to say where to watch.
+    /// </para>
+    /// </remarks>
+    private static async Task PublishGeodatabaseAsync(
+        HttpContext context,
+        GeodatabasePublish asked,
+        IJobStore jobs,
+        IAdminCatalog catalog,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!reader.Available)
+        {
+            await Fail(context, 400, Refusal(ForeignArchive.Geodatabase)).ConfigureAwait(false);
+            return;
+        }
+
+        string service = asked?.Service?.Trim() ?? string.Empty;
+
+        if (service.Length == 0)
+        {
+            await Fail(context, 400,
+                "'service' is required: it is the one service every chosen layer is published into, "
+                + "which is what makes an archive of twenty-three feature classes one service rather "
+                + "than twenty-three.").ConfigureAwait(false);
+            return;
+        }
+
+        if (service.Length > 128 || service.AsSpan().IndexOfAny(NotInAServiceName) >= 0)
+        {
+            await Fail(context, 400,
+                $"'{service}' cannot be a service name: it becomes one segment of the service's URL, "
+                + "so it may be at most 128 characters and may not contain / \\ ? # or %.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (asked!.Layers is not { Count: > 0 } wanted)
+        {
+            await Fail(context, 400,
+                "'layers' is required and names the feature classes to publish. The inspection listed "
+                + "what is in the archive; this says which of them you want.").ConfigureAwait(false);
+            return;
+        }
+
+        SharingScope sharing = ParseSharing(asked.Sharing);
+
+        // Publishing straight to public needs the privilege that puts data on the internet,
+        // separately from the one that publishes at all — the same order `DefineAsync` uses.
+        if (sharing == SharingScope.Public
+            && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        // <b>The inspection is the authority on which names may be published.</b> It is found as its
+        // owner: `FindAsync` answers null for *not yours* as well as for *not there*, which is what
+        // stops this becoming a way to publish out of somebody else's upload.
+        JobRecord? inspection = await jobs.FindAsync(
+            asked.Archive,
+            current.Principal.Id,
+            current.Authorization.Allows(Privilege.AdminManageAllContent),
+            cancellation).ConfigureAwait(false);
+
+        if (inspection is null || inspection.Kind != JobKind.GeodatabaseInspect)
+        {
+            await Fail(context, 404,
+                "No inspection of that archive belongs to you. Upload the geodatabase again — the "
+                + "archive is kept only while its own inspection is the newest thing that happened "
+                + "to it.").ConfigureAwait(false);
+            return;
+        }
+
+        if (inspection.Status != JobStatus.Done)
+        {
+            await Fail(context, 409,
+                $"That inspection is {inspection.Status.ToString().ToLowerInvariant()}, so there is "
+                + "no list of feature classes to choose from yet. Watch "
+                + $"/admin/jobs/{inspection.Id} and publish when it is done.").ConfigureAwait(false);
+            return;
+        }
+
+        HashSet<string> offered = Offered(inspection.Detail);
+        List<string> unknown = [.. wanted.Where(l => !offered.Contains(l))];
+
+        if (unknown.Count > 0)
+        {
+            await Fail(context, 400,
+                $"The inspection did not report {string.Join(", ", unknown.Select(u => $"'{u}'"))}. "
+                + "Only what it found may be published — a request naming anything else would be "
+                + "asking this server to open whatever it likes inside somebody's archive.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!System.IO.File.Exists(scratch.PathFor(asked.Archive)))
+        {
+            await Fail(context, 409,
+                "The archive is no longer on this server. It is kept while its inspection is the "
+                + "newest thing that happened to it and released when a publish finishes, so this has "
+                + "either been published already or the file was swept. Upload it again.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>A taken name is refused rather than added to.</b> The catalogue publishes into an
+        // existing service when the name matches, which is how three layers come to share one — but it
+        // does not ask whose service that is, so a publish naming somebody else's would put twenty
+        // layers inside it. D-104 records that the older `POST /admin/publish` has the same hole; this
+        // endpoint does not open a second one.
+        foreach (AdminService existing in
+                 await catalog.ListServicesAsync(cancellation).ConfigureAwait(false))
+        {
+            if (string.Equals(existing.Name, service, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    existing.Folder ?? FeatureServerMetadataWriter.HostedFolder,
+                    FeatureServerMetadataWriter.HostedFolder,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await Fail(context, 409,
+                    $"There is already a service called '{service}' in hosted. Choose another name — "
+                    + "publishing into it would add these layers to whatever is in there, which is a "
+                    + "different request from the one this endpoint answers.").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        Guid datastore = await DatastoreIdAsync(catalog, cancellation).ConfigureAwait(false);
+
+        if (datastore == Guid.Empty)
+        {
+            await Fail(context, 503, "The datastore is not registered as a data source.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        JobRecord job = await jobs.CreateAsync(
+            current.Principal.Id,
+            JobKind.GeodatabaseImport,
+            $"Publishing {wanted.Count} of the archive's feature classes into {service}",
+
+            // <b>The scope is resolved here and stored as its own name.</b> The word the API takes is
+            // this endpoint's business — 'organisation' spelled either way is the same scope — and a
+            // worker parsing an operator's spelling hours later is a place for the two to disagree.
+            JsonSerializer.Serialize(new
+            {
+                archive = asked.Archive,
+                owner = current.Principal.Id,
+                datastore,
+                service,
+                folder = FeatureServerMetadataWriter.HostedFolder,
+                sharing = sharing.ToString(),
+                layers = wanted,
+            }),
+            cancellation).ConfigureAwait(false);
+
+        context.Response.Headers.Location = $"/admin/jobs/{job.Id}";
+
+        await Results.Json(
+            new
+            {
+                job = job.Id,
+                status = "pending",
+                watch = $"/admin/jobs/{job.Id}",
+                service,
+                layers = wanted.Count,
+                note = "Each feature class becomes a table in the datastore and a layer in that one "
+                    + "service. The job reports per layer as it goes: twenty-three feature classes is "
+                    + "twenty-three chances to fail, and which one failed is the only thing that "
+                    + "makes a failure actionable.",
+            },
+            statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>What cannot appear in a service name, which is one segment of a URL.</summary>
+    private static readonly System.Buffers.SearchValues<char> NotInAServiceName =
+        System.Buffers.SearchValues.Create(@"/\?#%");
+
+    /// <summary>The layer names an inspection reported, or none when its answer cannot be read.</summary>
+    /// <remarks>
+    /// <b>Ordinal, because these names are matched against what GDAL will be asked for.</b> A
+    /// case-insensitive match here would accept <c>omsf_extension</c> and then hand it to
+    /// <c>GetLayerByName</c>, which is case-sensitive — so the check would pass and the layer would
+    /// fail, at the far end of a job, with a message about a layer the operator did name.
+    /// </remarks>
+    private static HashSet<string> Offered(string? detail)
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+
+        try
+        {
+            using JsonDocument found = JsonDocument.Parse(detail ?? "{}");
+
+            if (found.RootElement.ValueKind == JsonValueKind.Object
+                && found.RootElement.TryGetProperty("layers", out JsonElement listed)
+                && listed.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement one in listed.EnumerateArray())
+                {
+                    if (one.ValueKind == JsonValueKind.Object
+                        && one.TryGetProperty("name", out JsonElement named)
+                        && named.GetString() is { } had)
+                    {
+                        names.Add(had);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Nothing can be checked against an answer that cannot be read, and an empty set is what
+            // that means: every name the caller asked for is refused as unreported.
+        }
+
+        return names;
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Graticula.Host;
@@ -104,9 +105,78 @@ public sealed class GeodatabaseReaderTests
         string error = answer.RootElement.GetProperty("error").GetString() ?? string.Empty;
 
         // It names what it does answer, because a refusal that only says *no* sends the reader to the
-        // source to find out what the three operations are.
+        // source to find out what the operations are.
         Assert.Contains("layers", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("convert", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The reader answers exactly four operations, and its own refusal names all four.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is [ADR-037](../../docs/adr/ADR-037-job-workers-come-in-two-kinds.md) condition 3, and it
+    /// was written after the fourth operation arrived.</b> The condition says the set must stay closed:
+    /// a worker that reads untrusted files is a worker whose surface has to be enumerable, and a fifth
+    /// operation added to <c>Run</c> is a fifth thing an archive can reach. ADR-038 added
+    /// <c>features</c> — which is exactly the event the condition anticipated, and nothing failed when
+    /// it did.
+    /// </para>
+    /// <para>
+    /// <b>Two halves, because either alone is weak.</b> The refusal's own sentence is parsed for the
+    /// names it lists, which fails when an operation is added and the sentence is not updated; and every
+    /// name it lists is then asked for, which fails when the sentence lists something the reader does not
+    /// answer. A test that only asserted a hard-coded list would need editing in the same commit as the
+    /// change it is supposed to catch.
+    /// </para>
+    /// <para>
+    /// <b>What *asked for* means here, and why it is not *succeeds*.</b> Three of the four need an
+    /// archive that does not exist in a test, so the assertion is that each is refused *for its own
+    /// reason* rather than as an unknown operation. An operation that exists and an operation that does
+    /// not give different answers, and that difference is the whole check.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_reader_answers_exactly_the_operations_its_refusal_names()
+    {
+        using JsonDocument refused = await Reader()
+            .AskAsync(new { op = "sing" }, TimeSpan.FromSeconds(30));
+
+        string sentence = refused.RootElement.GetProperty("error").GetString() ?? string.Empty;
+
+        // Every 'quoted' name in the refusal, minus the operation that was asked for.
+        HashSet<string> named = new(StringComparer.Ordinal);
+
+        foreach (System.Text.RegularExpressions.Match quoted in
+                 System.Text.RegularExpressions.Regex.Matches(sentence, "'([a-z]+)'"))
+        {
+            named.Add(quoted.Groups[1].Value);
+        }
+
+        named.Remove("sing");
+
+        Assert.Equal(
+            new HashSet<string>(StringComparer.Ordinal) { "ping", "layers", "convert", "features" },
+            named);
+
+        foreach (string operation in named)
+        {
+            using JsonDocument answer = await Reader().AskAsync(
+                new { op = operation, archive = "C:/nothing/is/here/absent.gdb.zip", layer = "any" },
+                TimeSpan.FromSeconds(30));
+
+            JsonElement root = answer.RootElement;
+
+            if (root.GetProperty("ok").GetBoolean())
+            {
+                continue;
+            }
+
+            string why = root.GetProperty("error").GetString() ?? string.Empty;
+
+            Assert.DoesNotContain(
+                "is not an operation", why, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>

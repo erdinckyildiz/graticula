@@ -199,6 +199,147 @@ internal sealed class GeodatabaseReader
         }
     }
 
+    /// <summary>
+    /// Sends one request and reads every line it answers with, until the trailer.
+    /// </summary>
+    /// <param name="request">The request object.</param>
+    /// <param name="deadline">How long the whole stream has before the child is killed.</param>
+    /// <param name="take">Called for each line that is neither the header nor the trailer.</param>
+    /// <param name="cancellation">The caller's own cancellation.</param>
+    /// <returns>The header and the trailer, so a caller can read the schema and the count.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Until the trailer, not until the pipe closes</b> — ADR-038 §5. A reader that dies halfway
+    /// closes its pipe too, and *the stream ended* would then be indistinguishable from *the layer has no
+    /// features*. The trailer is what separates them, and its absence is an error rather than an empty
+    /// result.
+    /// </para>
+    /// <para>
+    /// <b>One deadline for the whole stream rather than one per line.</b> A per-line clock would let a
+    /// reader that answers a line a second run for ever on a large layer, which is the shape of hang this
+    /// bound exists to stop. The number is the caller's because only the caller knows how much work it
+    /// asked for.
+    /// </para>
+    /// </remarks>
+    public async Task<(JsonDocument? Header, JsonDocument? Trailer)> StreamAsync(
+        object request,
+        TimeSpan deadline,
+        Action<JsonDocument> take,
+        CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(take);
+
+        if (!Available)
+        {
+            throw new InvalidOperationException(
+                $"The geodatabase reader is not installed at '{_executable}'.");
+        }
+
+        ProcessStartInfo start = new(_executable)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = false,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        start.Environment["DOTNET_GCHeapHardLimit"] =
+            HeapLimitBytes.ToString("X", CultureInfo.InvariantCulture);
+
+        start.Environment["DOTNET_gcServer"] = "0";
+        start.Environment["DOTNET_gcConcurrent"] = "0";
+
+        using Process process = Process.Start(start)
+            ?? throw new InvalidOperationException(
+                $"The geodatabase reader at '{_executable}' did not start.");
+
+        using CancellationTokenSource timer =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+
+        timer.CancelAfter(deadline);
+
+        JsonDocument? header = null;
+        JsonDocument? trailer = null;
+
+        try
+        {
+            await process.StandardInput.WriteLineAsync(
+                JsonSerializer.Serialize(request).AsMemory(), timer.Token).ConfigureAwait(false);
+
+            await process.StandardInput.FlushAsync(timer.Token).ConfigureAwait(false);
+            process.StandardInput.Close();
+
+            while (true)
+            {
+                string? line = await process.StandardOutput
+                    .ReadLineAsync(timer.Token).ConfigureAwait(false);
+
+                if (line is null)
+                {
+                    throw new InvalidOperationException(
+                        "The geodatabase reader stopped before it finished. Its stderr is on this "
+                        + "server's own error stream. A stream that ends without its trailer is a "
+                        + "failure rather than an empty layer, which is the whole reason there is a "
+                        + "trailer.");
+                }
+
+                if (line.Length == 0)
+                {
+                    continue;
+                }
+
+                JsonDocument one = JsonDocument.Parse(line);
+
+                if (one.RootElement.TryGetProperty("ok", out JsonElement ok) && !ok.GetBoolean())
+                {
+                    string why = one.RootElement.TryGetProperty("error", out JsonElement said)
+                        ? said.GetString() ?? "no reason given"
+                        : "no reason given";
+
+                    one.Dispose();
+
+                    throw new InvalidOperationException(why);
+                }
+
+                if (one.RootElement.TryGetProperty("header", out _))
+                {
+                    header = one;
+                    continue;
+                }
+
+                if (one.RootElement.TryGetProperty("done", out _))
+                {
+                    trailer = one;
+                    break;
+                }
+
+                using (one)
+                {
+                    take(one);
+                }
+            }
+
+            await process.WaitForExitAsync(timer.Token).ConfigureAwait(false);
+
+            return (header, trailer);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            Kill(process);
+
+            throw new InvalidOperationException(
+                $"The geodatabase reader ran past its {deadline.TotalSeconds:0.#} s deadline while "
+                + "streaming and was killed. The bound is on execution because no property of an "
+                + "archive predicts what GDAL will do with it.");
+        }
+        finally
+        {
+            Kill(process);
+        }
+    }
+
     private void Kill(Process process)
     {
         try

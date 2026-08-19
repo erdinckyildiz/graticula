@@ -454,6 +454,32 @@ arrives, because `#iFile` is on the third screen and does not exist yet, so it i
 the input through a `DataTransfer` once the form is drawn. That is the only way to fill a file input
 from script, and it keeps the form with one source of truth rather than two.
 
+#### And a geodatabase adds two screens after the form, because it cannot answer inside the request
+
+A shapefile or a GeoJSON upload is read while the request is open and answers with the layer it made. A
+File Geodatabase cannot be: it holds many feature classes, it is read by a separate process, and *which
+of them do you want* is a question nobody can answer before the archive has been opened. So the flow
+after the form has two more screens, and both are the dialog's own rather than a new page:
+
+1. **Reading the geodatabase** — the inspection job, polled every two seconds, showing how long it has
+   been waiting. Closing the dialog does not stop it; the job is the server's.
+2. **Choose what to publish** — every feature class the driver reported, with a tick on the ones that can
+   become a layer, and one field: the name of the **single service** they all go into. Everything
+   publishable is ticked on arrival, because *all of it* is what somebody uploading a geodatabase almost
+   always means and unticking three is quicker than ticking fifty-two. A table with no geometry, and an
+   empty feature class, are listed and cannot be ticked — with the reason, rather than being hidden.
+3. **Publishing** — the import job, then a report **per layer**, because fifty-five feature classes is
+   fifty-five chances to fail. A partly failed publish is both outcomes at once and shares one screen:
+   the heading says which way it leaned, the table says which layers landed, and the service holds what
+   did.
+
+The service name is the only thing this flow asks that the file cannot answer, so it is offered from the
+file's own name and the address is echoed under the field as it is typed — a service name is a URL
+segment, and `Project Information` is a legal name and an unpleasant address. [ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md)
+is the decision underneath these screens; what belongs here is that they are steps of the New item dialog
+and not a page of their own, for the reason §5j gives: the flow is *make one thing*, and it ends when the
+thing exists.
+
 ### 5k. Studio's item page has four tabs, and one of them is the layer list that was removed — owner decision, 2026-08-19
 
 *"servisin özelliklerine girdiğimizde bu listenin gelmesi güzel."* And, on what an import of one
