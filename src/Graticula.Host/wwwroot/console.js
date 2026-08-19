@@ -4634,6 +4634,15 @@ async function paintPreviews() {
 function closeDrawer() {
   $("drawer").classList.remove("on");
   $("drawer").setAttribute("aria-hidden", "true");
+
+  // <b>`inert` as well as `aria-hidden`, because the two are not the same claim.</b> `aria-hidden`
+  // tells a screen reader to ignore the subtree; it does nothing about the tab order, so
+  // `#drawerClose` stayed focusable while translated off-canvas — measured at x=1986 in a 1440-pixel
+  // window by the design review of 2026-08-19, and `offsetParent` is non-null there, so the check this
+  // repository normally relies on does not catch it. A focusable descendant of an `aria-hidden`
+  // container is also a contradiction in its own right: the reader can reach something it has been
+  // told is not there. `inert` removes it from the tab order and from hit testing together.
+  $("drawer").inert = true;
 }
 
 /**
@@ -5311,7 +5320,7 @@ async function loadSources() {
     : pageOf("sources", dataSources).map(d => `<tr>
         <td class="name">${h(d.name)}
           <div class="rowmeta">${h(d.kind)}${d.name === "datastore"
-            ? " · this server's own hosted store" : ""}</div></td>
+            ? " · this server's own hosted store, and it cannot be removed" : ""}</div></td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
           : h(d.summary || "—")}</td>
@@ -5375,7 +5384,11 @@ function drawSourceEdit(id, name, summary, layers) {
     </div>`;
 
   $("sourceEditForm").addEventListener("submit", saveSourceEdit);
-  $("seCancel").addEventListener("click", () => { editingSource = null; box.innerHTML = ""; });
+  $("seCancel").addEventListener("click", () => {
+    editingSource = null;
+    box.innerHTML = "";
+    focusSources();
+  });
   $("seConnection").focus();
 }
 
@@ -5428,14 +5441,26 @@ async function saveSourceEdit(event) {
     const message = e.message || String(e);
 
     refused.hidden = false;
-    refused.textContent = message;
+
+    // <b>The API's last sentence is not the operator's.</b> The server ends the missing-tables refusal
+    // with *"Send force=true if it is deliberate"* — which is right for the caller holding a terminal
+    // and wrong on a screen that is about to grow a button doing exactly that. Two audiences, one
+    // message: the endpoint keeps the instruction for `curl`, and the console trims it and lets the
+    // button speak. Design review 2026-08-19.
+    refused.textContent = message.replace(/\s*Send force=true[^.]*\.\s*$/, "");
 
     // <b>The forced retry is offered only for the refusal that is a judgement.</b> A connection that
     // cannot be reached is not a decision anybody should be able to override.
     if (message.includes("force=true") && !editingSource.force) {
+      // <b>One button, however many times this path is taken.</b> `after` inserts, so a second
+      // force-eligible refusal used to stack a second *Save anyway* ahead of the first — two identical
+      // overrides, one of them stale. An id makes the insert idempotent.
+      $("seForceAgain")?.remove();
+
       const again = document.createElement("button");
 
       again.type = "button";
+      again.id = "seForceAgain";
       again.className = "danger";
       again.textContent = "Save anyway";
       again.addEventListener("click", () => {
@@ -5445,17 +5470,33 @@ async function saveSourceEdit(event) {
 
       refused.after(again);
     }
+
+    // <b>Scrolled to, because at 1024×768 this sits below the fold.</b> The row's three action buttons
+    // wrap to two lines at that width, which pushes the form down — measured at `top: 724` in a
+    // 768-pixel viewport before any browser chrome, so in a real window the message an operator needs
+    // is off screen. Focus alone does not fix it: the field is already focused when the form draws.
+    refused.scrollIntoView({ block: "center", behavior: "instant" });
   }
 }
 
-/** Removes a source, once, with the count in the question. */
+/**
+ * Removes a source, once, with the count in the question.
+ *
+ * <b>Three things the design review of 2026-08-19 found here, all of them about what happens
+ * afterwards.</b> The refusal had no `role="alert"`, so a screen-reader user heard nothing while a
+ * sighted user saw red text — and the Edit form two functions up had it right, which is the worst way
+ * to be inconsistent. Success said nothing at all: `#probe` was cleared and the only signal was a row
+ * disappearing, which on a paged list is a row that may already have scrolled out of view. And
+ * clearing `#probe` deleted the button that had just been pressed, dropping focus to `<body>` — a
+ * keyboard user lost their place and had to tab from the top.
+ */
 async function removeSource(id, name, layers) {
   if (layers > 0) {
-    $("probe").innerHTML = `<h2>${h(name)}</h2>
-      <div class="panel pad"><p class="hint bad-inline">${num(layers)}
+    sourcePanel(`<h2>${h(name)}</h2>
+      <div class="panel pad"><p class="hint bad-inline" role="alert">${num(layers)}
         layer${layers === 1 ? "" : "s"} still read from this source. Unpublish
         ${layers === 1 ? "it" : "them"} first — removing the source would take
-        ${layers === 1 ? "its" : "their"} services with it.</p></div>`;
+        ${layers === 1 ? "its" : "their"} services with it.</p></div>`);
     return;
   }
 
@@ -5466,11 +5507,45 @@ async function removeSource(id, name, layers) {
 
   try {
     await api(`/admin/datasources/${encodeURIComponent(id)}`, { method: "DELETE" });
-    $("probe").innerHTML = "";
+
+    // <b>Said, not implied.</b> A row vanishing is the same signal as a row that scrolled away.
+    sourcePanel(`<h2>Removed</h2>
+      <div class="panel pad"><p class="hint">The connection <b>${h(name)}</b> is gone. Nothing was
+        published on it, so no service stopped serving.</p></div>`);
+
     await loadSources();
+    focusSources();
   } catch (e) {
-    $("probe").innerHTML = `<h2>${h(name)}</h2>
-      <div class="panel pad"><p class="hint bad-inline">${h(e.message || String(e))}</p></div>`;
+    sourcePanel(`<h2>${h(name)}</h2>
+      <div class="panel pad"><p class="hint bad-inline" role="alert">${
+        h(e.message || String(e))}</p></div>`);
+  }
+}
+
+/**
+ * Writes into the panel under the sources table.
+ *
+ * <b>Named for the panel rather than called `say`</b>, which is what it was for one draft: there is
+ * already a local `say` inside `publishGeodatabase` that shows a refusal, and two functions with one
+ * name in one file are a reader's problem even when the scopes do not collide.
+ */
+function sourcePanel(markup) {
+  $("probe").innerHTML = markup;
+}
+
+/**
+ * Puts focus somewhere on screen after a panel is torn down.
+ *
+ * <b>Because `innerHTML = ""` deletes whatever had focus.</b> The browser then sends focus to
+ * `<body>`, which for a keyboard user means starting the page again. The first button of the sources
+ * table is the nearest thing that is still there and still meaningful — it is the row the reader was
+ * working in, or its neighbour after a removal.
+ */
+function focusSources() {
+  const first = document.querySelector("#sources td.acts button");
+
+  if (first && first.offsetParent !== null) {
+    first.focus({ preventScroll: true });
   }
 }
 
@@ -6096,6 +6171,7 @@ function openNewService() {
 
   $("drawer").classList.add("on");
   $("drawer").setAttribute("aria-hidden", "false");
+  $("drawer").inert = false;
 
   // <b>Focus goes in, which every other reveal in this console already does.</b> Opening it left
   // `document.activeElement` on the trigger, so the first Tab went to the folder rail's *+* button

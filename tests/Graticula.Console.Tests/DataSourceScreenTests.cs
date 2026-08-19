@@ -1,0 +1,347 @@
+using System;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace Graticula.Console.Tests;
+
+/// <summary>
+/// The Data sources screen: what it says a connection is, and what happens after an action.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Six findings from the design review of 2026-08-19, and every one of them was about *afterwards*.</b>
+/// The screen gained Edit and Remove that day because the owner could not correct a connection string —
+/// *"registered db path'ini güncelleyemiyorum sanırım"* — and the actions themselves worked. What did
+/// not: a refusal with no `role="alert"` beside a form that had one, a success that said nothing, and
+/// focus dropped on the floor by `innerHTML = ""` deleting the button that had just been pressed.
+/// </para>
+/// <para>
+/// <b>Nothing here saves an edit.</b> An update seals a new secret and the old one cannot be read back,
+/// so a wrong save breaks the owner's layer with no undo — the same rule the review was given. The one
+/// submission is a deliberately unreachable host, which the server refuses before writing.
+/// </para>
+/// </remarks>
+public sealed class DataSourceScreenTests : ConsoleTest
+{
+    private async Task OpenSourcesAsync()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/sources", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#sources tr').length > 0",
+            "The Data sources table never drew, so nothing below it means anything.");
+    }
+
+    /// <summary>
+    /// Each row says which database it is, and the datastore says why it has no Remove.
+    /// </summary>
+    /// <remarks>
+    /// <b>The column that replaced the id.</b> An id is a string nobody types — every action is a
+    /// button — while *which database is this* was on no screen at all, which is how two sources called
+    /// the same thing on two hosts became indistinguishable. `summary` is host, port and database;
+    /// never the credential, which `DataSourceLifecycleConformanceTests` asserts from the other side.
+    /// </remarks>
+    [Fact]
+    public async Task A_row_says_which_database_it_is()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            """
+            (() => {
+              const rows = [...document.querySelectorAll('#sources tr')];
+              const datastore = rows.find(r => r.textContent.includes('datastore'));
+              if (!datastore) return false;
+
+              // host:port/database, in the second column.
+              const SHAPE = /^\S+:[0-9]+\/\S+$/;
+              const summary = datastore.children[1].textContent.trim();
+              return SHAPE.test(summary)
+                  && datastore.textContent.includes('cannot be removed')
+                  && !datastore.querySelector('[data-source-remove]');
+            })()
+            """,
+            "The datastore's row does not name its database in `host:port/database` form, or it offers a "
+            + "Remove button, or it does not say why it has none. The absence of a button reads as a "
+            + "missing button unless the row says otherwise — and the actions are right-aligned as a "
+            + "group, so the two-button row looks like the three-button row shifted over.");
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
+    /// Refusing to remove a source that has layers is announced, not only coloured.
+    /// </summary>
+    /// <remarks>
+    /// <b>`role="alert"`, because the form two functions away had it and this did not.</b> A sighted
+    /// reader saw red text appear; a screen-reader user heard nothing at all. The inconsistency is what
+    /// makes it a defect rather than a limitation — the same screen answered the same kind of question
+    /// two different ways.
+    /// </remarks>
+    [Fact]
+    public async Task The_refusal_to_remove_a_source_in_use_is_announced()
+    {
+        await OpenSourcesAsync();
+
+        // The row with layers on it — the fixture server always has one, since the datastore holds the
+        // demo layers and cannot be removed.
+        await ClickAsync("#sources tr:not(:first-child) [data-source-remove]");
+
+        await WaitForAsync(
+            """
+            (() => {
+              const said = document.querySelector('#probe [role=alert]');
+              return said !== null
+                  && said.offsetParent !== null
+                  && /layer/i.test(said.textContent)
+                  && /unpublish/i.test(said.textContent);
+            })()
+            """,
+            "Removing a source that still has layers on it did not produce an announced, visible "
+            + "message naming what to do. The server refuses this too, but the console refuses it "
+            + "first — and a message a screen reader never hears is half a refusal.");
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
+    /// Cancelling the edit form leaves focus on the screen rather than on the body.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because `innerHTML = ""` deletes whatever had focus.</b> Measured by the review:
+    /// `document.activeElement` was `BODY` after Cancel, so a keyboard reader lost their place and had
+    /// to tab from the top of the page. The same clearing happens after a successful removal, and for
+    /// the same reason.
+    /// </remarks>
+    [Fact]
+    public async Task Cancelling_the_edit_form_keeps_focus_on_the_screen()
+    {
+        await OpenSourcesAsync();
+
+        await ClickAsync("#sources [data-source-edit]");
+
+        await WaitForAsync(
+            "document.getElementById('seConnection') !== null",
+            "The edit form never drew.");
+
+        // Opening it focuses the field it is about, which is also what scrolls it into view.
+        await WaitForAsync(
+            "document.activeElement?.id === 'seConnection'",
+            "The connection field is not focused when the form opens.");
+
+        await ClickAsync("#seCancel");
+
+        await WaitForAsync(
+            """
+            (() => {
+              const now = document.activeElement;
+              return now !== null
+                  && now !== document.body
+                  && now.closest('#sources') !== null
+                  && now.offsetParent !== null;
+            })()
+            """,
+            "After Cancel, focus is not on a visible control inside the sources table — most likely it "
+            + "is on `<body>`, because clearing the panel deleted the button that had focus.");
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
+    /// The form sends the whole connection string, and its error slot is in view at 1024×768.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What this suite can see, which is not what the first version of this test assumed.</b> It
+    /// submitted a deliberately unreachable host and waited for the server's refusal — and passed
+    /// nothing, because <see cref="ConsoleTest"/> replaces <c>fetch</c> for every method that is not
+    /// <c>GET</c> or <c>HEAD</c> and answers <c>{}</c> with a 200. So the console rendered *Saved* while
+    /// no request had left the page, the server's audit log had no `datasource.update` in it at all, and
+    /// the test was measuring the harness. The server-side refusal is covered where it can be —
+    /// <c>DataSourceLifecycleConformanceTests</c>, over real HTTP.
+    /// </para>
+    /// <para>
+    /// <b>So the two claims here are the ones this harness is built to make.</b> First: the recorded
+    /// write is a `PUT` to this source's own address — which is the assertion that matters most on this
+    /// screen, because the form's contract is that it sends the **whole** string and the field starts
+    /// empty by design. Second: the error slot exists, is announced, and lands **in view** at 1024×768,
+    /// where the row's three action buttons wrap to two lines and push the form down — measured by the
+    /// design review at `top: 724` in a 768-pixel viewport before any browser chrome.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_form_writes_to_its_own_source_and_shows_a_refusal_in_view()
+    {
+        await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width = 1024,
+            height = 768,
+            deviceScaleFactor = 1,
+            mobile = false,
+        });
+
+        try
+        {
+            await OpenSourcesAsync();
+
+            string id = await Browser.EvaluateAsync<string>(
+                "document.querySelector('#sources [data-source-edit]')"
+                + "?.getAttribute('data-source-edit') || ''") ?? string.Empty;
+
+            Assert.False(string.IsNullOrWhiteSpace(id), "No row offered an Edit button.");
+
+            await ClickAsync("#sources [data-source-edit]");
+
+            await WaitForAsync(
+                "document.getElementById('seConnection') !== null", "The edit form never drew.");
+
+            // <b>An empty field writes nothing.</b> The browser's own `required` stops the submit
+            // before the handler runs, which is why the handler's own empty-string branch is
+            // unreachable in practice — worth knowing, and worth asserting that nothing is sent.
+            await Browser.EvaluateAsync<bool>(
+                "(() => { document.getElementById('sourceEditForm').requestSubmit(); return true; })()");
+
+            Assert.DoesNotContain(
+                "/admin/datasources/",
+                string.Join(" | ", await WritesAsync()),
+                StringComparison.Ordinal);
+
+            await Browser.EvaluateAsync<bool>(
+                """
+                (() => {
+                  const field = document.getElementById('seConnection');
+                  field.value = 'Host=elsewhere.example;Port=5432;Database=gis;'
+                              + 'Username=gis;Password=secret';
+                  document.getElementById('sourceEditForm').requestSubmit();
+                  return true;
+                })()
+                """);
+
+            await WaitForAsync(
+                $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('{id}'))",
+                "The form did not write a PUT to this source's own address. The recorded writes were: "
+                + string.Join(" | ", await WritesAsync()));
+
+            // <b>The form has to be reopened first, and finding out why cost a run.</b> The harness
+            // answers every write with `{}` and a 200, so the submit above took the *success* path and
+            // replaced the panel — `#seRefused` no longer existed, and populating it silently did
+            // nothing. This is the same lesson as the test's own docs: what is being exercised here is
+            // the page, and the page has already moved on.
+            await ClickAsync("#sources [data-source-edit]");
+
+            await WaitForAsync(
+                "document.getElementById('seRefused') !== null", "The form did not reopen.");
+
+            // <b>And the slot the refusal lands in is announced and in view at this size.</b> The
+            // harness cannot produce a server refusal, so the slot is populated the way the catch block
+            // populates it; what is under test is the *position*, which is what the review measured.
+            await Browser.EvaluateAsync<bool>(
+                """
+                (() => {
+                  const said = document.getElementById('seRefused');
+                  if (!said) return false;
+                  said.hidden = false;
+                  said.textContent = 'No host by that name. Check the spelling and, if it is a '
+                                   + 'container name, that this server is on the same network as the '
+                                   + 'database.';
+                  said.scrollIntoView({ block: 'center', behavior: 'instant' });
+                  return true;
+                })()
+                """);
+
+            await WaitForAsync(
+                """
+                (() => {
+                  const said = document.getElementById('seRefused');
+                  if (!said || said.hidden || said.offsetParent === null) return false;
+
+                  const box = said.getBoundingClientRect();
+
+                  return said.getAttribute('role') === 'alert'
+                      && box.top >= 0 && box.bottom <= window.innerHeight;
+                })()
+                """,
+                "The error slot is missing, hidden, unannounced, or off screen at 1024×768. A message "
+                + "an operator has to scroll to find is a message that arrives after they have started "
+                + "guessing.");
+
+            string[] errors = await PageErrorsAsync();
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
+        }
+    }
+
+    /// <summary>
+    /// The closed drawer holds nothing a keyboard can reach, and the open one does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found immediately downstream of this screen's new buttons</b>, by tabbing past them:
+    /// `#drawerClose` was focusable while its `aria-hidden` container sat translated off-canvas —
+    /// measured at x=1986 in a 1440-pixel window. `offsetParent` is non-null there, so the check this
+    /// repository has relied on three times does not catch it, and a focusable descendant of
+    /// `aria-hidden` is a contradiction in itself: the reader can reach something they have been told is
+    /// not there.
+    /// </para>
+    /// <para>
+    /// <b>Both directions, because `inert` is a lock and a lock left on is worse.</b> The drawer is how
+    /// every settings page opens; asserting only that it is inert when closed would pass a build where
+    /// it is inert always.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_closed_drawer_is_inert_and_the_open_one_is_not()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/services", token);
+
+        await WaitForAsync(
+            "document.getElementById('drawer') !== null", "The shell never drew.");
+
+        await WaitForAsync(
+            """
+            (() => {
+              const drawer = document.getElementById('drawer');
+              const close = document.getElementById('drawerClose');
+              if (!drawer || !close) return false;
+
+              return drawer.inert === true
+                  && drawer.getAttribute('aria-hidden') === 'true'
+                  && close.getBoundingClientRect().left >= window.innerWidth;
+            })()
+            """,
+            "The closed drawer is not inert, so its Close button is a tab stop inside an `aria-hidden` "
+            + "container that CSS has moved off screen.");
+
+        // And it comes back. `openDrawer` is reached by any settings page; the services screen's own
+        // action is the shortest route to it.
+        bool opened = await ClickIfPresentAsync("#newService") || await ClickIfPresentAsync("#newLayer");
+
+        if (opened)
+        {
+            await WaitForAsync(
+                """
+                (() => {
+                  const drawer = document.getElementById('drawer');
+                  return drawer.classList.contains('on')
+                      && drawer.inert === false
+                      && drawer.getAttribute('aria-hidden') === 'false';
+                })()
+                """,
+                "The drawer opened and stayed inert, which makes every settings page unusable by "
+                + "keyboard — the failure mode of adding a lock without the matching release.");
+        }
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+}
