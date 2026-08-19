@@ -563,38 +563,71 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     {
         Require();
 
-        (Geometry left, Geometry right) = HardCase(which);
-
-        // The six predicates with a name on both surfaces. `st_relate` and `st_dwithin` are the query
-        // path's alone — no Esri relation maps to them — so there is no second answer to compare.
-        (string Sql, string Esri)[] predicates =
+        // The six predicates with a name on both surfaces, and the eight DE-9IM patterns. `st_dwithin`
+        // is the query path's alone, and `st_contains` is `within` with the arguments swapped.
+        //
+        // <b>`st_relate` was excluded from the first version of this test and of the experiment, on the
+        // grounds that no Esri relation name maps to it. That was wrong:</b>
+        // `esriGeometryRelationRelation` carries a pattern in `relationParam` and reaches
+        // `relation.Matches(pattern)` in the worker, while `SpatialRelation.Relate` reaches
+        // `st_relate(column, filter, @pattern)` in the provider. So both engines answer DE-9IM — the
+        // most intricate predicate either library has — and excluding it left the hardest comparison
+        // unmade.
+        (string Sql, string? Esri, string? Pattern)[] predicates =
         [
-            ("ST_Intersects", "esriGeometryRelationIntersection"),
-            ("ST_Within", "esriGeometryRelationWithin"),
-            ("ST_Crosses", "esriGeometryRelationCross"),
-            ("ST_Overlaps", "esriGeometryRelationOverlap"),
-            ("ST_Touches", "esriGeometryRelationTouch"),
-            ("ST_Disjoint", "esriGeometryRelationDisjoint"),
+            ("ST_Intersects(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationIntersection", null),
+            ("ST_Within(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationWithin", null),
+            ("ST_Crosses(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationCross", null),
+            ("ST_Overlaps(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationOverlap", null),
+            ("ST_Touches(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationTouch", null),
+            ("ST_Disjoint(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+             "esriGeometryRelationDisjoint", null),
+
+            // Each pattern separates two cases a named predicate runs together.
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), 'T********')", null, "T********"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), 'FF*FF****')", null, "FF*FF****"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), 'T*F**F***')", null, "T*F**F***"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), 'F***T****')", null, "F***T****"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), '2********')", null, "2********"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), '*T*******')", null, "*T*******"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), '****1****')", null, "****1****"),
+            ("ST_Relate(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), 'T*T***T**')", null, "T*T***T**"),
         ];
 
-        foreach ((string sql, string esri) in predicates)
+        // <b>Twice, because floating point diverges with magnitude.</b> The cases are written within
+        // 0–25 and web-Mercator metres run to 2×10⁷: at an offset of 2×10⁶ the gap between
+        // representable doubles is about 5×10⁻¹⁰, so the nanometre cases sit two steps above it —
+        // close enough that two libraries could round in opposite directions, and far enough that the
+        // case is still a real gap rather than a collapsed one. Verified in the experiment: the
+        // nanometre pair is still disjoint at 2×10⁶ rather than having snapped together, so the
+        // comparison is not vacuous at that magnitude.
+        foreach (double offset in (double[])[0, 2_000_000])
         {
-            bool theirs = await ScalarAsync(
-                $"select case when {sql}(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1)) then 1 else 0 end",
-                left, right) == 1;
+            (Geometry left, Geometry right) = HardCase(which, offset);
 
-            EngineResult ours = await RunAsync(
-                EngineOperation.Relate, [left], [right], pattern: esri);
+            foreach ((string sql, string? esri, string? pattern) in predicates)
+            {
+                bool theirs = await ScalarAsync(
+                    $"select case when {sql} then 1 else 0 end", left, right) == 1;
 
-            bool mine = ours.Pairs is { Count: > 0 };
+                EngineResult ours = await RunAsync(
+                    EngineOperation.Relate, [left], [right], pattern: pattern ?? esri!);
 
-            Assert.True(
-                theirs == mine,
-                $"'{which}': PostGIS says {sql} is {theirs} and this server's own engine says {mine}. "
-                + "Two engines answering the same question differently is Q-20 arriving with an "
-                + "instance — and a query and a GeometryServer call can both be asked this. Which "
-                + "answer is right is a decision for an ADR; what is certain is that the product must "
-                + "not give both.");
+                bool mine = ours.Pairs is { Count: > 0 };
+
+                Assert.True(
+                    theirs == mine,
+                    $"'{which}' at offset {offset}: PostGIS says {sql} is {theirs} and this server's "
+                    + $"own engine says {mine}. Two engines answering the same question differently is "
+                    + "Q-20 arriving with an instance — and a query and a GeometryServer call can both "
+                    + "be asked this. Which answer is right is a decision for an ADR; what is certain "
+                    + "is that the product must not give both.");
+            }
         }
     }
 
@@ -608,10 +641,22 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     /// the same arrangement over HTTP and had to compute ring winding to do it; here there is no
     /// winding question, because <c>Polygon</c> carries shell and holes as separate rings.
     /// </remarks>
-    private static (Geometry Left, Geometry Right) HardCase(string which)
+    private static (Geometry Left, Geometry Right) HardCase(string which, double at = 0)
     {
+        // Every coordinate is shifted by the same offset, so the *shape* is identical and only its
+        // distance from the origin changes — which is the one variable being tested.
         Polygon Square(double x0, double y0, double x1, double y1) =>
-            new(new LinearRing(XySequence.Wrap([x0, y0, x0, y1, x1, y1, x1, y0, x0, y0])));
+            new(new LinearRing(XySequence.Wrap(
+            [
+                x0 + at, y0 + at, x0 + at, y1 + at, x1 + at, y1 + at,
+                x1 + at, y0 + at, x0 + at, y0 + at,
+            ])));
+
+        LineString Line(params double[] xy) =>
+            new(XySequence.Wrap([.. System.Linq.Enumerable.Select(xy, v => v + at)]));
+
+        LinearRing Ring(params double[] xy) =>
+            new(XySequence.Wrap([.. System.Linq.Enumerable.Select(xy, v => v + at)]));
 
         Polygon unit = Square(0, 0, 10, 10);
 
@@ -621,24 +666,21 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             "shared vertex only" => (unit, Square(10, 10, 20, 20)),
             "identical" => (unit, Square(0, 0, 10, 10)),
 
-            "point on the boundary" => (new Point(0, 5), unit),
-            "point in the middle" => (new Point(5, 5), unit),
+            "point on the boundary" => (new Point(0 + at, 5 + at), unit),
+            "point in the middle" => (new Point(5 + at, 5 + at), unit),
 
-            "line ending on the boundary" => (
-                new LineString(XySequence.Wrap([-5, 5, 0, 5])), unit),
-            "line through" => (
-                new LineString(XySequence.Wrap([-5, 5, 15, 5])), unit),
-            "line along the boundary" => (
-                new LineString(XySequence.Wrap([0, 2, 0, 8])), unit),
+            "line ending on the boundary" => (Line(-5, 5, 0, 5), unit),
+            "line through" => (Line(-5, 5, 15, 5), unit),
+            "line along the boundary" => (Line(0, 2, 0, 8), unit),
 
             // Self-intersecting: the diagonals cross, so this is invalid and both engines are being
             // asked what they make of it rather than being expected to refuse.
             "invalid bowtie against a square" => (
-                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0]))),
+                new Polygon(Ring(0, 0, 10, 10, 10, 0, 0, 10, 0, 0)),
                 Square(2, 2, 8, 8)),
             "invalid bowtie against itself" => (
-                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0]))),
-                new Polygon(new LinearRing(XySequence.Wrap([0, 0, 10, 10, 10, 0, 0, 10, 0, 0])))),
+                new Polygon(Ring(0, 0, 10, 10, 10, 0, 0, 10, 0, 0)),
+                new Polygon(Ring(0, 0, 10, 10, 10, 0, 0, 10, 0, 0))),
 
             "a nanometre apart" => (unit, Square(10.000000001, 0, 20, 10)),
             "a nanometre overlapping" => (unit, Square(9.999999999, 0, 20, 10)),
@@ -648,8 +690,8 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             "polygon inside a hole" => (
                 Square(3, 3, 7, 7),
                 new Polygon(
-                    new LinearRing(XySequence.Wrap([0, 0, 0, 10, 10, 10, 10, 0, 0, 0])),
-                    [new LinearRing(XySequence.Wrap([2, 2, 2, 8, 8, 8, 8, 2, 2, 2]))])),
+                    Ring(0, 0, 0, 10, 10, 10, 10, 0, 0, 0),
+                    [Ring(2, 2, 2, 8, 8, 8, 8, 2, 2, 2)])),
 
             "multipolygon touching at one part" => (
                 new MultiPolygon([Square(0, 0, 5, 5), Square(20, 20, 25, 25)]),

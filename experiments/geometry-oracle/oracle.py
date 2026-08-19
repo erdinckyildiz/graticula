@@ -42,9 +42,15 @@ import urllib.request
 BASE = "https://127.0.0.1:8443"
 RELATION = f"{BASE}/rest/services/Utilities/Geometry/GeometryServer/relation"
 
-# `st_relate` and `st_dwithin` are the query path's alone — no Esri relation name
-# maps to them — and `st_contains` is `within` with the arguments swapped, so it is
-# covered by asking `within` both ways round.
+# `st_dwithin` is the query path's alone, and `st_contains` is `within` with the
+# arguments swapped, so it is covered by asking `within` both ways round.
+#
+# <b>`st_relate` is not the query path's alone, and the first version of this file said
+# it was.</b> `esriGeometryRelationRelation` with a DE-9IM pattern in `relationParam`
+# reaches `relation.Matches(pattern)` in the worker, and `SpatialRelation.Relate`
+# reaches `st_relate(column, filter, @pattern)` in the provider — so **both engines
+# answer DE-9IM**, and it is the most intricate predicate either library has. Excluding
+# it left the hardest comparison unmade. `PATTERNS` below carries it.
 PREDICATES = [
     ("st_intersects", "esriGeometryRelationIntersection"),
     ("st_within", "esriGeometryRelationWithin"),
@@ -52,6 +58,20 @@ PREDICATES = [
     ("st_overlaps", "esriGeometryRelationOverlap"),
     ("st_touches", "esriGeometryRelationTouch"),
     ("st_disjoint", "esriGeometryRelationDisjoint"),
+]
+
+# <b>DE-9IM patterns, each chosen because it separates two cases that a named predicate
+# runs together.</b> The matrix is interior/boundary/exterior of A against the same of
+# B, row-major, and a pattern is nine characters of `T`, `F`, `0`, `1`, `2` or `*`.
+PATTERNS = [
+    ("T********", "the interiors meet at all — weaker than `overlaps`"),
+    ("FF*FF****", "disjoint, spelled as a matrix"),
+    ("T*F**F***", "within, spelled as a matrix"),
+    ("F***T****", "boundaries touch and interiors do not — `touches` for two areas"),
+    ("2********", "the interiors meet in an *area*, not a line or a point"),
+    ("*T*******", "A's interior meets B's boundary"),
+    ("****1****", "the boundaries share a line rather than a point"),
+    ("T*T***T**", "A crosses B's boundary in both directions"),
 ]
 
 
@@ -137,6 +157,33 @@ CASES = [
 ]
 
 
+# <b>Everything above is within 0-25, and web-Mercator metres run to 2×10⁷.</b>
+# Floating-point divergence grows with magnitude: at 2×10⁶ the gap between
+# representable doubles is about 5×10⁻¹⁰ of a metre, and the 1e-9 cases are then
+# *below* the representable step — which is exactly where two libraries can round in
+# opposite directions. So every case is run twice, once as written and once shifted.
+MAGNITUDES = [
+    (1.0, 0.0, "as written, 0-25"),
+    (1.0, 2_000_000.0, "shifted to 2e6, near web-Mercator metres"),
+]
+
+
+def shifted(shape, scale, offset):
+    """The same shape moved out to a large coordinate."""
+    kind, data = shape
+
+    def move(point):
+        return (point[0] * scale + offset, point[1] * scale + offset)
+
+    if kind == "point":
+        return (kind, move(data))
+
+    if kind == "line":
+        return (kind, [move(p) for p in data])
+
+    return (kind, [[move(p) for p in r] for r in data])
+
+
 def wkt(shape):
     """WKT for PostGIS, from the case's own coordinates."""
     kind, data = shape
@@ -211,15 +258,22 @@ def token():
         return json.load(answer)["token"], context
 
 
-def ours(bearer, context, left, right, relation):
-    """Whether our engine says the pair satisfies the relation."""
-    body = urllib.parse.urlencode({
+def ours(bearer, context, left, right, relation, pattern=None):
+    """Whether our engine says the pair satisfies the relation, or the DE-9IM pattern."""
+    asked = {
         "geometries1": json.dumps({"geometryType": kindname(left), "geometries": [esri(left)]}),
         "geometries2": json.dumps({"geometryType": kindname(right), "geometries": [esri(right)]}),
-        "relation": relation,
         "sr": "4326",
         "f": "json",
-    }).encode()
+    }
+
+    if pattern is None:
+        asked["relation"] = relation
+    else:
+        asked["relation"] = "esriGeometryRelationRelation"
+        asked["relationParam"] = pattern
+
+    body = urllib.parse.urlencode(asked).encode()
 
     request = urllib.request.Request(
         RELATION, data=body,
@@ -260,23 +314,48 @@ def main():
 
     rows = []
 
-    for name, left, right, why in CASES:
-        for sql_name, esri_name in PREDICATES:
-            answer, error = postgis(
-                f"select {sql_name}(st_geomfromtext('{wkt(left)}', 4326), "
-                f"st_geomfromtext('{wkt(right)}', 4326))")
+    for scale, offset, magnitude in MAGNITUDES:
+        for name, left_raw, right_raw, why in CASES:
+            left = shifted(left_raw, scale, offset)
+            right = shifted(right_raw, scale, offset)
 
-            mine, mine_error = ours(bearer, context, left, right, esri_name)
+            for sql_name, esri_name in PREDICATES:
+                answer, error = postgis(
+                    f"select {sql_name}(st_geomfromtext('{wkt(left)}', 4326), "
+                    f"st_geomfromtext('{wkt(right)}', 4326))")
 
-            rows.append({
-                "case": name, "why": why, "predicate": sql_name,
-                "left": wkt(left), "right": wkt(right),
-                "postgis": "ERROR" if error else answer,
-                "postgisError": error,
-                "ours": "ERROR" if mine_error else mine,
-                "oursError": mine_error,
-                "agree": error is None and mine_error is None and answer == mine,
-            })
+                mine, mine_error = ours(bearer, context, left, right, esri_name)
+
+                rows.append({
+                    "case": name, "magnitude": magnitude, "why": why, "predicate": sql_name,
+                    "left": wkt(left), "right": wkt(right),
+                    "postgis": "ERROR" if error else answer,
+                    "postgisError": error,
+                    "ours": "ERROR" if mine_error else mine,
+                    "oursError": mine_error,
+                    "agree": error is None and mine_error is None and answer == mine,
+                })
+
+            # <b>And the matrix itself</b>, which is where two implementations of the
+            # same specification have the most room to differ.
+            for pattern, meaning in PATTERNS:
+                answer, error = postgis(
+                    f"select st_relate(st_geomfromtext('{wkt(left)}', 4326), "
+                    f"st_geomfromtext('{wkt(right)}', 4326), '{pattern}')")
+
+                mine, mine_error = ours(
+                    bearer, context, left, right, None, pattern=pattern)
+
+                rows.append({
+                    "case": name, "magnitude": magnitude, "why": meaning,
+                    "predicate": f"st_relate '{pattern}'",
+                    "left": wkt(left), "right": wkt(right),
+                    "postgis": "ERROR" if error else answer,
+                    "postgisError": error,
+                    "ours": "ERROR" if mine_error else mine,
+                    "oursError": mine_error,
+                    "agree": error is None and mine_error is None and answer == mine,
+                })
 
     disagreed = [r for r in rows if not r["agree"]]
 
@@ -284,12 +363,12 @@ def main():
           f"{len(disagreed)} do not.\n")
 
     if disagreed:
-        print(f"{'case':32} {'predicate':15} {'PostGIS':8} {'ours':8}")
-        print("-" * 68)
+        print(f"{'case':32} {'predicate':22} {'PostGIS':8} {'ours':8} magnitude")
+        print("-" * 100)
 
         for r in disagreed:
-            print(f"{r['case']:32} {r['predicate']:15} "
-                  f"{str(r['postgis']):8} {str(r['ours']):8}")
+            print(f"{r['case'][:30]:32} {r['predicate']:22} "
+                  f"{str(r['postgis']):8} {str(r['ours']):8} {r['magnitude']}")
 
             for side in ("postgisError", "oursError"):
                 if r[side]:
