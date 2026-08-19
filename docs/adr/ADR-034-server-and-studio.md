@@ -505,11 +505,87 @@ This is the second time this month a destructive action has been asked to carry 
 harmless one; [D-97](../architecture-debt.md)'s neighbours in the 2026-08-19 review found the same
 imbalance on roles and members.
 
+#### A row opens the item, and the item lists its layers — corrected 2026-08-19
+
+*"tıkladığım feature layer'in özellikleri direkt böyle açılacak. burada da servisin url'i var."*
+
+**This corrects something I built hours earlier on the same day.** [D-98](../architecture-debt.md) found
+the layer editor unreachable by any click, and the repair I chose was to make a single-layer content row
+open its layer directly. The owner's screenshot says the row opens the **item page** — Overview, with
+the layer list — and each layer is entered from there. Which is now possible precisely because Overview
+exists: the shortcut was solving a problem the layer list solves, and it disagreed with the reference
+while doing it. So the shortcut goes and the route stays.
+
+**Overview gains the right-hand column their item page has**, and one thing in it is worth more than the
+rest: **the service's URL, with a copy button and a link that opens it.** An operator wiring a service
+into anything — ArcGIS Pro, a web map, a script — needs that string, and today this console shows it
+nowhere. What else goes there is what we already know and currently scatter: the kind, the owner, the
+folder, the sharing scope, and the counts.
+
+**What is deliberately not copied from it.** Their column carries an *Item Information* completeness
+meter, a star rating, Categories, Tags, Credits and a Metadata button. None of those exist here: there
+is no item store (§5j), no rating, no tag or category storage, and no metadata document. A meter scoring
+a description we do not store would score nothing.
+
 #### What this does not decide
 
 **There is still no item that exists without serving.** §5j recorded the owner's answer on that —
 *"evet bizimki daha doğru"*, ours is the more correct arrangement — so a service page is the page for
 a thing that is already published, and the reference's *Add item without publishing* stays out.
+
+### 5l. Sharing is set from the item, not only from the group — owner decision, 2026-08-19
+
+*"sharing kısmına gelirsek, şu düğmeler. tıklanınca açılan 2. görüntü. edit group sharing diyince de,
+üyesi olduğum gruplarla o nesneyi paylaşabilme seçeneği geliyor."*
+
+**Both directions exist in the reference and only one exists here.** A group's Content tab can add items
+— built 2026-08-18, the picker with thumbnails and a counted select-all. What is missing is the other
+way round: standing on an item and choosing which of your groups it goes to. Today that means leaving
+the item, opening each group, and adding it there.
+
+#### Three screens, from the owner's screenshots
+
+| | What it holds |
+| --- | --- |
+| **the row's control** | a small button per content row, showing at a glance who can reach the item |
+| **Share** | *Set sharing level* — three radio rows, Owner / Organization / Everyone (public), each with a glyph and a sentence — then *Set group sharing*, the groups it is already in, with **Remove** and **Edit group sharing** |
+| **Group sharing** | search, filters, `Selected: 2`, `1-54 of 54`, and a checked list of **the groups you are a member of**, each row saying `1/1 items already shared` |
+
+**The scope list is ours already.** Owner / Organization / Everyone are `private` / `organization` /
+`public` — the same three §5z's content scopes are computed from, and each already has a glyph that
+renders (`ICONS.private`, `.organization`, `.public`) so the dialog needs no new vocabulary.
+
+**The endpoints are all there too.** `PUT /admin/services/{name}/sharing` sets the scope;
+`PUT`/`DELETE /admin/groups/{name}/items/{service}` add and remove a group. So this is a console screen
+over a surface that already works, which is the cheapest kind of screen to be missing and the easiest
+kind to leave missing.
+
+#### What is *not* there, and it is a privacy decision rather than a field
+
+The content listing carries `throughGroups`, and it answers **how this reached you** — it is populated
+only when the scope is `group`, because that is what §5z needs it for. The Share dialog needs a different
+fact: **every group this item is shared with**, whatever the reason you can see it.
+
+`layers.ListServicesAsync` already returns `SharedWith`, and the endpoint filters it. Exposing it
+unfiltered would tell any reader who can see an item the names of every group it is in — including
+groups they are not in, which is a list of other people's teams. **So it is returned only to a caller
+who may change the sharing**: the owner, or an administrator holding `admin:manageAllContent`. Anybody
+else gets what they get today, which is why they can see it and nothing about who else can.
+
+That is [ADR-018](ADR-018-authorization-and-roles.md)'s reasoning applied one level down: a scope is
+public information about an item, and the *set of groups* is information about the groups.
+
+#### And the group list is the caller's own
+
+*"üyesi olduğum gruplarla"* — the groups you are a member of. `/admin/groups` already answers with
+`standing` and `contribute` per row, so the list is filterable to the ones the caller may actually share
+into: a group whose `contribute` is `managers` and where your standing is `member` is a group you cannot
+add to, and offering it would be a control that fails on press.
+
+**Their row annotation is worth copying and is not free.** `1/1 items already shared` tells you, before
+you tick, that this group already has it. We can say the same thing from `SharedWith` for one item; the
+reference is counting across a multi-item selection, which our picker does from the group's side and
+this dialog does not need.
 
 ### 5z. Content is listed by how it reached you — owner decision, 2026-08-18
 
