@@ -390,4 +390,34 @@ public sealed class FeatureServerMetadataWriterTests
 
         Assert.Equal(FeatureQuery.MaximumLimit, layer.GetProperty("maxRecordCount").GetInt32());
     }
+
+    /// <summary>
+    /// The advertised maximum is the smallest of the client's three constraints.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A client sizes its paging from `maxRecordCount`, so it is a promise rather than a label.</b>
+    /// The class already says why for a service ceiling: *reporting the server's figure while enforcing a
+    /// lower one is a lie a client acts on.* On 2026-08-19 the server's figure became a setting — the
+    /// owner asked for a deployment-wide rule, since a per-service one leaves every new service at the
+    /// model's 50,000 — and that made the compile-time constant stop being the truth.
+    /// </para>
+    /// <para>
+    /// <b>So three numbers narrow it and the smallest wins:</b> the model's own bound, the deployment's
+    /// setting, and the service's ceiling. Each may only lower.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(null, 50_000, 50_000)]     // nothing set anywhere
+    [InlineData(null, 2_000, 2_000)]       // the deployment lowered it
+    [InlineData(500, 2_000, 500)]          // a service lowered it further
+    [InlineData(9_000, 2_000, 2_000)]      // a service asked for more than the deployment allows
+    [InlineData(null, 5_000_000, 50_000)]  // a deployment asked for more than the model allows
+    public void The_advertised_maximum_is_the_smallest_constraint(
+        int? serviceCeiling, int serverCeiling, int expected)
+    {
+        Assert.Equal(
+            expected,
+            FeatureServerMetadataWriter.AdvertisedMaxRecordCount(serviceCeiling, serverCeiling));
+    }
 }

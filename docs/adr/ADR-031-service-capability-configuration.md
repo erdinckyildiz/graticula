@@ -86,6 +86,42 @@ two controls over one fact — which is how they drift apart.
 sharing; a stopped service is *not running*, a service with `Query` unchecked *is running
 and refusing*, and an operator diagnosing an incident needs to tell those apart.
 
+### The deployment's own ceiling — owner requirement, 2026-08-19
+
+This ADR gave a **service** the power to lower what one request may cost. It did not give the
+**deployment** one, and the difference showed up as soon as somebody thought about a real dataset:
+
+> *"dönebilecek max recordlarla alakalı genel bir kural olması lazım. server ayarlarında mesela.
+> 1000-2000-5000. düşünsene 3 milyonluk record'u olan bir veriye n tane request atıldığını."*
+
+Both server-wide figures were compile-time constants — `FeatureQuery.MaximumLimit` at 50,000 and the
+parser's page default at 1,000. An operator who wanted *nothing on this server returns more than two
+thousand rows* had to set it on every service, one at a time, and the next service published started at
+50,000 again. The ceiling was not a rule; it was a habit that had to be re-applied.
+
+**`Graticula:MaximumRecordCount` and `Graticula:DefaultRecordCount` are settings now**, and everything
+this ADR already says about narrowing applies to them unchanged:
+
+- **Three numbers narrow a page and the smallest wins:** what the caller asked for, what the service
+  permits, and what the deployment permits. A service may still ask for less and never for more — which
+  is §4's rule, now with a third term.
+- **The advertisement follows the enforcement.** `AdvertisedMaxRecordCount` takes the deployment's figure
+  as well as the service's, because a client sizes its paging from `maxRecordCount` and a server capped
+  at 2,000 that advertised 50,000 would be the same lie this ADR fixed for services on 2026-08-17.
+- **A default larger than the maximum is resolved rather than reported.** The two are set independently,
+  so an operator can write the contradiction in two edits; the smaller wins.
+- **A ceiling above the model's own bound is clamped to it.** `FeatureQuery` refuses a larger limit
+  outright, so honouring the setting would turn a configuration mistake into a 500 on every query.
+
+**The default stays at 50,000**, which is what the constant was. Lowering it is the operator's decision
+and not ours to make on their behalf — but the range the owner named, 1,000 to 5,000, is what a
+deployment serving a three-million-row layer wants, and 1,000 is what ArcGIS Server itself ships.
+
+**What this does not bound**, and it is worth saying because the request was about load: rows, not work.
+Twenty concurrent requests for 2,000 features each is 40,000 features of encoding, and the things that
+bound *that* are the response-byte ceiling, the request deadline, and ADR-007 §4.8's connection budget —
+each a different unit, none of them a row count.
+
 ## 3. Consequences
 
 - **The catalogue gains a capability set per service**, and the schema gains its first

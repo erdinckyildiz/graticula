@@ -1565,6 +1565,7 @@ public static class Program
         string serviceName,
         CatalogFallback catalog,
         ServiceContexts contexts,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         PublishedService? service = await ServiceLookup
@@ -1624,7 +1625,13 @@ public static class Program
             CapabilitiesFor(context, service),
             service.Description,
             groups,
-            service.Limits.Cost.MaximumRecordCount);
+            service.Limits.Cost.MaximumRecordCount,
+
+            // <b>The deployment's own ceiling, since 2026-08-19.</b> It was a compile-time constant, so
+            // an operator who wanted *nothing on this server returns more than two thousand* had to set
+            // it service by service and every new service started at 50,000 again. Advertised here as
+            // well as enforced in the parser, because a client sizes its paging from this number.
+            settings.MaximumRecordCount);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -1669,6 +1676,7 @@ public static class Program
         CatalogFallback catalog,
         ServiceContexts contexts,
         PostgresRelationshipCatalog relationships,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         // <b>A group answers at its own index.</b> The service document lists
@@ -1735,6 +1743,7 @@ public static class Program
                 .ConfigureAwait(false),
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,
+            settings.MaximumRecordCount,
 
             // ADR-033 §5a: the stored canonical document, or null for the generated
             // appearance. The writer decides which; this only carries it.
@@ -2519,7 +2528,8 @@ public static class Program
                 out QueryShape shape,
                 out string? error,
                 cost,
-                FeatureServerQueryParameters.DefaultRecordCount))
+                settings.DefaultRecordCount,
+                settings.MaximumRecordCount))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },

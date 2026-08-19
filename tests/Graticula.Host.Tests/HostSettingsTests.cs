@@ -139,4 +139,92 @@ public sealed class HostSettingsTests
             Assert.Contains("AES-256 needs 32", refused.Message, StringComparison.Ordinal);
         }
     }
+
+    /// <summary>
+    /// The deployment's row ceiling and page default are settings, and they cannot contradict.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner, 2026-08-19:</b> *"dönebilecek max recordlarla alakalı genel bir kural olması lazım.
+    /// server ayarlarında mesela. 1000-2000-5000. düşünsene 3 milyonluk record'u olan bir veriye n tane
+    /// request atıldığını."* Both figures were compile-time constants — 50,000 and 1,000 — and a service
+    /// could lower them one service at a time (ADR-031, Q-113), which leaves every newly published
+    /// service back at 50,000. There was no way to say *nothing on this deployment returns more than two
+    /// thousand.*
+    /// </para>
+    /// <para>
+    /// <b>The clamps are the interesting part.</b> A ceiling above the model's own bound would produce a
+    /// `FeatureQuery` the domain refuses — a configuration mistake surfacing as a 500 on every query
+    /// rather than as a smaller number. And a default larger than the maximum is a contradiction an
+    /// operator can write in two edits, so it is resolved rather than reported.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_row_ceiling_and_the_page_default_are_read_and_cannot_contradict()
+    {
+        HostSettings asked = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:MaximumRecordCount"] = "2000",
+            ["Graticula:DefaultRecordCount"] = "500",
+        }));
+
+        Assert.Equal(2000, asked.MaximumRecordCount);
+        Assert.Equal(500, asked.DefaultRecordCount);
+
+        // Untouched: the model's own bound, and the page size every ArcGIS client expects.
+        HostSettings silent = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+        }));
+
+        Assert.Equal(Graticula.Features.FeatureQuery.MaximumLimit, silent.MaximumRecordCount);
+        Assert.Equal(1000, silent.DefaultRecordCount);
+
+        // A ceiling past the model's bound is brought back to it, not honoured.
+        HostSettings tooHigh = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:MaximumRecordCount"] = "5000000",
+        }));
+
+        Assert.Equal(Graticula.Features.FeatureQuery.MaximumLimit, tooHigh.MaximumRecordCount);
+
+        // And a default larger than the ceiling becomes the ceiling.
+        HostSettings contradiction = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:MaximumRecordCount"] = "2000",
+            ["Graticula:DefaultRecordCount"] = "9999",
+        }));
+
+        Assert.Equal(2000, contradiction.MaximumRecordCount);
+        Assert.Equal(2000, contradiction.DefaultRecordCount);
+    }
+
+    /// <summary>
+    /// The old configuration name still works, like every other setting.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-032 §5: `GisServer:*` keys are still read so that no existing deployment has to be
+    /// reconfigured to start.</b> A new setting that only answers to the new prefix would be a quiet
+    /// exception to that rule.
+    /// </remarks>
+    [Fact]
+    public void The_row_ceiling_answers_to_the_old_prefix_too()
+    {
+        HostSettings settings = HostSettings.Read(Configuration(new()
+        {
+            ["GisServer:PlatformStore"] = "Host=localhost;Database=gis",
+            ["GisServer:SecretKey"] = Key,
+            ["GisServer:MaximumRecordCount"] = "1500",
+        }));
+
+        Assert.Equal(1500, settings.MaximumRecordCount);
+        Assert.Contains("MaximumRecordCount", string.Join(",", settings.LegacyKeys ?? []));
+    }
 }

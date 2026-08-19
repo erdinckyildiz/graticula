@@ -146,6 +146,10 @@ internal static class FeatureServerQueryParameters
     /// <param name="serverDefaultRecordCount">
     /// The page size to use when neither the caller nor the service says.
     /// </param>
+    /// <param name="serverMaximumRecordCount">
+    /// The most rows this deployment will return, whatever the caller or the service asks for.
+    /// Configurable since 2026-08-19; it was `FeatureQuery.MaximumLimit` and nothing else.
+    /// </param>
     public static bool TryParse(
         IQueryCollection parameters,
         string objectIdColumn,
@@ -155,7 +159,8 @@ internal static class FeatureServerQueryParameters
         out QueryShape shape,
         [NotNullWhen(false)] out string? error,
         ServiceCostCeilings? cost = null,
-        int serverDefaultRecordCount = DefaultRecordCount)
+        int serverDefaultRecordCount = DefaultRecordCount,
+        int serverMaximumRecordCount = FeatureQuery.MaximumLimit)
     {
         query = null;
         shape = QueryShape.Features;
@@ -180,6 +185,7 @@ internal static class FeatureServerQueryParameters
         // worth having checked.
         if (!TryUnknown(parameters, out error)) { return Fail(out error, error); }
         if (!TryLimit(parameters, cost ?? ServiceCostCeilings.Unset, serverDefaultRecordCount,
+                serverMaximumRecordCount,
                 out int limit, out error))
         {
             return Fail(out error, error);
@@ -506,13 +512,19 @@ internal static class FeatureServerQueryParameters
         IQueryCollection parameters,
         ServiceCostCeilings cost,
         int serverDefault,
+        int serverCeiling,
         out int limit,
         out string? error)
     {
+        // <b>The deployment's ceiling, clamped to the model's own.</b> `FeatureQuery` refuses a limit
+        // above `MaximumLimit` outright, so a setting larger than that would surface as a 500 on every
+        // query rather than as a configuration error.
+        int ceiling = Math.Clamp(serverCeiling, 1, FeatureQuery.MaximumLimit);
+
         // The service's own default when it has one, clamped by whichever ceiling is
         // in force — so a page size set in one edit cannot exceed a maximum set in
         // another.
-        limit = cost.PageSize(serverDefault, FeatureQuery.MaximumLimit);
+        limit = cost.PageSize(serverDefault, ceiling);
         error = null;
 
         if (!parameters.TryGetValue("resultRecordCount", out Microsoft.Extensions.Primitives.StringValues count)
@@ -536,7 +548,11 @@ internal static class FeatureServerQueryParameters
         // smaller of the two</b> — Q-113. A service may ask for less and never for
         // more, or a per-service setting would make the server-wide figure advisory
         // and an operator who lowered it globally would not have lowered it.
-        limit = Math.Min(limit, cost.RecordCount(FeatureQuery.MaximumLimit));
+        // <b>Three numbers narrow this, and the smallest wins.</b> The caller's request, the
+        // service's ceiling (ADR-031, Q-113) and the deployment's — which the owner asked for on
+        // 2026-08-19, because a service-by-service setting leaves every newly published service at the
+        // model's maximum: *"düşünsene 3 milyonluk record'u olan bir veriye n tane request atıldığını."*
+        limit = Math.Min(limit, cost.RecordCount(ceiling));
         return true;
     }
 

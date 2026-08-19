@@ -52,6 +52,8 @@ internal sealed record HostSettings(
     TimeSpan RequestDeadline,
     int ConnectionBudget,
     int PerSourceConcurrency,
+    int MaximumRecordCount,
+    int DefaultRecordCount,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -283,6 +285,34 @@ internal sealed record HostSettings(
             // unbounded and that is what Q-04 found.
             Math.Max(0, keys.Value("ConnectionBudget", 64)),
             Math.Max(0, keys.Value("PerSourceConcurrency", 24)),
+
+            // <b>The most rows one query may return, for the whole deployment.</b> Owner, 2026-08-19:
+            // *"dönebilecek max recordlarla alakalı genel bir kural olması lazım… düşünsene 3 milyonluk
+            // record'u olan bir veriye n tane request atıldığını."* It was a compile-time constant —
+            // `FeatureQuery.MaximumLimit`, 50,000 — and a service could lower it one service at a time
+            // (ADR-031, Q-113), which means the next service published starts at 50,000 again. An
+            // operator had no way to say *nothing on this server returns more than two thousand*.
+            //
+            // <b>The default stays at the model's own bound so that nothing changes by upgrading.</b>
+            // Lowering it is the operator's decision, not ours to make on their behalf — but 1,000 to
+            // 5,000 is the range a deployment serving a three-million-row layer wants, and it is what
+            // ArcGIS Server itself ships (1,000). Clamped to the model's ceiling because
+            // `FeatureQuery` refuses a larger limit outright: a setting that produced a request the
+            // domain rejects would be a configuration error surfacing as a 500 on every query.
+            Math.Clamp(
+                keys.Value("MaximumRecordCount", Graticula.Features.FeatureQuery.MaximumLimit),
+                1,
+                Graticula.Features.FeatureQuery.MaximumLimit),
+
+            // <b>And the page size when the caller does not ask.</b> Kept at 1,000, which is what the
+            // parser's own constant was and what every ArcGIS client expects to page against. Clamped
+            // to the ceiling above rather than validated against it, because the two are set
+            // independently and a default larger than the maximum is a contradiction the operator
+            // should not be able to write.
+            Math.Clamp(keys.Value("DefaultRecordCount", 1000), 1, Math.Clamp(
+                keys.Value("MaximumRecordCount", Graticula.Features.FeatureQuery.MaximumLimit),
+                1,
+                Graticula.Features.FeatureQuery.MaximumLimit)),
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

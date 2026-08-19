@@ -65,7 +65,27 @@ public static class FeatureServerMetadataWriter
     /// <param name="ceiling">The service's ceiling, or null when it has none.</param>
     /// <returns>What the documents should say.</returns>
     public static int AdvertisedMaxRecordCount(int? ceiling) =>
-        ceiling is { } c && c < MaxRecordCount ? c : MaxRecordCount;
+        AdvertisedMaxRecordCount(ceiling, MaxRecordCount);
+
+    /// <summary>
+    /// The figure to advertise, given the service's ceiling and the deployment's.
+    /// </summary>
+    /// <param name="ceiling">The service's ceiling, or null when it has none.</param>
+    /// <param name="serverCeiling">What this deployment permits at most.</param>
+    /// <remarks>
+    /// <b>The server's figure became configurable on 2026-08-19, and this overload is why that is not
+    /// a new lie.</b> The reasoning above — *reporting the server's figure while enforcing a lower one
+    /// is a lie a client acts on* — was written about a service ceiling against a compile-time
+    /// constant. Once an operator can set the deployment's own maximum, the constant stops being the
+    /// truth, and a server capped at 2,000 would advertise 50,000 to a client that sizes its paging
+    /// from this number. The smallest of the three is what a client can rely on.
+    /// </remarks>
+    public static int AdvertisedMaxRecordCount(int? ceiling, int serverCeiling)
+    {
+        int server = Math.Clamp(serverCeiling, 1, MaxRecordCount);
+
+        return ceiling is { } c && c < server ? c : server;
+    }
 
     /// <summary>The <c>/rest/info</c> document.</summary>
     /// <param name="tokenServicesUrl">Where a client obtains a token.</param>
@@ -372,12 +392,17 @@ public static class FeatureServerMetadataWriter
     /// rather than papered over at read time.
     /// </para>
     /// </remarks>
+    /// <param name="serverMaxRecordCount">
+    /// What this deployment permits at most, so the document never advertises more than the
+    /// server will give. Configurable since 2026-08-19; it was a compile-time constant.
+    /// </param>
     public static object Service(
         IReadOnlyList<ServiceLayer> layers,
         string capabilities,
         string? description = null,
         IReadOnlyList<ServiceGroup>? groups = null,
-        int? maxRecordCount = null)
+        int? maxRecordCount = null,
+        int serverMaxRecordCount = MaxRecordCount)
     {
         ArgumentNullException.ThrowIfNull(layers);
         // <b>An empty capabilities string is a real state, and refusing it was a 500 on a public
@@ -410,7 +435,7 @@ public static class FeatureServerMetadataWriter
             hasVersionedData = false,
             supportsDisconnectedEditing = false,
             hasStaticData = true,
-            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
+            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
             supportedQueryFormats = "JSON",
 
             // <b>Computed per caller, and saying so accurately is the point.</b>
@@ -591,6 +616,10 @@ public static class FeatureServerMetadataWriter
     /// appearance. ADR-033 §5a: this is the only authored artefact for how a layer
     /// looks, and both faces derive from it rather than holding their own copy.
     /// </param>
+    /// <param name="serverMaxRecordCount">
+    /// What this deployment permits at most, so the document never advertises more than the
+    /// server will give. Configurable since 2026-08-19; it was a compile-time constant.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -599,6 +628,7 @@ public static class FeatureServerMetadataWriter
         IEnumerable<object>? relationships = null,
         int layerId = 0,
         int? maxRecordCount = null,
+        int serverMaxRecordCount = MaxRecordCount,
         string? symbology = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
@@ -638,7 +668,7 @@ public static class FeatureServerMetadataWriter
             drawingInfo = Drawing(layer.Name, geometryType, symbology, out bool generated),
             drawingInfoGenerated = generated,
 
-            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount),
+            maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
             supportedQueryFormats = "JSON",
             // Hosted layers only: ADR-013 §4c's registered cases are designed
             // and not built, and declaring a capability on a layer that refuses
