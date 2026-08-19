@@ -273,13 +273,31 @@ DBA's side the table stops responding ([data-model.md](../data-model.md) §3).
 **Problem two: §25's connection budget.**
 
 ```text
-nodes × workers × data sources × pool size = potential connections
+nodes × workers × (data sources + 1) × pool size = potential connections
 ```
 
 Note **data sources**, not services. Many services share one registered
 database, which is what makes the arithmetic survivable at all. At four workers
 and five data sources with a pool of five, that is 100 connections. At fifty
 data sources it is 1,000, which is not.
+
+**Corrected 2026-08-19 by measurement**
+([benchmarks/connection-budget/RESULTS.md](../../benchmarks/connection-budget/RESULTS.md)), in two
+places, and the second one is the larger:
+
+- **The `+ 1` is the platform store**, and it was missing. Every query reads the catalogue before it
+  touches a layer's data source — D-17 put that read there deliberately and D-30 priced it — so the
+  one pool *every* request uses regardless of which service was asked for was not in the arithmetic.
+  Measured: 48 concurrent clients produce about 64 backends, which no single pool explains.
+- **`pool size` is 100 in the build, not 5.** No connection string sets `Maximum Pool Size`, so every
+  pool takes Npgsql's default. The worked example above is therefore optimistic by twentyfold: the
+  baseline deployment is 200 potential connections rather than 10, and 1,000 services over five
+  registered databases is **700 per worker** against a default PostgreSQL's `max_connections` of 100.
+  One worker with two busy data sources can exhaust an unconfigured database by itself.
+
+What the measurement confirmed rather than corrected: pooling is per data source and not per service —
+forty-eight clients over six layers on one datastore add five backends over the same forty-eight over
+one layer, not five times as many.
 
 **Correction, 2026-08-12.** An earlier version of this section claimed an idle
 connection is a DDL hazard. **It is not**, and the distinction matters because
@@ -322,6 +340,12 @@ policy, and it should be an idle timeout rather than aggressive closing.
 - Pools **shrink toward a floor after an idle period** — the floor is zero by
   default and configurable upward, see §4.12. This is budget management, not
   lock avoidance, so the timeout can be generous.
+  **Measured 2026-08-19: this already happens, and not because we built it.** Npgsql prunes idle
+  connections above `MinPoolSize`, which is 0 because nothing sets it, so 79 backends fell to **zero
+  in 184 seconds** with the load stopped. What is *not* zero is the floor on an idle server: eight
+  sessions stay for ever, because the job workers poll every two seconds round-robin over the
+  platform-store pool and no connection in it can reach its idle lifetime. A pool that prunes
+  correctly cannot prune one somebody keeps knocking on — D-110.
 - A **global connection cap per worker**, enforced across all pools, so a
   deployment with many data sources degrades by queueing rather than by
   exhausting the database.
@@ -667,8 +691,18 @@ ADR-006 (plugins are job workers if they exist at all), admin API (§39).
 1a. **The context budget is validated as a resource budget** (F6) before it is
    implemented as a count.
 2. **A-015 must be measured before §4.3's lazy binding is relied upon.**
-3. **The connection budget must be produced with real numbers, per provider**,
-   before any deployment guidance is published.
+3. ~~**The connection budget must be produced with real numbers, per provider**,
+   before any deployment guidance is published.~~ ***(Discharged 2026-08-19 for the one provider v1
+   has — [benchmarks/connection-budget/RESULTS.md](../../benchmarks/connection-budget/RESULTS.md),
+   counted on a running server rather than timed. Per worker process: `(data sources + 1) × 100`
+   potential, `≈1.3 × concurrent requests` in practice, `8` at rest. Three of the four findings change
+   this ADR rather than confirming it, and §4.8 is amended with each: the formula counts one pool too
+   few because every request also touches the platform store; the pool size in the build is Npgsql's
+   default of 100 where §4.8's worked example assumes 5, which makes 1,000 services over five
+   registered databases 700 potential connections per worker against a default PostgreSQL's 100; and
+   shrink-to-zero already works — 79 backends to 0 in 184 seconds — while the floor on an idle server
+   is 8 rather than 0, held there by our own two-second job polling (D-110). Oracle and SQL Server are
+   not in v1, so the per-provider shape is kept and only PostgreSQL is filled in.)***
 4. **Manual override must exist for every adaptive behaviour** in §4.5. An
    administrator who disagrees with the system must be able to win.
 

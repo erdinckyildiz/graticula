@@ -1,0 +1,174 @@
+{
+ "atRest": {
+  "idle": 4,
+  "total": 4
+ },
+ "load": [
+  {
+   "concurrency": 1,
+   "services": 1,
+   "requests": 393,
+   "peakBackends": 4,
+   "peakActive": 1,
+   "samples": 8,
+   "failures": [],
+   "what": "1 layer, 1 data source"
+  },
+  {
+   "concurrency": 8,
+   "services": 1,
+   "requests": 2060,
+   "peakBackends": 15,
+   "peakActive": 2,
+   "samples": 6,
+   "failures": [],
+   "what": "1 layer, 1 data source"
+  },
+  {
+   "concurrency": 24,
+   "services": 1,
+   "requests": 2587,
+   "peakBackends": 37,
+   "peakActive": 7,
+   "samples": 6,
+   "failures": [],
+   "what": "1 layer, 1 data source"
+  },
+  {
+   "concurrency": 48,
+   "services": 1,
+   "requests": 2925,
+   "peakBackends": 64,
+   "peakActive": 9,
+   "samples": 5,
+   "failures": [],
+   "what": "1 layer, 1 data source"
+  },
+  {
+   "concurrency": 8,
+   "services": 6,
+   "requests": 1947,
+   "peakBackends": 64,
+   "peakActive": 3,
+   "samples": 6,
+   "failures": [],
+   "what": "6 layers, 1 data source"
+  },
+  {
+   "concurrency": 24,
+   "services": 6,
+   "requests": 2337,
+   "peakBackends": 66,
+   "peakActive": 9,
+   "samples": 5,
+   "failures": [],
+   "what": "6 layers, 1 data source"
+  },
+  {
+   "concurrency": 48,
+   "services": 6,
+   "requests": 3095,
+   "peakBackends": 69,
+   "peakActive": 12,
+   "samples": 5,
+   "failures": [],
+   "what": "6 layers, 1 data source"
+  },
+  {
+   "concurrency": 8,
+   "services": 4,
+   "requests": 2199,
+   "peakBackends": 70,
+   "peakActive": 2,
+   "samples": 7,
+   "failures": [],
+   "what": "2 data sources"
+  },
+  {
+   "concurrency": 24,
+   "services": 4,
+   "requests": 2736,
+   "peakBackends": 73,
+   "peakActive": 4,
+   "samples": 6,
+   "failures": [],
+   "what": "2 data sources"
+  },
+  {
+   "concurrency": 48,
+   "services": 4,
+   "requests": 3263,
+   "peakBackends": 79,
+   "peakActive": 4,
+   "samples": 5,
+   "failures": [],
+   "what": "2 data sources"
+  }
+ ],
+ "idle": [
+  {
+   "after": 1,
+   "idle": 79,
+   "total": 79
+  },
+  {
+   "after": 31,
+   "idle": 79,
+   "total": 79
+  },
+  {
+   "after": 62,
+   "idle": 79,
+   "total": 79
+  },
+  {
+   "after": 92,
+   "idle": 79,
+   "total": 79
+  },
+  {
+   "after": 123,
+   "idle": 79,
+   "total": 79
+  },
+  {
+   "after": 154,
+   "idle": 58,
+   "total": 58
+  },
+  {
+   "after": 184,
+   "total": 0
+  },
+  {
+   "after": 215,
+   "idle": 2,
+   "total": 2
+  },
+  {
+   "after": 245,
+   "idle": 6,
+   "total": 6
+  },
+  {
+   "after": 276,
+   "idle": 16,
+   "total": 16
+  },
+  {
+   "after": 306,
+   "idle": 16,
+   "total": 16
+  },
+  {
+   "after": 337,
+   "idle": 16,
+   "total": 16
+  },
+  {
+   "after": 368,
+   "idle": 16,
+   "total": 16
+  }
+ ]
+}

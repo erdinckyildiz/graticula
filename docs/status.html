@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>47f83cf</code> · 2026-08-19 14:13</p>
+<p class="stamp">Generated from commit <code>10e10d4</code> · 2026-08-19 14:42</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">38</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">60/148</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">84 live · 4 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">55</div><div class="kpi-l">open questions</div><div class="kpi-n">61 answered · 5 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">64</div><div class="kpi-l">open debts</div><div class="kpi-n">43 repaid · 6 partly</div></div>
+<div class="kpi good"><div class="kpi-v">61/148</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">83 live · 4 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">54</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 4 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">65</div><div class="kpi-l">open debts</div><div class="kpi-n">43 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">3 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">1306</div><div class="kpi-l">tests</div><div class="kpi-n">143 source files, 55,490 lines</div></div>
@@ -126,19 +126,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">2 open</span></div><p><b>Q-121</b> — Can a COG be registered in place — served from where it already lives, never copied?</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">3 gates</span></div><p><b>Correctness</b> — Partly covered by contradiction sweep 2, which is a narrower exercise.</p><p><b>Simplicity</b> — Waiting on somebody other than the author.</p><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">152 items</span></div><p><b>84 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>64 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">152 items</span></div><p><b>83 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>65 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-034 · Two surfaces over one API: Server </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">5</div></div>
-<div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -185,7 +185,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">DEFERRED</span><div class="muted-t">confirmed 2026-08-12 (WMS out of v1) and re-confirmed 2026-08-13 by the owner, who at the same time recorded a clear preference for the capability…</div></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">REOPENED 2026-08-13 by Q-88</span><div class="muted-t">v1 ships ArcGIS only and OGC API Features moves to v2, which inverts this ADR&#x27;s central decision.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
 <tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/2</td></tr>
-<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">0/4</td></tr>
+<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">1/4</td></tr>
 <tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
@@ -222,7 +222,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Q-01</span><span class="owner blocking-tag">BLOCKING</span></div><p>Which language, on measured evidence?</p></article>
-<article class="card blocking"><div class="card-h"><span class="id">Q-04</span><span class="owner blocking-tag">BLOCKING</span></div><p>What is the concrete DB connection budget at 1,000 services, per provider?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-18</span><span class="owner blocking-tag">BLOCKING</span></div><p>What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-20</span><span class="owner blocking-tag">BLOCKING</span></div><p>How many distinct geometry engines end up evaluating our predicates, and how do we prevent behavioural divergence?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-23</span><span class="owner blocking-tag">BLOCKING</span></div><p>Can a PROJ PJ transformation object be used from more than one thread, or is it thread-affine?</p></article>
@@ -387,6 +386,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-109</td><td>A layer is addressed by its bare name, and nothing makes that unique.</td><td class="muted-t">The first deployment that imports two archives from the same project</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-110</td><td>Two background workers polling every two seconds hold eight database sessions open for ever, on a server doing nothing.</td><td class="muted-t">The third job kind, or the first deployment where the database&#x27;s session count is billed</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -476,6 +476,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">11</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>10e10d4</code><time>2026-08-19</time><span>Q-20 measured: v1 has two geometry engines, not six, and they agree</span></li>
 <li><code>47f83cf</code><time>2026-08-19</time><span>the Â§66 Performance row was three days stale, and the stale part was the verdict</span></li>
 <li><code>ab42dbf</code><time>2026-08-19</time><span>the design review of the two geodatabase screens, and a value was being shouted</span></li>
 <li><code>592578f</code><time>2026-08-19</time><span>a geodatabase becomes one service, and the wire could not be GeoJSON</span></li>
@@ -489,7 +490,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2188752</code><time>2026-08-19</time><span>ADR-038: one geodatabase becomes one service, and the inherited format choice does not survive contact</span></li>
 <li><code>36b326b</code><time>2026-08-19</time><span>a service page gets its tabs, and the layer list you asked for twice</span></li>
 <li><code>b99747d</code><time>2026-08-19</time><span>correcting the previous commit message: that failure was my litter, not D-75</span></li>
-<li><code>3087155</code><time>2026-08-19</time><span>a shapefile&#x27;s own projection answers for it, and the owner&#x27;s four-tab service page is recorded</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
