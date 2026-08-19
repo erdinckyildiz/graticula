@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using System.Text.Json;
@@ -391,5 +392,148 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
         // the combination has no answer — and ArcGIS refuses it too.
         Assert.Equal(400, await StatusOfAsync(
             $"{path}/query?outFields=*&returnDistinctValues=true&returnGeometry=true&f=json"));
+    }
+
+    // ---------- returnDistinctValues, which the layer document advertises ----------
+
+    /// <summary>
+    /// A distinct query returns combinations, not rows, and counting it counts combinations.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The independent §66 Correctness gate found this on 2026-08-19, and it was the worst class of
+    /// defect this server has had: a silent wrong answer on a capability every layer document advertises
+    /// as supported.</b> `returnDistinctValues=true` returned ordinary rows up to the page limit, and
+    /// `returnCountOnly=true` beside it returned the layer's whole row count. Measured against
+    /// `hosted/tr_yol`: 46,041 rows, two distinct values of one column, and the answers were 1,000
+    /// features with `exceededTransferLimit` and a count of 46,041.
+    /// </para>
+    /// <para>
+    /// <b>One cause in three places.</b> The field list forced the object id in unconditionally, and
+    /// `DISTINCT ON` was built from that list — an object id is unique per row, so the clause could
+    /// never remove anything. The count ignored `Distinct` entirely. And the writer *required* an object
+    /// id in the schema, which is right for every other query and wrong for this one. The SQL builder's
+    /// own comment described the correct behaviour — *the identity excluded from the comparison…
+    /// otherwise the parameter is a no-op that looked like it worked* — so the comment was true of the
+    /// plan and false of the build, which is D-41's lesson arriving again.
+    /// </para>
+    /// <para>
+    /// <b>Asserted as internal consistency rather than against a number</b>, because this suite runs
+    /// against whatever layer a deployment names: no two returned rows may share the combination, the
+    /// distinct count must equal the rows returned when they fit inside one page, and it must not exceed
+    /// the unfiltered count. Those hold on any layer, and all three were false before the fix.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Distinct_returns_combinations_and_counts_them()
+    {
+        (string path, string oid) = await LayerAsync();
+
+        // The object id is the one column certain to exist and to be unique, which makes it the
+        // sharpest control: distinct over it must return exactly the row count, and distinct over
+        // anything else must not exceed it.
+        JsonElement all = await GetJsonAsync($"{path}/query?where=1%3D1&returnCountOnly=true&f=json");
+        long rows = all.GetProperty("count").GetInt64();
+
+        Assert.True(rows > 1, $"The layer has {rows} rows, so distinct proves nothing.");
+
+        JsonElement counted = await GetJsonAsync(
+            $"{path}/query?where=1%3D1&outFields={oid}&returnGeometry=false"
+            + "&returnDistinctValues=true&returnCountOnly=true&f=json");
+
+        Assert.Equal(rows, counted.GetProperty("count").GetInt64());
+
+        // And the features themselves are distinct on what was asked for.
+        JsonElement distinct = await GetJsonAsync(
+            $"{path}/query?where=1%3D1&outFields={oid}&returnGeometry=false"
+            + "&returnDistinctValues=true&f=json");
+
+        List<string> combinations = [];
+
+        foreach (JsonElement feature in distinct.GetProperty("features").EnumerateArray())
+        {
+            combinations.Add(feature.GetProperty("attributes").GetRawText());
+        }
+
+        Assert.Equal(combinations.Count, new HashSet<string>(combinations, StringComparer.Ordinal).Count);
+
+        // <b>And no object id in the answer, which is the fix rather than a detail.</b> An object id in
+        // a distinct response is what made every row distinct by construction; a client that could page
+        // by it would be paging a set of combinations, which is not a thing.
+        Assert.Equal(string.Empty, distinct.GetProperty("objectIdFieldName").GetString());
+    }
+
+    // ---------- the two spatial-reference paths ----------
+
+    /// <summary>
+    /// Esri's own Web Mercator codes are accepted for every geometry shape, not only for an envelope.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two paths answered differently about identical input, which is why this test is here rather
+    /// than beside the reader's unit tests.</b> An envelope filter is parsed by
+    /// `FeatureServerQueryParameters`, which canonicalises 102100 and 102113 to 3857 — *every ArcGIS
+    /// client sends it*, as that file's own comment says. Every other shape, and every `applyEdits`
+    /// geometry, goes through `ArcGisGeometryReader`, which compared integers. So the same reference was
+    /// honoured for a box and refused for a polygon, and an ordinary edit from a Web Mercator client was
+    /// refused as well. Found by the independent §66 Correctness gate, 2026-08-19.
+    /// </para>
+    /// <para>
+    /// <b>Only meaningful against a layer stored in 3857</b>, so it reads the layer's own reference and
+    /// says what it did rather than passing quietly on a 4326 layer.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Esris_web_mercator_codes_are_accepted_for_a_polygon_as_well_as_an_envelope()
+    {
+        (string path, _) = await LayerAsync();
+
+        JsonElement document = await GetJsonAsync(path);
+
+        int srid = document.TryGetProperty("extent", out JsonElement extent)
+                   && extent.TryGetProperty("spatialReference", out JsonElement reference)
+                   && reference.TryGetProperty("wkid", out JsonElement wkid)
+            ? wkid.GetInt32()
+            : 0;
+
+        Assert.True(
+            srid is 3857 or 102100 or 102113,
+            $"This layer is stored in {srid}, and the aliases under test are Esri's codes for 3857 — "
+            + $"so nothing here would be exercised. Point {LayerVariable} at a Web Mercator layer, "
+            + "which is what an ArcGIS estate's data usually is.");
+
+        // The whole world in Web Mercator metres, which matches whatever the layer holds.
+        const string Ring = "[[[-20037508,-20037508],[-20037508,20037508],"
+            + "[20037508,20037508],[20037508,-20037508],[-20037508,-20037508]]]";
+
+        foreach (int alias in (int[])[102100, 102113, 3857])
+        {
+            string envelope = Uri.EscapeDataString(
+                "{\"xmin\":-20037508,\"ymin\":-20037508,\"xmax\":20037508,\"ymax\":20037508,"
+                + $"\"spatialReference\":{{\"wkid\":{alias}}}}}");
+
+            string polygon = Uri.EscapeDataString(
+                $"{{\"rings\":{Ring},\"spatialReference\":{{\"wkid\":{alias}}}}}");
+
+            JsonElement asEnvelope = await GetJsonAsync(
+                $"{path}/query?geometry={envelope}&geometryType=esriGeometryEnvelope"
+                + "&spatialRel=esriSpatialRelIntersects&returnCountOnly=true&f=json");
+
+            JsonElement asPolygon = await GetJsonAsync(
+                $"{path}/query?geometry={polygon}&geometryType=esriGeometryPolygon"
+                + "&spatialRel=esriSpatialRelIntersects&returnCountOnly=true&f=json");
+
+            Assert.True(
+                asEnvelope.TryGetProperty("count", out JsonElement boxCount),
+                $"An envelope in {alias} was refused: {asEnvelope.GetRawText()[..Math.Min(200, asEnvelope.GetRawText().Length)]}");
+
+            Assert.True(
+                asPolygon.TryGetProperty("count", out JsonElement ringCount),
+                $"A polygon in {alias} was refused while the identical envelope was accepted — which is "
+                + "the same spatial reference answered two ways: "
+                + asPolygon.GetRawText()[..Math.Min(240, asPolygon.GetRawText().Length)]);
+
+            Assert.Equal(boxCount.GetInt64(), ringCount.GetInt64());
+        }
     }
 }

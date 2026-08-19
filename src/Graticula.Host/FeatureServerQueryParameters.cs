@@ -197,7 +197,13 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
-        if (!TryFields(parameters, objectIdColumn, allFields, out List<string> fields, out error))
+        // <b>Parsed before the field list, because it decides what the field list is.</b> A distinct
+        // query must not carry the object id — see `TryFields` — and until 2026-08-19 this flag was read
+        // two hundred lines later, so nothing could act on it in time.
+        bool distinct = Flag(parameters, "returnDistinctValues", defaultValue: false);
+
+        if (!TryFields(parameters, objectIdColumn, distinct, allFields,
+                out List<string> fields, out error))
         {
             return Fail(out error, error);
         }
@@ -237,8 +243,6 @@ internal static class FeatureServerQueryParameters
         {
             return Fail(out error, error);
         }
-
-        bool distinct = Flag(parameters, "returnDistinctValues", defaultValue: false);
 
         if (distinct && Flag(parameters, "returnGeometry", defaultValue: true)
             && parameters.ContainsKey("returnGeometry"))
@@ -471,11 +475,17 @@ internal static class FeatureServerQueryParameters
     /// </remarks>
     private static bool SameSpatialReference(int a, int b) => Canonical(a) == Canonical(b);
 
-    private static int Canonical(int wkid) => wkid switch
-    {
-        102100 or 102113 => 3857,
-        _ => wkid,
-    };
+    /// <summary>
+    /// Defers to <see cref="ArcGisGeometryReader.Canonical"/>, which is the one implementation.
+    /// </summary>
+    /// <remarks>
+    /// <b>There were two, and one of them was missing the rule.</b> This file canonicalised for `inSR`,
+    /// `outSR` and envelope filters; `ArcGisGeometryReader` — which every non-envelope filter and every
+    /// `applyEdits` geometry goes through — compared integers, so an ArcGIS client's 102100 was honoured
+    /// for a box and refused for a polygon. Found by the independent Correctness gate, 2026-08-19. One
+    /// function now, in the layer that reads geometry.
+    /// </remarks>
+    private static int Canonical(int wkid) => ArcGisGeometryReader.Canonical(wkid);
 
     /// <summary>Restates a failure so the compiler can see the message is set.</summary>
     private static bool Fail(out string error, string? message)
@@ -1400,12 +1410,26 @@ internal static class FeatureServerQueryParameters
     private static bool TryFields(
         IQueryCollection parameters,
         string objectIdColumn,
+        bool distinct,
         IReadOnlyList<FieldDescription> allFields,
         out List<string> fields,
         out string? error)
     {
         error = null;
-        fields = [objectIdColumn];
+
+        // <b>The object id is in every field list except a distinct one, and leaving it in a distinct
+        // one made `returnDistinctValues` a lie.</b> `DISTINCT ON` is built from exactly this list, and
+        // an object id is unique per row by definition — so the clause could never remove anything.
+        // Measured 2026-08-19 by the independent Correctness gate: `tr_yol` holds 46,041 rows and two
+        // distinct values of `sinif`, and a distinct query returned 1,000 rows with
+        // `exceededTransferLimit` while `returnCountOnly` said 46,041. Every layer document advertises
+        // `supportsDistinct: true`.
+        //
+        // <b>The sibling case was already right, which is what makes this an oversight rather than a
+        // gap.</b> A distinct query with `returnGeometry=true` is refused a few lines above, because
+        // *two features with identical attributes still have different shapes*. Two features with
+        // identical attributes also have different object ids, and that half was missed.
+        fields = distinct ? [] : [objectIdColumn];
 
         parameters.TryGetValue("outFields", out Microsoft.Extensions.Primitives.StringValues outFields);
 
@@ -1413,6 +1437,16 @@ internal static class FeatureServerQueryParameters
 
         if (requested.Length == 0)
         {
+            if (distinct)
+            {
+                error =
+                    "'returnDistinctValues' needs 'outFields'. Distinct over every column of a layer "
+                    + "is the layer's own row count with extra steps — ArcGIS asks which columns the "
+                    + "combination is over, and so does this.";
+
+                return false;
+            }
+
             return true;
         }
 
@@ -1424,7 +1458,13 @@ internal static class FeatureServerQueryParameters
 
         foreach (string name in names)
         {
-            if (string.Equals(name, objectIdColumn, StringComparison.Ordinal))
+            // <b>Skipped because the object id is already in position zero — and it is not, for a
+            // distinct query.</b> Getting that wrong produced `distinct on ()` and a PostgreSQL syntax
+            // error answered as *a database this server depends on is unreachable*: `outFields=objectid`
+            // was the one request where the only column asked for was the one being skipped. Which is
+            // the same class of mistake as the defect being fixed — a list assembled in one place and
+            // consumed in another — found by asking for the object id on purpose, as a control.
+            if (!distinct && string.Equals(name, objectIdColumn, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -1441,6 +1481,18 @@ internal static class FeatureServerQueryParameters
             }
 
             fields.Add(name);
+        }
+
+        // <b>Belt and braces, because the shape this guards against is unrepresentable in SQL.</b>
+        // `distinct on ()` is a syntax error, and a syntax error reaches the caller as *the database is
+        // unreachable* — a sentence that sends an operator to look at a database that is working.
+        if (fields.Count == 0)
+        {
+            error =
+                "No field survived 'outFields', so there is nothing to return. Name at least one "
+                + "column of the layer.";
+
+            return false;
         }
 
         return true;

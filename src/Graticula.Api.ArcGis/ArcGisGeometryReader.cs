@@ -376,21 +376,55 @@ public static class ArcGisGeometryReader
                 ? value
                 : null;
 
-        if (wkid is null || wkid == layerSrid)
+        if (wkid is null || Canonical(wkid.Value) == Canonical(layerSrid))
         {
             return true;
         }
 
-        // <b>Refused, not reprojected.</b> Reprojecting on write would move
-        // somebody's geometry as a side effect of saving it, and the client
-        // would have no way to know it happened.
+        // <b>Refused, not reprojected.</b> Reprojecting would move somebody's geometry as a side
+        // effect, and the client would have no way to know it happened. **The sentence says which
+        // operation, because this function serves two of them** — a spatial filter on a query, and every
+        // geometry in `applyEdits`. It said *does not reproject on write* for both until 2026-08-19,
+        // which sent a reader looking at their edit permissions over a filter that never wrote anything.
         error =
             $"The geometry declares spatial reference {wkid} and the layer is {layerSrid}. This "
-            + "server does not reproject on write, because moving geometry as a side effect of "
-            + "saving it is not something a client can detect. Send it in the layer's own "
-            + "spatial reference.";
+            + "server does not reproject a geometry it was given — on a filter that would silently "
+            + "search somewhere else, and on an edit it would move the feature — so send it in the "
+            + "layer's own spatial reference. 102100 and 102113 are accepted for 3857, because they "
+            + "are Esri's own codes for the same projection.";
         return false;
     }
+
+    /// <summary>
+    /// The one code a spatial reference is compared as.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>102100 is not a mistake for 3857 — it is Esri's own code for the same projection</b>, Web
+    /// Mercator Auxiliary Sphere, and every ArcGIS client sends it. 102113 is the older spelling of the
+    /// same thing.
+    /// </para>
+    /// <para>
+    /// <b>This existed in the query parser and not here, and the independent Correctness gate found the
+    /// gap on 2026-08-19.</b> `FeatureServerQueryParameters` canonicalised for `inSR`, `outSR` and
+    /// envelope filters — its own comment says *comparing the numbers alone refuses the SDK on every
+    /// request against a 3857 layer, which is exactly what happened* — while this function, which is the
+    /// one every **non-envelope** filter and every **`applyEdits`** geometry goes through, compared
+    /// integers. So the same spatial reference was honoured for a box and refused for a polygon, and an
+    /// ordinary edit from a Web Mercator client would have been refused too. Measured: the polygon
+    /// refused, the identical envelope answered.
+    /// </para>
+    /// <para>
+    /// <b>It lives here rather than in the host now</b>, because this is the layer that reads geometry
+    /// and the host's copy can defer to it. Two implementations of one rule is how the first one came to
+    /// be missing.
+    /// </para>
+    /// </remarks>
+    public static int Canonical(int wkid) => wkid switch
+    {
+        102100 or 102113 => 3857,
+        _ => wkid,
+    };
 
     private static bool Declares(JsonElement json, string property) =>
         json.TryGetProperty(property, out JsonElement value)

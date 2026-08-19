@@ -399,4 +399,102 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         Assert.Empty(description.Fields);
         Assert.Null(description.Extent);
     }
+
+    // ---------- distinct ----------
+
+    /// <summary>
+    /// A distinct query returns one row per combination, and counting it counts combinations.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the independent §66 Correctness gate on 2026-08-19, and it was the worst class of
+    /// defect this server has had: a silent wrong answer on a capability every layer document advertises
+    /// as supported.</b> `returnDistinctValues=true` returned ordinary rows up to the page limit and
+    /// `returnCountOnly` beside it returned the layer's whole row count — measured against a 46,041-row
+    /// layer with two distinct values in the column asked for.
+    /// </para>
+    /// <para>
+    /// <b>Its own table, because the claim needs a column with repeated values and no corpus layer is
+    /// guaranteed to have one.</b> The conformance suite asserts the same property over HTTP where it
+    /// can — no two returned rows share a combination, and the count matches — but its control column is
+    /// the object id, which is unique by definition, so a test that only used it would still pass with
+    /// `DISTINCT ON` doing nothing. That is exactly the hole the defect lived in. Four rows and two
+    /// categories here settle it in one statement.
+    /// </para>
+    /// <para>
+    /// <b>The object id is deliberately absent from the query's fields.</b> Including it made every row
+    /// distinct by construction, which was the whole bug: the field list forced it in, and `DISTINCT ON`
+    /// is built from that list.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Distinct_returns_one_row_per_combination_and_counts_them()
+    {
+        const string Table = "zz_distinct_probe";
+
+        await ExecuteAsync(
+            $"""
+             drop table if exists public.{Table};
+             create table public.{Table} (
+               objectid integer generated always as identity primary key,
+               kind text not null,
+               way geometry(Point, 3857) not null);
+             insert into public.{Table} (kind, way) values
+               ('road', st_setsrid(st_point(0, 0), 3857)),
+               ('road', st_setsrid(st_point(1, 1), 3857)),
+               ('path', st_setsrid(st_point(2, 2), 3857)),
+               ('path', st_setsrid(st_point(3, 3), 3857));
+             """);
+
+        try
+        {
+            PostGisFeatureSource source = new(
+                DataSource,
+                new LayerDefinition(
+                    name: Table,
+                    schemaName: "public",
+                    tableName: Table,
+                    geometryColumn: "way",
+                    srid: 3857,
+                    identityColumn: "objectid",
+                    objectIdColumn: "objectid",
+                    isHosted: true));
+
+            FeatureQuery distinct = new(
+                limit: 100, fields: ["kind"], includeGeometry: false, distinct: true);
+
+            List<string> kinds = [];
+
+            await foreach (Feature feature in
+                           source.ReadAsync(distinct, CancellationToken.None))
+            {
+                kinds.Add(feature[0]?.ToString() ?? "(null)");
+            }
+
+            Assert.Equal(2, kinds.Count);
+            Assert.Equal(["path", "road"], kinds.Order(StringComparer.Ordinal));
+
+            // <b>The count and the rows must describe the same set.</b> This pair read 46,041 and 1,000
+            // before the fix, which is the shape that makes a wrong count worse than no count: the
+            // client believes it.
+            Assert.Equal(2, await source.CountAsync(distinct, CancellationToken.None));
+
+            // And the same query without distinct still sees every row, so the filter is not the thing
+            // doing the work.
+            FeatureQuery all = new(limit: 100, fields: ["kind"], includeGeometry: false);
+
+            Assert.Equal(4, await source.CountAsync(all, CancellationToken.None));
+        }
+        finally
+        {
+            await ExecuteAsync($"drop table if exists public.{Table}");
+        }
+    }
+
+    /// <summary>Runs one statement against the fixture's database.</summary>
+    private async Task ExecuteAsync(string sql)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand(sql);
+        await command.ExecuteNonQueryAsync(CancellationToken.None);
+    }
 }

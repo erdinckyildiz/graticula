@@ -103,7 +103,14 @@ public sealed class FeatureServerQueryWriter
         // be different columns.
         int objectIdIndex = schema.IndexOf(_layer.ObjectIdColumn!);
 
-        if (objectIdIndex < 0)
+        // <b>Except for a distinct query, which deliberately has no object id.</b> `DISTINCT ON` is
+        // over the columns the caller asked for, and an object id is unique per row — so including it
+        // would make every row distinct by construction and the parameter a no-op that looked like it
+        // worked. That is what it *was* until 2026-08-19: the field list forced the object id in, so
+        // `returnDistinctValues=true` returned duplicates on a capability every layer document
+        // advertises as supported. The requirement below is right for every other query and wrong for
+        // this one.
+        if (objectIdIndex < 0 && !query.Distinct)
         {
             throw new ArgumentException(
                 $"The query must request '{_layer.ObjectIdColumn}' so it can be written as the "
@@ -153,7 +160,12 @@ public sealed class FeatureServerQueryWriter
         CancellationToken cancellationToken)
     {
         writer.WriteStartObject();
-        writer.WriteString("objectIdFieldName", _layer.ObjectIdColumn);
+        // <b>Empty for a distinct query, because the response carries no object id.</b> Naming a field
+        // the rows do not contain is the defect this writer's own guard exists to prevent; ArcGIS sends
+        // an empty name for a distinct answer for the same reason, and a client that pages or selects
+        // by object id cannot do either against a set of combinations.
+        writer.WriteString(
+            "objectIdFieldName", query.Distinct ? string.Empty : _layer.ObjectIdColumn);
         writer.WriteString("globalIdFieldName", string.Empty);
         writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
 

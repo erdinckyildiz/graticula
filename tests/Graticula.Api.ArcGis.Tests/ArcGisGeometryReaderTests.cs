@@ -233,4 +233,64 @@ public sealed class ArcGisGeometryReaderTests
             Assert.True(Refuse(json).Length > 30, $"the refusal for {json} is too terse.");
         }
     }
+
+    // ---------- Esri's own codes for Web Mercator ----------
+
+    /// <summary>
+    /// 102100 and 102113 are accepted for a 3857 layer, and a genuinely different code is not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the independent §66 Correctness gate, 2026-08-19, and it had a measurable symptom:
+    /// the same spatial reference was honoured for an envelope filter and refused for a polygon.</b>
+    /// `FeatureServerQueryParameters` canonicalised 102100/102113 to 3857 for `inSR`, `outSR` and
+    /// envelope filters — its own comment says *comparing the numbers alone refuses the SDK on every
+    /// request against a 3857 layer, which is exactly what happened* — while this reader, which every
+    /// **non-envelope** filter and every **`applyEdits`** geometry goes through, compared integers.
+    /// </para>
+    /// <para>
+    /// <b>So an ordinary edit from a Web Mercator ArcGIS client was refused.</b> `Geometry.toJSON()` in
+    /// the ArcGIS JS API routinely carries `spatialReference: {wkid: 102100}`, and this is the one check
+    /// standing in front of every add and update. There is now one implementation of the rule, in this
+    /// class, and the query parser defers to it.
+    /// </para>
+    /// <para>
+    /// <b>4326 is in the theory because the rule must not become *accept anything*.</b> A geometry in
+    /// degrees against a layer in metres is a real refusal — reprojecting it would move the feature —
+    /// and a fix that swallowed it would be worse than the defect.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(102100, true)]
+    [InlineData(102113, true)]
+    [InlineData(3857, true)]
+    [InlineData(4326, false)]
+    public void Esris_own_web_mercator_codes_are_the_layers_own(int wkid, bool accepted)
+    {
+        string text =
+            "{\"x\":1.5,\"y\":2.5,\"spatialReference\":{\"wkid\":"
+            + wkid.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}}";
+
+        bool read = ArcGisGeometryReader.TryRead(
+            Json(text), 3857, out Geometry? geometry, out string? error);
+
+        Assert.True(
+            read == accepted,
+            accepted
+                ? $"wkid {wkid} is Esri's own code for the projection 3857 names, and every ArcGIS "
+                  + $"client sends it: {error}"
+                : $"wkid {wkid} is a different coordinate system and reprojecting it would move the "
+                  + "geometry, so it must be refused rather than accepted.");
+
+        if (accepted)
+        {
+            Assert.NotNull(geometry);
+        }
+        else
+        {
+            // And the refusal names both codes, because *send it in the layer's own reference* is not
+            // actionable when the client believes it already did.
+            Assert.Contains("102100", error!, StringComparison.Ordinal);
+        }
+    }
 }

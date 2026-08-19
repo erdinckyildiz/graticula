@@ -628,10 +628,41 @@ public sealed class PostGisFeatureSource : IFeatureSource
         // stopped being fine the moment a query could also carry object ids, a
         // relate pattern or a distance. A count that ignores half the filter is
         // worse than no count: it is a number the client believes.
-        StringBuilder sql = new("select count(*) from ");
-        sql.Append(_layer.QuotedTable);
+        // <b>A distinct query's count is the number of combinations, not of rows</b> — and this
+        // ignored `query.Distinct` entirely until 2026-08-19, so `returnDistinctValues=true` with
+        // `returnCountOnly=true` answered the layer's whole row count. Measured by the independent
+        // Correctness gate: 46,041 where the answer was 2. A number a client believes is worse than no
+        // number, which is the reasoning this method's own comment already gives for the filter.
+        StringBuilder sql = new();
 
-        AppendWhere(sql, query);
+        if (query.Distinct && query.Fields.Count > 0)
+        {
+            sql.Append("select count(*) from (select distinct ");
+
+            for (int i = 0; i < query.Fields.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sql.Append(", ");
+                }
+
+                // Whitelisted upstream against the layer's own columns, and quoted here for the same
+                // reason every identifier in this file is.
+                sql.Append(LayerDefinition.Quote(query.Fields[i]));
+            }
+
+            sql.Append(" from ").Append(_layer.QuotedTable);
+
+            AppendWhere(sql, query);
+
+            sql.Append(") distinct_rows");
+        }
+        else
+        {
+            sql.Append("select count(*) from ").Append(_layer.QuotedTable);
+
+            AppendWhere(sql, query);
+        }
 
         await using NpgsqlCommand command = Command(sql.ToString());
         BindFilters(command, query);
