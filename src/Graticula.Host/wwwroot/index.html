@@ -479,34 +479,14 @@
       <div class="right"><div id="pageActionContent"></div></div>
     </div>
 
-    <div class="panel" id="mapPanel">
-      <div id="view"></div>
-      <div id="legend"></div>
-      <!--
-        <b>This comment used to say OpenStreetMap "returned 403 for every tile",
-        and that was our own fault, measured the same day.</b> The same URL returns
-        a 6.9 KB "access blocked" image with no Referer and a real tile with one —
-        our `Referrer-Policy: no-referrer` was stripping it. Fixed per path. The
-        conclusion drawn from that 403, that OSM could not be the ground, was
-        therefore wrong, and the owner's decision is that OSM *is* the ground
-        (ADR-020 §4c). It is drawn by default now; ground.js holds that decision.
+    <!--
+      <b>The map used to be a panel on this screen and is now the item page's Visualization tab.</b>
+      ADR-034 §5k, owner instruction: *"visualization yüklediğimiz servisi harita gördüğümüz alan.
+      dümdüz. bizdeki map, tiles vs ekranlarını kaldırıp buraya alalım."* It absorbed them rather than
+      becoming a third place, so the rows' own Map and tiles controls navigate there instead of opening
+      a map here.
+    -->
 
-        Their Tile Usage Policy still says those servers are not for an
-        application's default basemap, which is why this box exists: naming your
-        own tile server is the deployment's answer (Q-110). It is a preference of
-        whoever is reading, so it stays in the browser rather than the platform
-        store — this adds no server capability, which is what keeps ADR-020 §2
-        intact.
-      -->
-      <div id="basemapBar">
-        <span class="lbl">Basemap</span>
-        <span class="val" id="basemapState"></span>
-        <input type="text" id="basemapInput" spellcheck="false"
-          placeholder="https://tiles.example.org/{level}/{col}/{row}.png">
-        <button class="tiny" id="basemapSet">Use</button>
-        <button class="tiny ghost" id="basemapClear">None</button>
-      </div>
-    </div>
 
     <!--
       The section label, not a second page heading: the page names itself once at the top now, and
@@ -1214,11 +1194,55 @@
     </div>
 
     <!--
-      <b>Visualization is not built here yet, and this is deliberately absent rather than empty.</b>
-      §5k's instruction is that it *absorbs* the map and tiles screens rather than adding a third, so the
-      tab appears when the move happens. ADR-034's own rule is that a control is not drawn for a feature
-      that does not exist.
+      <b>Visualization: one layer, two ways of drawing it.</b> §5k's instruction was that this absorbs
+      the map and tiles screens rather than adding a third, and it does — `#mapPanel` moved here out of
+      Studio's content screen, and the three controls that used to open it now navigate to this tab.
+
+      <b>One layer at a time, which is not a new decision.</b> `clearMap()` has replaced rather than
+      accumulated since 2026-08-16, on the grounds that *the question a viewer answers is what does this
+      layer look like, which has one subject*. A 55-layer legend is the opposite of *dümdüz*.
+
+      <b>Features and Tiles are two modes of one control</b>, in the same two-item strip Data uses for
+      Table and Fields, because they are two renderings of the same subject rather than two screens.
     -->
+    <div id="serviceVis" hidden>
+      <div class="toolbar">
+        <label class="field" style="flex:0 1 320px">Layer
+          <select id="visLayer"></select></label>
+        <span style="flex:1"></span>
+        <nav class="tabstrip" id="visModes"></nav>
+      </div>
+    <div class="panel" id="mapPanel">
+      <div id="basemapBar">
+        <span class="lbl">Basemap</span>
+        <span class="val" id="basemapState"></span>
+        <input type="text" id="basemapInput" spellcheck="false"
+          placeholder="https://tiles.example.org/{level}/{col}/{row}.png">
+        <button class="tiny" id="basemapSet">Use</button>
+        <button class="tiny ghost" id="basemapClear">None</button>
+      </div>
+      <div id="view"></div>
+      <div id="legend"></div>
+      <!--
+        <b>This comment used to say OpenStreetMap "returned 403 for every tile",
+        and that was our own fault, measured the same day.</b> The same URL returns
+        a 6.9 KB "access blocked" image with no Referer and a real tile with one —
+        our `Referrer-Policy: no-referrer` was stripping it. Fixed per path. The
+        conclusion drawn from that 403, that OSM could not be the ground, was
+        therefore wrong, and the owner's decision is that OSM *is* the ground
+        (ADR-020 §4c). It is drawn by default now; ground.js holds that decision.
+
+        Their Tile Usage Policy still says those servers are not for an
+        application's default basemap, which is why this box exists: naming your
+        own tile server is the deployment's answer (Q-110). It is a preference of
+        whoever is reading, so it stays in the browser rather than the platform
+        store — this adds no server capability, which is what keeps ADR-020 §2
+        intact.
+      -->
+
+    </div>
+    </div>
+
 
     <div id="serviceSettings" hidden>
 

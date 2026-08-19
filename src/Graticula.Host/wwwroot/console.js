@@ -1515,7 +1515,17 @@ function route() {
     return;
   }
 
-  const rest = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean)
+  // <b>A query string, because a tab cannot go in the path segments.</b> This function splits on `/`
+  // before a service's `folder/name` is reassembled, so `#/service/hosted/x/visualization` cannot be
+  // told from a service named `x/visualization` — the note beside the service page's tab strip records
+  // that. A query sits outside the split entirely, so an entry point can land on a named tab with a
+  // named layer without waiting for the larger addressing fix. Design review 2026-08-19 proposed it.
+  const cut = location.hash.indexOf("?");
+  const path = cut < 0 ? location.hash : location.hash.slice(0, cut);
+
+  hashQuery = new URLSearchParams(cut < 0 ? "" : location.hash.slice(cut + 1));
+
+  const rest = path.replace(/^#\/?/, "").split("/").filter(Boolean)
     .map(decodeURIComponent);
 
   // <b>A hash that names a surface is from earlier today</b>, when the surface lived in the
@@ -1749,11 +1759,16 @@ const SECTION_GLYPH = {
  * operator looking at an unchanged page. Asking to see something is a good enough reason to be
  * taken to it.
  */
+/**
+ * Brings the map into view after something was drawn on it.
+ *
+ * <b>It used to send the reader to Studio's content screen, because that is where the map was.</b> The
+ * map is the item page's Visualization tab now (§5k), and whoever drew a layer is already on it — so
+ * this only has to make sure the panel is in view rather than navigate anywhere.
+ */
 function toMap() {
-  // Studio's content screen is where the map is, and it is another *path* now — so this is a
-  // navigation rather than a hash change when the reader is in Server.
-  if (surfaceOfPath() === "studio") location.hash = "#/content";
-  else location.assign(surfaceHref("studio", "content"));
+  const panel = $("mapPanel");
+  if (panel && !panel.hidden) panel.scrollIntoView({ block: "nearest" });
 }
 
 /** Shows one view, and marks its tab. */
@@ -2638,11 +2653,35 @@ let serviceOpen = null;
 const SERVICE_TABS = [
   ["overview", "Overview"],
   ["data", "Data"],
+  ["visualization", "Visualization"],
   ["settings", "Settings"],
 ];
 
+/**
+ * Whatever followed a `?` in the address, parsed.
+ *
+ * <b>Read by the service page, written by whoever navigated there.</b> Empty on every other screen, and
+ * cleared on each route so a stale `layer=` cannot survive into an unrelated page.
+ */
+let hashQuery = new URLSearchParams();
+
 /** Which tab the service page is showing. */
 let serviceTab = "overview";
+
+/**
+ * The tab the address asked for, held until it becomes available.
+ *
+ * <b>Two draws, and the first one cannot honour it.</b> `showService` draws the strip before the
+ * FeatureServer document arrives so the page is usable while it is in flight — and Visualization and Data
+ * only exist once the layers are known, so a `?tab=visualization` asked for at the first draw is
+ * filtered out and lost. Measured 2026-08-19: the address was right and the page opened on Overview.
+ * Kept here so the second draw can grant it.
+ */
+let serviceTabWanted = null;
+
+/** Which layer Visualization is drawing, by its index in the service, and how. */
+let visLayerIndex = null;
+let visMode = "features";
 
 /**
  * Whether the open service is a system service — one with no layers at all.
@@ -2661,6 +2700,24 @@ async function showService(qualified) {
   const { folder, name } = splitService(qualified);
 
   serviceOpen = { qualified, folder, name };
+
+  // <b>What the address asked for, if it asked.</b> The three redirected map controls land here with
+  // `?tab=visualization&layer=&mode=`; pressing a tab by hand sets `serviceTab` and leaves this null.
+  const askedTab = hashQuery.get("tab");
+
+  serviceTabWanted = SERVICE_TABS.some(([key]) => key === askedTab) ? askedTab : null;
+
+  if (serviceTabWanted) serviceTab = serviceTabWanted;
+
+  // <b>Consumed here and never read again, which the first version got wrong.</b> `drawServiceVis` was
+  // re-reading `?mode=` on every redraw, so pressing *Tiles* set the mode and the next draw put it back
+  // to what the address said. Measured 2026-08-19. An address is an instruction on arrival, not a
+  // standing one.
+  const askedLayer = hashQuery.get("layer");
+  const askedMode = hashQuery.get("mode");
+
+  if (askedLayer !== null) visLayerIndex = askedLayer;
+  if (askedMode === "tiles" || askedMode === "features") visMode = askedMode;
 
   $("serviceCrumb").innerHTML =
     `<a href="#/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
@@ -2788,14 +2845,22 @@ function drawServiceTabs() {
     // A system service is settings and nothing else.
     if (serviceIsSystem) return key === "settings";
 
-    // Data needs a layer to read. Overview stays either way: *this service holds no layers* is a fact
-    // about the service and belongs on the page that describes it.
-    if (key === "data") return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
+    // Data needs a layer to read and Visualization needs one to draw. Overview stays either way:
+    // *this service holds no layers* is a fact about the service and belongs on the page that
+    // describes it.
+    if (key === "data" || key === "visualization") {
+      return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
+    }
 
     return key !== "settings"
       || servicePagesOf(surfaceOfPath()).length > 0
       || $("serviceLimits").hidden === false;
   });
+
+  // The address's request wins the moment its tab becomes available, which is the second draw.
+  if (serviceTabWanted && mine.some(([key]) => key === serviceTabWanted)) {
+    serviceTab = serviceTabWanted;
+  }
 
   if (!mine.some(([key]) => key === serviceTab)) serviceTab = mine[0]?.[0] ?? "overview";
 
@@ -2814,7 +2879,7 @@ function showServiceTab(which) {
   serviceTab = which;
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
-                           ["settings", "serviceSettings"]]) {
+                           ["visualization", "serviceVis"], ["settings", "serviceSettings"]]) {
     const panel = $(id);
     if (panel) panel.hidden = key !== which;
   }
@@ -2832,6 +2897,7 @@ function showServiceTab(which) {
   }
 
   if (which === "data") drawServiceData();
+  if (which === "visualization") drawServiceVis();
 }
 
 /** The layers in the open service, from its own FeatureServer document. */
@@ -3048,6 +3114,135 @@ async function loadServiceData() {
   } catch (e) {
     box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
   }
+}
+
+/**
+ * Visualization: one layer of this service, drawn as features or as tiles.
+ *
+ * <b>The picker's population rule is Data's, and the group layers are out for the same reason.</b> A
+ * group holds no geometry, so there is nothing to draw and offering it would be a control that fails on
+ * press.
+ *
+ * <b>The address may have chosen for you.</b> `?layer=` and `?mode=` are what the three redirected entry
+ * points carry — Studio's content row, its tiles control, and the layer editor's own buttons — so
+ * pressing *Map* on a row lands here already drawing that layer. Without them the first drawable layer
+ * is chosen, which is what somebody who pressed the tab meant.
+ */
+function drawServiceVis() {
+  const picker = $("visLayer");
+  const modes = $("visModes");
+  if (!picker || !modes) return;
+
+  const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+
+  if (drawable.length === 0) {
+    $("mapPanel").hidden = true;
+    return;
+  }
+
+  // <b>What was chosen, or the first drawable layer.</b> The address's choice was taken once on arrival
+  // — see `showService` — so this reads only what is current, which is what lets the picker and the mode
+  // strip actually change anything.
+  const wanted = visLayerIndex !== null && drawable.some(l => String(l.id) === String(visLayerIndex))
+    ? String(visLayerIndex)
+    : String(drawable[0].id ?? 0);
+
+  visLayerIndex = wanted;
+
+  picker.innerHTML = drawable.map(l =>
+    `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}
+      >${h(l.name || `layer ${l.id}`)}</option>`).join("");
+
+  picker.onchange = () => {
+    visLayerIndex = picker.value;
+    drawVisNow();
+  };
+
+  // <b>Tiles only where the service has them.</b> A registered layer is served as features and has no
+  // vector tile service, so the mode would be a button that answers 404 — the row controls already make
+  // this distinction and this one inherits it.
+  const hosted = (serviceOpen?.folder || "") === "hosted";
+
+  if (!hosted && visMode === "tiles") visMode = "features";
+
+  modes.innerHTML = [["features", "Features"], ...(hosted ? [["tiles", "Tiles"]] : [])]
+    .map(([key, label]) =>
+      `<a href="#" data-vis-mode="${key}"${key === visMode ? ' aria-current="page"' : ""}>${label}</a>`)
+    .join("");
+
+  drawVisNow();
+}
+
+/**
+ * Draws whichever layer and mode are chosen.
+ *
+ * <b>It says it is working, which the map panel never did.</b> Once a layer was picked the old screen
+ * showed its empty-state placeholder until the SDK either painted or gave up fifteen seconds later —
+ * silence for the whole window. *Dümdüz* still means saying something is happening.
+ */
+async function drawVisNow() {
+  if (!serviceOpen || visLayerIndex === null) return;
+
+  const layer = serviceLayers.find(l => String(l.id) === String(visLayerIndex));
+  if (!layer) return;
+
+  const named = layer.name || `layer ${layer.id}`;
+
+  $("mapPanel").hidden = false;
+  $("legend").textContent = `Drawing ${named}…`;
+
+  try {
+    if (visMode === "tiles") {
+      await showTiles(named);
+      return;
+    }
+
+    // The whole document, because the SDK reads it anyway and the colour comes from the server's
+    // `drawingInfo` rather than from a choice of ours.
+    const document_ = await api(
+      `/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + `/FeatureServer/${encodeURIComponent(String(layer.id ?? 0))}?f=json`);
+
+    await show(named, document_);
+  } catch (e) {
+    // <b>Into the caption rather than a toast.</b> A toast fades while the reader is still looking at
+    // an empty map wondering whether it is slow or broken.
+    $("legend").innerHTML = `<span class="val">${h(e.message || String(e))}</span>`;
+  }
+}
+
+/**
+ * Where a layer is drawn now: its service's Visualization tab.
+ *
+ * <b>The three controls that used to open a map now navigate.</b> §5k's instruction was that
+ * Visualization absorbs them rather than becoming a third place, and a control that still opened its own
+ * map would have made it the third. The layer editor's buttons exist on both surfaces, so this crosses
+ * when it has to — which is why the tab and the layer travel in a query string rather than in a module
+ * variable that a path change would lose.
+ */
+function visHref(name, mode) {
+  const at = placeOf(name);
+  if (!at) return null;
+
+  const query = `?tab=visualization&layer=${encodeURIComponent(String(at.index ?? 0))}`
+    + `&mode=${encodeURIComponent(mode)}`;
+
+  const hash = `service/${at.service.split("/").map(encodeURIComponent).join("/")}${query}`;
+
+  return surfaceOfPath() === "studio" ? `#/${hash}` : surfaceHref("studio", hash);
+}
+
+/** Sends the reader to a layer's Visualization tab, from either surface. */
+function toVisualization(name, mode) {
+  const where = visHref(name, mode);
+
+  if (!where) {
+    toast(`'${name}' is not in the services directory, so there is nothing to draw.`);
+    return;
+  }
+
+  if (where.startsWith("#")) location.hash = where;
+  else location.assign(where);
 }
 
 /**
@@ -6037,16 +6232,34 @@ async function handleClick(event) {
   }
 
   if (d.tiles) {
-    const drawn = !shown.has(tileKey(d.tiles));
-    if (drawn) await showTiles(d.tiles);
-    else hide(tileKey(d.tiles));
+    if (shown.has(tileKey(d.tiles))) { hide(tileKey(d.tiles)); await loadLayers(); return; }
+
+    toVisualization(d.tiles, "tiles");
+    return;
+  }
+
+  if (d.tilesLegacy) {
+    const drawn = !shown.has(tileKey(d.tilesLegacy));
+    if (drawn) await showTiles(d.tilesLegacy);
+    else hide(tileKey(d.tilesLegacy));
     await loadLayers();
     if (drawn) toMap();
     return;
   }
 
   if (d.show) {
+    // <b>Navigation, not a map.</b> §5k: Visualization absorbed this screen, so the control that used to
+    // draw here goes there. Hiding still happens in place, because a reader looking at a map wants the
+    // layer off it rather than a page change.
     if (shown.has(d.show)) { hide(d.show); await loadLayers(); return; }
+
+    if (!$("serviceVis")) { toast("Nowhere to draw this."); return; }
+
+    toVisualization(d.show, "features");
+    return;
+  }
+
+  if (d.showLegacy) {
     t.disabled = true;
     try {
       // The whole document, because the SDK will read it anyway and this console now
@@ -6895,6 +7108,13 @@ async function handleClick(event) {
   if (t.dataset?.serviceTab !== undefined) {
     event.preventDefault();
     showServiceTab(t.dataset.serviceTab);
+    return;
+  }
+
+  if (t.dataset?.visMode !== undefined) {
+    event.preventDefault();
+    visMode = t.dataset.visMode;
+    drawServiceVis();
     return;
   }
 

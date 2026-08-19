@@ -493,7 +493,7 @@ the geodatabase import using it.
 | --- | --- | --- |
 | **Overview** | the service's own facts, **the list of layers in it**, and the right-hand column carrying the service's address | facts line only, list removed 2026-08-18 |
 | **Data** | a layer picker, then its rows — and a **Fields** view of its columns | nothing |
-| **Visualization** | the service on a map. *"dümdüz"* | scattered: a Map action, a tiles screen |
+| **Visualization** | the service on a map. *"dümdüz"* | **built 2026-08-19** — see below |
 | **Settings** | for now, **delete** — with an accidental-deletion lock and a confirmation | delete is elsewhere |
 
 **Data shows the geometry column and theirs does not, by owner decision:** *"coğrafi kolonlar özellikle
@@ -509,6 +509,42 @@ than refused-by-accident.
 **Visualization absorbs two existing screens rather than adding a third.** *"bizdeki map, tiles vs
 ekranlarını kaldırıp buraya alalım."* The Map action on a content row and the tile screens go; what
 replaces them is one place where a service is looked at.
+
+#### How it is built, and the two things the design review corrected first
+
+`#mapPanel` moved out of Studio's content screen into this tab. **Three** controls used to open it, not
+two — the review found the third: the layer editor's own *Show on map* / *Show tiles*, which exist on
+both surfaces. All three navigate here now, so nothing opens a map of its own.
+
+- **One layer at a time, through a picker shaped like Data's.** Not a preference: `clearMap()` has
+  replaced rather than accumulated since 2026-08-16, on the recorded grounds that *the question a viewer
+  answers is what does this layer look like, which has one subject*. A 55-layer legend is the opposite of
+  *dümdüz*.
+- **Features and Tiles are two modes of one control**, in the same two-item strip Data uses for Table and
+  Fields, because they are two renderings of one subject. Tiles is offered only on a hosted service; a
+  registered layer has no vector tile service and the mode would answer 404.
+- **The legend collapses to one caption line** under the map — swatch, layer, `EPSG:3857` — since there is
+  only ever one subject.
+- **The basemap bar sits above the map**, not below it as the panel had it: it governs what you are about
+  to see rather than reporting what you are seeing. It stays a browser preference in `localStorage`,
+  which is ADR-020 §2's line — no server capability is added.
+- **The tab says it is working.** The old panel showed its empty-state placeholder from the moment a
+  layer was picked until the SDK either painted or gave up fifteen seconds later. *Dümdüz* still means
+  saying something is happening.
+- **The tab is absent when there is nothing to draw**, by the rule Data already uses, so a system service
+  keeps its one-tab page.
+
+**The address carries the tab, the layer and the mode** — `?tab=visualization&layer=0&mode=tiles` — and
+that is the router's first query string. It exists because this function splits the hash on `/` before a
+service's `folder/name` is reassembled, so a tab cannot go in a path segment; a query sits outside the
+split. It also lets the layer editor's buttons cross from Server to Studio, which a module variable
+cannot survive.
+
+**Two mistakes on the way, both measured rather than reasoned.** The first draw of the tab strip happens
+before the FeatureServer document arrives, so Visualization does not exist yet and a `?tab=` asked for
+then was filtered out and lost — the request is now held and granted on the draw that can. And
+`drawServiceVis` re-read `?mode=` on every redraw, so pressing *Tiles* set the mode and the next draw put
+it back: an address is an instruction on arrival, not a standing one.
 
 **Settings gets delete, and delete gets two guards.** *"yanlışlıkla kullanıcının silme durumu
 engellensin. silerken de emin misin diye sorarız."* A checkbox that prevents accidental deletion —
