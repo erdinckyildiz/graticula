@@ -349,8 +349,20 @@ policy, and it should be an idle timeout rather than aggressive closing.
 - A **global connection cap per worker**, enforced across all pools, so a
   deployment with many data sources degrades by queueing rather than by
   exhausting the database.
+  ***(Built 2026-08-19 — `ConnectionBudget`, after Q-04 measured what its absence cost:
+  `(data sources + 1) × 100` potential connections per worker, unenforced, with `FATAL: sorry, too many
+  clients already` as the failure at the ceiling. It counts **requests** rather than connections, and the
+  measurement is what makes that seam sound rather than a compromise: peak backends track concurrent
+  requests, because a request holds at most one connection from a source at a time — so bounding
+  requests per source bounds that source's pool. Intercepting acquisition would have meant wrapping
+  Npgsql inside eight provider classes and putting a lock on the hottest path. Defaults 64 per worker
+  and 24 per source; zero disables. `ConnectionBudgetTests` exercises the refusals, including the
+  unwind that gives a source's slot back when the worker gate refuses — falsified by deleting it.)***
 - **A per-source concurrency limit on the request path**, separate from the pool
-  size (N4). §49 limits per service and pools limit per source, but many
+  size (N4). ***(Built 2026-08-19 with the cap above, and it is the same mechanism: the per-source gate
+  is entered **first**, so one saturated database can hold at most its own share of the worker rather
+  than all of it. Which is this bullet's whole point, and the order is the only thing that delivers
+  it.)*** §49 limits per service and pools limit per source, but many
   services share one database — so twenty slow services on one slow source can
   saturate a worker while each respects its own limit. Pool size is sized for
   throughput; this number is sized for blast radius, and they should not be the

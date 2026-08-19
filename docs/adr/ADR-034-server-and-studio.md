@@ -466,8 +466,14 @@ after the form has two more screens, and both are the dialog's own rather than a
 2. **Choose what to publish** — every feature class the driver reported, with a tick on the ones that can
    become a layer, and one field: the name of the **single service** they all go into. Everything
    publishable is ticked on arrival, because *all of it* is what somebody uploading a geodatabase almost
-   always means and unticking three is quicker than ticking fifty-two. A table with no geometry, and an
-   empty feature class, are listed and cannot be ticked — with the reason, rather than being hidden.
+   always means and unticking three is quicker than ticking fifty-two. A table with no geometry is
+   listed and cannot be ticked — with the reason, rather than being hidden.
+
+   **An empty feature class *is* offered, and its count column says what it becomes.** For half a day
+   it was not: the tick was withheld because the importer could not build columns without rows, which is
+   true of every other import path in this server. It stopped being true when D-106 read the schema from
+   the archive instead, and the row now reads *none — schema only* rather than `0` — a zero in a
+   features column reads as a fault, which is the opposite of what publishing it does.
 3. **Publishing** — the import job, then a report **per layer**, because fifty-five feature classes is
    fifty-five chances to fail. A partly failed publish is both outcomes at once and shares one screen:
    the heading says which way it leaned, the table says which layers landed, and the service holds what
