@@ -64,13 +64,17 @@ internal sealed class ImportScratch
     /// Writes an upload where a job can find it, and returns the path.
     /// </summary>
     /// <param name="file">The uploaded archive.</param>
-    /// <param name="job">The job that will read it, which names the file.</param>
+    /// <param name="id">
+    /// What names the file. A job's id when a job will read it, and a fresh <see cref="Guid"/> when the
+    /// reader is being asked one question inside the request — resolving a <c>.prj</c> to an EPSG code,
+    /// which has no job because it finishes before the response does.
+    /// </param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>The absolute path written.</returns>
     /// <exception cref="IOException">The directory is already at its budget.</exception>
     /// <remarks>
     /// <para>
-    /// <b>Named by job id and nothing else.</b> Not by the uploaded file name, which is a string
+    /// <b>Named by an id and nothing else.</b> Not by the uploaded file name, which is a string
     /// somebody else chose: <c>..\..\state\certificate.pfx</c> is a file name, and a server that
     /// composes a path out of one has written the traversal itself. A <see cref="Guid"/> cannot
     /// traverse, cannot collide, and reads back as the job it belongs to — so a directory left dirty
@@ -82,7 +86,7 @@ internal sealed class ImportScratch
     /// recogniser already established rather than copied from the upload.
     /// </para>
     /// </remarks>
-    public async Task<string> KeepAsync(IFormFile file, Guid job, CancellationToken cancellation)
+    public async Task<string> KeepAsync(IFormFile file, Guid id, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(file);
 
@@ -101,7 +105,7 @@ internal sealed class ImportScratch
                 + "than the work. Both are worth knowing before another upload is accepted.");
         }
 
-        string path = PathFor(job);
+        string path = PathFor(id);
 
         await using (FileStream keeping = new(
             path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
@@ -115,7 +119,7 @@ internal sealed class ImportScratch
         // from doing work on a level nobody enabled.
         long megabytes = Megabytes(file.Length);
 
-        Log.ImportArchiveKept(_log, job, megabytes, path);
+        Log.ImportArchiveKept(_log, id, megabytes, path);
 
         return path;
     }

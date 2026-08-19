@@ -518,17 +518,50 @@ internal static class HostedDataEndpoints
         if (!int.TryParse(requestedSrid, NumberStyles.Integer, CultureInfo.InvariantCulture,
                 out int srid))
         {
-            await Fail(context, 400,
-                "'srid' is required for a shapefile. The .prj beside it is WKT rather than an "
-                + "EPSG code, and matching WKT to a code by comparing strings is how a layer "
-                + "comes to be declared as a system it is not in — so this server asks instead of "
-                + "guessing."
-                + (bundle.Prj is null
-                    ? " This archive has no .prj at all."
-                    : $" The .prj in this archive says: {Shorten(bundle.Prj)}"))
-                .ConfigureAwait(false);
+            // <b>Asked rather than demanded, when there is something able to answer.</b> ADR-024 made
+            // `srid` mandatory because a `.prj` is bare WKT and matching WKT to a code **by comparing
+            // strings** is how a layer comes to declare a system it is not in. That reasoning is intact.
+            // What changed is that there is now a projection database in this product: the reader
+            // resolves a coordinate system through PROJ's authority tables, which is what the
+            // geodatabase path has been doing since it was built — and asking an authority is not
+            // guessing.
+            //
+            // <b>Measured before it was believed.</b> Six archives from
+            // `tests/Graticula.Core.Tests/corpus/shapefile`, whose `.prj` files are **Esri dialect** —
+            // `GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",…]]`, what ArcGIS writes rather than what OGC
+            // specifies — all resolved to 4326. What is **not** measured is a projected Esri `.prj`,
+            // because this project has no such file it did not write, so the refusal below is still the
+            // path when PROJ cannot answer. ADR-024 is amended for it, Q-98.
+            // <b>Only when there is a `.prj` to resolve, and the reason is weaker than I first wrote
+            // it.</b> The comment here claimed GDAL invents EPSG:4326 for an archive with no
+            // projection, which would have made this gate load bearing. Measured instead —
+            // `ProjectionResolutionTests` builds a real shapefile with its `.prj` left out — and GDAL
+            // is honest: no declaration, no coordinate system. So the gate is belt and braces, and
+            // that test is where it is recorded, with an instruction to keep the gate if a future
+            // version starts assuming.
+            //
+            // <b>It stays because it is free and it is the right shape.</b> The archive's own `.prj` is
+            // the licence to ask an authority about it; with no `.prj` there is nothing to ask about,
+            // and one child process is saved on the path that was going to be refused anyway.
+            srid = bundle.Prj is null
+                ? 0
+                : await ResolveSridAsync(file, reader, scratch, cancellation).ConfigureAwait(false);
 
-            return (false, null!);
+            if (srid <= 0)
+            {
+                await Fail(context, 400,
+                    "'srid' is required for this shapefile. The .prj beside it is WKT rather than an "
+                    + "EPSG code, and matching WKT to a code by comparing strings is how a layer "
+                    + "comes to be declared as a system it is not in — so this server asks the "
+                    + "projection database instead of guessing, and this time it had no answer."
+                    + (bundle.Prj is null
+                        ? " This archive has no .prj at all, so there was nothing to resolve."
+                        : $" The .prj in this archive says: {Shorten(bundle.Prj)}")
+                    + " Give the code and the import proceeds.")
+                    .ConfigureAwait(false);
+
+                return (false, null!);
+            }
         }
 
         if (!ShapefileReader.TryRead(
@@ -1066,6 +1099,89 @@ internal static class HostedDataEndpoints
                     + "one is a second request naming the layer you want.",
             },
             statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The EPSG code the archive's own projection resolves to, or 0 when nothing can say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Through the reader, because the reader is where a projection database lives.</b> The archive
+    /// goes to the import scratch directory — GDAL opens a path, not a stream — and is deleted whether
+    /// this succeeds or not. It is one child process and about sixty milliseconds on the archives this
+    /// has been measured against, and it happens only when the operator gave no code.
+    /// </para>
+    /// <para>
+    /// <b>Every failure is the same answer: zero.</b> No reader shipped, the scratch directory full, a
+    /// refusal from GDAL, a layer with no spatial reference, a code PROJ declined to identify — none of
+    /// them is a different thing to tell the operator, because in all of them the next step is the same
+    /// and the refusal already names it. What must not happen is a guess, and nothing here guesses.
+    /// </para>
+    /// </remarks>
+    private static async Task<int> ResolveSridAsync(
+        IFormFile file,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
+        CancellationToken cancellation)
+    {
+        if (!reader.Available)
+        {
+            return 0;
+        }
+
+        Guid probe = Guid.NewGuid();
+        string? kept = null;
+
+        try
+        {
+            kept = await scratch.KeepAsync(file, probe, cancellation).ConfigureAwait(false);
+
+            using JsonDocument answer = await reader.AskAsync(
+                new { op = "layers", archive = kept },
+                TimeSpan.FromSeconds(30),
+                cancellation).ConfigureAwait(false);
+
+            if (!answer.RootElement.TryGetProperty("ok", out JsonElement ok) || !ok.GetBoolean())
+            {
+                return 0;
+            }
+
+            if (!answer.RootElement.TryGetProperty("layers", out JsonElement layers))
+            {
+                return 0;
+            }
+
+            // <b>The first layer that has one, and a shapefile archive holds one shapefile.</b>
+            // `ShapefileBundle` has already refused an archive with two, so there is no question of
+            // which layer's system this is.
+            foreach (JsonElement layer in layers.EnumerateArray())
+            {
+                if (layer.TryGetProperty("srid", out JsonElement code)
+                    && code.ValueKind == JsonValueKind.Number
+                    && code.TryGetInt32(out int found)
+                    && found > 0)
+                {
+                    return found;
+                }
+            }
+
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            // The reader refused, died, or ran past its deadline. Not an answer, and not an error worth
+            // relabelling: the caller's refusal says what to do.
+            return 0;
+        }
+        catch (System.IO.IOException)
+        {
+            // The scratch directory is at its budget. Same reasoning.
+            return 0;
+        }
+        finally
+        {
+            scratch.Release(kept);
+        }
     }
 
     /// <summary>

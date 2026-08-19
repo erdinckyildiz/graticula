@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>63ba951</code> · 2026-08-19 01:41</p>
+<p class="stamp">Şu commit’ten üretildi: <code>72b07e3</code> · 2026-08-19 07:48</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">37</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">59</div><div class="kpi-l">açık borç</div><div class="kpi-n">42 ödendi · 6 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">5/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">3 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">8/70</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1263</div><div class="kpi-l">test</div><div class="kpi-n">142 kaynak dosya, 53,986 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1280</div><div class="kpi-l">test</div><div class="kpi-n">142 kaynak dosya, 54,106 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -459,15 +459,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">284</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">239</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:77.5%"></div></div><div class="bar-n">220</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:79.9%"></div></div><div class="bar-n">227</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:64.8%"></div></div><div class="bar-n">184</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:47.9%"></div></div><div class="bar-n">136</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:41.2%"></div></div><div class="bar-n">117</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:17.6%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.1%"></div></div><div class="bar-n">60</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:7.7%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">11</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>72b07e3</code><time>2026-08-19</time><span>the upload form states the file it has and offers a name worth keeping</span></li>
+<li><code>a449044</code><time>2026-08-19</time><span>the review&#x27;s findings become ten tests, and two of them caught my own tests being wrong</span></li>
+<li><code>d7df765</code><time>2026-08-19</time><span>the agent definition comes back out, again</span></li>
+<li><code>dd2722d</code><time>2026-08-19</time><span>four design reviews over every screen, and the worst thing they found was silent</span></li>
 <li><code>63ba951</code><time>2026-08-19</time><span>four of ADR-037&#x27;s conditions move, and the image rule becomes a process rule</span></li>
 <li><code>90699e9</code><time>2026-08-19</time><span>the agent definition I swept in with git add -A comes back out</span></li>
 <li><code>cb9eb66</code><time>2026-08-19</time><span>a packed geodatabase is accepted: upload, job, child process, and twelve layers on screen</span></li>
@@ -478,10 +482,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a88016e</code><time>2026-08-18</time><span>a job goes in and the worker takes it out</span></li>
 <li><code>5b7f0d0</code><time>2026-08-18</time><span>my own ADR contradicted one from six days earlier, and I found it by building</span></li>
 <li><code>d877e85</code><time>2026-08-18</time><span>the import worker, run against the owner&#x27;s own geodatabases</span></li>
-<li><code>27f562d</code><time>2026-08-18</time><span>the Python half of the survey, and a fourth route the first one missed</span></li>
-<li><code>cf4f197</code><time>2026-08-18</time><span>raster does not need GDAL, and ADR-009 implied it without saying it</span></li>
-<li><code>e0279fe</code><time>2026-08-18</time><span>three real geodatabases, and two of yesterday&#x27;s conclusions were wrong</span></li>
-<li><code>cc61ef2</code><time>2026-08-18</time><span>a record of long work, and deliberately not a queue</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

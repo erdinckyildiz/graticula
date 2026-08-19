@@ -415,6 +415,14 @@ was wrong twice over. The owner's objection was to beginning at *New layer*: you
 itself, sent as the thing they want. **Their shape wins on their own screens; my argument against the
 extra press is recorded here and not acted on.**
 
+#### The item that never exists — owner decision, 2026-08-19
+
+Asked directly, after the owner walked the reference's upload flow and noticed it can add a file without
+publishing it: **ours is the more correct arrangement.** *"evet bizimki daha doğru."* So the endpoint's
+own note stands as a decision rather than as our reasoning — ArcGIS separates uploading an item from
+publishing a service, which is right when items have a life of their own, and nothing here gives them
+one. A file becomes a service or it becomes a refusal.
+
 #### The fourth form leaves rather than moves
 
 *A service, and groups inside one* is not on the dialog, and the reason is a rule the owner had already
@@ -445,6 +453,63 @@ already attached and the layer name offered from the file name. The `File` canno
 arrives, because `#iFile` is on the third screen and does not exist yet, so it is held and written into
 the input through a `DataTransfer` once the form is drawn. That is the only way to fill a file input
 from script, and it keeps the form with one source of truth rather than two.
+
+### 5k. A service has four tabs, and one of them is the layer list that was removed — owner decision, 2026-08-19
+
+*"servisin özelliklerine girdiğimizde bu listenin gelmesi güzel."* And, on what an import of one
+geodatabase produces: *"mesela o gdb içerisinde 20'den fazla katman var. hepsi hosted db'ye import
+edildi, ve o servis adı altında publish edildi. yani db'den direkt servis publish edilmeyecek. servis ve
+katman ayrı şeyler. bir serviste n katman olabilir."*
+
+**This reverses §5's own note of 2026-08-18, and the reversal is the record.** The service page's layer
+list was removed then, by the same owner, on the grounds that the page is the service's settings and the
+counts are in the facts line. What came back with it is a fact nobody had yet: a geodatabase import
+makes **one service with twenty-odd layers**, and a page that says *23 entries in the service document*
+and lists none of them is a page you cannot work from. The earlier decision was right about a table
+that repeated the document; it was made before there was a service worth listing.
+
+**A service is not a layer, and the import must stop behaving as though it were.** Every route into
+hosted data today makes one service holding one layer, so the two words have been interchangeable in
+practice. They are not: `hosted/Environmental_gdb` will be one service, its twenty-three feature classes
+its layers, each its own table in the datastore. The mechanism already exists — *Into service* on the
+registered-table form adds a layer to a named service at the next free index — and what is missing is
+the geodatabase import using it.
+
+#### The four tabs, from the owner's screenshots of the reference's item page
+
+| Tab | What it is | Ours today |
+| --- | --- | --- |
+| **Overview** | the service's own facts, and **the list of layers in it** | facts line only, list removed 2026-08-18 |
+| **Data** | a layer picker, then its rows — and a **Fields** view of its columns | nothing |
+| **Visualization** | the service on a map. *"dümdüz"* | scattered: a Map action, a tiles screen |
+| **Settings** | for now, **delete** — with an accidental-deletion lock and a confirmation | delete is elsewhere |
+
+**Data shows the geometry column and theirs does not, by owner decision:** *"coğrafi kolonlar özellikle
+gizlenmiş ama bizde açık olabilir çok sorun değil."* Their table hides it; ours may show it.
+
+**Fields may delete a column, and only on hosted data.** *"field ekranında kolon seçip silebiliyoruz. bu
+hosted olanlarda kabul edilebilen bir özellik. reference registered olanlarda planlama yaparız."* The
+distinction is the one this repository already draws everywhere else and for the same reason: a hosted
+table is ours to alter, and a registered one points at somebody else's database and must never be
+touched. So dropping a column is offered on hosted layers and the registered case is deferred rather
+than refused-by-accident.
+
+**Visualization absorbs two existing screens rather than adding a third.** *"bizdeki map, tiles vs
+ekranlarını kaldırıp buraya alalım."* The Map action on a content row and the tile screens go; what
+replaces them is one place where a service is looked at.
+
+**Settings gets delete, and delete gets two guards.** *"yanlışlıkla kullanıcının silme durumu
+engellensin. silerken de emin misin diye sorarız."* A checkbox that prevents accidental deletion —
+their *Prevent this item from being accidentally deleted* — and a confirmation that names what goes.
+This is the second time this month a destructive action has been asked to carry more friction than a
+harmless one; [D-97](../architecture-debt.md)'s neighbours in the 2026-08-19 review found the same
+imbalance on roles and members.
+
+#### What this does not decide
+
+**There is still no item that exists without serving.** §5j recorded the owner's answer on that —
+*"evet bizimki daha doğru"*, ours is the more correct arrangement — so a service page is the page for
+a thing that is already published, and the reference's *Add item without publishing* stays out.
 
 ### 5z. Content is listed by how it reached you — owner decision, 2026-08-18
 
