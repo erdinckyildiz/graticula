@@ -644,7 +644,18 @@ h4, div.label, .widget > .label, .rail-head {
 .hint:last-child { margin-bottom: 0; }
 .page .hint { max-width: 100%; }
 
-.val { font-family: var(--mono); font-size: var(--t-small); color: var(--muted); }
+/*
+  <b>`text-transform: none` because a value is never a label, and one screen proved it.</b>
+  `label.field` uppercases — it is a two-word caption over a control — and `.val` is used *inside* one
+  to put a sentence or a fact under the input. So the geodatabase publish screen, which echoes the
+  service name into the URL it is about to create, rendered
+  `/REST/SERVICES/HOSTED/PROJECT_INFORMATION/FEATURESERVER` in capitals: an operator could not tell
+  whether they had typed `Project_Information`, `project_information` or `PROJECT_INFORMATION`, which
+  is the one thing that echo exists to show. Design review 2026-08-19. Reset here rather than at the
+  call site, because it is wrong everywhere the pattern is used and elsewhere it was only shouting.
+*/
+.val { font-family: var(--mono); font-size: var(--t-small); color: var(--muted);
+       text-transform: none; letter-spacing: normal; }
 .name { font-weight: 600; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); }
@@ -1439,6 +1450,23 @@ td.name.nested { padding-left: 36px; }
         padding: 3px 4px 3px 10px; border: 1px solid var(--rule-strong); border-radius: 999px;
         background: var(--surface-2); font-size: var(--t-small); }
 .chip button { line-height: 1; padding: 2px 5px; }
+
+/*
+  <b>The geodatabase screens, and both rules are borrowed from tables above rather than invented.</b>
+
+  `.gdbpick` is the selection table: five short, controlled-vocabulary columns beside one column of
+  feature-class names fifty characters long. The short ones do not wrap, for the reason `#services`
+  gives — `MultiPolygon Z` was breaking in two while `MultiPolygon` did not, and measured row heights
+  came out 77.5, 77.5, 54.25, 77.5, 54.25 down the same table. A ragged table reads as a bug.
+
+  `.gdbreport` is the per-layer outcome, where a refusal arrives as whatever the datastore said. A
+  provider message can carry a sixty-character identifier with no space in it, which sets a hard
+  minimum on its column and pushes the table past the dialog — measured at 1440×900, not only on a
+  small screen. `overflow-wrap: anywhere` is what `.routetable` already does with a long path.
+*/
+.gdbpick td:not(:nth-child(2)), .gdbpick th:not(:nth-child(2)) { white-space: nowrap; }
+.gdbreport td:last-child { overflow-wrap: anywhere; }
+.gdbreport td:nth-child(2) { white-space: nowrap; }
 
 .routetable td:first-child { overflow-wrap: anywhere; }
 .routetable td:last-child { white-space: nowrap; }

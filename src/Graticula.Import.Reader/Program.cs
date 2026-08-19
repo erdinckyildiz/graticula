@@ -273,9 +273,10 @@ internal static class Program
                     };
                 }
 
-                // <b>Not disposed, and that is the binding's rule rather than a leak.</b>
-                // `GetGeometryRef` borrows the feature's own geometry; disposing it frees memory the
-                // feature still owns, and the feature is disposed one line later anyway.
+                // <b>Not in a `using`, because this does not own what it points at.</b> GDAL
+                // documents `OGR_F_GetGeometryRef` as returning the feature's own geometry — the caller
+                // must not free it — and the feature is disposed one line later. A `using` here would
+                // read as ownership that is not ours to claim.
                 Geometry? geometry = feature.GetGeometryRef();
 
                 Answer(new { g = Wkb(geometry), v = values });

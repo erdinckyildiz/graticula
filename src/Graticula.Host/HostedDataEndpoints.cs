@@ -1183,9 +1183,14 @@ internal static class HostedDataEndpoints
         foreach (AdminService existing in
                  await catalog.ListServicesAsync(cancellation).ConfigureAwait(false))
         {
+            // <b>In `hosted`, and only there.</b> A datastore publish always lands in `hosted` — the
+            // catalogue's own SQL forces it — so a service of the same name at the root or in another
+            // folder answers on a different path and is not in the way. The first version treated a
+            // null folder as `hosted` and would have refused a name that was free, with a sentence
+            // saying it was taken in a folder it is not in.
             if (string.Equals(existing.Name, service, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(
-                    existing.Folder ?? FeatureServerMetadataWriter.HostedFolder,
+                    existing.Folder,
                     FeatureServerMetadataWriter.HostedFolder,
                     StringComparison.OrdinalIgnoreCase))
             {

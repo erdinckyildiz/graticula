@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -222,6 +223,8 @@ public sealed class PostGisImporter
         ArgumentNullException.ThrowIfNull(fields);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedName);
 
+        RefuseColliding(fields.Select(f => f.Name));
+
         string table = TableNameFor(requestedName);
 
         StringBuilder sql = new();
@@ -365,6 +368,8 @@ public sealed class PostGisImporter
     /// <summary>The DDL, with every column type decided by the inference pass.</summary>
     private static string CreateTable(string table, ImportedDataset dataset)
     {
+        RefuseColliding(dataset.Columns.Select(c => c.Name));
+
         StringBuilder sql = new();
 
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (\n")
@@ -437,6 +442,50 @@ public sealed class PostGisImporter
         }
 
         return name.Length == 0 || !char.IsAsciiLetter(name[0]) ? "f_" + name : name;
+    }
+
+    /// <summary>
+    /// Refuses a set of field names that would produce the same column twice.
+    /// </summary>
+    /// <param name="names">The source field names, in the order they were given.</param>
+    /// <exception cref="InvalidOperationException">Two of them collide.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Because the naming rule is deliberately not injective, and the digest only covers half of
+    /// it.</b> A truncated name carries a digest of the whole one, so two long names no longer collide
+    /// (D-105). Two *short* ones still can: <c>ColumnNameFor</c> lowercases, so <c>Area</c> and
+    /// <c>AREA</c> both become <c>area</c>, and so do <c>a-b</c> and <c>a_b</c>. Making the rule
+    /// injective everywhere would put a digest on every name that has a capital letter in it, which
+    /// is a worse table to read for a case nobody has hit.
+    /// </para>
+    /// <para>
+    /// <b>What this buys is the message.</b> Without it the collision reaches PostgreSQL and comes back
+    /// as <c>42701: column "area" specified more than once</c> — an operator is then told about an
+    /// identifier they never wrote, in a table that does not exist, and nothing names the two fields
+    /// that caused it. That is exactly how the geodatabase publish lost a feature class on
+    /// 2026-08-19 before the digest existed.
+    /// </para>
+    /// </remarks>
+    private static void RefuseColliding(IEnumerable<string> names)
+    {
+        Dictionary<string, string> taken = new(StringComparer.Ordinal);
+
+        foreach (string name in names)
+        {
+            string column = ColumnNameFor(name);
+
+            if (taken.TryGetValue(column, out string? first))
+            {
+                throw new InvalidOperationException(
+                    $"'{first}' and '{name}' would both become the column '{column}', so this layer "
+                    + "cannot be created — a column name has to name one field. Rename one of them at "
+                    + "the source and import again. (A column name is lower-cased and stripped of "
+                    + "anything that is not a letter, a digit or an underscore, which is what makes "
+                    + "two different field names meet.)");
+            }
+
+            taken[column] = name;
+        }
     }
 
     /// <summary>Eight hex characters that stand for the whole name.</summary>

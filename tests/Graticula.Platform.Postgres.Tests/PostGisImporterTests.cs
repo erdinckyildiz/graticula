@@ -431,4 +431,41 @@ public sealed class PostGisImporterTests : PostgresFixture
             await DropAsync(result);
         }
     }
+
+    /// <summary>
+    /// Two field names that differ only in case are refused with a sentence, not with 42701.
+    /// </summary>
+    /// <remarks>
+    /// <b>The half of D-105 the digest does not cover, and it is deliberate.</b> A truncated name now
+    /// carries a digest of the whole one, so two long names cannot collide. Two short ones still can:
+    /// the rule lower-cases, so <c>Area</c> and <c>AREA</c> both want the column <c>area</c>. Making
+    /// the rule injective everywhere would put a hash on every name containing a capital letter —
+    /// a worse table to read, for a case nobody has hit. So the collision is refused instead, and what
+    /// is asserted here is the *message*: both source fields are named, because PostgreSQL's own
+    /// <c>42701</c> names only the column, which is a string the operator never typed.
+    /// </remarks>
+    [Fact]
+    public async Task Two_field_names_that_differ_only_in_case_are_refused_by_name()
+    {
+        InvalidOperationException refused =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new PostGisImporter(DataSource).ImportAsync(
+                    Parse(
+                        """
+                        {"type":"FeatureCollection","features":[
+                          {"type":"Feature",
+                           "geometry":{"type":"Point","coordinates":[28.97,41.00]},
+                           "properties":{"Area":1,"AREA":2}}
+                        ]}
+                        """),
+                    "same name twice",
+                    CancellationToken.None));
+
+        Assert.Contains("'Area'", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("'AREA'", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("area", refused.Message, StringComparison.Ordinal);
+
+        // And it says what to do, because a refusal an operator cannot act on is a defect of its own.
+        Assert.Contains("Rename", refused.Message, StringComparison.Ordinal);
+    }
 }

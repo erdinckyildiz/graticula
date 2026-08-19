@@ -6410,7 +6410,7 @@ function drawInspected(job) {
     <p class="hint bad-inline" id="gdbRefused" hidden role="alert"></p>
 
     <div class="widetable">
-      <table>
+      <table class="gdbpick">
         <thead><tr>
           <th class="tick"><input type="checkbox" id="gdbAll" aria-label="Every feature class"></th>
           <th>Feature class</th><th>Geometry</th><th>Features</th><th>Fields</th>
@@ -6424,9 +6424,18 @@ function drawInspected(job) {
             <td class="tick">${may
               ? `<input type="checkbox" class="gdbPick" data-layer="${h(name)}"${
                   picked.has(name) ? " checked" : ""} aria-label="${h(name)}">`
-              : `<span class="val" title="${layer.features === 0
-                    ? "An empty feature class has no features to take a schema from"
-                    : "A table with no geometry cannot become a feature layer"}">—</span>`}</td>
+              : (() => {
+                  // <b>`aria-label` beside the `title`, because a title is a mouse.</b> A reader who
+                  // never hovers had only the row's own cells — `none — a table`, or `0` features —
+                  // to infer from, which is one inference more than the sentence costs. Design review
+                  // 2026-08-19.
+                  const why = layer.features === 0
+                    ? "an empty feature class has no features to take a schema from"
+                    : "a table with no geometry cannot become a feature layer";
+
+                  return `<span class="val" title="${h(why)}"
+                    aria-label="${h(`Cannot be published: ${why}`)}">—</span>`;
+                })()}</td>
             <td>${h(name)}</td>
             <td>${h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
             <td>${layer.features === null || layer.features === undefined
@@ -6737,12 +6746,14 @@ function drawPublish() {
           + "prevent.")}</p>
 
     ${rows.length > 0 ? `<div class="widetable">
-      <table>
+      <table class="gdbreport">
         <thead><tr><th>Feature class</th><th>Features</th><th>Outcome</th></tr></thead>
-        <tbody>${rows.map(row => `<tr${row.published ? "" : ' class="val"'}>
+        <tbody>${rows.map(row => `<tr>
           <td>${h(row.layer || "")}</td>
           <td>${row.published ? num(row.rows ?? 0) : "—"}</td>
-          <td>${row.published ? "published" : h(row.why || "refused")}</td>
+          <td${row.published ? ' class="val"' : ' class="bad-inline"'}>${row.published
+            ? "published"
+            : h(row.why || "refused")}</td>
         </tr>`).join("")}</tbody>
       </table>
     </div>` : ""}
