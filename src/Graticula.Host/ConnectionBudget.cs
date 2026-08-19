@@ -33,7 +33,7 @@ namespace Graticula.Host;
 /// </para>
 /// <para>
 /// <b>Queue, then refuse — §4.9's shape, not a silent wait.</b> A request that cannot get a slot waits
-/// up to <see cref="Wait"/> and is then refused with a retry signal, because *accepting work it cannot
+/// up to the configured wait and is then refused with a retry signal, because *accepting work it cannot
 /// do* is the failure §4.9 exists to prevent. A queue with no bound is how a slow database becomes a
 /// server that answers nothing at all, ten minutes later, having accumulated every request that
 /// arrived in between.
@@ -47,18 +47,19 @@ namespace Graticula.Host;
 /// </remarks>
 internal sealed class ConnectionBudget : IDisposable
 {
-    /// <summary>How long a request waits for a slot before it is refused.</summary>
+    /// <summary>How long a request waits for a slot before it is refused, by default.</summary>
     /// <remarks>
     /// <b>Five seconds, and it is a fraction of the statement timeout on purpose.</b>
     /// `LayerConnections.StatementTimeout` is 30 s, so a request that has waited five seconds for a
     /// slot has spent a sixth of its budget before touching the database. Waiting longer would convert
     /// a queue into a timeout somewhere else, where the reason is no longer visible.
     /// </remarks>
-    public static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan Default = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim? _global;
     private readonly int _worker;
     private readonly int _perSource;
+    private readonly TimeSpan _wait;
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sources =
         new(StringComparer.Ordinal);
@@ -72,8 +73,13 @@ internal sealed class ConnectionBudget : IDisposable
     /// <param name="perSource">
     /// How many against any one data source, or zero for no bound.
     /// </param>
-    public ConnectionBudget(int worker, int perSource)
+    /// <param name="wait">
+    /// How long a request waits for a slot, or null for <see cref="Default"/>. A parameter because the
+    /// refusal is the interesting path and a test of it should not take five seconds.
+    /// </param>
+    public ConnectionBudget(int worker, int perSource, TimeSpan? wait = null)
     {
+        _wait = wait ?? Default;
         _worker = Math.Max(0, worker);
         _global = _worker > 0 ? new SemaphoreSlim(_worker, _worker) : null;
         _perSource = Math.Max(0, perSource);
@@ -84,6 +90,9 @@ internal sealed class ConnectionBudget : IDisposable
 
     /// <summary>What one data source's bound is, or zero when there is none.</summary>
     public int PerSource => _perSource;
+
+    /// <summary>How long a request waits for a slot before it is refused.</summary>
+    public TimeSpan Wait => _wait;
 
     /// <summary>
     /// Waits for a slot against one data source.
@@ -107,13 +116,13 @@ internal sealed class ConnectionBudget : IDisposable
 
         if (perSource is not null)
         {
-            tookSource = await perSource.WaitAsync(Wait, cancellationToken).ConfigureAwait(false);
+            tookSource = await perSource.WaitAsync(_wait, cancellationToken).ConfigureAwait(false);
 
             if (!tookSource)
             {
                 throw new ConnectionBudgetFullException(
                     $"This server already has {_perSource} requests in flight against that data "
-                    + $"source and waited {Wait.TotalSeconds:0.#} s for one to finish. The limit is "
+                    + $"source and waited {_wait.TotalSeconds:0.#} s for one to finish. The limit is "
                     + "per data source and exists so that one slow database cannot take the whole "
                     + "server with it (ADR-007 §4.8, N4). Retry, or raise "
                     + "Graticula:PerSourceConcurrency if the database can take more.");
@@ -127,11 +136,11 @@ internal sealed class ConnectionBudget : IDisposable
 
         try
         {
-            if (!await _global.WaitAsync(Wait, cancellationToken).ConfigureAwait(false))
+            if (!await _global.WaitAsync(_wait, cancellationToken).ConfigureAwait(false))
             {
                 throw new ConnectionBudgetFullException(
                     $"This worker already has its full budget of database requests in flight and "
-                    + $"waited {Wait.TotalSeconds:0.#} s for one to finish. The bound is per worker "
+                    + $"waited {_wait.TotalSeconds:0.#} s for one to finish. The bound is per worker "
                     + "and across every data source, so that many databases degrade by queueing "
                     + "rather than by exhausting one of them (ADR-007 §4.8). Retry, or raise "
                     + "Graticula:ConnectionBudget.");
