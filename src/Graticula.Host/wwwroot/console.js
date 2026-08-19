@@ -4710,6 +4710,7 @@ function drawImportForm() {
         <label class="field">Coordinate system<input type="text" id="iSrid" inputmode="numeric"
           placeholder="4326"><span class="u"></span></label>
       </div>
+      <p class="hint" id="iChosen" hidden></p>
       <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
         WGS 84 longitude, latitude by its own specification. A shapefile carries a
         <code>.prj</code> and this server will not guess a code from it.</p>
@@ -4726,10 +4727,45 @@ function drawImportForm() {
   carrier.items.add(handedFile);
   $("iFile").files = carrier.files;
 
-  // The name is offered, not imposed. Portal prefills the title from the file and lets it be typed
-  // over, and a layer named after the ZIP somebody was sent is usually wrong.
-  $("iName").value = handedFile.name.replace(/\.(zip|json|geojson)$/i, "");
+  // <b>The name is offered, not imposed</b>, and it is cleaned rather than copied. The reference
+  // publishes under the file's own name; the owner's note on that was *"aslında bir isim sorup o isimde
+  // publish edebiliriz"* — which this field already does. What it did badly was the derivation:
+  // `Project Information.gdb.zip` became `Project Information.gdb`, because only the archive extension
+  // came off. A space and a dot in a service name are legal and awful.
+  //
+  // So: the archive extension, then the format's own — `.gdb`, `.gpkg` — then anything that is not a
+  // letter, a digit or an underscore becomes one, and runs collapse. `Project Information.gdb.zip`
+  // offers `Project_Information`. Predictable, and typed over in one gesture because it is selected.
+  //
+  // <b>`\p{L}` and not `A-Za-z`, which the first version had.</b> An ASCII class turns
+  // `TR_ilçe sınırları (2024).zip` into `TR_il_e_s_n_rlar_2024` — it deletes Turkish, which is the
+  // language of the data this server was built for. Postgres quotes an awkward identifier rather than
+  // us sanitising it (`GeometryValidityTests` asserts exactly that), so there is nothing to protect
+  // here and a name to preserve: `TR_ilçe_sınırları_2024`.
+  $("iName").value = handedFile.name
+    .replace(/\.(zip|json|geojson)$/i, "")
+    .replace(/\.(gdb|gpkg)$/i, "")
+    .replace(/[^\p{L}\p{N}_]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
+
   $("iName").select();
+
+  // <b>The whole file name, because the native input elides the middle of it.</b> Their screen states
+  // the file on its own line — *File: Environmental.gdb.zip* — and ours showed
+  // `PointofInve…ation.gdb.zip` inside the control, which hides exactly the part that distinguishes
+  // one export from another. Size beside it, so an empty or truncated upload is visible before it is
+  // sent rather than after it is refused.
+  const chosen = $("iChosen");
+
+  if (chosen) {
+    const kb = handedFile.size / 1024;
+
+    chosen.hidden = false;
+    chosen.innerHTML = `<b>${h(handedFile.name)}</b> <span class="val">${
+      kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`
+    } · the format is read from the bytes, not from the name</span>`;
+  }
+
   handedFile = null;
 }
 
