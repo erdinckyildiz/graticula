@@ -3017,16 +3017,23 @@ async function drawServiceDetails(qualified) {
   //
   // <b>And the facts get a heading of their own.</b> One `h4` was governing both the address and six
   // unrelated facts, so everything below it read as part of the address.
-  box.innerHTML = `
+  $("serviceAddress").innerHTML = `
     <h4>The service's address</h4>
     <div class="urlrow">
       <input type="text" id="svcUrl" readonly value="${h(root)}" title="${h(root)}">
       <button class="tiny" id="svcUrlCopy" title="Copy this address">Copy</button>
     </div>
     <p class="hint"><a href="${h(root)}?f=json" target="_blank" rel="noreferrer">Open it</a> — the
-      service document, which is what a client reads first.</p>
+      service document, which is what a client reads first.</p>`;
+
+  // <b>`facts2`, not `dl.facts` — and this is why the column read as a debug dump.</b> `dl.facts` is
+  // monospace by design and its one other user is Server's *fixed, and not editable here* block, which is
+  // genuinely technical numbers. Setting `root` and `4` in mono dilutes the one place monospace still
+  // means something on this page: the address. `.facts2` is the same content's own idiom one screen over
+  // — the group page's Overview lists a standing, an owner, a date and two counts in it.
+  box.innerHTML = `
     <h4>About this service</h4>
-    <dl class="facts" id="svcFacts"></dl>`;
+    <dl class="facts2" id="svcFacts"></dl>`;
 
   try {
     const answer = await api("/content/items");
@@ -3034,12 +3041,20 @@ async function drawServiceDetails(qualified) {
 
     if (!item) return;
 
+    // <b>The sharing scope is the control that changes it, here as everywhere else.</b> This was the one
+    // place on the product where that pill was inert — the content list has wrapped it in `.pillbtn`
+    // since §5l, and the click delegation matches `[data-share]` anywhere in the document, so this needs
+    // no new markup and no new behaviour. A fact that is a button in one place and a label in another is
+    // the page lying about which.
+    //
+    // <b>And no `Layers` row.</b> The count is already on the tab badge and in the subtitle above; a
+    // third copy is a row that varies with nothing.
     const rows = [
       ["Kind", h(item.kind || "feature service")],
       ["Owner", h(item.owner || "—")],
       ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
-      ["Sharing", pill(item.sharing)],
-      ["Layers", num(item.layers || 0)],
+      ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
+         title="Set who can reach this">${pill(item.sharing)}</button>`],
       ["Published", item.created ? h(String(item.created).slice(0, 10)) : `<span class="val">—</span>`],
       ["Updated", item.updated ? h(String(item.updated).slice(0, 10)) : `<span class="val">—</span>`],
     ];
@@ -3486,7 +3501,7 @@ function drawServiceHead(item) {
   box.innerHTML = `
     <div class="itemhead">
       ${item.cover
-        ? `<canvas class="thumb" width="104" height="70"
+        ? `<canvas class="thumb" width="168" height="112"
              data-preview="${h(item.cover.url)}" data-colour=""></canvas>`
         : `<div class="thumb empty"></div>`}
       <div>
@@ -3494,7 +3509,7 @@ function drawServiceHead(item) {
         <div class="rowmeta">${h(item.kind || "feature service")} · ${num(item.layers || 0)}
           layer${(item.layers || 0) === 1 ? "" : "s"} · ${h(item.sharing || "")}</div>
         ${item.description ? `<p class="hint">${h(item.description)}</p>` : ""}
-        <div class="rowmeta">${item.updated ? `Updated ${h(String(item.updated).slice(0, 10))}` : ""}${
+        <div class="footnote">${item.updated ? `Updated ${h(String(item.updated).slice(0, 10))}` : ""}${
           item.created ? ` · published ${h(String(item.created).slice(0, 10))}` : ""}</div>
       </div>
     </div>`;

@@ -1402,6 +1402,25 @@ td.name.nested { padding-left: 36px; }
 .itemhead > div { min-width: 0; }
 .itemhead b { font-size: var(--t-head); }
 .itemhead .hint { margin: var(--gap-2) 0 0; }
+
+/*
+  <b>Three tiers, where there were two of the same.</b> The name is `--t-head`, the subtitle
+  `--t-small` in `--muted`, and the dates were also `--t-small` in `--muted` — so the second and third
+  lines read as one grey block. `--faint`'s own note says what it is for: *a second fact inside a cell
+  whose first fact is already muted*. One size down and one step of grey, both from the scale.
+*/
+.footnote { margin-top: var(--gap-1); font-size: var(--t-label); color: var(--faint); }
+
+/*
+  <b>Bigger only here.</b> 104×70 is right beside a table row and reads as a mistake beside three lines
+  of text with nothing else in the panel. 168×112 is the same ratio and the height of the text block it
+  sits next to. Scoped, because the base rule also draws every thumbnail on the content list.
+*/
+#serviceHead .thumb { width: 168px; height: 112px; }
+
+/* The section heading above the layer panel, where a header row used to be. Same treatment as the
+   aside's own headings, so the page names a section one way. */
+.itemmain > h4 { margin: 0; }
 .urlrow button { flex: 0 0 auto; }
 
 /*

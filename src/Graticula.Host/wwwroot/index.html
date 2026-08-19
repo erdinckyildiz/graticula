@@ -1171,7 +1171,28 @@
         aside underneath it. The left column is one element that stacks its own contents.
       -->
       <div class="itemmain">
-      <div class="panel" id="serviceHead"></div>
+
+      <!--
+        <b>`pad`, because these two panels had none.</b> Measured 2026-08-19: content sat 1px from the
+        border on every side, and that 1px was the border. `.panel` carries no padding by design — a
+        panel holding a table gets its inset from the cells — and these hold raw divs, so they got
+        nothing. `.pad` already existed and was already used once, on the sources form.
+      -->
+      <div class="panel pad" id="serviceHead"></div>
+
+      <!--
+        <b>The address is a full-width panel, not a column of 320 pixels.</b> Measured: it needs 597 and
+        had 258, so 43% of it was visible and cut mid-path — while the panel beside it held one table row
+        and hundreds of pixels of white. It is the one element on this page with a stated purpose, and it
+        was the only one visibly failing at it.
+
+        <b>Second, not last.</b> A geodatabase import makes a service with twenty-odd layers; an address
+        below that list is below the fold, which is the case where the thing an operator came for needs
+        finding fastest.
+      -->
+      <div class="panel pad" id="serviceAddress"></div>
+
+      <h4>Layers</h4>
 
       <!--
         <b>Two columns, not five — the design review's shape.</b> Theirs is a list with a subtitle; this
@@ -1180,9 +1201,19 @@
         one subtitle under the name, and `.rowmeta` is the idiom that already does that on the content
         list. A one-layer service is one compact row now rather than five mostly empty cells.
       -->
+      <!--
+        <b>No header row.</b> Measured: 44 pixels of *Layer* over a 78-pixel row — a third of the block
+        announcing a column whose content is unambiguous. The `h4` above the panel says it instead, which
+        is the device the aside already uses for its own sections, so the page names a section one way
+        rather than two. It also does not get worse at one row the way a header bar does.
+
+        <b>What that costs, said rather than hidden:</b> the two columns lose their programmatic headers.
+        Acceptable here because the second holds one link and this block is already reasoned about as a
+        list with a subtitle rather than as tabular data — and recorded so the next person weighing it has
+        the trade in front of them.
+      -->
       <div class="panel widetable">
         <table>
-          <thead><tr><th>Layer</th><th></th></tr></thead>
           <tbody id="serviceLayerRows"></tbody>
         </table>
       </div>
@@ -1196,7 +1227,7 @@
       -->
       </div>
 
-      <aside class="panel" id="serviceDetails"></aside>
+      <aside class="panel pad" id="serviceDetails"></aside>
     </div>
 
     <!--
