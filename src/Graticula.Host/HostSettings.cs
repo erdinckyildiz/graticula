@@ -50,6 +50,8 @@ internal sealed record HostSettings(
     TimeSpan CatalogFallbackWindow,
     long MaximumResponseBytes,
     TimeSpan RequestDeadline,
+    int ConnectionBudget,
+    int PerSourceConcurrency,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -263,6 +265,24 @@ internal sealed record HostSettings(
             // this one — so a deployment that has its own front-end timeout can say so
             // rather than having two bounds disagree.
             TimeSpan.FromSeconds(Math.Max(0, keys.Value("RequestDeadlineSeconds", 600))),
+
+            // <b>ADR-007 §4.8's two bounds, and the numbers come from a measurement rather than from
+            // taste.</b> [Q-04](../../docs/open-questions.md) counted what a request costs: peak
+            // backends track concurrent requests at about 1.3×, and every pool takes Npgsql's default
+            // maximum of 100 because nothing sets it — so six data sources is 700 potential
+            // connections per worker against a default PostgreSQL's `max_connections` of 100.
+            //
+            // **64 per worker** is chosen so that the worker's whole demand fits inside an
+            // unconfigured PostgreSQL beside the platform store's own pool, with room for the
+            // administrative connections a DBA needs to get in and look. **24 per data source** is
+            // sized for blast radius rather than throughput, which is N4's whole point: one slow
+            // database can then occupy at most a third of the worker instead of all of it.
+            //
+            // Zero means unbounded, for a deployment that has measured its own database and wants
+            // this out of the way. It is not the default, because the state before this existed was
+            // unbounded and that is what Q-04 found.
+            Math.Max(0, keys.Value("ConnectionBudget", 64)),
+            Math.Max(0, keys.Value("PerSourceConcurrency", 24)),
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

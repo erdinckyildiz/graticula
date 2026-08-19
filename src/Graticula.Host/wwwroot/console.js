@@ -5288,6 +5288,18 @@ function fillEndpoints(name, layer, place) {
 
 // -------------------------------------------------------------------- sources
 
+/**
+ * The registered sources, what each points at, and what can be done to one.
+ *
+ * <b>The connection replaced the id in the second column, and that is the point of the row.</b>
+ * The id is a number an operator never types — every action here is a button — while *which database
+ * is this* was on no screen at all. The owner found that by trying to correct one: *"registered db
+ * path'ini güncelleyemiyorum sanırım… path derken connection string."* Two `kurum-postgis` entries,
+ * one on the old host, are indistinguishable without it.
+ *
+ * <b>Host, port and database; never the credential.</b> The server sends `summary`, which is
+ * `Summarise` over the decrypted string — the same shape the audit log records for the same reason.
+ */
 async function loadSources() {
   const { dataSources } = await api("/admin/datasources");
   $("cSources").textContent = dataSources.length;
@@ -5295,15 +5307,171 @@ async function loadSources() {
   $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
 
   $("sources").innerHTML = dataSources.length === 0
-    ? `<tr><td colspan="5" class="empty">None registered.</td></tr>`
+    ? `<tr><td colspan="4" class="empty">None registered.</td></tr>`
     : pageOf("sources", dataSources).map(d => `<tr>
-        <td class="name">${h(d.name)}</td>
-        <td class="val">${h(d.kind)}</td>
+        <td class="name">${h(d.name)}
+          <div class="rowmeta">${h(d.kind)}${d.name === "datastore"
+            ? " · this server's own hosted store" : ""}</div></td>
+        <td class="val">${d.sealedWithAnotherKey
+          ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
+          : h(d.summary || "—")}</td>
         <td class="num">${num(d.layerCount)}</td>
-        <td class="val">${h(d.id || "")}</td>
-        <td style="text-align:right"><button data-probe="${h(d.id)}"
-          data-probe-name="${h(d.name)}">Probe</button></td>
+        <td class="acts"><button data-probe="${h(d.id)}"
+            data-probe-name="${h(d.name)}">Probe</button>
+          <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+            data-source-summary="${h(d.summary || "")}"
+            data-source-layers="${num(d.layerCount)}">Edit</button>${d.name === "datastore"
+              ? ""
+              : ` <button class="danger" data-source-remove="${h(d.id)}"
+                    data-source-name="${h(d.name)}"
+                    data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
       </tr>`).join("");
+}
+
+/** Which source the edit form is about, or null. */
+let editingSource = null;
+
+/**
+ * The form for correcting a source's connection string.
+ *
+ * <b>The whole string, not the part that changed, and the form says so.</b> The stored one is sealed
+ * and the server does not read it back to merge into — so an operator who types only a new password
+ * would lose the host. The current host and database are shown above the field for exactly that
+ * reason: they are what has to be retyped.
+ *
+ * <b>What it does not offer is `force`.</b> The server refuses when layers on this source would stop
+ * working, and it names them; that refusal arrives here as a sentence with a *Publish anyway* button
+ * built from it, so the decision is made against the list rather than in advance of it.
+ */
+function drawSourceEdit(id, name, summary, layers) {
+  editingSource = { id, name, summary, layers, force: false };
+
+  const box = $("probe");
+
+  box.innerHTML = `
+    <h2>${h(name)} — connection</h2>
+    <div class="panel pad">
+      <p class="hint">Currently <code>${h(summary || "unknown")}</code>${layers > 0
+        ? ` · ${num(layers)} layer${layers === 1 ? "" : "s"} read from it`
+        : " · nothing is published on it"}. Send the <b>whole</b> connection string: the stored one is
+        sealed, so this server cannot merge a change into it.</p>
+
+      <form id="sourceEditForm" autocomplete="off">
+        <div class="row">
+          <label class="field" style="flex:1">Connection string
+            <input id="seConnection" required spellcheck="false"
+                   placeholder="Host=…;Port=5432;Database=…;Username=…;Password=…"></label>
+        </div>
+        <div class="row">
+          <label class="field">Name
+            <input id="seName" value="${h(name)}" spellcheck="false"></label>
+        </div>
+        <p class="hint bad-inline" id="seRefused" hidden role="alert"></p>
+        <div class="row">
+          <button type="submit" class="primary">Test and save</button>
+          <button type="button" class="ghost" id="seCancel">Cancel</button>
+        </div>
+      </form>
+    </div>`;
+
+  $("sourceEditForm").addEventListener("submit", saveSourceEdit);
+  $("seCancel").addEventListener("click", () => { editingSource = null; box.innerHTML = ""; });
+  $("seConnection").focus();
+}
+
+/**
+ * Sends the correction, and turns a refusal into the decision it is.
+ *
+ * <b>Two refusals arrive here and they are different.</b> *Cannot connect* is a typo — the field keeps
+ * what was typed and the message says what to check. *These layers would stop working* is a judgement:
+ * the server has connected, looked, and found the tables missing, so the form offers to proceed with
+ * the list in front of the operator rather than asking them to guess in advance.
+ */
+async function saveSourceEdit(event) {
+  event.preventDefault();
+
+  const refused = $("seRefused");
+  const connection = $("seConnection").value.trim();
+
+  if (!connection) {
+    refused.hidden = false;
+    refused.textContent = "A connection string is required.";
+    return;
+  }
+
+  refused.hidden = true;
+
+  try {
+    const answer = await api(
+      `/admin/datasources/${encodeURIComponent(editingSource.id)}`
+      + (editingSource.force ? "?force=true" : ""),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: $("seName").value.trim() || null,
+          connectionString: connection,
+        }),
+      });
+
+    editingSource = null;
+    $("probe").innerHTML = `<h2>Saved</h2>
+      <div class="panel pad"><p class="hint">${h(answer.name)} now reads
+        <code>${h(answer.summary)}</code>, and found ${num(answer.publishable ?? 0)} publishable
+        table${(answer.publishable ?? 0) === 1 ? "" : "s"} there. ${(answer.missing || []).length
+          ? `<b>${num(answer.missing.length)} layer${answer.missing.length === 1 ? "" : "s"} will not
+             work:</b> ${h(answer.missing.join(", "))}.`
+          : "Every layer on it still has its table."}</p></div>`;
+
+    await loadSources();
+  } catch (e) {
+    const message = e.message || String(e);
+
+    refused.hidden = false;
+    refused.textContent = message;
+
+    // <b>The forced retry is offered only for the refusal that is a judgement.</b> A connection that
+    // cannot be reached is not a decision anybody should be able to override.
+    if (message.includes("force=true") && !editingSource.force) {
+      const again = document.createElement("button");
+
+      again.type = "button";
+      again.className = "danger";
+      again.textContent = "Save anyway";
+      again.addEventListener("click", () => {
+        editingSource.force = true;
+        $("sourceEditForm").requestSubmit();
+      });
+
+      refused.after(again);
+    }
+  }
+}
+
+/** Removes a source, once, with the count in the question. */
+async function removeSource(id, name, layers) {
+  if (layers > 0) {
+    $("probe").innerHTML = `<h2>${h(name)}</h2>
+      <div class="panel pad"><p class="hint bad-inline">${num(layers)}
+        layer${layers === 1 ? "" : "s"} still read from this source. Unpublish
+        ${layers === 1 ? "it" : "them"} first — removing the source would take
+        ${layers === 1 ? "its" : "their"} services with it.</p></div>`;
+    return;
+  }
+
+  if (!confirm(
+      `Remove the connection "${name}"? Nothing is published on it, so nothing stops serving.`)) {
+    return;
+  }
+
+  try {
+    await api(`/admin/datasources/${encodeURIComponent(id)}`, { method: "DELETE" });
+    $("probe").innerHTML = "";
+    await loadSources();
+  } catch (e) {
+    $("probe").innerHTML = `<h2>${h(name)}</h2>
+      <div class="panel pad"><p class="hint bad-inline">${h(e.message || String(e))}</p></div>`;
+  }
 }
 
 function renderProbe(name, r) {
@@ -8188,6 +8356,16 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
     await section("groups", () => showServiceGroups($("gService").value));
     await section("services", loadServices, "services");
+    return;
+  }
+
+  if (d.sourceEdit) {
+    drawSourceEdit(d.sourceEdit, d.sourceName, d.sourceSummary, Number(d.sourceLayers) || 0);
+    return;
+  }
+
+  if (d.sourceRemove) {
+    await removeSource(d.sourceRemove, d.sourceName, Number(d.sourceLayers) || 0);
     return;
   }
 

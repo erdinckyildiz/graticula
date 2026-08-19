@@ -25,6 +25,7 @@ namespace Graticula.Conformance.Tests;
 /// the failure this file exists to prevent.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class MultiLayerServiceConformanceTests : ArcGisClient
 {
     /// <summary>Which service to walk.</summary>

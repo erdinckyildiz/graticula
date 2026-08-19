@@ -89,6 +89,31 @@ privilege*, and *connected, privileged, but the geometry is unusable* — which
 [geometry-crs-policy.md](../geometry-crs-policy.md) can already produce. One
 generic failure covering all three is what makes registration hostile.
 
+**Amended 2026-08-19: registration was one-way, and this walk did not notice.** Every step above is
+about diagnosing a registration that failed. None of them is about a registration that *succeeded and
+then became wrong* — a moved host, a new port, a rotated password — and until this date there was no
+way to change a connection string at all: correcting one meant registering a second source and
+republishing every layer on the first. The owner found it by trying: *"registered db path'ini
+güncelleyemiyorum sanırım… path derken connection string."* The connection string is the one field a
+deployment is **certain** to have to change eventually, and it was the one field with no route to
+change it.
+
+So the surface gains two operations, and both are shaped by the same rule as §3.3 — **check before
+you write**:
+
+| Endpoint | What it does, and what it refuses |
+|---|---|
+| `PUT /admin/datasources/{id}` | Probes the new connection first. Refuses **400** when it cannot connect, with the reason (see D-102, fixed the same day: an unresolvable host was answering *the reason is in the server log*). Then asks whether the layers on this source still have their tables in the new database, and refuses **409** naming them if not — `force=true` proceeds, because *somewhere else on purpose* is real: a restored replica, a promoted staging copy. The secret is re-sealed with the **current** key version, so an update is also how a source migrates off a retired key |
+| `DELETE /admin/datasources/{id}` | Refuses **409** while anything is published on it, with the count — cascading would unpublish somebody's services as a side effect of tidying a list, which is the reasoning `DELETE /admin/featureservices` already uses. The **datastore cannot be removed at all**: it is not a registration an operator made, and without its row the server cannot publish or import anything hosted |
+
+**And the listing now says what each source points at.** `GET /admin/datasources` reports `summary` —
+host, port and database, never the credential — which `ListDataSourcesAsync` had deliberately left
+empty on the grounds that decrypting every credential *to render a list would be a lot of key use for
+a cosmetic column*. It stopped being cosmetic the moment the string became editable: an operator about
+to change one has to see what it currently is, and two sources called `kurum-postgis` on two hosts are
+indistinguishable without it. The cost is one AES-GCM open per source on a page an administrator opened
+deliberately.
+
 ### 3.4 "Everything stopped at 03:14"
 
 The scenario [ADR-014](ADR-014-tls-and-certificates.md) §2c added, and the only

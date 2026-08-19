@@ -115,6 +115,14 @@ internal static class ErrorResponse
     /// </remarks>
     internal static (int Status, string Message) Classify(Exception exception) => exception switch
     {
+        // <b>The server's own bound, and it must not read as the database's.</b> ADR-007 §4.8's
+        // connection budget refuses when this worker already has its full complement of requests in
+        // flight — the database is fine, and telling the caller it is *unreachable* would send an
+        // operator to look at something that is working. 503 with the reason, and the message names
+        // the setting that would raise it.
+        ConnectionBudgetFullException full => (
+            StatusCodes.Status503ServiceUnavailable, full.Message),
+
         // A cancelled statement is nearly always the timeout below rather than a
         // disconnected client, and 504 is the difference between "your query was
         // too expensive" and "the server is broken". The first is actionable.

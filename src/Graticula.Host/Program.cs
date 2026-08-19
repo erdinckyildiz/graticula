@@ -109,6 +109,12 @@ public static class Program
 
         builder.Services.AddSingleton<TileSingleFlight>();
 
+        // <b>ADR-007 §4.8's connection cap, which the ADR has required since 2026-08-12.</b>
+        // Registered before `LayerConnections` because that is what consumes it: every read path
+        // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.
+        builder.Services.AddSingleton(new ConnectionBudget(
+            settings.ConnectionBudget, settings.PerSourceConcurrency));
+
         builder.Services.AddSingleton<LayerConnections>();
 
         builder.Services.AddSingleton(services =>
@@ -1261,6 +1267,21 @@ public static class Program
         bool html,
         CancellationToken cancellation)
     {
+        // <b>Unwrapped, and the slot is held for the whole of it.</b> `LayerConnections` hands out a
+        // `BudgetedFeatureSource` (ADR-007 §4.8's connection cap) and the shape queries below are the
+        // provider's own methods rather than `IFeatureSource`'s, so the concrete type is needed here.
+        // Taking the lease first is what keeps a count inside the bound — a filtered `count(*)` is one
+        // of the more expensive statements this server issues, and it is the first thing an ArcGIS
+        // client asks for.
+        using ConnectionBudget.Lease lease = source is BudgetedFeatureSource budgeted
+            ? await budgeted.LeaseAsync(cancellation).ConfigureAwait(false)
+            : default;
+
+        if (source is BudgetedFeatureSource wrapper)
+        {
+            source = wrapper.Inner;
+        }
+
         if (source is not PostGisFeatureSource postgis)
         {
             // Every source in this build is PostGIS. Said out loud rather than

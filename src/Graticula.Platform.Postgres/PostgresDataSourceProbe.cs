@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
+using System.Net.Sockets;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
@@ -65,11 +66,20 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
         {
             connection = await source.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (NpgsqlException e)
+        catch (Exception e) when (e is NpgsqlException or SocketException or TimeoutException)
         {
             // Everything that stops us reaching a session: DNS, refused, TLS,
             // wrong password, no such database. The administrator's next move is
             // network or credentials, and nothing about the data is known.
+            //
+            // <b>`SocketException` is not an `NpgsqlException`, and that was D-102.</b> A host that
+            // does not resolve throws `SocketException (11001): No such host is known` **bare** — not
+            // wrapped — so for as long as this caught only `NpgsqlException` the single most likely
+            // mistake on the registration form escaped the probe entirely, reached the global handler,
+            // and came back as *the reason is in the server log; it is not repeated here*. The debt row
+            // blamed `ErrorResponse`'s catch-all and a missing classification there; the cause was
+            // three layers earlier, which is why that row said a row is a lead rather than a finding.
+            // `TimeoutException` is beside it for the host that resolves and never answers.
             return Failed(ProbeOutcome.CannotConnect, Describe(e));
         }
 
@@ -262,8 +272,22 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
     /// rather than replaced, because the provider's actual error is what
     /// ADR-017 §3.3 step 2 promises and a wrapped one helps nobody.
     /// </remarks>
-    private static string Describe(NpgsqlException exception) => exception switch
+    private static string Describe(Exception exception) => exception switch
     {
+        // <b>Named, because *no such host* is a typo and *connection refused* is a firewall.</b> The
+        // generic sentence below is true for both and sends an administrator to look at the wrong
+        // thing half the time.
+        SocketException { SocketErrorCode: SocketError.HostNotFound } =>
+            "No host by that name. Check the spelling and, if it is a container name, that this "
+            + "server is on the same network as the database.",
+        SocketException { SocketErrorCode: SocketError.ConnectionRefused } =>
+            "The host is there and refused the connection on that port. Either the port is wrong or "
+            + "the database is not listening on it from this address.",
+        SocketException e =>
+            $"Could not reach the host: {e.Message} ({e.SocketErrorCode}).",
+        TimeoutException =>
+            "The host accepted nothing within the probe's timeout. A firewall that drops packets "
+            + "silently looks exactly like this, and so does a database that is starting up.",
         PostgresException { SqlState: "28P01" } =>
             "The password was rejected by the server. The host is reachable; the credential is wrong.",
         PostgresException { SqlState: "28000" } =>

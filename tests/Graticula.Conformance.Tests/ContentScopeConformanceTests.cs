@@ -31,6 +31,38 @@ namespace Graticula.Conformance.Tests;
 /// that says who *else* can see it.
 /// </para>
 /// </remarks>
+/// <summary>
+/// Serialises the classes that walk the whole services catalogue against the ones that publish into it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>A defect in the tests, and the second time this shape of one has cost a diagnosis.</b>
+/// <c>ContentScopeConformanceTests</c> publishes `zz_scope_org` and `zz_scope_reach`, shares them, reads
+/// them back and removes them. <c>ArcGisDiscoveryTests</c>, <c>ArcGisConsistencyTests</c> and
+/// <c>MultiLayerServiceConformanceTests</c> each begin by asking the catalogue what services exist and
+/// then opening every one. xUnit runs test classes in parallel, so the walkers see a fixture that is
+/// being created or removed and report *404 — an ArcGIS client stops here* about a service that was
+/// never meant to outlive one test.
+/// </para>
+/// <para>
+/// Measured 2026-08-19: five failures in one run, two in the next, one in the third, always naming a
+/// `zz_scope_*` service. A failure set that changes between runs of unchanged code is the signature,
+/// and the same signature sent a commit message to blame the wrong debt earlier the same day.
+/// </para>
+/// <para>
+/// <b>A collection rather than a filter on the walk.</b> Skipping names that look like fixtures would
+/// hide the one thing these tests exist to check — that *every* service in the catalogue can actually
+/// be opened — and would keep hiding it after somebody published a real service called `zz_anything`.
+/// The cost is that four classes no longer run in parallel with each other; they are 11 seconds
+/// together.
+/// </para>
+/// </remarks>
+[CollectionDefinition("catalogue walk")]
+public sealed class CatalogueWalkState
+{
+}
+
+[Collection("catalogue walk")]
 public sealed class ContentScopeConformanceTests : ArcGisClient
 {
     private const string Stranger = "zz_scope_stranger";

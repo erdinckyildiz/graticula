@@ -62,6 +62,72 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> UpdateDataSourceAsync(
+        Guid id, string? name, string connectionString, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        // <b>`coalesce` on the name, so one statement serves both shapes.</b> A caller changing only
+        // the connection sends no name, and a two-statement version would have a window where the row
+        // holds the new secret and the old name.
+        const string Sql = """
+            update data_source
+            set name = coalesce(nullif(trim(@name), ''), name),
+                connection_secret = @secret,
+                key_version = @version
+            where id = @id
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("name", (object?)name ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "secret", NpgsqlDbType.Bytea, _secrets.Protect(connectionString));
+        command.Parameters.AddWithValue("version", _secrets.KeyVersion);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> RemoveDataSourceAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command =
+            _dataSource.CreateCommand("delete from data_source where id = @id");
+
+        command.Parameters.AddWithValue("id", id);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<LayerTable>> TablesOnAsync(
+        Guid dataSourceId, CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            select name, schema_name, table_name
+            from layer
+            where data_source_id = @source
+            order by name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("source", dataSourceId);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<LayerTable> tables = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            tables.Add(
+                new LayerTable(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+        }
+
+        return tables;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<RegisteredDataSource>> ListDataSourcesAsync(
         CancellationToken cancellationToken)
     {

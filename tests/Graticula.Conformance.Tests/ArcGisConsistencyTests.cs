@@ -29,6 +29,7 @@ namespace Graticula.Conformance.Tests;
 /// </para>
 /// </remarks>
 [Trait("Category", "Conformance")]
+[Collection("catalogue walk")]
 public sealed class ArcGisConsistencyTests : ArcGisClient
 {
     /// <summary>

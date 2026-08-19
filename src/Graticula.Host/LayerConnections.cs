@@ -20,11 +20,17 @@ namespace Graticula.Host;
 /// Pooling per layer is the arithmetic that killed the process-per-service model.
 /// </para>
 /// <para>
-/// <b>What this does not yet do</b>, recorded rather than left to be discovered:
-/// shrink-to-zero when idle (§4.8), a global cap per worker, the circuit breaker
-/// N3 asked for, and the quiesce path that lets a DBA run DDL without us holding
-/// their table open (§5b). Each is a real requirement with a number attached that
-/// nobody has measured — Q-04, still open and still blocking.
+/// <b>Two of the four things this did not do are done, and the other two are not.</b> The list was
+/// shrink-to-zero when idle (§4.8), a global cap per worker, the circuit breaker N3 asked for, and the
+/// quiesce path that lets a DBA run DDL without us holding their table open (§5b) — *each a real
+/// requirement with a number attached that nobody has measured*. **Q-04 measured them on 2026-08-19**
+/// ([connection-budget](../../benchmarks/connection-budget/RESULTS.md)): shrink-to-zero turned out to
+/// already work, from Npgsql's own pruning rather than from anything here — 79 backends to zero in 184
+/// seconds — and the cap is now <see cref="ConnectionBudget"/>, bounding requests per source and per
+/// worker, which bounds the pools because a request holds at most one connection from a source at a
+/// time. **Still absent: the circuit breaker and quiesce.** And the floor on an idle server is not
+/// zero but eight, held open by our own job polling, which is D-110 and which a request budget cannot
+/// reach.
 /// </para>
 /// </remarks>
 /// <summary>
@@ -45,6 +51,16 @@ internal interface IServiceSources
 
 internal sealed class LayerConnections : IServiceSources, IDisposable
 {
+    private readonly ConnectionBudget _budget;
+
+    /// <summary>Creates the pool cache.</summary>
+    /// <param name="budget">ADR-007 §4.8's bound on how much of a database this worker asks for.</param>
+    public LayerConnections(ConnectionBudget budget)
+    {
+        ArgumentNullException.ThrowIfNull(budget);
+        _budget = budget;
+    }
+
     /// <summary>How long a single statement may run before PostgreSQL stops it.</summary>
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
 
@@ -71,12 +87,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         // place a statement is issued from.
         TimeSpan? asked = layer.StatementTimeout;
 
-        return new PostGisFeatureSource(
-            pool,
-            layer.Definition,
-            asked is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
-                ? wanted
-                : null);
+        // <b>Wrapped in the budget, keyed on the connection string — which is what makes the key the
+        // data source rather than the layer.</b> Two layers in the same database share a pool and now
+        // share a bound, which is the whole of ADR-007 §4.8's arithmetic.
+        return new BudgetedFeatureSource(
+            new PostGisFeatureSource(
+                pool,
+                layer.Definition,
+                asked is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
+                    ? wanted
+                    : null),
+            _budget,
+            layer.ConnectionString);
     }
 
     /// <summary>

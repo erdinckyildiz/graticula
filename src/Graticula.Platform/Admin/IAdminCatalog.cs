@@ -303,6 +303,21 @@ public readonly record struct SymbolisedLayer(
 public readonly record struct StyledService(
     string Name, string? Folder, IReadOnlyList<string> SourceLayers, string? Style);
 
+/// <summary>One table a published layer depends on.</summary>
+/// <param name="Layer">The layer's name, for a message a person reads.</param>
+/// <param name="Schema">Its schema.</param>
+/// <param name="Table">Its table.</param>
+/// <remarks>
+/// <b>Not <c>SourceTable</c>, which is taken</b> — that one is what a probe found in a database, with
+/// a geometry column and an object-id candidate. This is the other direction: what a layer we have
+/// already published needs to be there.
+/// </remarks>
+public readonly record struct LayerTable(string Layer, string Schema, string Table)
+{
+    /// <summary>Schema and table, in the form the probe reports.</summary>
+    public string Qualified => $"{Schema}.{Table}";
+}
+
 /// <summary>
 /// The write side of the catalogue.
 /// </summary>
@@ -331,6 +346,69 @@ public interface IAdminCatalog
     /// <returns>The new source's id.</returns>
     Task<Guid> RegisterDataSourceAsync(
         string name, string kind, string connectionString, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces a registered source's connection string, and optionally its name.
+    /// </summary>
+    /// <param name="id">Which source.</param>
+    /// <param name="name">A new name, or null to keep the current one.</param>
+    /// <param name="connectionString">The new connection, in the clear.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a row was updated; false when there is no such source.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>This did not exist until 2026-08-19, and its absence was found by the owner trying to use
+    /// it.</b> A registered database could be created and listed and never corrected: a moved host, a
+    /// new port, a rotated password all meant registering a second source and republishing every layer
+    /// on the first. The connection string is the one field a deployment is *certain* to have to change
+    /// eventually, and it was the one field with no way to change it.
+    /// </para>
+    /// <para>
+    /// <b>Re-sealed with the current key, not re-encrypted with the old one.</b> The row carries its
+    /// own <c>key_version</c>, so an update is also the one moment a source's secret can migrate
+    /// forward to a rotated key — and writing it under the old version would leave a row that has been
+    /// touched and still depends on a key somebody is retiring.
+    /// </para>
+    /// <para>
+    /// <b>The kind is not a parameter.</b> A PostGIS source cannot become something else: every layer
+    /// on it carries SQL this provider wrote. Changing that is deleting the source and registering
+    /// another, which the caller can do and which makes what happens to the layers visible.
+    /// </para>
+    /// </remarks>
+    Task<bool> UpdateDataSourceAsync(
+        Guid id, string? name, string connectionString, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a registered source, but only while nothing is published on it.
+    /// </summary>
+    /// <param name="id">Which source.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a row was removed; false when there is no such source.</returns>
+    /// <remarks>
+    /// <b>Refused while it holds layers, by the database rather than by politeness.</b> `layer` has a
+    /// foreign key to `data_source`, so a delete with layers on it raises `23503` — and that is the
+    /// right place for the rule to live, because it holds against any route to the table. The caller
+    /// turns it into a sentence; nothing here cascades. Unpublishing a layer has consequences of its
+    /// own (it purges tiles and forgets a remembered shape) and they should not happen as a side effect
+    /// of tidying a list.
+    /// </remarks>
+    Task<bool> RemoveDataSourceAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Which tables the layers on one data source depend on.
+    /// </summary>
+    /// <param name="dataSourceId">Which source.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>One entry per layer, with the table it reads.</returns>
+    /// <remarks>
+    /// <b>For the one caller that has to know before it writes:</b> replacing a connection string
+    /// points every layer on that source at a different database, and the honest check is whether
+    /// their tables are in it. <see cref="AdminLayer"/> deliberately does not carry the schema and
+    /// table — it is a listing for a screen — so this asks the question directly rather than widening
+    /// a record that thirty callers already use.
+    /// </remarks>
+    Task<IReadOnlyList<LayerTable>> TablesOnAsync(
+        Guid dataSourceId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Makes sure the datastore is registered as a source, and returns it.

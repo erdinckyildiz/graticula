@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -271,6 +272,12 @@ internal static class AdminEndpoints
         app.MapPost("/admin/datasources/test", TestDataSourceAsync);
         app.MapPost("/admin/datasources", RegisterDataSourceAsync);
         app.MapGet("/admin/datasources", ListDataSourcesAsync);
+
+        // <b>The one field a deployment is certain to have to change, and there was no way to.</b>
+        // Owner, 2026-08-19: *"registered db path'ini güncelleyemiyorum sanırım"* — a moved host, a new
+        // port or a rotated password meant registering a second source and republishing every layer.
+        app.MapPut("/admin/datasources/{id:guid}", UpdateDataSourceAsync);
+        app.MapDelete("/admin/datasources/{id:guid}", RemoveDataSourceAsync);
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
         app.MapPost("/admin/layers", PublishAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
@@ -3991,6 +3998,263 @@ internal static class AdminEndpoints
         await Results.Json(Describe(result)).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Removes a registered source that nothing is published on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The other half of being able to correct a mistake.</b> A source could be registered and,
+    /// from 2026-08-19, corrected — and still not removed, so a typo in a name or a database that
+    /// turned out to be the wrong one stayed in the list for ever. The same afternoon the owner asked
+    /// for the update, which is what made the gap visible: they are the same gap.
+    /// </para>
+    /// <para>
+    /// <b>Refused while it holds layers, and the count is in the refusal.</b> Cascading would unpublish
+    /// somebody's services as a side effect of tidying a list — the reasoning
+    /// <c>DELETE /admin/featureservices</c> already uses for a service that holds layers.
+    /// </para>
+    /// <para>
+    /// <b>And the datastore cannot be removed at all.</b> It is not a registration an operator made;
+    /// it is where hosted data lives, created at setup and depended on by every import. Removing its
+    /// row would leave the server unable to publish anything hosted, with no way back through the API.
+    /// </para>
+    /// </remarks>
+    private static async Task RemoveDataSourceAsync(
+        HttpContext context,
+        Guid id,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RegisteredDataSource? found = null;
+
+        foreach (RegisteredDataSource one in
+                 await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false))
+        {
+            if (one.Id == id)
+            {
+                found = one;
+                break;
+            }
+        }
+
+        if (found is null)
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The datastore is recognised by its name, which is the one place that name is load
+        // bearing.</b> `HostedDataEndpoints` finds it the same way; the alternative is a column, and
+        // ADR-019 gave the datastore a reserved name precisely so that no schema change is needed to
+        // know which source it is.
+        if (string.Equals(
+                found.Value.Name,
+                PostgresAdminCatalog.DatastoreName,
+                StringComparison.Ordinal))
+        {
+            await Refuse(
+                context, 409,
+                "That is the datastore, and it cannot be removed. It is not a registration somebody "
+                + "made — it is where hosted data lives, and without its row this server cannot "
+                + "publish or import anything hosted.").ConfigureAwait(false);
+            return;
+        }
+
+        if (found.Value.LayerCount > 0)
+        {
+            await Refuse(
+                context, 409,
+                $"'{found.Value.Name}' still has {Count(found.Value.LayerCount, "layer")} published on "
+                + "it. Unpublish them first: removing the source would take their services with it, and "
+                + "unpublishing has consequences of its own — it purges tiles and forgets a remembered "
+                + "shape — which should not happen as a side effect of tidying a list.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.RemoveDataSourceAsync(id, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "datasource.remove", found.Value.Name,
+            Detail(new { id }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            id,
+            name = found.Value.Name,
+            removed = true,
+            note = "Nothing was published on it, so nothing moved or stopped serving.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces a registered source's connection string, after checking the new one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Probed before written, like registration — and then checked further, because this is worse
+    /// than registration when it is wrong.</b> A bad registration leaves a source nobody has published
+    /// on. A bad *update* points every layer already on that source at a database that does not hold
+    /// their tables, and the symptom arrives later as 503s on services that were working.
+    /// </para>
+    /// <para>
+    /// <b>So the tables are checked too, and a mismatch is refused rather than warned about.</b>
+    /// Every layer on the source names a schema and a table; the new connection is asked whether they
+    /// are there. If any are missing the update is refused and they are named — the common case for
+    /// this endpoint is *the same database at a new address*, where nothing is missing, so a refusal
+    /// here means the operator has pointed it somewhere else. <c>force=true</c> proceeds anyway,
+    /// because *somewhere else on purpose* is a real intention: a restored replica, a renamed schema, a
+    /// staging copy being promoted.
+    /// </para>
+    /// <para>
+    /// <b>The datastore is not exempt.</b> Moving the hosted datastore is a legitimate operation and
+    /// the same check protects it — pointing it at an empty database is exactly the mistake that would
+    /// otherwise be discovered one query at a time.
+    /// </para>
+    /// </remarks>
+    private static async Task UpdateDataSourceAsync(
+        HttpContext context,
+        Guid id,
+        DataSourceRequest request,
+        bool? force,
+        IAdminCatalog catalog,
+        IDataSourceProbe probe,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.ConnectionString))
+        {
+            await Refuse(
+                context, 400,
+                "connectionString is required. Send the whole connection, not the part that changed — "
+                + "the stored one is sealed and this server does not read it back to merge into it.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<RegisteredDataSource> sources =
+            await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false);
+
+        RegisteredDataSource? existing = null;
+
+        foreach (RegisteredDataSource one in sources)
+        {
+            if (one.Id == id)
+            {
+                existing = one;
+                break;
+            }
+        }
+
+        if (existing is null)
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        ProbeResult result =
+            await probe.ProbeAsync(request.ConnectionString, cancellation).ConfigureAwait(false);
+
+        if (result.Outcome == ProbeOutcome.CannotConnect)
+        {
+            await AuditAsync(
+                context, audit, "datasource.update", existing.Value.Name,
+                Detail(new { id, outcome = result.Outcome.ToString(), reason = result.Message }),
+                succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(context, 400, result.Message).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>What the layers on this source need, against what the new connection offers.</b> The
+        // probe already lists the publishable tables there, so this is a set comparison rather than a
+        // second round of queries.
+        HashSet<string> offered = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SourceTable table in result.Tables)
+        {
+            offered.Add($"{table.SchemaName}.{table.TableName}");
+        }
+
+        List<string> missing = [];
+
+        foreach (LayerTable needed in
+                 await catalog.TablesOnAsync(id, cancellation).ConfigureAwait(false))
+        {
+            if (!offered.Contains(needed.Qualified))
+            {
+                missing.Add($"{needed.Layer} ({needed.Qualified})");
+            }
+        }
+
+        if (missing.Count > 0 && force != true)
+        {
+            await AuditAsync(
+                context, audit, "datasource.update", existing.Value.Name,
+                Detail(new { id, outcome = "tablesMissing", missing = missing.Count }),
+                succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(
+                context, 409,
+                $"The new connection reaches a database, and {Count(missing.Count, "layer")} on this "
+                + "source would stop working there because their tables are not in it: "
+                + $"{string.Join(", ", missing.Count > 6 ? [.. missing[..6], "…"] : missing)}. "
+                + "The usual reason for this endpoint is the same database at a new address, where "
+                + "nothing is missing — so this looks like the wrong database. Send force=true if it "
+                + "is deliberate.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.UpdateDataSourceAsync(
+                id, request.Name, request.ConnectionString, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "datasource.update", request.Name ?? existing.Value.Name,
+            Detail(new
+            {
+                id,
+                summary = Summarise(request.ConnectionString),
+                outcome = result.Outcome.ToString(),
+                publishable = result.Tables.Count,
+                missing = missing.Count,
+                forced = missing.Count > 0,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            id,
+            name = request.Name ?? existing.Value.Name,
+            summary = Summarise(request.ConnectionString),
+            publishable = result.Tables.Count,
+            missing,
+            note = "Layers on this source use the new connection from their next query. Pools are "
+                + "per data source and cached by connection string, so the old pool is left to drain "
+                + "and prune rather than being closed under a query that is still reading.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task RegisterDataSourceAsync(
         HttpContext context,
         DataSourceRequest request,
@@ -4084,10 +4348,49 @@ internal static class AdminEndpoints
         IReadOnlyList<RegisteredDataSource> sources =
             await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false);
 
-        await Results.Json(new
+        // <b>The host and database are in the listing now, and the credential still is not.</b>
+        // `ListDataSourcesAsync` leaves `Summary` empty on purpose — it does not hold the protector —
+        // with the note that decrypting every credential *to render a list would be a lot of key use
+        // for a cosmetic column*. It stopped being cosmetic on 2026-08-19, when the connection string
+        // became editable: an operator about to change one has to be able to see what it currently
+        // points at, and a screen that shows only a name cannot tell `kurum-postgis` on the old host
+        // from `kurum-postgis` on the new one. So this endpoint, which does hold the protector, opens
+        // each one and reports `Summarise` — host, port and database, never the password.
+        //
+        // The cost is one AES-GCM open per source on a page an administrator opened deliberately.
+        // At the 100–1,000 services CLAUDE.md §7 targets that is a handful of sources, not a
+        // per-request cost, and it is the same decrypt `capability` already does for one.
+        List<object> listed = [];
+
+        foreach (RegisteredDataSource source in sources)
         {
-            dataSources = sources.Select(s => new { s.Id, s.Name, s.Kind, s.LayerCount }),
-        }).ExecuteAsync(context).ConfigureAwait(false);
+            string? connection = null;
+
+            try
+            {
+                connection = await catalog
+                    .ConnectionStringOfAsync(source.Id, cancellation).ConfigureAwait(false);
+            }
+            catch (CryptographicException)
+            {
+                // <b>A source sealed with a key this build no longer holds is still a row worth
+                // listing.</b> Failing the whole page would hide every working source behind one that
+                // needs its secret re-entered — and *the summary is unavailable* is exactly the fact
+                // an operator needs in order to know which one that is.
+            }
+
+            listed.Add(new
+            {
+                source.Id,
+                source.Name,
+                source.Kind,
+                source.LayerCount,
+                summary = connection is null ? null : Summarise(connection),
+                sealedWithAnotherKey = connection is null,
+            });
+        }
+
+        await Results.Json(new { dataSources = listed }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

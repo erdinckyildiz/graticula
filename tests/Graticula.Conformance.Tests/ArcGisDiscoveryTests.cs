@@ -22,6 +22,7 @@ namespace Graticula.Conformance.Tests;
 /// </para>
 /// </remarks>
 [Trait("Category", "Conformance")]
+[Collection("catalogue walk")]
 public sealed class ArcGisDiscoveryTests : ArcGisClient
 {
     /// <summary>Step 1. Every ArcGIS client begins here.</summary>
