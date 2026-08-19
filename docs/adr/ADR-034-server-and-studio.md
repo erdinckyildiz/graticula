@@ -454,12 +454,24 @@ arrives, because `#iFile` is on the third screen and does not exist yet, so it i
 the input through a `DataTransfer` once the form is drawn. That is the only way to fill a file input
 from script, and it keeps the form with one source of truth rather than two.
 
-### 5k. A service has four tabs, and one of them is the layer list that was removed — owner decision, 2026-08-19
+### 5k. Studio's item page has four tabs, and one of them is the layer list that was removed — owner decision, 2026-08-19
 
 *"servisin özelliklerine girdiğimizde bu listenin gelmesi güzel."* And, on what an import of one
 geodatabase produces: *"mesela o gdb içerisinde 20'den fazla katman var. hepsi hosted db'ye import
 edildi, ve o servis adı altında publish edildi. yani db'den direkt servis publish edilmeyecek. servis ve
 katman ayrı şeyler. bir serviste n katman olabilir."*
+
+**It is Studio's page, and getting that wrong cost a build.** Every screenshot the owner sent is an
+ArcGIS Online **item page** — the thing a publisher opens from their own content — and I built the four
+tabs on the service page without noticing that page renders on both surfaces, so the structure landed on
+**Server**, which is the administrative surface and was never what those screens showed. The owner's
+correction was flat: *"sana verdiğim ekranlar studio'dan. sen gidip server'ı değiştiriyorsun… server
+ekranlarını da geri al."*
+
+So Server's service page is back to what it was — Capabilities and Limits, drawn directly, no strip, no
+Overview, no Data, no delete — and the four tabs, the layer list, the address column and the delete lock
+are Studio's. Which surface owns which *settings* page is untouched: §5c and `SERVICE_PAGES` still put
+Sharing in Studio and the ceilings on Server.
 
 **This reverses §5's own note of 2026-08-18, and the reversal is the record.** The service page's layer
 list was removed then, by the same owner, on the grounds that the page is the service's settings and the
@@ -479,7 +491,7 @@ the geodatabase import using it.
 
 | Tab | What it is | Ours today |
 | --- | --- | --- |
-| **Overview** | the service's own facts, and **the list of layers in it** | facts line only, list removed 2026-08-18 |
+| **Overview** | the service's own facts, **the list of layers in it**, and the right-hand column carrying the service's address | facts line only, list removed 2026-08-18 |
 | **Data** | a layer picker, then its rows — and a **Fields** view of its columns | nothing |
 | **Visualization** | the service on a map. *"dümdüz"* | scattered: a Map action, a tiles screen |
 | **Settings** | for now, **delete** — with an accidental-deletion lock and a confirmation | delete is elsewhere |

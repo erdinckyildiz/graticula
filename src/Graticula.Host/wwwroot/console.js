@@ -2534,23 +2534,18 @@ async function loadMyContent() {
           const isShown = key !== null && shown.has(key);
           const stopped = i.status === "stopped";
 
-          // <b>A route to the layer's own page, which this console did not have.</b> The service
-          // page's layer list was removed by owner decision 2026-08-18, and the comment that replaced
-          // it said *"a layer's own page is reachable from Studio's content list and by its
-          // address"* — the second half was true and the first was not. Nothing anywhere linked to
-          // `#/layer/…` except the editor's own tabs, so Maintenance, Symbology, Caching, General and
-          // Endpoints were reachable only by typing an address, using a name the screen never showed.
-          // Design review 2026-08-19. This restores the half that was claimed rather than
-          // reinstating the list the owner removed.
+          // <b>The row opens the item, and the item lists its layers — owner correction, ADR-034
+          // §5k.</b> This carried a shortcut for a few hours: a single-layer service's row went
+          // straight to that layer's editor, because D-98 had found the editor unreachable by any
+          // click and that was the repair I chose. The owner's screenshot of the reference says the
+          // row opens the **item page** and each layer is entered from its list — which Overview now
+          // is, so the shortcut was solving a problem the layer list solves, and disagreeing with the
+          // reference while doing it.
           //
-          // <b>Only where there is one layer to mean.</b> A single-layer service — which is what an
-          // import makes, and what most of these are — has exactly one answer, so the row carries it.
-          // A multi-layer service does not, and guessing would open the wrong layer's appearance
-          // settings; its name still goes to the service page, which is the container.
-          const only = i.layers === 1 && i.cover ? i.cover.layer : null;
-
+          // The route D-98 asked for is intact: the name goes to the service page, and Overview's own
+          // rows go to each layer.
           return `
-          <tr${only !== null ? ` class="pick" data-pick="${h(String(only))}"` : ""}>
+          <tr>
             <td class="thumbcell">${i.cover
               ? `<canvas class="thumb" width="104" height="70"
                    data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
@@ -2692,6 +2687,23 @@ async function showService(qualified) {
     // Setting the array empty was not enough — the table is drawn from it and had to be redrawn.
     serviceIsSystem = true;
     serviceTab = "settings";
+
+    // <b>And the previous service's settings panel is hidden, which is the worst finding of the
+    // 2026-08-19 design review.</b> `drawServiceSettings` is what redraws `#serviceEdit` and stamps the
+    // Save button with the service it belongs to, and this branch returns before reaching it — so the
+    // panel kept the last feature service's Capabilities boxes **and its Save button, addressed to that
+    // service**. Measured: opening `hosted/look_EarlyAlert`, then `Utilities/Geometry`, left Geometry's
+    // Settings tab showing *Feature access* and *Vector tiles* above a Save that would `PUT` to
+    // `hosted/look_EarlyAlert`. An operator clearing what they believed were the geometry service's
+    // capabilities would have switched off a live public service's instead.
+    //
+    // <b>Latent before this page had tabs and reachable after.</b> The branch always left the panel
+    // stale; what changed is that the tab strip made it visible. Which is the more dangerous half of a
+    // bug like this: it was there and nobody could see it.
+    $("serviceEdit").hidden = true;
+    $("serviceNav").innerHTML = "";
+    $("servicePagesBody").innerHTML = "";
+
     drawServiceLayers([], qualified);
 
     return;
@@ -2737,14 +2749,40 @@ async function showService(qualified) {
 /**
  * The tab strip, and which panel it reveals.
  *
- * <b>Only the tabs this surface has something to put in.</b> Studio owns `sharing` and Server owns
- * `capabilities` and `limits`, so Settings is drawn for both but holds different pages — §5c's split,
- * unchanged. A surface with no settings pages at all would show no Settings tab rather than an empty
- * one.
+ * <b>Studio's, and only Studio's — owner correction, 2026-08-19.</b> Every screen the owner sent is an
+ * ArcGIS Online **item page**: *"sana verdiğim ekranlar studio'dan. sen gidip server'ı
+ * değiştiriyorsun."* I built the four tabs on the service page without noticing that page renders on
+ * both surfaces, so the structure landed on Server — which is the administrative surface and has never
+ * been what those screenshots showed.
+ *
+ * <b>So Server goes back to what it was:</b> its settings pages, drawn directly, with no strip, no
+ * Overview, no Data and no delete panel. `#serviceSettings` is revealed as a plain container there
+ * rather than as a tab's contents, because `#serviceLimits` and `#serviceEdit` were moved inside it and
+ * hiding the wrapper would hide them too.
+ *
+ * <b>Which surface owns which settings page is unchanged</b> — §5c, `SERVICE_PAGES`. Studio's Settings
+ * tab holds Sharing and the delete panel; Server's page holds Capabilities and Limits.
  */
 function drawServiceTabs() {
   const strip = $("serviceTabs");
   if (!strip) return;
+
+  if (surfaceOfPath() !== "studio") {
+    strip.innerHTML = "";
+    strip.hidden = true;
+
+    for (const id of ["serviceOverview", "serviceData", "serviceDanger"]) {
+      const panel = $(id);
+      if (panel) panel.hidden = true;
+    }
+
+    // The wrapper is a container on this surface, not a tab.
+    $("serviceSettings").hidden = false;
+
+    return;
+  }
+
+  strip.hidden = false;
 
   const mine = SERVICE_TABS.filter(([key]) => {
     // A system service is settings and nothing else.
@@ -2771,6 +2809,8 @@ function drawServiceTabs() {
 
 /** Reveals one tab's panels and hides the others. */
 function showServiceTab(which) {
+  if (surfaceOfPath() !== "studio") return;
+
   serviceTab = which;
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
@@ -2811,6 +2851,8 @@ let serviceLayers = [];
 function drawServiceLayers(layers, qualified) {
   serviceLayers = layers || [];
 
+  drawServiceDetails(qualified);
+
   const box = $("serviceLayerRows");
   if (!box) return;
 
@@ -2841,6 +2883,66 @@ function drawServiceLayers(layers, qualified) {
   // the sentence under Delete both depend on the answer, so both are drawn again when it lands.
   drawServiceDelete();
   drawServiceTabs();
+}
+
+/**
+ * Overview's right-hand column: what this service is, and the address it answers on.
+ *
+ * <b>The URL is why this column exists.</b> The owner, pointing at it: *"burada da servisin url'i
+ * var."* An operator wiring a service into ArcGIS Pro, a web map or a script needs that string, and
+ * this console showed it nowhere — it was derivable from the address bar by somebody who already knew
+ * the shape of a REST path. Copy and a link that opens it.
+ *
+ * <b>What the reference's column has and this one does not.</b> An *Item Information* completeness
+ * meter, a star rating, Categories, Tags, Credits, Metadata. None of those has anywhere to be stored
+ * here — §5j settled that there is no item that exists apart from its service — and a meter scoring a
+ * description nothing keeps would score nothing. ADR-034 §5k lists the omission rather than leaving it
+ * to be noticed.
+ *
+ * <b>Read from the content listing rather than assembled from three places.</b> `/content/items`
+ * already answers with the kind, the owner, the sharing scope and the layer count for exactly the
+ * services this caller may see, which is the same set they could have navigated here from.
+ */
+async function drawServiceDetails(qualified) {
+  const box = $("serviceDetails");
+  if (!box || surfaceOfPath() !== "studio") return;
+
+  const root = `${location.origin}/rest/services/${
+    qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
+
+  // The address first and without waiting, because it is derivable here and is the one thing on this
+  // column somebody came for.
+  box.innerHTML = `
+    <h4>The service's address</h4>
+    <div class="urlrow">
+      <input type="text" id="svcUrl" readonly value="${h(root)}">
+      <button class="tiny" id="svcUrlCopy" title="Copy this address">Copy</button>
+    </div>
+    <p class="hint"><a href="${h(root)}?f=json" target="_blank" rel="noreferrer">Open it</a> — the
+      service document, which is what a client reads first.</p>
+    <dl class="facts" id="svcFacts"></dl>`;
+
+  try {
+    const answer = await api("/content/items");
+    const item = (answer.items || []).find(i => i.name === qualified);
+
+    if (!item) return;
+
+    const rows = [
+      ["Kind", h(item.kind || "feature service")],
+      ["Owner", h(item.owner || "—")],
+      ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
+      ["Sharing", pill(item.sharing)],
+      ["Layers", num(item.layers || 0)],
+      ["Published", item.created ? h(String(item.created).slice(0, 10)) : `<span class="val">—</span>`],
+    ];
+
+    $("svcFacts").innerHTML = rows.map(([label, value]) =>
+      `<dt>${label}</dt><dd>${value}</dd>`).join("");
+  } catch {
+    // The column's own reason — the address — is already on screen and needed no request. A failure
+    // here loses the facts beside it and nothing somebody came for.
+  }
 }
 
 /**
@@ -2966,6 +3068,15 @@ function drawServiceDelete() {
   const note = $("svcDeleteNote");
 
   if (!lock || !button || !note) return;
+
+  // <b>Studio's, with the rest of the item page.</b> Server's service page is the administrative one —
+  // starting, stopping, capabilities, ceilings — and deleting a service from it was a structure that
+  // arrived by accident when the tabs did.
+  const panel = $("serviceDanger");
+
+  if (panel) panel.hidden = surfaceOfPath() !== "studio";
+
+  if (surfaceOfPath() !== "studio") return;
 
   const count = serviceLayers.length;
 
@@ -5897,7 +6008,12 @@ async function handleClick(event) {
   // it was the sharing select* — and the owner found what that costs the day a third control
   // arrived: pressing **Stop** opened the service page instead of stopping it, because the
   // list had not been extended. Asking what was clicked cannot go stale the same way.
-  const control = t.closest("button, select, input, textarea, a, label");
+  // <b>`summary` and `details` are controls, and leaving them out made a menu unreachable.</b> A click
+  // on the `⋯` summary inside a clickable row was treated as a click on the row, so the row's own
+  // navigation fired before the browser could toggle the `details` — and the menu's contents were
+  // unreachable by mouse on every such row. Found by the design review 2026-08-19 on Studio's content
+  // rows; the same shape is on Server's services list, whose rows are `tr.pick` and do carry a menu.
+  const control = t.closest("button, select, input, textarea, a, label, summary, details");
 
   // <b>A service row opens the service — unless there is nothing to choose inside it.</b>
   // ADR-034 §5h made the service the unit on this screen, and the drill-in is what shows what
@@ -5935,8 +6051,18 @@ async function handleClick(event) {
     try {
       // The whole document, because the SDK will read it anyway and this console now
       // takes its colour from the server's `drawingInfo` rather than choosing one.
-      const doc = await api(
-        `${serviceRoot(layerNamed(d.show)).replace(location.origin, "")}/FeatureServer/0?f=json`);
+      // <b>`layerUrl`, because the old line used the layer's name as its service's.</b>
+      // `serviceRoot(layerNamed(name))` builds `/rest/services/{folder}/{layer}` and then appended
+      // `/FeatureServer/0` — which is right only when a layer happens to be named after its service and
+      // sits at index 0, and every single-layer import is exactly that, which is why this survived.
+      // For `look_EarlyAlert_sites` it asked for a service called `look_EarlyAlert_sites` and got a 404
+      // that the catch below reported as *no layer is visible to you. It may not exist, or it may not be
+      // shared with you* — a sharing refusal for a layer that is shared and exists. Found by the design
+      // review 2026-08-19 on the one multi-layer service in the demo data; it would have failed on every
+      // one.
+      //
+      // `layerUrl` resolves the layer through `placeOf`, which carries the service **and the index**.
+      const doc = await api(`${layerUrl(d.show).replace(location.origin, "")}?f=json`);
       await show(d.show, doc);
       await loadLayers();
       toMap();
@@ -6776,6 +6902,27 @@ async function handleClick(event) {
     event.preventDefault();
     dataView = t.dataset.dataView;
     drawServiceData();
+    return;
+  }
+
+  if (t.id === "svcUrlCopy") {
+    const field = $("svcUrl");
+    if (!field) return;
+
+    // <b>`select()` before the write, and the field stays selected after it.</b> Clipboard access can
+    // be refused — an insecure origin, a browser policy — and a selected field is a working fallback
+    // rather than a dead button: the reader presses the copy key themselves. `#issued` does the same
+    // for the same reason.
+    field.select();
+
+    try {
+      await navigator.clipboard.writeText(field.value);
+      toast("The service's address is on the clipboard.", true);
+    } catch {
+      toast("This browser would not let the page write to the clipboard. The address is selected — "
+        + "copy it with the keyboard.");
+    }
+
     return;
   }
 

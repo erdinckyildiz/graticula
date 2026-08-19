@@ -140,16 +140,26 @@ public sealed class ScreenReviewTests : ConsoleTest
     }
 
     /// <summary>
-    /// A layer's own page is reachable by clicking, not only by typing its address.
+    /// A content row opens the item, and the item's own list opens a layer.
     /// </summary>
     /// <remarks>
-    /// <b>D-98, second half.</b> Nothing in this console linked to <c>#/layer/…</c> except the editor's
-    /// own tabs, so Maintenance, Symbology, Caching, General and Endpoints were reachable only by
-    /// address — using a bare layer name that no screen displayed. The comment that removed the service
-    /// page's layer list had asserted the content list was the route.
+    /// <para>
+    /// <b>D-98's route, and the owner's correction to my first repair of it.</b> The defect was that
+    /// nothing in this console linked to <c>#/layer/…</c> except the editor's own tabs, so five settings
+    /// pages were reachable only by typing an address with a bare layer name no screen displayed. My
+    /// repair sent a single-layer content row straight to that layer. The owner's screenshot of the
+    /// reference says the row opens the **item page** and each layer is entered from its list —
+    /// [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5k — which is possible because Overview
+    /// exists, so the shortcut was solving a problem the layer list solves.
+    /// </para>
+    /// <para>
+    /// <b>So this asserts both halves of the route.</b> The row reaches the service, and the service's
+    /// Overview reaches the layer. Either alone would pass while the operator was stuck: a row that
+    /// opens a page listing nothing, or a list nobody can get to.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_content_row_opens_the_layer_it_holds()
+    public async Task A_content_row_opens_the_item_and_the_item_opens_a_layer()
     {
         (string token, _) = await SignInAsync();
 
@@ -159,24 +169,39 @@ public sealed class ScreenReviewTests : ConsoleTest
             "document.querySelectorAll('#contentRows tr').length > 0",
             "Studio's content list never rendered.");
 
-        // <b>Only a single-layer item carries the route</b>, deliberately: a service with three layers
-        // has no one answer, and opening the cover layer's appearance settings would be a guess. So this
-        // waits for one rather than clicking the first row.
-        await WaitForAsync(
-            "!!document.querySelector('#contentRows tr[data-pick]')",
-            "No content row offers a layer route. A single-layer item is what an import makes and what "
-            + "most of these are, so an absence here means the route is gone rather than absent.");
+        await ClickAsync("#contentRows td.name a");
 
-        await ClickAsync("#contentRows tr[data-pick] td.thumbcell");
+        await WaitForAsync(
+            "location.hash.startsWith('#/service/') "
+            + "&& document.getElementById('serviceOverview')?.offsetParent !== null",
+            "A content row did not open the service's own page on Overview. §5k: the row opens the "
+            + "item, and the item lists its layers.");
+
+        // <b>The address is there, which is the reason that column exists.</b> The owner pointed at it:
+        // *"burada da servisin url'i var."* Derivable by somebody who already knows the shape of a REST
+        // path, and shown nowhere before this.
+        string url = await Browser.EvaluateAsync<string>(
+            "document.getElementById('svcUrl')?.value || ''") ?? string.Empty;
+
+        Assert.Contains("/rest/services/", url, StringComparison.Ordinal);
+        Assert.EndsWith("/FeatureServer", url, StringComparison.Ordinal);
+
+        // <b>And Overview's own row is the way into a layer.</b> A group layer is deliberately not a
+        // link — it holds no data and has no page — so this waits for one that is.
+        await WaitForAsync(
+            "!!document.querySelector('#serviceLayerRows td.name a')",
+            "The service lists its layers and none of them is a link, so the layer editor is "
+            + "unreachable again. That is D-98.");
+
+        await ClickAsync("#serviceLayerRows td.name a");
 
         await WaitForAsync(
             "document.getElementById('view-layer')?.classList.contains('on') "
             + "&& location.hash.startsWith('#/layer/')",
-            "Clicking a single-layer content row did not open the layer editor.");
+            "A layer named in the service's Overview did not open its own page.");
 
-        // <b>And Cancel does not leave the surface.</b> It was hardcoded to Server's services list, so a
-        // publisher pressing *nevermind* crossed the product — and one without `admin:manageServer` got
-        // a refusal toast for their trouble.
+        // Cancel does not leave the surface — it was hardcoded to Server's services list, so a Studio
+        // publisher pressing *nevermind* crossed the product.
         Assert.Equal(
             "#/content",
             await Browser.EvaluateAsync<string>(

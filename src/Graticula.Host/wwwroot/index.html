@@ -1178,13 +1178,24 @@
       <b>It is also the route to a layer's own page from Server</b>, which nothing had since the list
       went — see [D-98](../../docs/architecture-debt.md).
     -->
-    <div class="panel widetable" id="serviceOverview" hidden>
-      <table>
-        <thead><tr>
-          <th>Layer</th><th>Geometry</th><th class="num">Id</th><th>Kind</th><th></th>
-        </tr></thead>
-        <tbody id="serviceLayerRows"></tbody>
-      </table>
+    <div class="itemgrid" id="serviceOverview" hidden>
+      <div class="panel widetable">
+        <table>
+          <thead><tr>
+            <th>Layer</th><th>Geometry</th><th class="num">Id</th><th>Kind</th><th></th>
+          </tr></thead>
+          <tbody id="serviceLayerRows"></tbody>
+        </table>
+      </div>
+
+      <!--
+        <b>The right column their item page has, and the address is why it exists.</b> ADR-034 §5k:
+        an operator wiring a service into ArcGIS Pro or a script needs the REST path, and this console
+        showed it nowhere. What the reference also puts here — a completeness meter, a rating,
+        categories, tags, credits, metadata — has nothing to be stored in and is listed as omitted
+        rather than left to be noticed.
+      -->
+      <aside class="panel" id="serviceDetails"></aside>
     </div>
 
     <!--
