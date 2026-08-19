@@ -122,6 +122,22 @@ Twenty concurrent requests for 2,000 features each is 40,000 features of encodin
 bound *that* are the response-byte ceiling, the request deadline, and ADR-007 §4.8's connection budget —
 each a different unit, none of them a row count.
 
+**And the ceiling is what makes paging the normal case, so paging was measured against it**
+([benchmarks/paging](../../benchmarks/paging/RESULTS.md), 2026-08-19, at the owner's asking): a
+3,000,000-row layer walked in 5,000-row pages is **601 requests, zero duplicates, zero missing**. The
+zeros are the point — D-21 was a defect where the first page came back in heap order and every later page
+in identity order, so a client walking pages deterministically skipped rows and repeated others, and
+three of ten layers did it.
+
+**The cost of `resultOffset` grows linearly with depth and there is no server-side fix.** At 5,000 rows a
+page: 25 ms at the start of that layer, 231 ms at the end — because PostgreSQL walks and discards the
+rows it skips. `where objectid > {last}` returns the same 5,000 rows in a flat 20 ms at every depth,
+because an index scan starts where it is told. `offset N` *means* the Nth row of an order, and computing
+which row that is **is** the scan — so a server cannot rewrite it into a keyset lookup without already
+knowing the key. An ArcGIS client sends `resultOffset` and pays this; a script of one's own should send
+the `where` form, which needs nothing new. It is also the only form that is correct over a table
+somebody is editing, since a delete moves every later row's position and `offset` addresses positions.
+
 ## 3. Consequences
 
 - **The catalogue gains a capability set per service**, and the schema gains its first
