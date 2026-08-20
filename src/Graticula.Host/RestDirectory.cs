@@ -210,6 +210,10 @@ internal static class RestDirectory
     /// A layer tree, depth-first, with one entry per layer and group and its
     /// depth. Rendered as nested lists above the property table.
     /// </param>
+    /// <param name="formats">
+    /// Other representations of this same resource, offered beside <c>JSON</c> on
+    /// the format line — a WFS document for a feature service, for instance.
+    /// </param>
     /// <returns>An HTML document.</returns>
     /// <remarks>
     /// <b>Rendered by walking the serialised JSON</b>, rather than by a template
@@ -222,7 +226,8 @@ internal static class RestDirectory
         object document,
         IEnumerable<(string Label, string Href)>? links = null,
         string linksLabel = "View in",
-        IEnumerable<(string Label, string Href, int Depth)>? tree = null)
+        IEnumerable<(string Label, string Href, int Depth)>? tree = null,
+        IEnumerable<(string Label, string Href)>? formats = null)
     {
         StringBuilder body = new();
 
@@ -252,7 +257,7 @@ internal static class RestDirectory
         Rows(body, parsed.RootElement, path);
         body.Append("</table>");
 
-        return Page(path, body.ToString());
+        return Page(path, body.ToString(), close: true, formats);
     }
 
     /// <summary>
@@ -512,7 +517,34 @@ internal static class RestDirectory
     /// <param name="name">Their name, or null for anonymous.</param>
     public static void SignedInAs(string? name) => Current.Value = name;
 
-    private static string Page(string path, string body, bool close = true)
+    /// <summary>
+    /// Renders one directory page.
+    /// </summary>
+    /// <param name="path">The path being answered, which becomes the breadcrumb.</param>
+    /// <param name="body">The page's content.</param>
+    /// <param name="close">Whether to close <c>main</c>, or leave it open for a caller that appends.</param>
+    /// <param name="formats">
+    /// <para>
+    /// Other representations of this same resource, offered beside <c>JSON</c> on the
+    /// format line. <b>Added 2026-08-20 because a second protocol had been built and
+    /// nothing in the directory said so.</b> An ArcGIS Server directory prints
+    /// <c>JSON | SOAP | WMS | WFS</c> there, and that line is how a person discovers
+    /// that the service they are looking at is reachable another way. This server had
+    /// spoken WFS for a day and the word did not appear on any service page.
+    /// </para>
+    /// <para>
+    /// <b>The caller supplies them rather than this deriving them from the path</b>,
+    /// because the WFS name of a layer is the layer's own name and only the caller has
+    /// it. Deriving it from the URL would mean guessing that the ArcGIS layer id and
+    /// the WFS type name are the same thing, which they are not.
+    /// </para>
+    /// </param>
+    /// <returns>The page.</returns>
+    private static string Page(
+        string path,
+        string body,
+        bool close = true,
+        IEnumerable<(string Label, string Href)>? formats = null)
     {
         StringBuilder crumbs = new("<a href=\"/rest/services\">Home</a>");
         string sofar = "";
@@ -548,6 +580,15 @@ internal static class RestDirectory
         }
 
         string json = path + (path.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "f=json";
+
+        StringBuilder faces = new(
+            $"<a href=\"{H(json)}\">JSON</a>");
+
+        foreach ((string Label, string Href) face in formats ?? [])
+        {
+            faces.Append(CultureInfo.InvariantCulture,
+                $" | <a href=\"{H(face.Href)}\">{H(face.Label)}</a>");
+        }
 
         // Two dollars, so a single brace is CSS and a doubled one interpolates.
         // The alternative is escaping every brace in the stylesheet.
@@ -607,7 +648,7 @@ internal static class RestDirectory
             </style>
             <div class="top">Graticula REST Services Directory<span class="who">{{Who(path)}}</span></div>
             <div class="bar">{{crumbs}}</div>
-            <div class="fmt"><a href="{{H(json)}}">JSON</a></div>
+            <div class="fmt">{{faces}}</div>
             <main>{{body}}{{(close ? "</main>" : string.Empty)}}
             """;
     }

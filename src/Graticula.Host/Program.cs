@@ -1675,7 +1675,14 @@ public static class Program
                             + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
                     ],
                     linksLabel: "View in",
-                    tree: LayerTree(service, context.Request.Path)),
+                    tree: LayerTree(service, context.Request.Path),
+
+                    // <b>The format line, which is where an ArcGIS Server
+                    // directory prints JSON | SOAP | WMS | WFS.</b> This server
+                    // has spoken WFS since 2026-08-19 and no service page said
+                    // so, which made the surface discoverable only to somebody
+                    // who already knew it existed.
+                    formats: [WfsEndpoints.DirectoryLink(null)]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -1814,7 +1821,13 @@ public static class Program
                             + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
                             + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
                         ("Query", context.Request.Path + "/query"),
-                    ]),
+                    ],
+
+                    // The layer's own WFS schema, on the format line beside JSON.
+                    // The WFS type name is the layer's name, which is why this is
+                    // built here and not from the path: the ArcGIS layer id and
+                    // the WFS type name are different identifiers for one layer.
+                    formats: [WfsEndpoints.DirectoryLink(layer.Definition.Name)]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

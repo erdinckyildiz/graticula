@@ -194,6 +194,24 @@ servable, and this is the first surface on which they are.**
 caller may see, the way the services directory does, rather than refusing — so an anonymous client
 sees the public feature types and learns nothing about the rest.
 
+**And it obeys the capability limits, which took a correction.** A service whose `servesFeatures` is
+false answers 404 at the ArcGIS door; until 2026-08-20 this surface read its layers regardless.
+`VisibleAsync` applied three of the four checks the rest of the server applies and not the fourth,
+so an operator who had closed the feature face was still serving it. **Sharing was never the hole
+— configuration was**, and the difference matters: the callers were entitled to the data and the
+operator had said not through this product. Fixed the day the REST directory started linking here,
+which is how it was found. [D-123](../architecture-debt.md).
+
+**The surface is discoverable from the directory, added 2026-08-20 on the owner's question.** An
+ArcGIS Server directory prints `JSON | SOAP | WMS | WFS` on each service page and that line is how
+anybody learns a service speaks a second protocol; this one had spoken WFS for a day without the
+word appearing anywhere a person browses. A feature service page now offers its capabilities and a
+layer page its own `DescribeFeatureType`. **The link is built by `WfsEndpoints` rather than by the
+renderer**, because the WFS type name is the layer's own name and the ArcGIS layer id is a number:
+deriving one from the other is a guess, and a page that advertises a type this server does not
+publish is worse than a page that says nothing. Asserted for every layer of every service by
+`WfsConformanceTests`, including that a group layer offers none.
+
 ## 6. Consequences
 
 **Positive.** A non-Esri client can read this server for the first time. Q-57's identity asymmetry

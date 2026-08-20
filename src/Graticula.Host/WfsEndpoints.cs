@@ -44,6 +44,36 @@ internal static class WfsEndpoints
     /// <summary>Where the surface lives.</summary>
     public const string Path = "/wfs";
 
+    /// <summary>
+    /// The link a REST directory page offers to this surface.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Here rather than in the renderer, because this class owns the URL
+    /// shape.</b> A directory page that builds a WFS request out of string
+    /// fragments is a second description of this surface, and the two drift the
+    /// first time a parameter is renamed.
+    /// </para>
+    /// <para>
+    /// <b>The service page gets the capabilities and a layer page gets its own
+    /// schema.</b> Capabilities on a layer page would say nothing about the layer,
+    /// and the schema is the layer-scoped document that costs no data to fetch —
+    /// unlike GetFeature, which a person clicking a link in a browser has not
+    /// asked to download.
+    /// </para>
+    /// </remarks>
+    /// <param name="layerName">
+    /// The layer's name, which is also its WFS type name, or null for the service.
+    /// </param>
+    /// <returns>The label and the address.</returns>
+    public static (string Label, string Href) DirectoryLink(string? layerName) =>
+        layerName is null
+            ? ("WFS", $"{Path}?service={WfsNames.Service}&request=GetCapabilities")
+            : ("WFS",
+                $"{Path}?service={WfsNames.Service}&version={WfsNames.Version}"
+                + "&request=DescribeFeatureType&typeNames="
+                + Uri.EscapeDataString($"{WfsNames.Prefix}:{layerName}"));
+
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -234,6 +264,20 @@ internal static class WfsEndpoints
         foreach (PublishedService service in services)
         {
             if (!service.IsRunning && !seesStopped)
+            {
+                continue;
+            }
+
+            // <b>A face switched off is switched off on every door.</b> Found
+            // 2026-08-20 while adding the WFS link to the REST directory: a
+            // service with `ServesFeatures` false answers 404 at
+            // `/rest/services/…/FeatureServer` (ADR-031 condition 2, asserted in
+            // both `ServiceLookup.LayerAsync` and the service document) and this
+            // surface read its layers anyway. That is not a WFS decision — it is
+            // the ArcGIS decision, unenforced, and a second protocol quietly
+            // reopening a door the operator closed is exactly the failure a new
+            // surface is most likely to introduce. D-123.
+            if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
             {
                 continue;
             }
