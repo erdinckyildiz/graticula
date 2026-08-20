@@ -235,10 +235,30 @@ looks broken rather than minimal.
 
 ### 5.5 The ArcGIS face
 
-`MapServer/export` and `MapServer/identify`, plus the `MapServer` service and layer
-documents the directory already knows how to render. This is the shape the owner
-preferred in 2026-08-13 and it costs almost nothing once the renderer exists: it is
+`MapServer/export`, `MapServer/identify` and `MapServer/legend`, plus the service and
+layer documents the directory already knows how to render. This is the shape the
+owner preferred on 2026-08-13 and it costs almost nothing once the renderer exists:
 a different spelling of extent, size, format and layer list.
+
+**Built 2026-08-20, the same day as WMS**, and the two faces share the fetch and the
+draw — `WmsEndpoints.DrawLayerAsync` — rather than each having their own. Two
+rendered faces that both fetched and drew would eventually draw differently, and the
+person who found out would be a user comparing them. `Export_and_wms_draw_the_same_map`
+asserts they are byte-identical.
+
+**Two things this face does that WMS does not have to.** `export` answers `f=json`
+with an address rather than an image, because that is what the JavaScript API places
+an element from — and the address has to be one the same client can fetch. And
+`legend` returns its swatches inline as base64, because a client drawing a table of
+contents otherwise makes one request per layer for a few hundred bytes each.
+
+**Three refusals are deliberate.** `layers=hide:`, `include:` and `exclude:` are
+refused rather than read for their ids: each means something different about which
+features are drawn, and a server that took the numbers and dropped the verb would
+draw the exact opposite of what `hide` asked for. `bboxSR` differing from `imageSR`
+is refused rather than reprojected, because an extent transformed without saying so
+produces an image of somewhere near where it was asked for. And `geometryType` other
+than a point is refused rather than reduced to its centre.
 
 **This does not reopen [Q-17](../open-questions.md)'s exclusion of ImageServer.**
 MapServer draws features we already serve; ImageServer serves raster data

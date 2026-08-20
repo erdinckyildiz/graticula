@@ -898,6 +898,7 @@ public static class Program
         // the whole server rather than one per service (ADR-039 §5).
         WfsEndpoints.Map(app);
         WmsEndpoints.Map(app);
+        MapServerEndpoints.Map(app);
 
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
         // server connection wants a SOAP catalogue this product has never scoped;
@@ -1170,9 +1171,20 @@ public static class Program
                 s.Layers.Count > 0 && s.Layers.All(l => l.Definition.IsHosted)),
         ];
 
+        // <b>Every service with a drawable layer also has a MapServer</b>, added
+        // 2026-08-20 with ADR-041. A face a client cannot find in the catalogue is a
+        // face only somebody who already knew the URL can use, which is the same
+        // argument the WFS link on a service page made three commits earlier.
+        List<PublishedService> drawable =
+        [
+            .. visible.Where(s =>
+                s.Layers.Any(l => l.Definition.GeometryColumn is { Length: > 0 })),
+        ];
+
         List<(string Name, string Type)> everything =
         [
             .. visible.Select(s => (s.QualifiedName, Type: "FeatureServer")),
+            .. drawable.Select(s => (s.QualifiedName, Type: "MapServer")),
             .. tileable.Select(s => (s.QualifiedName, Type: "VectorTileServer")),
             .. systemServices,
         ];
@@ -1194,7 +1206,8 @@ public static class Program
             folders,
             folder,
             tileable.Select(s => s.Name),
-            systemServices));
+            systemServices,
+            drawable.Select(s => s.Name)));
     }
 
     /// <summary>

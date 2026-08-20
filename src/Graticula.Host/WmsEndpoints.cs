@@ -657,7 +657,9 @@ internal static class WmsEndpoints
 
         foreach (PublishedLayer layer in wanted)
         {
-            await DrawAsync(contexts, renderer, transform, layer, request, settings, cancellation)
+            await DrawLayerAsync(
+                contexts, renderer, transform, layer, request.Srid, request.Time,
+                settings.MaximumRecordCount, cancellation)
                 .ConfigureAwait(false);
         }
 
@@ -679,21 +681,62 @@ internal static class WmsEndpoints
     /// read data, which is most of why ADR-041 turned out smaller than ADR-004
     /// assumed.
     /// </remarks>
-    private static async Task DrawAsync(
+    /// <summary>
+    /// Fetches and draws one layer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The query is the ordinary one</b> — <see cref="FeatureQuery"/> with the
+    /// buffered extent, the requested CRS, a one-pixel simplification tolerance and
+    /// only the columns the style reads. Nothing about rendering needed a new way to
+    /// read data, which is most of why ADR-041 turned out smaller than ADR-004
+    /// assumed.
+    /// </para>
+    /// <para>
+    /// <b>Shared with the ArcGIS MapServer face on purpose.</b> Two rendered faces
+    /// that each fetched and drew would eventually draw differently, and the
+    /// difference would be found by a user comparing them rather than by a test. The
+    /// vocabularies differ and the drawing does not.
+    /// </para>
+    /// </remarks>
+    /// <param name="contexts">Where a layer's source comes from.</param>
+    /// <param name="renderer">What to draw into.</param>
+    /// <param name="transform">Map units to pixels.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="srid">The CRS the image is drawn in.</param>
+    /// <param name="time">A time filter, or null for none.</param>
+    /// <param name="limit">The most features to read.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The work.</returns>
+    public static async Task DrawLayerAsync(
         ServiceContexts contexts,
         MapRenderer renderer,
         PixelTransform transform,
         PublishedLayer layer,
-        WmsRequest request,
-        HostSettings settings,
+        int srid,
+        TimeWindow? time,
+        int limit,
         CancellationToken cancellation)
     {
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(layer);
+
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
         SymbologyPlan plan = layer.Symbology is { Length: > 0 } stored
             ? SymbologyPlan.Compile(stored)
             : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
+
+        MapRenderer.Pass pass = renderer.Begin(plan);
+
+        if (pass.DrawsNothing)
+        {
+            // Every style layer is switched off at this zoom. Reading the features
+            // to draw none of them is the whole query for nothing.
+            return;
+        }
 
         Envelope query = transform.Buffered(plan.Margin);
 
@@ -707,7 +750,7 @@ internal static class WmsEndpoints
             }
         }
 
-        AttributePredicate? predicate = TimePredicate(request, described);
+        AttributePredicate? predicate = TimePredicate(time, described);
 
         ParsedWhere? where = null;
 
@@ -723,23 +766,14 @@ internal static class WmsEndpoints
         }
 
         FeatureQuery features = new(
-            limit: settings.MaximumRecordCount,
+            limit: limit,
             fields: fields.Count > 0 ? fields : [],
             includeGeometry: true,
             spatial: new SpatialFilter(Rectangle(query)),
-            outSrid: request.Srid == layer.Definition.Srid ? null : request.Srid,
-            filterSrid: request.Srid == layer.Definition.Srid ? null : request.Srid,
+            outSrid: srid == layer.Definition.Srid ? null : srid,
+            filterSrid: srid == layer.Definition.Srid ? null : srid,
             maxAllowableOffset: transform.UnitsPerPixel,
             where: where);
-
-        MapRenderer.Pass pass = renderer.Begin(plan);
-
-        if (pass.DrawsNothing)
-        {
-            // Every style layer is switched off at this zoom. Reading the features
-            // to draw none of them is the whole query for nothing.
-            return;
-        }
 
         await foreach (Feature feature in source.ReadAsync(features, cancellation).ConfigureAwait(false))
         {
@@ -756,9 +790,9 @@ internal static class WmsEndpoints
     /// an animation, which reads as duplicated data.
     /// </remarks>
     private static AttributePredicate.Conjunction? TimePredicate(
-        WmsRequest request, LayerDescription described)
+        TimeWindow? asked, LayerDescription described)
     {
-        if (request.Time is not { } window
+        if (asked is not { } window
             || TimeDimension.FieldOf(described.Fields) is not { } field)
         {
             return null;

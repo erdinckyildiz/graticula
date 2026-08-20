@@ -277,13 +277,17 @@ public static class FeatureServerMetadataWriter
     /// "geometry server is also a service", so it belongs in the directory
     /// beside the layers.
     /// </param>
+    /// <param name="mapServices">
+    /// Services with a drawable layer, which also answer as a MapServer — ADR-041.
+    /// </param>
     /// <returns>The catalogue document.</returns>
     public static object Catalogue(
         IEnumerable<string> serviceNames,
         IEnumerable<string> folders,
         string? folder = null,
         IEnumerable<string>? tileServices = null,
-        IEnumerable<(string Name, string Type)>? systemServices = null)
+        IEnumerable<(string Name, string Type)>? systemServices = null,
+        IEnumerable<string>? mapServices = null)
     {
         ArgumentNullException.ThrowIfNull(serviceNames);
         ArgumentNullException.ThrowIfNull(folders);
@@ -304,6 +308,16 @@ public static class FeatureServerMetadataWriter
         {
             services.AddRange(
                 tileServices.Select(name => new { name = Qualify(name), type = "VectorTileServer" }));
+        }
+
+        // <b>And the rendered face, added 2026-08-20 with ADR-041.</b> The same
+        // service under a third type, for the same reason the tile entry exists: a
+        // face that is not in the catalogue is a face only somebody who already knew
+        // the URL can reach.
+        if (mapServices is not null)
+        {
+            services.AddRange(
+                mapServices.Select(name => new { name = Qualify(name), type = "MapServer" }));
         }
 
         // A service that is not a layer — the geometry service — carries its
