@@ -81,11 +81,26 @@ capability and a subsystem whose reason to exist had been deleted by a later dec
 a deployment somebody operates and Extensibility has nothing to examine** (ADR-006 is `REOPENED` and no
 plugin code exists), so those two stay blank and say why.
 
-**Five of nine were run, and the four blanks were deliberate.** A gate ticked without
-evidence is worse than one left open: it converts an unknown into a false
-assurance, and nothing afterwards re-examines it. The five below were run because
-the evidence to run them exists; the rest are named with what each is waiting
-for.
+**Seven of nine were run, and the two blanks are deliberate.** A gate ticked without
+evidence is worse than one left open: it converts an unknown into a false assurance,
+and nothing afterwards re-examines it. The seven below were run because the evidence to
+run them exists; the two blanks are named with what each is waiting for, and neither is
+waiting on us.
+
+**Five ran or re-ran on 2026-08-20**, against the four protocol faces added on
+2026-08-19 and 2026-08-20, each by an independent reviewer who did not write the code —
+which is §67's requirement and was the standing gap in every earlier round. **All five
+failed.** Between them: twenty-two findings, sixteen repaired the same day, six recorded
+as debt with the repayable form named. Two of the six are not defects but capabilities
+scoped smaller than the ADR that describes them, and those are the ones worth reading:
+a gate that only ever finds bugs is not looking at the architecture.
+
+**What the day changed about the gates themselves.** Four of the five failures were
+found by a question no single-face test can ask — *do two faces of this server agree*,
+or *what does this face say while a dependency is gone*. The suite that had 1,564 tests
+passing caught none of them. That is not an argument against the suite; it is the
+argument for §66 existing beside it, and it is the first time this repository has
+evidence for that rather than a policy.
 
 | Gate | Run | Result |
 |---|---|---|

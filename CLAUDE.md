@@ -44,11 +44,16 @@ judgement is recorded rather than implied. Of §81's sixteen:
   [architecture-completeness.md](docs/architecture-completeness.md), and is read
   there rather than restated here. This sentence used to carry the tally itself
   and was wrong for a day, which is how it came to say where the tally lives
-  instead; the contradiction sweep — **round 2 run
-  2026-08-15** ([contradiction-sweep-2.md](docs/reviews/contradiction-sweep-2.md)),
-  from the other direction: each decision against the code that now exists.
-  Twelve findings, four of them new, and it stays open because it did not cover
-  the §66 gates, the ADR conditions or A-003;
+  instead; the contradiction sweep — **round 3 run
+  2026-08-20** ([contradiction-sweep-3.md](docs/reviews/contradiction-sweep-3.md)),
+  from the other direction: each decision against the code that now exists. Round 2
+  ([contradiction-sweep-2.md](docs/reviews/contradiction-sweep-2.md)) stayed open
+  because it did not cover the §66 gates, the ADR conditions or A-003. Round 3 read
+  the conditions and left the gates to the gates, which now run; **what it found is a
+  propagation failure rather than a contradiction** — decisions taken in one file and
+  left standing in every document that restated them — and that is
+  [D-126](docs/architecture-debt.md) and the general form
+  [D-130](docs/architecture-debt.md), neither of them closed;
   [architecture-assessment.md](docs/architecture-assessment.md), **repaired
   2026-08-15** — not by rewriting it, which would have erased the record of what
   was believed before anything was built, but by a header that says section by
