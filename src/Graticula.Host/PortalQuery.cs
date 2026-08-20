@@ -65,6 +65,18 @@ internal static class PortalQuery
                 continue;
             }
 
+            // <b>`*` is ArcGIS's match-all and clients send it as their default.</b> It
+            // was being treated as a literal word to look for in the title, so
+            // `search?q=*` answered `total: 0` with nothing to say that the syntax was
+            // unsupported — an empty portal, from the query a client makes first. Found
+            // by the second failure gate. Only the bare form is match-all: `title:*`
+            // stays a literal, because a field with a value is a question about that
+            // field and answering it with *everything* would be a different lie.
+            if (field.Length == 0 && value == "*")
+            {
+                continue;
+            }
+
             if (field.Length == 0)
             {
                 // A bare word matches the title, which is what a person typing into

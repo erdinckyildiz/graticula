@@ -351,7 +351,7 @@ public static class Program
         // Liveness answers "is this process alive". Readiness answers "can it
         // serve", needs the store, and is a separate endpoint precisely because
         // the two must be allowed to disagree.
-        app.MapGet("/healthz/live", () => Results.Ok(new { status = "live" }));
+        app.MapGet(LivenessPath, () => Results.Ok(new { status = "live" }));
 
         // <b>First, so that everything answers with them — including a 404 from
         // routing and a 500 from the exception handler, which are exactly the
@@ -397,6 +397,36 @@ public static class Program
 
         app.Use(async (context, next) =>
         {
+            // <b>The liveness probe does not ask who is calling, because asking costs a
+            // database round trip and the probe exists for the case where the database is
+            // gone.</b> `ResolveAsync` looks up grants even for an anonymous caller —
+            // deliberately, ADR-015 §2a, so that a public portal is a row rather than a
+            // branch — and this middleware runs before every route. Measured with the
+            // store stopped: 22 ms healthy, **4.03 s** from about eight seconds into the
+            // outage, once the pool has drained its already-broken connectors.
+            //
+            // <b>That defeats the fix one screen up.</b> `/healthz/live` was made to
+            // answer a constant precisely so an outage does not become a restart loop —
+            // and Kubernetes' default probe `timeoutSeconds` is 1, so a 4-second probe
+            // fails on every attempt and the kubelet restarts the container about thirty
+            // seconds in. The restart does not reach the database and it empties
+            // `CatalogFallback`, which is the degraded serving ADR-026 exists to provide.
+            // **The outage would remove its own mitigation.** Found by the second failure
+            // gate; the endpoint's own remark had predicted the shape and nobody looked at
+            // what ran in front of it.
+            //
+            // The principal set here is the one an unreachable store produces anyway, so
+            // the liveness path answers identically in both directions — it just does not
+            // wait to find out.
+            if (context.Request.Path == LivenessPath)
+            {
+                context.Features.Set(
+                    new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing));
+
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
             RequestPrincipal current = await context.RequestServices
                 .GetRequiredService<Authentication>()
                 .ResolveAsync(context, context.RequestAborted)
@@ -431,7 +461,7 @@ public static class Program
 
             if (!state.IsSetupPending
                 || context.Request.Path == "/rest/setup"
-                || context.Request.Path == "/healthz/live")
+                || context.Request.Path == LivenessPath)
             {
                 await next(context).ConfigureAwait(false);
                 return;
@@ -604,7 +634,7 @@ public static class Program
         // (D-18). Refusing them here would make a dirty password *less* than no credential at all,
         // which is a strange shape and would break a browser that is signed in and reading a map.
         return path.StartsWithSegments("/rest/services")
-            || path == "/healthz/live"
+            || path == LivenessPath
             || path == "/admin/health";
     }
 
@@ -2431,6 +2461,19 @@ public static class Program
             Log.DatastoreNotRegistered(logger, e.Message);
         }
     }
+
+    /// <summary>
+    /// The one route that must answer while every dependency is gone.
+    /// </summary>
+    /// <remarks>
+    /// <b>A name rather than four string literals, because three of the four were a
+    /// guard and the fourth was the route itself.</b> Setup, the dirty-password gate and
+    /// the anonymous-surface list each exempt this path, and every exemption is only as
+    /// good as somebody spelling it the same way. The middleware exemption added
+    /// 2026-08-20 is the fourth, and it is the one whose absence made the other three
+    /// pointless during an outage.
+    /// </remarks>
+    private const string LivenessPath = "/healthz/live";
 
     /// <summary>The key for the datastore's own connection pool.</summary>
     private const string DatastorePool = "datastore";

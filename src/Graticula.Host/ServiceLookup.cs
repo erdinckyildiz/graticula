@@ -323,14 +323,40 @@ internal static class ServiceLookup
     private static Task RefuseBlindAsync(
         HttpContext context, string serviceName, CatalogAnswer answer, bool unknown)
     {
+        int age = (int)answer.Age.TotalSeconds;
+
+        // <b>There are three cases here and the message used to describe two.</b> A
+        // blind answer means *never seen*, or *seen and now too old to trust* — and both
+        // were told they had no record. The second sentence then reported the record's
+        // age, so the refusal contradicted itself inside one paragraph: no record of it,
+        // from a catalogue 964 s old. An operator reads that as their service having
+        // vanished, when what happened is that the outage passed fifteen minutes.
+        //
+        // <b>The information to tell them apart was already on the wire.</b> `Age` is
+        // zero when nothing was ever remembered and non-zero when the memory expired,
+        // which is why this needs no new plumbing. Found by the second failure gate.
+        bool expired = unknown && age > 0;
+
         string detail = unknown
-            ? "The platform store is unreachable, and this server has no record of a service "
-              + $"named '{serviceName}' from before it went quiet. It may exist; this server "
-              + "cannot currently tell you either way, which is why this is not a 404."
+            ? expired
+                ? "The platform store is unreachable, and this server's memory of the "
+                  + $"catalogue has passed the window it is trusted for, so '{serviceName}' "
+                  + "can no longer be resolved from it. This is not a 404: the service may "
+                  + "well exist and this server has stopped being willing to guess."
+                : "The platform store is unreachable, and this server has no record of a "
+                  + $"service named '{serviceName}' from before it went quiet. It may exist; "
+                  + "this server cannot currently tell you either way, which is why this is "
+                  + "not a 404."
             : "The platform store is unreachable. While it is, this server answers only "
               + "services that were public the last time it could read the catalogue, and "
               + $"'{serviceName}' was not one of them. Serving it would mean honouring a "
               + "permission nobody can currently confirm.";
+
+        string closing = expired
+            ? $" The catalogue it is working from is {age}s old, past its window."
+            : age > 0
+                ? $" Public services are still being served, from a catalogue {age}s old."
+                : " This server has not managed to read the catalogue since it started.";
 
         return Results.Json(
             new
@@ -338,10 +364,8 @@ internal static class ServiceLookup
                 error = new
                 {
                     code = 503,
-                    message = detail
-                        + " Public services are still being served, from a catalogue "
-                        + $"{(int)answer.Age.TotalSeconds}s old.",
-                    catalogAgeSeconds = (int)answer.Age.TotalSeconds,
+                    message = detail + closing,
+                    catalogAgeSeconds = age,
                 },
             },
             statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);

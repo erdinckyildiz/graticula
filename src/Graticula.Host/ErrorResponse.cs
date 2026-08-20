@@ -1,8 +1,12 @@
 using System;
 using System.Globalization;
 using System.Threading.Tasks;
+using Graticula.Api.OgcFeatures;
+using Graticula.Api.Wfs;
+using Graticula.Api.Wms;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -111,9 +115,86 @@ internal static class ErrorResponse
                 RetrySeconds.ToString(CultureInfo.InvariantCulture);
         }
 
+        if (await TryProtocolEnvelopeAsync(context, status, message).ConfigureAwait(false))
+        {
+            return;
+        }
+
         await Results.Json(new { error = new { code = status, message } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Answers in the shape the face being addressed refuses in, when there is one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One handler, seven protocols, and until 2026-08-20 one envelope.</b> Every
+    /// unhandled failure — including every refusal during a database outage — was written
+    /// as ArcGIS REST JSON, on all of them. A WMS 1.3.0 client expects
+    /// <c>ServiceExceptionReport</c>, a WFS 2.0 client expects <c>ows:ExceptionReport</c>
+    /// and an OGC API Features client expects <c>application/problem+json</c>; all three
+    /// received <c>{"error":{"code":…}}</c> and could not parse it.
+    /// </para>
+    /// <para>
+    /// <b>The moment it mattered most is the moment it was worst.</b> The handled paths on
+    /// these faces get their envelopes right, and get them right well — this is only the
+    /// fallback, which is what a client meets during an outage, which is exactly when its
+    /// error handling is being exercised hardest. Found by the second failure gate, which
+    /// stopped the database and read what each face said.
+    /// </para>
+    /// <para>
+    /// <b>The message is unchanged; only the wrapper is chosen.</b> The sentence
+    /// <see cref="Classify"/> produced is already written for an operator, and rewriting
+    /// it per protocol would be seven places for it to drift.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> TryProtocolEnvelopeAsync(
+        HttpContext context, int status, string message)
+    {
+        PathString path = context.Request.Path;
+
+        if (path.StartsWithSegments("/wms"))
+        {
+            // A WMS exception is a 200 carrying a refusal document — WmsEndpoints says
+            // why, and this must not disagree with it for the same server.
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = WmsFault.MediaType(WmsVersion.V130);
+
+            await context.Response
+                .WriteAsync(new WmsFault(null, message).ToXml(WmsVersion.V130))
+                .ConfigureAwait(false);
+
+            return true;
+        }
+
+        if (path.StartsWithSegments("/wfs"))
+        {
+            context.Response.StatusCode = status;
+            context.Response.ContentType = "text/xml; charset=utf-8";
+
+            await new WfsFault(WfsFaultCode.OperationProcessingFailed, null, message)
+                .WriteAsync(context.Response.Body, context.RequestAborted)
+                .ConfigureAwait(false);
+
+            return true;
+        }
+
+        if (path.StartsWithSegments("/ogc"))
+        {
+            context.Response.StatusCode = status;
+            context.Response.ContentType = OgcNames.Problem;
+
+            await context.Response
+                .WriteAsync(new OgcProblem(status, ReasonPhrases.GetReasonPhrase(status), message)
+                    .ToJson())
+                .ConfigureAwait(false);
+
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>The sentence a request that ran out of time gets.</summary>
@@ -152,6 +233,25 @@ internal static class ErrorResponse
         // flight — the database is fine, and telling the caller it is *unreachable* would send an
         // operator to look at something that is working. 503 with the reason, and the message names
         // the setting that would raise it.
+        // <b>A caller's bad SRID is a caller's problem, and it was being reported as an
+        // outage.</b> PostGIS raises XX000 — its catch-all internal class — for
+        // `Invalid reserved SRID`, and XX000 is not one of the codes named below, so it
+        // fell through to the general Npgsql branch and every face answered *a database
+        // this server depends on is unreachable* while the database was up and answering
+        // everything else. An operator reading that goes to check the network. Found by
+        // the second failure gate, on four surfaces at once.
+        //
+        // <b>Matched on the message, which is unusual here and is the honest option.</b>
+        // XX000 covers unrelated genuine faults, so the code alone cannot decide; the
+        // text PROJ raises is stable and specific. Anything else in XX000 keeps the
+        // conservative answer.
+        PostgresException { SqlState: "XX000" } srid
+            when srid.MessageText.Contains("SRID", StringComparison.OrdinalIgnoreCase) => (
+                StatusCodes.Status400BadRequest,
+                "A coordinate reference system in this request is not one the projection "
+                + "database knows: " + srid.MessageText + ". The server is healthy; check "
+                + "the CRS, SRS, srsName, outSR or bboxSR you sent."),
+
         ConnectionBudgetFullException full => (
             StatusCodes.Status503ServiceUnavailable, full.Message),
 

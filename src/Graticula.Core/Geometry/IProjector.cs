@@ -94,4 +94,30 @@ public interface IProjector
         int fromSrid,
         int toSrid,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether this deployment can work in a coordinate reference system at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-20 because a syntactically valid CRS code is not a real one, and
+    /// finding that out late is expensive.</b> A protocol face can check that
+    /// <c>urn:ogc:def:crs:EPSG::999999</c> is spelled correctly; nothing short of asking
+    /// the projection authority can tell it that no such system exists. WFS was asking
+    /// by trying: it wrote the response header, began streaming, and the database
+    /// refused the transform on the first row — leaving a well-formed document that
+    /// announced a thousand features and carried none.
+    /// </para>
+    /// <para>
+    /// <b>Cheap enough to ask before every request that names one.</b> The set of
+    /// systems a deployment knows changes when somebody edits the projection database,
+    /// which is close enough to never that an implementation is expected to cache the
+    /// answer. The first request for a given code pays a round trip and the rest pay
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    /// <param name="srid">The EPSG code.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the system is one this deployment can project into.</returns>
+    Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken);
 }

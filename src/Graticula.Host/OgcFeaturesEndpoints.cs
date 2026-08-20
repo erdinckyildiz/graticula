@@ -1,4 +1,6 @@
 using System;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -307,13 +309,52 @@ internal static class OgcFeaturesEndpoints
         // GeoJSON itself has nowhere to put it.
         context.Response.Headers["Content-Crs"] = $"<{request!.CrsUri}>";
 
-        await writer.WriteAsync(
+        await StreamAsync(context, "ogc", () => writer.WriteAsync(
             context.Response.Body,
             source.ReadAsync(features!, cancellation),
             matched,
             request,
             query,
-            cancellation).ConfigureAwait(false);
+            cancellation)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a streaming write so that a failure partway through is recorded.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because nothing was recording it.</b> Once the response has started, ASP.NET's
+    /// exception-handler middleware declines — it logs *the response has already started,
+    /// the error handler will not be executed* and stops — so
+    /// <see cref="ErrorResponse.WriteAsync"/> never runs and its
+    /// <see cref="ErrorResponse.LogTruncated"/> branch is unreachable from here. The
+    /// second failure gate hung up on twenty requests and found **no line at all** in
+    /// either the access log or the failure log for this face. An operator investigating
+    /// client-reported truncation had nothing to read.
+    /// </para>
+    /// <para>
+    /// <b>Abort rather than finish the document.</b> The bytes are past recall, so the
+    /// only question is whether the client learns that what it has is incomplete. A
+    /// truncated transfer it can detect; a well-formed document that ends early it
+    /// cannot — which is exactly how a bad `srsName` came to return a WFS collection
+    /// announcing a thousand features and carrying none.
+    /// </para>
+    /// </remarks>
+    private static async Task StreamAsync(
+        HttpContext context, string name, Func<Task> write)
+    {
+        try
+        {
+            await write().ConfigureAwait(false);
+        }
+        catch (Exception e) when (context.Response.HasStarted)
+        {
+            ErrorResponse.LogTruncated(
+                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
+                e);
+
+            context.Abort();
+        }
     }
 
     private static async Task ItemAsync(

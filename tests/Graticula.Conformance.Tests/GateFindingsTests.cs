@@ -11,15 +11,15 @@ using Xunit;
 namespace Graticula.Conformance.Tests;
 
 /// <summary>
-/// The seven defects the §66 gates found on 2026-08-20, each with a test.
+/// The ten defects the §66 gates found on 2026-08-20, each with a test.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Kept together on purpose.</b> They are not one subject — an axis rule, an
-/// output CRS, a metadata document, a timestamp, a capability string, a style name
-/// and an error message — but they share a provenance, and a reader asking
-/// <em>what did the gates find</em> should be able to read the answer in one place
-/// rather than seven.
+/// output CRS, a metadata document, a timestamp, a capability string, a style name,
+/// an error message, a truncated document, a misdiagnosed refusal and a search — but
+/// they share a provenance, and a reader asking <em>what did the gates find</em>
+/// should be able to read the answer in one place rather than ten.
 /// </para>
 /// <para>
 /// <b>Five came from the correctness gate.</b> Each was a wrong answer with a 200 on
@@ -27,6 +27,15 @@ namespace Graticula.Conformance.Tests;
 /// anywhere: transposed coordinates, a colour the server does not draw, an empty
 /// result for a moment that exists, and an operation promised in a document and
 /// missing from the route table.
+/// </para>
+/// <para>
+/// <b>Three came from the failure gate, and they are what the server says when
+/// something has gone wrong.</b> A coordinate system no projection database has
+/// produced a successful-looking WFS document claiming a thousand features and
+/// carrying none; the same mistake on the ArcGIS faces was reported as a database
+/// outage, sending an operator to check a network that was fine; and the portal's
+/// wildcard search — the first query an ArcGIS client sends — answered that a portal
+/// with twelve items was empty.
 /// </para>
 /// <para>
 /// <b>Two came from the consistency sweep, and they are disagreements rather than
@@ -323,6 +332,93 @@ public sealed class GateFindingsTests : ArcGisClient
                 $"the refusal says {operation} is not implemented and GetCapabilities "
                 + $"advertises it. Full text: {refusal}");
         }
+    }
+
+    // ---------- failure F5: a bad CRS produced a document that lied ----------
+
+    [Fact]
+    public async Task An_unusable_reference_system_is_refused_before_the_body_begins()
+    {
+        // <b>It answered 200 with a well-formed WFS collection announcing a thousand
+        // features and carrying none.</b> `srsName` was checked for spelling, the
+        // response header was written, and the database refused the transform on the
+        // first row — after which XmlWriter closed the open element on its way out. A
+        // client that tolerates a truncated chunked stream, and many do, read a
+        // complete, successful, empty answer. Silent data loss presented as success.
+        const string Nonsense = "urn:ogc:def:crs:EPSG::999999";
+
+        string? layer = await AnyPointLayerAsync();
+
+        Assert.NotNull(layer);
+
+        (HttpStatusCode status, string body) = await FetchAsync(
+            "/wfs?service=WFS&version=2.0.0&request=GetFeature"
+            + $"&typeNames=graticula:{Uri.EscapeDataString(layer!)}&count=1"
+            + $"&srsName={Uri.EscapeDataString(Nonsense)}");
+
+        Assert.NotEqual(HttpStatusCode.OK, status);
+
+        XDocument document = XDocument.Parse(body);
+
+        Assert.Equal("ExceptionReport", document.Root!.Name.LocalName);
+        Assert.Equal(
+            "srsName",
+            document.Descendants()
+                .First(e => e.Name.LocalName == "Exception")
+                .Attribute("locator")?.Value);
+    }
+
+    // ---------- failure F4: a caller's mistake reported as an outage ----------
+
+    [Fact]
+    public async Task A_reference_system_the_database_rejects_is_the_callers_fault()
+    {
+        // <b>It answered 503 "a database this server depends on is unreachable" while
+        // the database was up and answering everything else.</b> PostGIS raises XX000
+        // for an invalid SRID, XX000 was not classified, and the general Npgsql branch
+        // caught it — so four surfaces sent an operator to check the network. 503 also
+        // tells a client to retry, and retrying a bad parameter never works.
+        foreach (string service in await EveryServiceNameAsync())
+        {
+            (HttpStatusCode status, string body) = await FetchAsync(
+                $"/rest/services/{service}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&outSR=999999&resultRecordCount=1&f=json");
+
+            if (status == HttpStatusCode.NotFound)
+            {
+                continue;
+            }
+
+            Assert.True(
+                status == HttpStatusCode.BadRequest,
+                $"{service} answered {(int)status} to an SRID no projection database has. "
+                + $"A caller's parameter is a 400. Body: {body}");
+
+            return;
+        }
+
+        Assert.Fail("No service answered, so this asserted nothing.");
+    }
+
+    // ---------- failure F10: the portal's default query returned an empty portal ----------
+
+    [Fact]
+    public async Task The_wildcard_search_returns_what_a_field_search_returns()
+    {
+        // <b>`q=*` is what an ArcGIS client sends first, and it answered total 0.</b>
+        // The wildcard was treated as a literal word to find in the title, with nothing
+        // to say the syntax was unsupported — so a portal with twelve items looked
+        // empty to the query that discovers it.
+        static long Total(string body) =>
+            JsonDocument.Parse(body).RootElement.GetProperty("total").GetInt64();
+
+        (_, string wildcard) = await FetchAsync("/sharing/rest/search?q=*&f=json");
+        (_, string owned) = await FetchAsync("/sharing/rest/search?q=owner%3Aroot&f=json");
+
+        Assert.True(
+            Total(wildcard) >= Total(owned) && Total(owned) > 0,
+            $"`q=*` found {Total(wildcard)} and `q=owner:root` found {Total(owned)}. "
+            + "The wildcard cannot see less than a filter.");
     }
 
     // ---------- helpers ----------

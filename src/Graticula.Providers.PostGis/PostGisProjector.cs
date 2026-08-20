@@ -263,4 +263,51 @@ public sealed class PostGisProjector : IProjector
 
     private readonly ConcurrentDictionary<(int From, int To), (bool? Shift, string? Caution)>
         _datums = new();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>One row of <c>spatial_ref_sys</c>, cached forever.</b> The table is PROJ's
+    /// own, it is written when PostGIS is installed, and a deployment that edits it
+    /// restarts this server anyway. Caching a negative answer is deliberate: a client
+    /// looping on a bad code should cost one round trip in total rather than one each.
+    /// </para>
+    /// <para>
+    /// <b>An unreachable store answers <em>yes</em>, not <em>no</em>.</b> This exists to
+    /// turn a caller's mistake into a 400 before any bytes are written; it must never
+    /// turn a database outage into a 400 that blames the caller for it. When the lookup
+    /// itself fails, the request proceeds and the outage is reported by the path that
+    /// knows it is an outage.
+    /// </para>
+    /// </remarks>
+    public async Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken)
+    {
+        if (_known.TryGetValue(srid, out bool cached))
+        {
+            return cached;
+        }
+
+        bool answer;
+
+        try
+        {
+            await using NpgsqlCommand command = _dataSource.CreateCommand(
+                "select 1 from spatial_ref_sys where srid = @srid");
+
+            command.Parameters.AddWithValue("srid", srid);
+
+            answer = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                is not null;
+        }
+        catch (NpgsqlException)
+        {
+            return true;
+        }
+
+        _known[srid] = answer;
+
+        return answer;
+    }
+
+    private readonly ConcurrentDictionary<int, bool> _known = new();
 }

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Graticula.Api.Wfs;
 using Graticula.Catalog;
 using Graticula.Features;
+using Graticula.Geometries;
 using SortKey = Graticula.Features.SortKey;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -14,6 +15,8 @@ using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
 
@@ -544,6 +547,39 @@ internal static class WfsEndpoints
             return;
         }
 
+        // <b>Asked before a byte is written, because after is too late on this face.</b>
+        // `srsName` is checked for spelling when the request is parsed, and spelling is
+        // all a parser can check: `urn:ogc:def:crs:EPSG::999999` is well-formed and names
+        // nothing. The transform then failed on the first row — after the 200, after the
+        // header, after `numberReturned="1000"` — and `XmlWriter` closed the open element
+        // on its way out, so a client received a **well-formed, complete-looking WFS
+        // document claiming a thousand features and carrying none**. Silent data loss
+        // presented as success, from one bad query parameter. Found by the second failure
+        // gate.
+        //
+        // OGC API Features never had this bug because it validates against the
+        // collection's advertised list first. WFS cannot do the same — it advertises one
+        // `DefaultCRS` per feature type and no `OtherCRS`, while happily and usefully
+        // serving any system PostGIS knows — so the question it asks is the weaker and
+        // truer one: is this a system this deployment can project into at all.
+        if (request.Srid is { } asked
+            && asked != layer.Definition.Srid
+            && !await context.RequestServices.GetRequiredService<IProjector>()
+                .KnowsAsync(asked, cancellation).ConfigureAwait(false))
+        {
+            await RefuseAsync(
+                    context,
+                    WfsFault.Invalid(
+                        "srsName",
+                        $"EPSG:{asked} is not a coordinate reference system this deployment "
+                        + "can project into. It is spelled correctly and the projection "
+                        + "database does not have it."),
+                    cancellation)
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         long matched = await source.CountAsync(query!, cancellation).ConfigureAwait(false);
 
         // <b>`count=0` asks for none, and it is not the same as omitting count.</b>
@@ -588,8 +624,10 @@ internal static class WfsEndpoints
         {
             context.Response.ContentType = WfsNames.GeoJsonMediaType + "; charset=utf-8";
 
-            await new GeoJsonFeatureCollectionWriter(type)
-                .WriteAsync(context.Response.Body, features, matched, returned, now, cancellation)
+            await StreamAsync(context, "wfs", () =>
+                    new GeoJsonFeatureCollectionWriter(type)
+                        .WriteAsync(
+                            context.Response.Body, features, matched, returned, now, cancellation))
                 .ConfigureAwait(false);
 
             return;
@@ -597,9 +635,50 @@ internal static class WfsEndpoints
 
         context.Response.ContentType = WfsNames.GmlMediaType + "; charset=utf-8";
 
-        await new GmlFeatureCollectionWriter(type, outputSrid, Endpoint(context))
-            .WriteAsync(context.Response.Body, features, matched, returned, now, cancellation)
+        await StreamAsync(context, "wfs", () =>
+                new GmlFeatureCollectionWriter(type, outputSrid, Endpoint(context))
+                    .WriteAsync(
+                        context.Response.Body, features, matched, returned, now, cancellation))
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a streaming write so that a failure partway through is recorded.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because nothing was recording it.</b> Once the response has started, ASP.NET's
+    /// exception-handler middleware declines — it logs *the response has already started,
+    /// the error handler will not be executed* and stops — so
+    /// <see cref="ErrorResponse.WriteAsync"/> never runs and its
+    /// <see cref="ErrorResponse.LogTruncated"/> branch is unreachable from here. The
+    /// second failure gate hung up on twenty requests and found **no line at all** in
+    /// either the access log or the failure log for this face. An operator investigating
+    /// client-reported truncation had nothing to read.
+    /// </para>
+    /// <para>
+    /// <b>Abort rather than finish the document.</b> The bytes are past recall, so the
+    /// only question is whether the client learns that what it has is incomplete. A
+    /// truncated transfer it can detect; a well-formed document that ends early it
+    /// cannot — which is exactly how a bad `srsName` came to return a WFS collection
+    /// announcing a thousand features and carrying none.
+    /// </para>
+    /// </remarks>
+    private static async Task StreamAsync(
+        HttpContext context, string name, Func<Task> write)
+    {
+        try
+        {
+            await write().ConfigureAwait(false);
+        }
+        catch (Exception e) when (context.Response.HasStarted)
+        {
+            ErrorResponse.LogTruncated(
+                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
+                e);
+
+            context.Abort();
+        }
     }
 
     /// <summary>
