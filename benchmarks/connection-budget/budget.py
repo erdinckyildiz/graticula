@@ -32,6 +32,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import os
+
+# <b>Read from the environment, never written here.</b> These scripts sign in to a
+# development server, and a password in a file is a password in the repository's
+# history the moment the file is committed -- where removing it later removes it
+# from the tip and from nowhere else. Set GRATICULA_DEV_PASSWORD before running.
+DEV_PASSWORD = os.environ.get("GRATICULA_DEV_PASSWORD", "")
 
 BASE = "https://127.0.0.1:8443"
 
@@ -62,7 +69,7 @@ def context():
 def token(ssl_context):
     request = urllib.request.Request(
         f"{BASE}/rest/auth/login",
-        data=json.dumps({"name": "root", "password": "change-me"}).encode(),
+        data=json.dumps({"name": "root", "password": DEV_PASSWORD}).encode(),
         headers={"Content-Type": "application/json"})
 
     with urllib.request.urlopen(request, context=ssl_context, timeout=30) as answer:

@@ -3,12 +3,16 @@
 ADR-041 condition 1 / A-076. ADR-004 deferred rendering on a measurement --
 80.9% GC pause at 18% CPU on a lighter workload -- so this answers with one.
 """
-import json, ssl, sys, time, urllib.request, urllib.parse
+import json, os, ssl, sys, time, urllib.request, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 CTX = ssl._create_unverified_context()
 BASE = "https://127.0.0.1:8443"
-USER, PASSWORD = "root", "change-me"
+# <b>Read from the environment, never written here.</b> A password in a file is a
+# password in the repository's history the moment the file is committed, and
+# removing it later removes it from the tip and from nowhere else.
+USER = os.environ.get("GRATICULA_DEV_USER", "root")
+PASSWORD = os.environ.get("GRATICULA_DEV_PASSWORD", "")
 
 def token():
     body = urllib.parse.urlencode(
