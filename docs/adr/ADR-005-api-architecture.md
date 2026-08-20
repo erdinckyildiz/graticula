@@ -285,6 +285,17 @@ interface.
 Owner direction, 2026-08-12: WFS is heavy and dated; ArcGIS REST is pleasant to
 use; OGC API Features is the modern equivalent and is what we build on.
 
+> **Amended 2026-08-19 — the ranking stands and the order has been inverted twice.**
+> [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) makes **WFS 2.0 the first
+> surface built after v1**, by owner decision, and [Q-88](../open-questions.md) had
+> already made ArcGIS FeatureServer the first one built at all. So **the native API
+> is now the third face over the feature engine rather than the first**, and both of
+> the two ahead of it are compatibility adapters this section places *over* it. The
+> judgement above is not withdrawn — nobody has argued that WFS is not heavy or not
+> dated — but a reader who takes "what we build on" as a statement about build order
+> is reading something this section no longer says. What that costs is in ADR-039
+> §10: each adapter built first defines the seam the native API must later fit.
+
 `VERIFY` the part structure, because "we support OGC API Features" is
 under-specified on its own:
 
@@ -325,6 +336,17 @@ non-standardness, and it keeps §50 honest.
 
 WMS, WFS and WMTS are **not core**. They are adapters over the same internal
 interface, in the compatibility layer (§51), for migration.
+
+> **Amended 2026-08-19.** That placement is unchanged and
+> [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) §5 enforces it at a file
+> boundary rather than in prose — `Graticula.Api.Wfs` depends on `Graticula.Core`
+> and nothing in `Graticula.Core` depends on it, and the GML writer lives in the
+> adapter while GeoJSON stays in `Core/Formats`. **What is new is that the adapter
+> is being built before the native API it adapts**, and it is the second time: WFS
+> now, ArcGIS FeatureServer already. The sentence *"adapters over the same internal
+> interface"* therefore describes an interface that no native surface has ever
+> exercised — which is [A-026](../architecture-assumptions.md), and ADR-039 is its
+> first real test rather than its confirmation.
 
 > **Stale text below, corrected 2026-08-13** ([independent review 3](../reviews/independent-review-3-synthesis.md) A6). This section still
 > said *"Which ArcGIS-compatible surface to offer, if any, is still Q-17"* and

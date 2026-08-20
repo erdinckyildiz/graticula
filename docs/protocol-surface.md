@@ -25,7 +25,7 @@ to build.
 
 | Engine | Status | Faces |
 |---|---|---|
-| **Feature / query** — ADR-008 | decided | OGC API Features · WFS 1.0/1.1/2.0 + Transactional · ArcGIS FeatureServer · **OData v4** · **gRPC** · **MCP** |
+| **Feature / query** — ADR-008 | decided | OGC API Features · ~~WFS 1.0/1.1/2.0 + Transactional~~ **WFS 2.0 only, read-only** ([ADR-039](adr/ADR-039-wfs-is-the-first-surface-after-v1.md) §5, 2026-08-19 — 1.1.0 and 1.0.0 get a version-negotiation refusal rather than a wrong answer, and Transaction is deferred with its own revisit trigger) · ArcGIS FeatureServer · **OData v4** · **gRPC** · **MCP** |
 | **Tile** — Q-67 | decided, measured ×3 | MVT + TileJSON · WMTS · ArcGIS VectorTileServer · **OGC API Tiles** · **PMTiles** |
 | **Job + Python** — ADR-011, Q-17b | reopened | ArcGIS GPServer · **WPS 2.0** · **OGC API Processes** |
 | **Raster** — ADR-009, Q-17c | reopened | ArcGIS ImageServer · **WCS 2.0.1** · **OGC API Coverages** |

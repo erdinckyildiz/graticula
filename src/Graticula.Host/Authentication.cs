@@ -142,7 +142,7 @@ internal sealed class Authentication
     private async Task<AuthenticatedSession?> FindSessionAsync(
         HttpContext context, CancellationToken cancellationToken)
     {
-        string? token = BearerToken(context) ?? CookieToken(context);
+        string? token = BearerToken(context) ?? EsriToken(context) ?? CookieToken(context);
 
         if (string.IsNullOrEmpty(token))
         {
@@ -152,6 +152,48 @@ internal sealed class Authentication
         return await _store
             .FindSessionAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The token as an ArcGIS client sends it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two channels, because Esri clients use both.</b> The header is what
+    /// newer ones send; the query parameter is what everything else has always
+    /// sent, including the URLs a person pastes out of a browser.
+    /// </para>
+    /// <para>
+    /// <b>Unlike the cookie, this is not restricted to safe methods, and the
+    /// reason is that they are different risks.</b> A cookie is attached by the
+    /// browser whether or not the caller meant it, which is what makes forgery
+    /// possible; a token in a query string is put there deliberately by whoever
+    /// made the request. Nothing can be tricked into adding it.
+    /// </para>
+    /// <para>
+    /// <b>What it does cost is disclosure.</b> A token in a URL is written into
+    /// this server's request log, and into any proxy's. That is real and it is
+    /// [D-120](../../docs/architecture-debt.md); the header is the better channel
+    /// and is tried first.
+    /// </para>
+    /// </remarks>
+    private static string? EsriToken(HttpContext context)
+    {
+        string? header = context.Request.Headers["X-Esri-Authorization"];
+
+        if (header is not null && header.StartsWith(BearerPrefix, StringComparison.Ordinal))
+        {
+            string bearer = header[BearerPrefix.Length..].Trim();
+
+            if (bearer.Length > 0)
+            {
+                return bearer;
+            }
+        }
+
+        string query = context.Request.Query["token"].ToString();
+
+        return query.Length == 0 ? null : query;
     }
 
     private static string? BearerToken(HttpContext context)

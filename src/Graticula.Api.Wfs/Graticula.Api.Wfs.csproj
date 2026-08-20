@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The WFS compatibility adapter — ADR-005 §3.3 and §51, built first by ADR-039.
+
+    Its own project because §51 puts a compatibility surface outside the core
+    domain, and a project boundary is the only version of that rule a build can
+    check. It references Graticula.Core; nothing in Graticula.Core references it,
+    and Graticula.Architecture.Tests fails the build if that reverses.
+
+    No PackageReference. System.Xml ships with the framework, and a WFS surface
+    that needed a package would be a signal to look again rather than to widen
+    the base-class-library allow-list.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Api.Wfs</RootNamespace>
+    <AssemblyName>Graticula.Api.Wfs</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+</Project>

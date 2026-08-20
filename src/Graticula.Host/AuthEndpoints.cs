@@ -69,7 +69,137 @@ internal static class AuthEndpoints
         app.MapPost("/rest/auth/login", LoginAsync);
         app.MapPost("/rest/auth/logout", LogoutAsync);
         app.MapPost("/rest/auth/password", ChangePasswordAsync);
+
+        // <b>The token endpoint every Esri client looks for, and it was advertised
+        // before it existed.</b> `/rest/info` has told clients since ADR-015 §4
+        // that this server uses token security, and pointed them at
+        // `/rest/auth/login` — which speaks JSON and wants a field called `name`,
+        // where an ArcGIS client posts a form with `username`. So ArcGIS Pro could
+        // read public services and could not sign in, and the failure arrived as a
+        // credential rejection rather than as a missing feature. Found by pointing
+        // Pro at the server: *user pass kabul etmedi*.
+        //
+        // Both methods, because clients differ and the specification does not say.
+        app.MapPost("/rest/generateToken", GenerateTokenAsync);
+        app.MapGet("/rest/generateToken", GenerateTokenAsync);
     }
+
+    /// <summary>
+    /// Issues a token in the shape an ArcGIS client expects.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A second door onto one lock.</b> It calls the same
+    /// <see cref="LoginService"/> as <c>/rest/auth/login</c>, so the throttle, the
+    /// audit record and the *one message for every failure* rule are shared rather
+    /// than reimplemented. What differs is only the vocabulary: <c>username</c>
+    /// instead of <c>name</c>, minutes instead of a fixed lifetime, and an error
+    /// shape an Esri client renders instead of ignoring.
+    /// </para>
+    /// <para>
+    /// <b>The expiry the caller asks for is a ceiling request, not a grant.</b>
+    /// The session's own lifetime is what the store issued; this reports that and
+    /// does not extend it because a client asked nicely.
+    /// </para>
+    /// </remarks>
+    private static async Task GenerateTokenAsync(
+        HttpContext context,
+        LoginService login,
+        CancellationToken cancellation)
+    {
+        string? name = null;
+        string? password = null;
+
+        if (context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            name = form["username"].ToString();
+            password = form["password"].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = context.Request.Query["username"].ToString();
+        }
+
+        if (string.IsNullOrEmpty(password))
+        {
+            password = context.Request.Query["password"].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
+        {
+            await EsriTokenError(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    "'username' and 'password' are required.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        LoginResult result = await login
+            .AuthenticateAsync(name, password, RemoteAddress(context), cancellation)
+            .ConfigureAwait(false);
+
+        if (!result.Succeeded)
+        {
+            // The same single message as the JSON door, for the same reason:
+            // distinguishing wrong-name from wrong-password is an account
+            // enumeration oracle. A throttle is still told apart, because a
+            // locked-out administrator cannot learn that any other way.
+            (int status, string detail) = result.Failure switch
+            {
+                LoginFailure.AddressThrottled or LoginFailure.AccountThrottled => (
+                    StatusCodes.Status429TooManyRequests,
+                    "Too many failed sign-in attempts. Wait and try again."),
+                _ => (
+                    StatusCodes.Status401Unauthorized,
+                    "The name or password is incorrect."),
+            };
+
+            await EsriTokenError(context, status, detail).ConfigureAwait(false);
+            return;
+        }
+
+        AuthenticatedSession session = result.Session!.Value;
+
+        await Results.Json(new
+        {
+            token = result.Token!,
+
+            // Milliseconds since the epoch, which is what an Esri client reads.
+            expires = session.ExpiresAt.ToUnixTimeMilliseconds(),
+
+            // <b>Always false, and stated rather than omitted.</b> This server
+            // issues no SSL-only tokens, so a client that reads the field gets an
+            // answer instead of a default it has to guess at.
+            ssl = false,
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The error shape an ArcGIS client renders.</summary>
+    /// <remarks>
+    /// <b>The HTTP status is still the truthful one.</b> Esri's own token service
+    /// answers 200 with an error object inside, which makes a failure invisible to
+    /// anything that reads status codes — a proxy, a log, a monitor. The body is
+    /// theirs so the client shows a real message; the status is ours so everything
+    /// else can still tell.
+    /// </remarks>
+    private static Task EsriTokenError(HttpContext context, int status, string detail) =>
+        Results.Json(
+            new
+            {
+                error = new
+                {
+                    code = status,
+                    message = "Unable to generate token.",
+                    details = new[] { detail },
+                },
+            },
+            statusCode: status).ExecuteAsync(context);
 
     private static async Task LoginAsync(
         HttpContext context,

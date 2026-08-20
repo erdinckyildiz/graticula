@@ -733,13 +733,17 @@ public static class Program
             }
         });
 
-        // ADR-015 §4 has clients discovering how to authenticate here. The
-        // token URL is advertised even though /generateToken is unbuilt, because
-        // a client that cannot find it assumes anonymous and fails later, less
-        // clearly.
+        // ADR-015 §4 has clients discovering how to authenticate here.
+        //
+        // <b>It pointed at /rest/auth/login until 2026-08-19, and that was a
+        // promise this server could not keep.</b> An ArcGIS client reads this
+        // field and posts a form with `username`; /rest/auth/login speaks JSON and
+        // wants `name`, so the client's sign-in failed with a credential error
+        // about a credential that was correct. ArcGIS Pro found it in one attempt.
+        // The endpoint it names now exists and speaks the client's vocabulary.
         app.MapGet("/rest/info", (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/auth/login")));
+                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken")));
 
         // <b>The origin itself answers, and until 2026-08-17 it did not.</b> Nothing
         // was mapped to "/", so typing the server's address produced an empty 404 —
@@ -878,6 +882,12 @@ public static class Program
         RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
         HostedDataEndpoints.Map(app);
+
+        // <b>Outside /rest/services, deliberately.</b> Every surface above is
+        // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
+        // with a different discovery document, and a client pastes one address for
+        // the whole server rather than one per service (ADR-039 §5).
+        WfsEndpoints.Map(app);
 
         app.MapAuth();
         app.MapAdmin();

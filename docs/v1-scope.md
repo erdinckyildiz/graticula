@@ -156,6 +156,8 @@ is the bullet above being given up on purpose, not overlooked.
 SensorThings · OData · gRPC · MCP · STAC · PMTiles · 3D Tiles · Terrain-RGB ·
 geocoding.**
 
+> **Amended 2026-08-19, and v1 does not change.** Owner decision: **WFS is the first surface built after v1** ([ADR-039](adr/ADR-039-wfs-is-the-first-surface-after-v1.md)), ahead of OGC API Features, which [Q-94](open-questions.md) had recommended for that place. **It is not moved into v1 and this section is not amended to include it.** The list above stands exactly as written; what is now known is the order things leave it in, and the first one is leaving while v1's own carried debts are open. That ordering is the owner's and is recorded in ADR-039 §1 rather than by editing the cut — because this document is the only one in the repository that ever subtracted anything, and *working outside v1* must not become *widening v1* by the same edit.
+
 - **Q-79 is answered by omission**: SensorThings and 3D Tiles were swept in by
   pointing at a list, and they are out. The observation store and the 3D/terrain
   pipeline — the two engines `protocol-surface.md` said *"do not exist in any

@@ -477,8 +477,16 @@ internal static class AdminEndpoints
             // Only the data surface. /admin is governed by privileges, which is
             // a different mechanism with its own tests, and /healthz is
             // deliberately open.
-            if (!pattern.StartsWith("rest/services", StringComparison.OrdinalIgnoreCase)
-                && !pattern.StartsWith("/rest/services", StringComparison.OrdinalIgnoreCase))
+            //
+            // <b>The data surface stopped being one prefix on 2026-08-19.</b> WFS
+            // (ADR-039) serves features from outside /rest/services, and this
+            // filter did not know that — so `/wfs` carried its markers and nothing
+            // read them, and the endpoint reported *0 ungoverned* about a surface
+            // it was not looking at. That is worse than no check: it is the
+            // reassurance without the audit, which is the exact failure
+            // `SharingGoverned`'s own remark warns about. Found by asking the
+            // running server which routes it had audited.
+            if (!Data(pattern))
             {
                 continue;
             }
@@ -505,6 +513,18 @@ internal static class AdminEndpoints
             ungoverned = routes.Count(r =>
                 !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
         }).ExecuteAsync(context).ConfigureAwait(false);
+
+        // <b>Every prefix that serves somebody's data.</b> Adding a protocol
+        // surface means adding it here, and the conformance suite asserts that
+        // each named family actually appears — so a surface forgotten here shows
+        // up as a missing family rather than as silence.
+        static bool Data(string pattern)
+        {
+            string path = pattern.StartsWith('/') ? pattern : "/" + pattern;
+
+            return path.StartsWith("/rest/services", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/wfs", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>

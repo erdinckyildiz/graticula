@@ -291,9 +291,15 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
 
         Assert.True(patterns.Length > 20, $"Only {patterns.Length} routes were audited.");
 
+        // <b>/wfs joined this list on 2026-08-19 and it is the reason the list
+        // matters.</b> The audit filtered on /rest/services alone, so the WFS
+        // surface carried its markers and nothing read them — the endpoint
+        // reported zero ungoverned about routes it had never looked at. Naming
+        // each family here is what turns "forgot to audit a surface" from silence
+        // into a failure.
         foreach (string family in (string[])
             ["FeatureServer", "VectorTileServer", "GeometryServer", "attachments",
-             "queryRelatedRecords"])
+             "queryRelatedRecords", "/wfs"])
         {
             Assert.Contains(patterns, p => p.Contains(family, StringComparison.Ordinal));
         }
