@@ -889,6 +889,12 @@ public static class Program
         // the whole server rather than one per service (ADR-039 §5).
         WfsEndpoints.Map(app);
 
+        // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
+        // server connection wants a SOAP catalogue this product has never scoped;
+        // its portal connection wants the ArcGIS REST API, which is what everything
+        // else here already is. ADR-040.
+        app.MapPortal();
+
         app.MapAuth();
         app.MapAdmin();
         app.MapPost("/rest/setup", AuthEndpoints.SetupAsync);

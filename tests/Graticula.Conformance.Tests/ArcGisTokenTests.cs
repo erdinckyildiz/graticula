@@ -151,7 +151,11 @@ public sealed class ArcGisTokenTests : ArcGisClient
         using HttpResponseMessage probe =
             await Http.GetAsync(new Uri($"{root}/admin/generateToken?f=json"));
 
-        Assert.NotEqual(HttpStatusCode.NotFound, probe.StatusCode);
+        // <b>200, deliberately, and it is the only failure here that gets one.</b>
+        // A probe carrying no credentials is asking whether the endpoint exists,
+        // not signing in. Pro reads a 401 to that question as *no such server* and
+        // stops; a wrong password still gets 401 from the same handler.
+        Assert.Equal(HttpStatusCode.OK, probe.StatusCode);
 
         using JsonDocument refused =
             JsonDocument.Parse(await probe.Content.ReadAsStringAsync());

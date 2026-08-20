@@ -131,6 +131,28 @@ public sealed class EnumeratedValuesAreCoveredTests
                 continue;
             }
 
+            // <b>A second proof of coverage, added 2026-08-20, and it is not a
+            // weaker one.</b> The scan above looks for the scope's own word in
+            // quotes, which is the shape D-74 had: a JavaScript array of scope
+            // strings. A C# switch that handles every scope but *translates* it —
+            // PortalEndpoints maps organization to "org" and group to "shared",
+            // because those are the words a portal client uses — names all four and
+            // quotes two, and the scan cannot tell that from a file that handles
+            // two and defaults the rest.
+            //
+            // So a file also counts as covered when it references every scope by
+            // name. That is the same standard the quoted form is held to: both are
+            // evidence that each value was thought about, and neither proves the
+            // handling is right. What it does not admit is the case this class
+            // exists for -- a file that mentions some values and silently maps the
+            // others -- because *every* one has to appear.
+            if (scopes.All(scope => text.Contains(
+                    "SharingScope." + char.ToUpperInvariant(scope[0]) + scope[1..],
+                    StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
             wrong.Add(
                 Path.GetFileName(file) + " names " + string.Join(", ", present) + " and not "
                 + string.Join(", ", scopes.Except(present)));

@@ -3889,9 +3889,22 @@ internal static class AdminEndpoints
 
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
         {
+            // <b>200, and this is the one place this server answers a failure with
+            // a success code.</b> A request carrying no credentials at all is not a
+            // rejected sign-in; it is ArcGIS Pro asking whether this endpoint
+            // exists, which is the first thing it does when adding a server. Esri's
+            // own administrative API answers that question with 200 and an error
+            // object, and a client that reads 401 as *no such server* stops there —
+            // which it did, measured, with the 401 this used to send.
+            //
+            // <b>The distinction it rests on is real rather than convenient:</b> a
+            // probe with no username is a different event from a wrong password,
+            // and the wrong password still gets 401 below. The status code stays
+            // truthful about authentication and stops being wrong about existence.
             await AdminTokenError(
                     context,
-                    StatusCodes.Status401Unauthorized,
+                    StatusCodes.Status200OK,
+                    StatusCodes.Status400BadRequest,
                     "Token not generated. 'username' and 'password' are required.")
                 .ConfigureAwait(false);
 
@@ -3918,7 +3931,7 @@ internal static class AdminEndpoints
                     "Token not generated. The name or password is incorrect."),
             };
 
-            await AdminTokenError(context, status, message).ConfigureAwait(false);
+            await AdminTokenError(context, status, status, message).ConfigureAwait(false);
             return;
         }
 
@@ -3931,13 +3944,22 @@ internal static class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static Task AdminTokenError(HttpContext context, int status, string message) =>
+    /// <summary>An administrative-API error, whose two codes are not the same thing.</summary>
+    /// <remarks>
+    /// <b>The transport says whether the endpoint answered; the body says what went
+    /// wrong.</b> They agree everywhere except the credential-less probe, where the
+    /// endpoint exists and answers — 200 — about a request that was incomplete —
+    /// 400. Collapsing them would mean either telling a prober there is no server
+    /// here, or telling a monitor that a failure was a success.
+    /// </remarks>
+    private static Task AdminTokenError(
+        HttpContext context, int status, int code, string message) =>
         Results.Json(
             new
             {
                 status = "error",
                 messages = new[] { message },
-                code = status,
+                code,
             },
             statusCode: status).ExecuteAsync(context);
 
