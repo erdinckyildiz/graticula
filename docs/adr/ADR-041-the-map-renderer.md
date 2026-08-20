@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM-HIGH` for the placement and the library · `MEDIUM` for labels · `LOW` for throughput until §4's benchmark exists |
+| **Confidence** | `MEDIUM-HIGH` for the placement and the library · `MEDIUM` for labels · **`HIGH` for throughput, measured 2026-08-20** — [benchmarks/map-rendering](../../benchmarks/map-rendering/RESULTS.md) |
 | **Decided** | 2026-08-20 |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -298,11 +298,23 @@ recorded, taken a third time, and recorded rather than absorbed.
 
 ## 7. Conditions
 
-1. **A benchmark, under `/benchmarks`, before the confidence line moves.** GetMap at
-   1024×1024 over a real layer: wall time, allocated bytes, GC pause fraction, at
-   one and at eight concurrent requests. **ADR-004's surviving objection is a
-   measurement and it deserves a measurement back.** Until it exists this ADR's
-   throughput confidence is `LOW` and stays written that way.
+1. **DISCHARGED 2026-08-20.** [benchmarks/map-rendering](../../benchmarks/map-rendering/RESULTS.md):
+   GetMap at 1024² and 4096² over two real layers, at one and at eight concurrent
+   requests, with the server's own runtime counters read either side.
+
+   **ADR-004's objection was 80.9% GC pause. The measurement is 0.1% to 2.3%** — off
+   by a factor of forty, in the direction that makes this decision safe.
+
+   **And the benchmark found something the ADR had backwards.** §5 assumed rendering
+   would be the expensive half and built the pipeline to avoid allocating per feature
+   for that reason. Drawing `tr_ilce` as a 1024² map costs **426 ms and 4.7 MB**;
+   serving the *same features* as FeatureServer JSON costs **808 ms and 11.8 MB**. The
+   map is cheaper than the face this server already had, because it never serialises a
+   coordinate to text. Sixteen times the pixels costs 2.6× the time, so the rasteriser
+   is not the bottleneck — the query is, and always was.
+
+   The buffers were the right call for the wrong reason, which is recorded rather than
+   quietly enjoyed.
 2. **DISCHARGED 2026-08-20. `WmsConformanceTests`, eighteen tests against the live
    process.** Every published layer draws; both versions' documents carry what their
    own version requires; a non-square extent is transposed between 1.3.0 and 1.1.1
@@ -332,12 +344,20 @@ recorded, taken a third time, and recorded rather than absorbed.
    and recorded. ADR-033 derives two faces from one document and this is the first
    time anything has drawn either; a difference here is a defect in the derivation,
    not in the renderer.
-4. **`SkiaSharp*` is confined to one project by an architecture test**, and the test
-   asserts both directions — nobody else references it, and that project still does.
-5. **The blank-image failure mode is refused explicitly.** A GetMap that matched no
-   features returns a transparent image and 200; a GetMap that *failed* returns a
-   service exception. A renderer that answers both with an empty PNG is the single
-   most common way a broken map server looks healthy.
+4. **DISCHARGED 2026-08-20.** `NativeDependencyTests.A_ported_library_is_referenced_by_its_adapter_and_no_other`
+   asserts both directions: no other project references `SkiaSharp*`, and
+   `Graticula.Render.Skia` still does — so the rule cannot pass by the adapter having
+   been renamed away. It is a **second list** beside the confined dependencies rather
+   than a third row in the first, because GDAL and NetTopologySuite are additionally
+   kept out of the serving process and a rasteriser cannot be.
+5. **DISCHARGED 2026-08-20**, and asserted from both sides.
+   `A_transparent_png_is_transparent_and_a_jpeg_is_a_jpeg` asks for an extent with no
+   data and requires a 200 with a transparent PNG;
+   `A_bad_parameter_is_refused_with_the_code_that_names_it` asks for seven kinds of
+   broken request and requires the exception code that names each. **The second half
+   was not academic**: every 1.3.0 refusal was answering HTTP 500 when that test was
+   written, so the failure mode this condition exists to prevent was present and
+   invisible.
 6. **OGC CITE for WMS is run and its result recorded**, pass or fail, the way
    [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) condition 3 was.
 
