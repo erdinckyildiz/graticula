@@ -100,7 +100,7 @@ exactly that.
 **Argument against, and it is why this is a separate decision.** CQL2 is a query
 language with its own grammar, two encodings (text and JSON), and a spatial and
 temporal function set. It is not a parameter. It is also the place where
-[ADR-008](ADR-008-query-model.md)'s expression tree would finally earn its third
+[ADR-008](ADR-008-query-engine.md)'s expression tree would finally earn its third
 caller, so it is worth doing properly rather than partly.
 [Q-132](../open-questions.md).
 
@@ -209,15 +209,21 @@ designed for a different protocol.
 
 ## 7. Conditions
 
-1. **A conformance suite that drives the live server**, in the shape
-   `WfsConformanceTests` and `WmsConformanceTests` now have: the link graph is
-   followed from the landing page rather than assumed, both axis conventions are
-   asserted against a non-square extent, an unknown parameter is a 400 with a
-   problem document, and a collection a caller cannot see is a 404 rather than a
-   403.
-2. **The HTML representation carries the links the JSON one does.** The `html`
-   class is a claim about navigability, and a page that renders the data and drops
-   the link graph is a dead end that still returns 200.
+1. **DISCHARGED 2026-08-20. `OgcFeaturesConformanceTests`, eighteen tests against
+   the live process.** The link graph is **followed** rather than constructed —
+   every resource is reached from the landing page by its `rel`, because a test
+   that builds `/conformance` itself passes against a landing page whose links all
+   point at the wrong host. Both axis conventions are asserted against a
+   deliberately non-square, off-centre box, since a square one passes with the axes
+   swapped. A feature is fetched back by the id its collection gave it, which is
+   the only thing that member is for. Paging follows `next` and asserts no id
+   repeats. An unknown parameter, a negative limit, a three-number bbox and an
+   unparseable datetime are each a 400 with an RFC 7807 body, and an unknown
+   collection is a 404.
+2. **DISCHARGED 2026-08-20.** Every HTML representation answers 200 with
+   `text/html` and contains links, and the collections page names the collection —
+   asserted for the landing page, conformance, collections, one collection and its
+   items.
 3. **OGC CITE `ets-ogcapi-features10` is run and its result recorded**, pass or
    fail, the way [ADR-041](ADR-041-the-map-renderer.md) condition 6 was. **This is
    the condition that decides whether the five claimed classes are true**, and

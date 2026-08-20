@@ -1710,6 +1710,7 @@ public static class Program
                     [
                         WfsEndpoints.DirectoryLink(null),
                         WmsEndpoints.DirectoryLink(null, null, 0),
+                        OgcFeaturesEndpoints.DirectoryLink(null),
                     ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
@@ -1865,6 +1866,7 @@ public static class Program
                         WfsEndpoints.DirectoryLink(layer.Definition.Name),
                         WmsEndpoints.DirectoryLink(
                             layer.Definition.Name, description.Extent, layer.Definition.Srid),
+                        OgcFeaturesEndpoints.DirectoryLink(layer.Definition.Name),
                     ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);

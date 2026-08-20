@@ -14,7 +14,7 @@ namespace Graticula.Formats;
 /// privately inside the WFS collection writer and was correct there; OGC API
 /// Features writes the same shapes, and a second copy of the ring-winding and
 /// position rules is a second place for them to be right. That is the same seam
-/// [ADR-008](../../../docs/adr/ADR-008-query-model.md)'s predicate emitter got when
+/// [ADR-008](../../../docs/adr/ADR-008-query-engine.md)'s predicate emitter got when
 /// WFS became its second caller, arrived at from the same direction.
 /// </para>
 /// <para>
