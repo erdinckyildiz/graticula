@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>263ff72</code> · 2026-08-20 23:39</p>
+<p class="stamp">Şu commit’ten üretildi: <code>e387b9a</code> · 2026-08-20 23:46</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">42</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">79/169</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">açık soru</div><div class="kpi-n">62 yanıtlandı · 3 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">80</div><div class="kpi-l">açık borç</div><div class="kpi-n">51 ödendi · 5 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">80</div><div class="kpi-l">açık borç</div><div class="kpi-n">53 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/74</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1569</div><div class="kpi-l">test</div><div class="kpi-n">207 kaynak dosya, 76,176 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1575</div><div class="kpi-l">test</div><div class="kpi-n">207 kaynak dosya, 76,194 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -428,6 +428,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-131</td><td>A refused request costs 8–12 seconds during a database outage, because the connect attempt happens twice.</td><td class="muted-t">Any deployment with real request rates.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-132</td><td>A client that hangs up is never recorded as 499, and the access log says the response succeeded.</td><td class="muted-t">The next time somebody asks whether a client-reported truncation was the client leaving or the server failing.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-133</td><td>Two background workers write a full stack trace every three seconds for as long as the platform store is down.</td><td class="muted-t">Any outage long enough to matter, which is the only kind worth reading a log about.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-134</td><td>~~The OpenLayers viewer was dead, and every View in: Map link on every service page led to it.~~ view.js declared const OSMTILES while ground.js, loaded before it on the same page, declared the same name in the same global lexical scope.</td><td class="muted-t">Found by pointing a headless browser at the page while adding the MapServer face to it.</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-135</td><td>~~The one face whose purpose is to draw a map was the only face with no viewer.~~ FeatureServer service pages offered View in: Map · ArcGIS SDK, two real viewers.</td><td class="muted-t">Asked by the owner on 2026-08-21: why does MapServer not have it.</td><td><span class="pill good">RESOLVED</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -517,12 +519,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.5%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">117</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:38.3%"></div></div><div class="bar-n">110</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">69</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.1%"></div></div><div class="bar-n">75</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:7.7%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">12</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">11</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>e387b9a</code><time>2026-08-20</time><span>seven of nine Â§66 gates have run, and the two blanks are not waiting on us</span></li>
 <li><code>263ff72</code><time>2026-08-20</time><span>the failure gate: a liveness probe that would have caused the restart it prevents</span></li>
 <li><code>71fdf3d</code><time>2026-08-20</time><span>two more Â§66 gates, and a false claim in a table that logs itself to the operator</span></li>
 <li><code>841bbd6</code><time>2026-08-20</time><span>two Â§66 gates on the five new faces: six defects, all repaired</span></li>
@@ -536,7 +539,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>616a1f1</code><time>2026-08-20</time><span>the benchmark ADR-004&#x27;s objection deserved, and it inverts the premise</span></li>
 <li><code>3ddd961</code><time>2026-08-20</time><span>the ArcGIS MapServer face, off the same renderer</span></li>
 <li><code>54ea634</code><time>2026-08-20</time><span>WmsConformanceTests, and the assumption an eleventh service exposed</span></li>
-<li><code>2608d9a</code><time>2026-08-20</time><span>WMS 1.3.0 and 1.1.1, with WMS-T, drawing through the ADR-041 renderer</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

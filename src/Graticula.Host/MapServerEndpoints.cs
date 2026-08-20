@@ -144,8 +144,26 @@ internal static class MapServerEndpoints
                     path,
                     $"{service.QualifiedName} (MapServer)",
                     document,
+                    // <b>A viewer, because until 2026-08-21 this face had none and it
+                    // is the face whose whole purpose is to draw.</b> These two links
+                    // read "Export" and "Legend": a single 800x600 PNG of the full
+                    // extent, and a JSON document. Neither is a map — you cannot zoom
+                    // a PNG — so the feature face had two viewers and the map face had
+                    // none, which is backwards. The owner asked why on 2026-08-21 and
+                    // the answer was that the viewers were written when FeatureServer
+                    // was the only face and nobody went back.
+                    //
+                    // <b>`face=mapserver` rather than a second page.</b> The two
+                    // viewers already resolve a service and frame it; what changes is
+                    // the layer type and what the picker means. A copied page would be
+                    // a second place for the same bug — which is D-119's shape and it
+                    // has recurred twice.
                     links:
                     [
+                        ("Map", "/studio/view.html?face=mapserver"
+                            + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
+                        ("ArcGIS SDK", "/studio/map.html?face=mapserver"
+                            + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("Export", $"{path}/export?bbox={ExtentText(layers)}"
                             + $"&size=800,600&format=png&transparent=true&f=image"),
                         ("Legend", $"{path}/legend?f=json"),

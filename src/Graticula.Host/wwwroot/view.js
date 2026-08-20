@@ -9,6 +9,22 @@ const SERVICE = QUERY.get("service") || "";
 const LAYER = QUERY.get("layer");
 const WEB_MERCATOR = "EPSG:3857";
 
+/*
+  Which face of the service is drawn, and it decides who does the drawing.
+
+  <b>This viewer only knew FeatureServer until 2026-08-21.</b> It fetches EsriJSON
+  and OpenLayers draws it here, with a style chosen here. `face=mapserver` asks the
+  server for a picture instead: the symbology is ADR-033's stored document, the
+  labels are ADR-041's placement, and what arrives is pixels.
+
+  <b>Having both against one layer is the point.</b> Two faces that disagree about
+  one layer is the defect class correctness gate 2 existed to find, and it found four
+  of them by hand on 2026-08-20. This makes the comparison a click.
+*/
+const FACE = (QUERY.get("face") || "").toLowerCase() === "mapserver"
+  ? "MapServer"
+  : "FeatureServer";
+
 const $ = id => document.getElementById(id);
 
 function problem(title, detail) {
@@ -341,18 +357,31 @@ const BASEMAP_KEY = "gis-basemap";
   below is how a deployment points somewhere it is entitled to. Attribution is
   displayed, which the licence does require.
 */
-// Defined in ground.js, which this page loads first for that one line. Keeping a
-// second copy here is what let the console and this viewer disagree about the
-// ground while each looked correct on its own — D-46 again.
-//
-// <b>No fallback string, deliberately.</b> A default here would be the second copy
-// back again, serving a case that cannot happen while view.html loads ground.js
-// before this file — and if that ever stops being true, a wrong ground drawn
-// silently is worse than a named failure.
-const OSM_TILES = window.OSM_TILES;
+/*
+  `OSM_TILES` is ground.js's, and this file used to declare it again.
+
+  <b>That one line stopped this entire viewer from running, and nothing noticed for
+  four days.</b> It read `const OSM_TILES = window.OSM_TILES;` — wrong twice at once.
+  A top-level `const` in a classic script does not become a property of `window`, so
+  the value read `undefined`; and declaring the same name a second time in the shared
+  global lexical scope is a `SyntaxError`, which the browser raises while parsing,
+  before any line of this file executes. So the page rendered its static header and
+  nothing else: no map, no facts, no picker, and no error visible to anybody who was
+  not looking at devtools. Every "View in: Map" link on every service page led to it.
+
+  <b>Found on 2026-08-21, by pointing a headless browser at the page</b> while adding
+  the MapServer face. Not by a test: the console suite has sixty-nine of them and
+  none loads this page. That is the third time a control that exists has been invisible
+  in this repository, and the same lesson each time — a green suite is not a loaded
+  page.
+
+  <b>Used rather than re-declared now.</b> `guarded with `typeof` because an absent
+  ground.js makes the name a `ReferenceError` rather than `undefined`, which is the
+  failure this guard was written for and could not previously detect.
+*/
 const NO_BASEMAP = "none";
 
-if (!OSM_TILES) {
+if (typeof OSM_TILES === "undefined" || !OSM_TILES) {
   problem("ground.js did not load",
     " — the map has no ground to draw. This page loads it before view.js for the "
     + "one constant that decides which tiles are the ground.");
@@ -574,9 +603,26 @@ const dataStyle = new ol.style.Style({
 const dataSource = new ol.source.Vector();
 const dataLayer = new ol.layer.Vector({ source: dataSource, style: dataStyle });
 
+/*
+  The map face, drawn server-side and arriving as one image.
+
+  <b>`ratio: 1` rather than OpenLayers' default of 1.5.</b> The default asks for an
+  image half again as wide as the viewport so that a small pan needs no new request.
+  That is the right trade against a tile cache and the wrong one here: every request
+  is a fresh render of real geometry, so a 50% wider image is 50% more work for the
+  renderer and for PostGIS, and `MaximumImageWidth` is 4096 — which a 1.5 ratio
+  reaches on an ordinary screen and is then refused with a message about a limit the
+  user never set.
+
+  <b>Created whether or not it is used.</b> It carries no source until `loadMap`
+  builds one, so an unused instance costs nothing and the map's layer order stays the
+  same on both faces.
+*/
+const imageLayer = new ol.layer.Image({ visible: FACE === "MapServer" });
+
 const map = new ol.Map({
   target: "map",
-  layers: [...ground, dataLayer],
+  layers: [...ground, dataLayer, imageLayer],
   view: new ol.View({
     projection: WEB_MERCATOR,
     center: [0, 0],
@@ -658,6 +704,79 @@ function fitWhenSized(extent, token = ++fitFor, frames = 0) {
   };
 
   go();
+}
+
+/**
+ * Draws the map face: one request, one picture, our renderer.
+ *
+ * <b>Called once and then reconfigured, not rebuilt.</b> Changing a sublayer's
+ * visibility updates the source's `LAYERS` and asks it to redraw, so the view does
+ * not move and the ground does not flicker. Rebuilding the source on every click
+ * would reset both.
+ */
+let mapVisible = [];
+let mapExtent = null;
+
+function loadMap(document_) {
+  const at = `${serviceUrl()}/MapServer/export`;
+
+  const source = new ol.source.ImageArcGISRest({
+    url: `${serviceUrl()}/MapServer`,
+    ratio: 1,
+    params: { LAYERS: `show:${mapVisible.join(",")}`, TRANSPARENT: true },
+  });
+
+  /*
+    <b>A refused image is silent otherwise.</b> An `ol.source.Image` reports a failed
+    load by firing `imageloaderror` and drawing nothing — which looks exactly like a
+    layer with no features in it, and is the confusion this whole viewer's fact line
+    exists to prevent. The server's refusals say what was wrong, so the fetch is
+    repeated once to read the sentence rather than guess at it.
+  */
+  source.on("imageloaderror", event => {
+    const url = (event.image && event.image.getImage && event.image.getImage().src) || at;
+
+    fetch(url, { headers: { Accept: "application/json" } })
+      .then(response => response.text())
+      .then(text => problem(
+        "The map could not be drawn.",
+        `<code>${escape(url)}</code><br><br>${escape(text.slice(0, 400))}`))
+      .catch(() => problem(
+        "The map could not be drawn.",
+        `<code>${escape(url)}</code><br><br>No reason came back with the refusal.`));
+  });
+
+  imageLayer.setSource(source);
+
+  const box = document_.fullExtent;
+
+  mapExtent = box
+    ? ol.proj.transformExtent(
+      [box.xmin, box.ymin, box.xmax, box.ymax],
+      `EPSG:${(box.spatialReference && (box.spatialReference.latestWkid
+        || box.spatialReference.wkid)) || 4326}`,
+      WEB_MERCATOR)
+    : null;
+
+  const all = (document_.layers || []).filter(l => l.type !== "Group Layer").length;
+
+  $("facts").innerHTML =
+    `<span><b>${mapVisible.length}</b> of ${all} sublayer${all === 1 ? "" : "s"} `
+    + `drawn <b>server-side</b></span>`
+    + (mapExtent
+      ? `<span><code>${mapExtent.map(v => Math.round(v)).join(", ")}</code></span>`
+      : `<span>no extent in the service document</span>`)
+    + `<span><code>EPSG:3857</code></span>`
+    + (mapExtent ? `<button id="frame">Frame layer</button>` : "")
+    + `<a href="${escape(serviceUrl())}/MapServer?f=html" style="color:var(--accent)">`
+    + `service document</a>`;
+
+  $("title").textContent = `${SERVICE} (MapServer)`;
+
+  const frame = $("frame");
+  if (frame) frame.onclick = () => fitWhenSized(mapExtent);
+  if (mapExtent) fitWhenSized(mapExtent);
+  drawGroundPicker();
 }
 
 /**
@@ -800,7 +919,7 @@ map.on("singleclick", event => {
 
   let document_;
   try {
-    const response = await fetch(`${serviceUrl()}/FeatureServer?f=json`,
+    const response = await fetch(`${serviceUrl()}/${FACE}?f=json`,
       { headers: { Accept: "application/json" } });
     document_ = await response.json();
   } catch (e) {
@@ -815,17 +934,57 @@ map.on("singleclick", event => {
     return;
   }
 
+  /*
+    <b>The picker means opposite things on the two faces.</b> On FeatureServer a
+    service's layers are alternatives to look at, so choosing one puts the others
+    away. On MapServer they are a composition — fusing them into one drawing is what
+    a map service is for — so the picker toggles and several stay on. Both are one
+    click, and neither stacks unrelated geometry, which is what this page did before
+    D-45.
+  */
+  const fused = FACE === "MapServer";
+
   $("picker").innerHTML = drawable.map((l, i) =>
-    `<button data-id="${l.id}"${i === 0 ? ' class="on"' : ""}>${escape(l.name)}</button>`).join("");
+    `<button data-id="${l.id}"${fused || i === 0 ? ' class="on"' : ""}>${
+      escape(l.name)}</button>`).join("");
 
   $("picker").onclick = event => {
     const id = event.target.dataset && event.target.dataset.id;
     if (!id) return;
+
+    if (fused) {
+      const on = !event.target.classList.contains("on");
+      event.target.classList.toggle("on", on);
+
+      mapVisible = [...$("picker").querySelectorAll("button.on")]
+        .map(button => button.dataset.id);
+
+      // <b>`show:` with nothing after it is not "draw nothing" to every server, and
+      // guessing which is which is not this viewer's job.</b> The layer is hidden
+      // instead, which is unambiguous and asks for no image at all.
+      imageLayer.setVisible(mapVisible.length > 0);
+
+      if (mapVisible.length > 0) {
+        imageLayer.getSource().updateParams({ LAYERS: `show:${mapVisible.join(",")}` });
+      }
+
+      const count = $("facts").querySelector("b");
+      if (count) count.textContent = String(mapVisible.length);
+      return;
+    }
+
     for (const button of $("picker").querySelectorAll("button")) {
       button.classList.toggle("on", button === event.target);
     }
     load(id, event.target.textContent);
   };
+
+  if (fused) {
+    dataLayer.setVisible(false);
+    mapVisible = drawable.map(l => String(l.id));
+    loadMap(document_);
+    return;
+  }
 
   await load(drawable[0].id, drawable[0].name);
 })();

@@ -26,9 +26,31 @@
   const service = query.get("service");
   const layerId = query.get("layer");
 
+  /*
+    Which face of the service to draw, and it changes what kind of thing is drawn.
+
+    <b>This page only knew FeatureServer until 2026-08-21.</b> The MapServer face
+    shipped on 2026-08-20 and its directory page offered "View in: Export, Legend" —
+    a single 800x600 PNG of the whole extent, and a JSON document. Neither is a map:
+    you cannot zoom a PNG. So the one face whose entire purpose is to draw a map was
+    the one face with no viewer, while the feature face had two.
+
+    <b>The two are not the same picture and this page must not pretend they are.</b>
+    A FeatureServer sends geometry and the client draws it, so the symbology is the
+    SDK's. A MapServer draws server-side and sends pixels, so the symbology is
+    ours — ADR-033's stored document, through ADR-041's renderer. Looking at the
+    same layer through both is the only way to see whether they agree, which is what
+    the correctness gate had to do by hand on 2026-08-20.
+  */
+  const face = (query.get("face") || "featureserver").toLowerCase() === "mapserver"
+    ? "MapServer"
+    : "FeatureServer";
+
+  // A MapServer is addressed as a whole: the service is the map, and a sublayer is
+  // something to switch off rather than something to point at.
   const url = service
     ? `${location.origin}/rest/services/${service.split("/").map(encodeURIComponent).join("/")}`
-      + `/FeatureServer/${encodeURIComponent(layerId ?? "0")}`
+      + (face === "MapServer" ? "/MapServer" : `/FeatureServer/${encodeURIComponent(layerId ?? "0")}`)
     : `${location.origin}/rest/services/${encodeURIComponent(layerId || "landmarks")}`
       + "/FeatureServer/0";
 
@@ -60,9 +82,9 @@
   require([
     "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
     "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
-    "esri/layers/WebTileLayer", "esri/Basemap",
+    "esri/layers/WebTileLayer", "esri/layers/MapImageLayer", "esri/Basemap",
   ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
-      Basemap) => {
+      MapImageLayer, Basemap) => {
 
     /*
       The ground, and there are two of them.
@@ -151,26 +173,68 @@
       // count would have been.
       let count = null;
       let refusal = null;
-      try {
-        count = await features.queryFeatureCount();
-      } catch (e) {
-        refusal = e.message || String(e);
+      let drawn = null;
+
+      if (typeof features.queryFeatureCount === "function") {
+        try {
+          count = await features.queryFeatureCount();
+        } catch (e) {
+          refusal = e.message || String(e);
+        }
+      } else {
+        // <b>A map service has no feature count and asking would be the wrong
+        // question.</b> It returns pixels; the number that matters is how many of
+        // its sublayers are switched on, because that is what the picker changes and
+        // what the next request will draw. `/MapServer/{id}/query` does not exist —
+        // the capabilities string says `Map` and only `Map`, which the correctness
+        // gate made true on 2026-08-20 by removing the claim rather than the route.
+        const on = (features.sublayers || []).filter(l => l.visible).length;
+        const all = (features.sublayers || []).length;
+        drawn = `${on} of ${all} sublayer${all === 1 ? "" : "s"} drawn, server-side`;
       }
 
       const box = features.fullExtent;
-      const degrees = box && box.spatialReference && box.spatialReference.wkid === 3857
+      const wkid = box && box.spatialReference && box.spatialReference.wkid;
+
+      // <b>The unit is read, not assumed.</b> This printed `m` after every extent,
+      // so a layer stored in EPSG:4326 read `19 x 6 m` when it meant nineteen
+      // degrees of longitude — the whole of Turkey, described as a room. It was
+      // invisible while every layer looked at happened to be Web Mercator, and it
+      // showed the moment a MapServer view was pointed at a geographic one
+      // (2026-08-21). The rule is AxisOrder's: EPSG numbers its geographic 2D
+      // systems 4000-4999.
+      const geographic = wkid >= 4000 && wkid <= 4999;
+      const unit = geographic ? "°" : "m";
+
+      // Web Mercator's corner said in degrees, because one of the two is checkable
+      // against a table and the other against knowing where places are. A
+      // geographic extent is already in degrees, so there is nothing to convert.
+      const degrees = wkid === 3857
         ? `${(box.xmin / 20037508.34 * 180).toFixed(3)}, `
           + `${(Math.atan(Math.exp(box.ymin / 6378137)) * 360 / Math.PI - 90).toFixed(3)}`
         : null;
 
+      const size = box
+        ? geographic
+          ? `${box.width.toFixed(2)} × ${box.height.toFixed(2)} ${unit}`
+          : `${Math.round(box.width)} × ${Math.round(box.height)} ${unit}`
+        : null;
+
+      const corner = box
+        ? geographic
+          ? `${box.xmin.toFixed(3)}, ${box.ymin.toFixed(3)}`
+          : `${Math.round(box.xmin)}, ${Math.round(box.ymin)}`
+        : null;
+
       facts.innerHTML =
-        (count === null
-          ? `<span style="color:#92620d">feature count refused${
-            refusal ? ` — ${refusal}` : ""}</span>`
-          : `<span>${count.toLocaleString()} feature${count === 1 ? "" : "s"}</span>`)
+        (drawn !== null
+          ? `<span>${drawn}</span>`
+          : count === null
+            ? `<span style="color:#92620d">feature count refused${
+              refusal ? ` — ${refusal}` : ""}</span>`
+            : `<span>${count.toLocaleString()} feature${count === 1 ? "" : "s"}</span>`)
         + (box
-          ? `<span><code>${Math.round(box.width)} × ${Math.round(box.height)} m</code>`
-            + ` at <code>${Math.round(box.xmin)}, ${Math.round(box.ymin)}</code>`
+          ? `<span><code>${size}</code> at <code>${corner}</code>`
             + (degrees ? ` — <code>${degrees}</code>` : "")
             + `</span><button id="frame">Frame layer</button>`
           : `<span>no extent in the layer document</span>`);
@@ -200,11 +264,26 @@
         current.destroy();
       }
 
-      const features = new FeatureLayer({
-        url: at,
-        outFields: ["*"],
-        popupTemplate: { title: "{name}", content: "{*}" },
-      });
+      /*
+        <b>Two faces, two layer types, and the difference is where the drawing
+        happens.</b> A `FeatureLayer` fetches geometry and the SDK draws it in the
+        browser with a symbology the SDK chose. A `MapImageLayer` asks
+        `/MapServer/export` for a PNG of the current view and the drawing is ours —
+        the stored symbology, our label placement, our renderer. Panning re-requests;
+        that is what a map service is, and it is why the export link the directory
+        offered before today was not a viewer.
+
+        `sublayers` is left to the SDK to read from the service document, so
+        switching one off sends `layers=show:` with the rest, which this server's
+        export parser understands.
+      */
+      const features = face === "MapServer"
+        ? new MapImageLayer({ url: at })
+        : new FeatureLayer({
+          url: at,
+          outFields: ["*"],
+          popupTemplate: { title: "{name}", content: "{*}" },
+        });
 
       current = features;
       view.map.add(features);
@@ -246,7 +325,7 @@
     // which is what an ArcGIS directory does too. Group layers are skipped: they
     // hold no features. Named with a layer, only that layer is drawn.
     if (service && layerId === null) {
-      fetch(`${location.origin}/rest/services/${service}/FeatureServer?f=json`,
+      fetch(`${location.origin}/rest/services/${service}/${face}?f=json`,
         { headers: { Accept: "application/json" } })
         .then(response => response.json())
         .then(doc => {
@@ -257,13 +336,27 @@
             return;
           }
 
-          // A picker rather than a stack. A service's layers are alternatives to
-          // look at, not a composition — and with one layer the picker is a label,
-          // which is honest and costs nothing.
+          /*
+            <b>The picker means opposite things on the two faces, because the faces
+            are opposite.</b>
+
+            On FeatureServer a service's layers are alternatives to look at rather
+            than a composition, so the picker chooses one and the others go away.
+            On MapServer they *are* a composition: the whole point of a map service
+            is that it fuses its layers into one drawing, and switching one off is a
+            question you ask of the same map rather than a different map. So there
+            the picker toggles, several can be on, and each click re-requests one
+            image with `layers=show:` naming the survivors.
+
+            <b>Both are single-click, and neither is a stack of unrelated geometry</b>
+            — which is what this page did before D-45 and is the thing worth not
+            going back to.
+          */
           const picker = document.getElementById("picker");
+          const fused = face === "MapServer";
 
           picker.innerHTML = drawable.map((l, i) =>
-            `<button data-id="${l.id}"${i === 0 ? ' class="on"' : ""}>${
+            `<button data-id="${l.id}"${fused || i === 0 ? ' class="on"' : ""}>${
               String(l.name).replace(/[&<>"]/g, c =>
                 ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))
             }</button>`).join("");
@@ -271,14 +364,35 @@
           picker.onclick = event => {
             const id = event.target.dataset && event.target.dataset.id;
             if (!id) return;
+
+            if (fused) {
+              // The layer is already drawn; this changes what the next image holds.
+              // `sublayers` is a Collection, so `find` rather than an index — the
+              // service document's ids need not be dense and need not start at zero.
+              const sublayer = current
+                && current.sublayers
+                && current.sublayers.find(l => String(l.id) === String(id));
+
+              if (!sublayer) return;
+
+              sublayer.visible = !sublayer.visible;
+              event.target.classList.toggle("on", sublayer.visible);
+              describe(current);
+              return;
+            }
+
             for (const button of picker.querySelectorAll("button")) {
               button.classList.toggle("on", button === event.target);
             }
             add(`${location.origin}/rest/services/${service}/FeatureServer/${id}`);
           };
 
-          document.getElementById("which").textContent = service;
-          add(`${location.origin}/rest/services/${service}/FeatureServer/${drawable[0].id}`);
+          document.getElementById("which").textContent =
+            fused ? `${service} (MapServer)` : service;
+
+          add(fused
+            ? `${location.origin}/rest/services/${service}/MapServer`
+            : `${location.origin}/rest/services/${service}/FeatureServer/${drawable[0].id}`);
         })
         .catch(error => problem("The service document could not be read.", String(error)));
     } else {
