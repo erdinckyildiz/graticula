@@ -66,8 +66,20 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         string id = first.GetProperty("id").GetString()!;
 
-        Assert.Equal(32, id.Length);
+        // <b>Sixteen, not thirty-two.</b> An item id is thirty-two characters and a
+        // portal id is sixteen; this asserted the item's length until a working
+        // Enterprise portal was read and answered otherwise.
+        Assert.Equal(16, id.Length);
         Assert.Equal(id, second.GetProperty("id").GetString());
+
+        // The fields a client classifies on, which is how it chooses a sign-in
+        // flow. Saying "Graticula" here sent ArcGIS Pro to arcgis.com for OAuth.
+        Assert.Equal("ArcGIS Enterprise", first.GetProperty("portalName").GetString());
+        Assert.True(first.GetProperty("isPortal").GetBoolean());
+
+        // <b>False until it is true.</b> There is no OAuth here, and a client that
+        // believes there is goes to use it and does not come back.
+        Assert.False(first.GetProperty("supportsOAuth").GetBoolean());
 
         // Pro asks where the geometry service is rather than assuming it.
         string geometry = first
@@ -161,6 +173,94 @@ public sealed class PortalConformanceTests : ArcGisClient
             "does not exist or is inaccessible",
             error.GetProperty("message").GetString()!,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Every_document_arcgis_pro_walks_through_answers()
+    {
+        // <b>The chain, as ArcGIS Pro actually walks it.</b> Each of these was
+        // missing at some point on 2026-08-20 and each one, alone, produced the
+        // same dialog: *unable to connect*. Seven rounds of that is why the list is
+        // a test rather than a memory — a route deleted by an edit answers every
+        // earlier step and fails only at the end, which happened once already.
+        string root = await RequireServerAsync();
+
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token), "no credentials, so this FAILS.");
+
+        string user = Environment.GetEnvironmentVariable("GRATICULA_TEST_USER")!;
+
+        JsonElement self = await GetJsonAsync("/sharing/rest/portals/self?f=json");
+
+        string org = self.GetProperty("id").GetString()!;
+
+        string[] chain =
+        [
+            "/arcgisuris.xml",
+            "/sharing/rest?f=json",
+            $"/sharing/rest/portals/self?f=json&token={token}",
+            $"/sharing/rest/portals/{org}?f=json&token={token}",
+            $"/sharing/rest/accounts/{org}?f=json&token={token}",
+            $"/sharing/rest/portals/{org}/subscriptionInfo?f=json&token={token}",
+            $"/sharing/rest/portals/{org}/categorySchema?f=json&token={token}",
+            $"/sharing/rest/community/self?f=json&token={token}",
+            $"/sharing/rest/community/users/{user}?f=json&token={token}",
+            $"/sharing/rest/community/groups?f=json&token={token}",
+            $"/sharing/rest/content/users/{user}?f=json&token={token}",
+            $"/sharing/rest/search?q=&f=json&token={token}",
+        ];
+
+        foreach (string path in chain)
+        {
+            using HttpResponseMessage response =
+                await Http.GetAsync(new Uri($"{root}{path}"));
+
+            Assert.True(
+                response.IsSuccessStatusCode,
+                $"{path} answered {(int)response.StatusCode}, and a client reads that as a portal "
+                + "that does not work");
+
+            // <b>And HEAD, because Pro sends it first and reads 405 as a dead
+            // end.</b> A 405 here stopped a connection whose GET answered 200 in
+            // the very next request.
+            using HttpRequestMessage head = new(HttpMethod.Head, new Uri($"{root}{path}"));
+
+            using HttpResponseMessage probed = await Http.SendAsync(head);
+
+            Assert.NotEqual(System.Net.HttpStatusCode.MethodNotAllowed, probed.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task An_item_can_be_opened_the_way_pro_opens_it()
+    {
+        // Adding a layer to a map is: read the item, follow its url, read the item's
+        // data. The last one answered 404 and stopped the add after the
+        // FeatureServer document had already been read successfully.
+        string root = await RequireServerAsync();
+
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
+        JsonElement search = await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
+
+        JsonElement[] items = [.. search.GetProperty("results").EnumerateArray()];
+
+        Assert.NotEmpty(items);
+
+        string id = items[0].GetProperty("id").GetString()!;
+        string url = items[0].GetProperty("url").GetString()!;
+
+        using HttpResponseMessage service = await Http.GetAsync(new Uri($"{url}?f=json&token={token}"));
+
+        Assert.True(service.IsSuccessStatusCode, $"the item's own url answered {(int)service.StatusCode}");
+
+        using HttpResponseMessage data = await Http.GetAsync(
+            new Uri($"{root}/sharing/rest/content/items/{id}/data?f=json&token={token}"));
+
+        Assert.True(data.IsSuccessStatusCode, $"the item's data answered {(int)data.StatusCode}");
     }
 
     [Fact]

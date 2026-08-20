@@ -64,23 +64,151 @@ internal static class PortalEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet(Path, InfoAsync).Governed(SharingGovernedExtensions.Public);
-        app.MapGet($"{Path}/info", InfoAsync).Governed(SharingGovernedExtensions.Public);
+        // <b>GET and HEAD together, because Pro leads with HEAD.</b> It sends
+        // HEAD before every probe here and reads a 405 as a dead end — measured:
+        // `HEAD /sharing/rest/portals/self` answered 405, the GET after it answered
+        // 200, and the connection still failed. HTTP says a resource answering GET
+        // answers HEAD, and [D-121](../../docs/architecture-debt.md) records that
+        // the rest of this server still does not.
+        Discoverable(app, Path, InfoAsync).Governed(SharingGovernedExtensions.Public);
+        Discoverable(app, $"{Path}/info", InfoAsync).Governed(SharingGovernedExtensions.Public);
 
-        app.MapGet($"{Path}/generateToken", TokenAsync).Governed(SharingGovernedExtensions.Public);
-        app.MapPost($"{Path}/generateToken", TokenAsync).Governed(SharingGovernedExtensions.Public);
+        // <b>The file Pro needs before it will believe a URL is a portal.</b>
+        // Measured three times: without it Pro tries `/arcgisuris.xml/sharing/rest`
+        // and gives up, with `<Name>Graticula</Name>` it decides this is ArcGIS
+        // Online and leaves for arcgis.com, and the working Enterprise portals this
+        // was compared against answer `<Name>Portal for ArcGIS</Name>`. The name is
+        // a token a client matches on rather than anything shown to a person — the
+        // same category as the `currentVersion` `/rest/info` already reports.
+        Discoverable(app, "/arcgisuris.xml", UriListAsync)
+            .Governed(SharingGovernedExtensions.Public);
 
-        app.MapGet($"{Path}/portals/self", PortalSelfAsync)
+        // <b>Deleted by an edit and caught by a test, which is the point of the
+        // test.</b> Rewriting the block above took these two with it, and the
+        // surface still answered every discovery request — a client would have got
+        // all the way to signing in before finding out. The conformance suite found
+        // it in the same run.
+        app.MapGet($"{Path}/generateToken", TokenAsync)
+            .Governed(SharingGovernedExtensions.Public);
+
+        app.MapPost($"{Path}/generateToken", TokenAsync)
+            .Governed(SharingGovernedExtensions.Public);
+
+        Discoverable(app, $"{Path}/portals/self", PortalSelfAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
-        app.MapGet($"{Path}/community/self", CommunitySelfAsync)
+        // <b>The organisation by id, under both of its names.</b> Pro asks for
+        // `accounts/{id}` — the older spelling — right after it has read the user's
+        // profile, and answered 404 it reports the sign-in as a failed connection.
+        // `portals/{id}` is the same document under the current name, and a client
+        // that used one and not the other would find half a portal.
+        //
+        // <b>The id has to be the one this server just gave out.</b> Pro takes it
+        // from `portals/self` and asks for it back; anything else is a portal
+        // describing an organisation it does not have.
+        Discoverable(app, $"{Path}/accounts/{{id}}", OrganizationAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
-        app.MapGet($"{Path}/search", SearchAsync)
+        Discoverable(app, $"{Path}/portals/{{id}}", OrganizationAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
-        app.MapGet($"{Path}/content/items/{{id}}", ItemAsync)
+        Discoverable(app, $"{Path}/community/self", CommunitySelfAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>What Pro asks for immediately after signing in.</b> It generated a
+        // token, then fetched this, got 404 and reported *unable to connect* — a
+        // sign-in that had already succeeded, failing on the profile behind it.
+        Discoverable(app, $"{Path}/community/users/{{username}}", UserAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>POST as well as GET, because Pro posts its searches.</b> Its query is
+        // long enough to be a paragraph — thirty negated type clauses — so it uses
+        // a body, and a GET-only route answers 405 to the one request that lists
+        // anybody's content.
+        app.MapMethods($"{Path}/search", ["GET", "HEAD", "POST"], SearchAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // The signed-in user's own content, which is the first thing Pro opens.
+        Discoverable(app, $"{Path}/content/users/{{username}}", UserContentAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>Three documents an organisation has and this one does not.</b> A
+        // subscription it is not sold under, a category schema nobody has defined,
+        // and a group list this surface does not publish yet. Each answers with an
+        // empty truth rather than a 404, because Pro asks four times and reads the
+        // absence as a broken portal.
+        Discoverable(app, $"{Path}/portals/{{id}}/subscriptionInfo", SubscriptionAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        Discoverable(app, $"{Path}/portals/{{id}}/categorySchema", CategorySchemaAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        app.MapMethods($"{Path}/community/groups", ["GET", "HEAD", "POST"], GroupsAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        Discoverable(app, $"{Path}/content/items/{{id}}", ItemAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>The item's own data, of which these items have none.</b> Pro asks for
+        // it as the last step of adding a layer to a map — after it has already
+        // read the FeatureServer document successfully — and a 404 there stops the
+        // add. A portal item that is a pointer to a service carries no data
+        // document; the service is the data. So this answers *nothing*, which is
+        // true, rather than *no such thing*, which is not.
+        Discoverable(app, $"{Path}/content/items/{{id}}/data", ItemDataAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+    }
+
+    /// <summary>
+    /// What an administrator may do, in the words a portal client reads.
+    /// </summary>
+    /// <remarks>
+    /// <b>What this account may do, and nothing it may not.</b> A client reads
+    /// these to decide which buttons to offer, so a generous list is a set of
+    /// actions that fail when somebody presses them — the same failure as
+    /// advertising an operator the filter reader refuses.
+    /// </remarks>
+    private static readonly string[] AdministratorPrivileges =
+    [
+        "portal:user:viewOrgItems",
+        "portal:user:viewOrgUsers",
+        "portal:admin:viewItems",
+    ];
+
+    /// <summary>What everybody else may do.</summary>
+    private static readonly string[] MemberPrivileges = ["portal:user:viewOrgItems"];
+
+    /// <summary>Maps a route that answers HEAD as well as GET.</summary>
+    private static RouteHandlerBuilder Discoverable(
+        WebApplication app, string pattern, Delegate handler) =>
+        app.MapMethods(pattern, ["GET", "HEAD"], handler);
+
+    /// <summary>
+    /// Where the portal is, for a client given only a host.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the fields that point somewhere real.</b> A working portal's file
+    /// also carries a basemap query, a Bing adaptor on Esri's own servers and a
+    /// speed-test download; none of those exist here, and a client following a link
+    /// to nothing is worse than a client finding a shorter list.
+    /// </remarks>
+    private static IResult UriListAsync(HttpContext context)
+    {
+        string origin = Origin(context) + "/";
+
+        string xml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            + "<ArcGISOnlineURIList>"
+            + "<Name>Portal for ArcGIS</Name>"
+            + $"<Base>{origin}</Base>"
+            + $"<Secure>{origin}</Secure>"
+            + $"<Update>{origin}updates/</Update>"
+            + $"<PingTest>{origin}</PingTest>"
+            + $"<NewAccount>{origin}rest/login</NewAccount>"
+            + "<ForgottenPassword></ForgottenPassword>"
+            + "</ArcGISOnlineURIList>";
+
+        return Results.Content(xml, "text/xml; charset=utf-8");
     }
 
     /// <summary>
@@ -174,15 +302,33 @@ internal static class PortalEndpoints
 
         return Results.Ok(new
         {
+            // <b>Sixteen characters, because that is what a portal's id is.</b>
+            // An item id is thirty-two and a portal id is not, and a client that
+            // measures the difference concluded this was something else.
             id = PortalId(context),
+
+            // <b>`name` is ours and `portalName` is the product's.</b> A working
+            // Enterprise portal answers "ArcGIS Enterprise" here and gives its own
+            // name in `name`; matching that is how a client decides which sign-in
+            // flow to use. Saying "Graticula" in both sent Pro to arcgis.com.
             name = "Graticula",
-            portalName = "Graticula",
+            portalName = "ArcGIS Enterprise",
+            portalMode = "singletenant",
+            customBaseUrl = string.Empty,
             portalHostname = context.Request.Host.Value,
             isPortal = true,
             allSSL = true,
+
+            // <b>False, and it has to stay false until it is true.</b> This server
+            // has no OAuth. Claiming it would repeat exactly the mistake that cost
+            // three attempts: a client believes a capability that is advertised,
+            // goes to use it, and never comes back.
+            supportsOAuth = false,
             supportsHostedServices = true,
+            httpPort = 80,
+            httpsPort = 443,
             currentVersion = PortalVersion,
-            access = "private",
+            access = "public",
             user = signedIn ? Self(current) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
@@ -196,6 +342,33 @@ internal static class PortalEndpoints
                 },
             },
         });
+    }
+
+    /// <summary>The organisation named by id, which is the one this server is.</summary>
+    /// <remarks>
+    /// <b>The same document as <c>portals/self</c>, deliberately.</b> A second
+    /// description of one organisation is a second thing to keep in step, and this
+    /// server has exactly one — so the id is checked and the answer is the same
+    /// document, rather than a copy assembled beside it.
+    /// </remarks>
+    private static IResult OrganizationAsync(HttpContext context, string id)
+    {
+        if (!string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "Organization does not exist or is inaccessible.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return PortalSelfAsync(context);
     }
 
     private static IResult CommunitySelfAsync(HttpContext context)
@@ -214,6 +387,68 @@ internal static class PortalEndpoints
         return Results.Ok(Self(current));
     }
 
+    /// <summary>One user's profile.</summary>
+    /// <remarks>
+    /// <b>Only the caller's own, and that is a decision rather than a shortcut.</b>
+    /// A portal lets members look each other up; this server has no such surface
+    /// and inventing one here would publish the member list through a door nobody
+    /// reviewed. Asking about somebody else gets the same answer as asking about a
+    /// name that does not exist, which is the rule every other surface follows.
+    /// </remarks>
+    private static IResult UserAsync(HttpContext context, string username)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal == Principal.Anonymous
+            || !string.Equals(current.Principal.Name, username, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "User does not exist or is inaccessible.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
+
+        return Results.Ok(new
+        {
+            username = current.Principal.Name,
+            fullName = current.Principal.Name,
+            firstName = current.Principal.Name,
+            lastName = string.Empty,
+            description = (string?)null,
+            email = (string?)null,
+            orgId = PortalId(context),
+            role = administrator ? "org_admin" : "org_user",
+            roleId = administrator ? "org_admin" : "org_user",
+
+            // <b>What this account may do, and nothing it may not.</b> A client
+            // reads these to decide which buttons to offer, so a generous list is a
+            // set of actions that fail when somebody presses them — the same
+            // failure as advertising an operator the filter reader refuses.
+            privileges = administrator ? AdministratorPrivileges : MemberPrivileges,
+            access = "private",
+            provider = "arcgis",
+            userType = "creatorUT",
+            level = "2",
+            disabled = false,
+            units = "metric",
+
+            // <b>Empty, and it is not a claim that this account has no groups.</b>
+            // ADR-036's groups exist and are not published through this surface
+            // yet; naming that here rather than in a register would hide it, so it
+            // is in both.
+            groups = Array.Empty<object>(),
+        });
+    }
+
     private static object Self(RequestPrincipal current) => new
     {
         username = current.Principal.Name,
@@ -228,6 +463,108 @@ internal static class PortalEndpoints
             : "org_user",
     };
 
+    /// <summary>
+    /// A portal's subscription, of which this server has none.
+    /// </summary>
+    /// <remarks>
+    /// <b>An empty truth rather than a 404.</b> This product is given away
+    /// (Q-73), so there is no subscription to describe — but a client that gets no
+    /// answer at all concludes the portal is broken, and it asks four times before
+    /// deciding. Saying *in house, active, no expiry* is what a portal nobody
+    /// invoices looks like.
+    /// </remarks>
+    private static IResult SubscriptionAsync(HttpContext context, string id) =>
+        string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+            ? Results.Ok(new
+            {
+                id = PortalId(context),
+                type = "In House",
+                state = "active",
+                expDate = -1,
+                maxUsersPerLevel = new { },
+            })
+            : Unknown("Organization");
+
+    /// <summary>The item categories an organisation has defined, which is none.</summary>
+    private static IResult CategorySchemaAsync(HttpContext context, string id) =>
+        string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+            ? Results.Ok(new { categorySchema = Array.Empty<object>() })
+            : Unknown("Organization");
+
+    /// <summary>
+    /// Groups, which this surface does not publish yet.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty is honest here and would not be for long.</b>
+    /// [ADR-036](../../docs/adr/ADR-036-groups.md)'s groups exist and are real; what
+    /// does not exist is a decision about how they map onto portal groups, which
+    /// carry their own membership and sharing semantics. Answering with an empty
+    /// list says *this portal has no groups*, which is wrong, and answering 404
+    /// says *this is not a portal*, which is worse. Recorded rather than resolved:
+    /// [Q-127](../../docs/open-questions.md).
+    /// </remarks>
+    private static IResult GroupsAsync() => Results.Ok(new
+    {
+        total = 0,
+        start = 1,
+        num = 0,
+        nextStart = -1,
+        results = Array.Empty<object>(),
+    });
+
+    /// <summary>One user's content, which is every item they may see.</summary>
+    /// <remarks>
+    /// <b>Not *items they own*, and the difference is recorded rather than
+    /// hidden.</b> A portal's content listing is per-owner and this server's items
+    /// are published services whose owner is the account that published them, not
+    /// the portal. Until ownership is carried through
+    /// ([Q-127](../../docs/open-questions.md)) this answers with what the caller may
+    /// see, which is a larger set than Pro's *My Content* implies.
+    /// </remarks>
+    private static async Task<IResult> UserContentAsync(
+        HttpContext context,
+        PostgresLayerCatalog catalog,
+        string username,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal == Principal.Anonymous
+            || !string.Equals(current.Principal.Name, username, StringComparison.OrdinalIgnoreCase))
+        {
+            return Unknown("User");
+        }
+
+        IReadOnlyList<PublishedService> visible =
+            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        List<object> items = [.. visible.Select(service => Item(context, service))];
+
+        return Results.Ok(new
+        {
+            username,
+            total = items.Count,
+            start = 1,
+            num = items.Count,
+            nextStart = -1,
+            currentFolder = (object?)null,
+            items,
+            folders = Array.Empty<object>(),
+        });
+    }
+
+    private static IResult Unknown(string what) => Results.Json(
+        new
+        {
+            error = new
+            {
+                code = 400,
+                message = what + " does not exist or is inaccessible.",
+                details = Array.Empty<string>(),
+            },
+        },
+        statusCode: StatusCodes.Status400BadRequest);
+
     /// <summary>Published services, as portal items.</summary>
     private static async Task<IResult> SearchAsync(
         HttpContext context,
@@ -237,16 +574,31 @@ internal static class PortalEndpoints
         IReadOnlyList<PublishedService> visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
 
+        string query = context.Request.Query["q"].ToString();
+
+        if (query.Length == 0 && context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            query = form["q"].ToString();
+        }
+
         List<object> results = [];
 
         foreach (PublishedService service in visible)
         {
-            results.Add(Item(context, service));
+            object item = Item(context, service);
+
+            if (PortalQuery.Matches(item, query))
+            {
+                results.Add(item);
+            }
         }
 
         return Results.Ok(new
         {
-            query = context.Request.Query["q"].ToString(),
+            query,
             total = results.Count,
             start = 1,
             num = results.Count,
@@ -292,6 +644,34 @@ internal static class PortalEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    /// <summary>
+    /// An item's data document, which for a service pointer is empty.
+    /// </summary>
+    /// <remarks>
+    /// <b>The visibility check is the same one as for the item itself.</b> An
+    /// empty answer is still an answer, and an empty answer about an item this
+    /// caller may not see would tell them it exists.
+    /// </remarks>
+    private static async Task<IResult> ItemDataAsync(
+        HttpContext context,
+        PostgresLayerCatalog catalog,
+        string id,
+        CancellationToken cancellation)
+    {
+        IReadOnlyList<PublishedService> visible =
+            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        foreach (PublishedService service in visible)
+        {
+            if (string.Equals(ItemId(service), id, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Ok(new { });
+            }
+        }
+
+        return Unknown("Item");
+    }
+
     /// <summary>Every service this caller may see, running.</summary>
     private static async Task<IReadOnlyList<PublishedService>> VisibleAsync(
         HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation)
@@ -317,6 +697,18 @@ internal static class PortalEndpoints
 
     private static object Item(HttpContext context, PublishedService service)
     {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        // <b>The caller's name when the caller owns it, and the product's when
+        // nobody does.</b> Pro's *My Content* asks for `owner:<username>`, so an
+        // item whose owner is a constant is an item that never appears there.
+        // A service owned by somebody else is still not attributed to them: this
+        // surface has no member directory, and inventing one to fill a field would
+        // publish the user list through a door nobody reviewed.
+        string owner = service.Owner is { } id && id == current.Principal.Id
+            ? current.Principal.Name
+            : "graticula";
+
         bool tiles = string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase);
 
         string face = tiles ? "VectorTileServer" : "FeatureServer";
@@ -324,7 +716,7 @@ internal static class PortalEndpoints
         return new
         {
             id = ItemId(service),
-            owner = "graticula",
+            owner,
             title = service.Name,
             name = service.Name,
             type = tiles ? "Vector Tile Service" : "Feature Service",
@@ -441,6 +833,6 @@ internal static class PortalEndpoints
         byte[] hash = System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(Origin(context)));
 
-        return Convert.ToHexString(hash)[..32].ToLowerInvariant();
+        return Convert.ToHexString(hash)[..16].ToUpperInvariant();
     }
 }
