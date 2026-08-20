@@ -27,12 +27,21 @@ public readonly record struct ParsedWhere(string Sql, IReadOnlyList<object?> Par
 /// </para>
 /// <para>
 /// <b>Nothing the caller writes reaches SQL as text.</b> The parser produces an
-/// expression tree and the emitter rebuilds the statement from it: identifiers
-/// are matched against the layer's real columns and re-quoted by us, operators
-/// come from a fixed table, and every literal becomes a bound parameter. A
-/// string that fails to parse is refused with a position, not passed through.
-/// That is ADR-008 §4.6's two-step applied to the one input that is a whole
-/// language.
+/// <see cref="AttributePredicate"/> and <see cref="PredicateSql"/> rebuilds the
+/// statement from it: identifiers are matched against the layer's real columns
+/// and re-quoted by us, operators come from a fixed table, and every literal
+/// becomes a bound parameter. A string that fails to parse is refused with a
+/// position, not passed through. That is ADR-008 §4.6's two-step applied to the
+/// one input that is a whole language.
+/// </para>
+/// <para>
+/// <b>The paragraph above described the design for four days before the code
+/// had it</b> — the parser appended SQL as it descended, and there was no tree
+/// ([D-117](../../../docs/architecture-debt.md)). The security properties were
+/// all present, so nothing was wrong; what was missing was the seam. It was
+/// built when a second front end arrived rather than in advance, which is §82's
+/// rule, and the cost of the delay was one stale comment rather than a defect.
+/// See [ADR-039](../../../docs/adr/ADR-039-wfs-is-the-first-surface-after-v1.md) §5.
 /// </para>
 /// <para>
 /// <b>What it does not accept, and will not by accident:</b> function calls,
@@ -107,31 +116,37 @@ public static class WhereClause
             return false;
         }
 
-        Parser parser = new(clause, columns, quote);
+        Parser parser = new(clause, columns);
 
-        if (!parser.TryParse(out parsed, out error))
+        if (!parser.TryParse(out AttributePredicate? predicate, out error))
         {
             return false;
         }
 
-        return true;
+        return PredicateSql.TryEmit(predicate, columns, quote, out parsed, out error);
     }
 
     /// <summary>Recursive descent over the grammar above.</summary>
-    private sealed class Parser(
-        string text, IReadOnlyCollection<string> columns, Func<string, string> quote)
+    private sealed class Parser(string text, IReadOnlyCollection<string> columns)
     {
-        private readonly List<object?> _parameters = [];
+        /// <summary>The fixed table the grammar's operators come from.</summary>
+        private static readonly (string Spelling, ComparisonOperator Meaning)[] Operators =
+        [
+            ("<>", ComparisonOperator.NotEqual),
+            ("!=", ComparisonOperator.NotEqual),
+            ("<=", ComparisonOperator.LessThanOrEqual),
+            (">=", ComparisonOperator.GreaterThanOrEqual),
+            ("=", ComparisonOperator.Equal),
+            ("<", ComparisonOperator.LessThan),
+            (">", ComparisonOperator.GreaterThan),
+        ];
+
         private int _at;
         private int _depth;
 
-        public bool TryParse(out ParsedWhere parsed, out string? error)
+        public bool TryParse(out AttributePredicate? predicate, out string? error)
         {
-            parsed = default;
-
-            StringBuilder sql = new();
-
-            if (!Or(sql, out error))
+            if (!Or(out predicate, out error))
             {
                 return false;
             }
@@ -141,65 +156,73 @@ public static class WhereClause
             if (_at < text.Length)
             {
                 error = Unexpected("end of the clause");
+                predicate = null;
                 return false;
             }
 
-            parsed = new ParsedWhere(sql.ToString(), _parameters);
             return true;
         }
 
         // or := and ( OR and )*
-        private bool Or(StringBuilder sql, out string? error)
+        private bool Or(out AttributePredicate? node, out string? error)
         {
-            if (!And(sql, out error))
+            if (!And(out node, out error))
             {
                 return false;
             }
 
             while (Keyword("or"))
             {
-                sql.Append(" or ");
-
-                if (!And(sql, out error))
+                if (!And(out AttributePredicate? right, out error))
                 {
+                    node = null;
                     return false;
                 }
+
+                node = new AttributePredicate.Disjunction(node!, right!);
             }
 
             return true;
         }
 
         // and := unary ( AND unary )*
-        private bool And(StringBuilder sql, out string? error)
+        private bool And(out AttributePredicate? node, out string? error)
         {
-            if (!Unary(sql, out error))
+            if (!Unary(out node, out error))
             {
                 return false;
             }
 
             while (Keyword("and"))
             {
-                sql.Append(" and ");
-
-                if (!Unary(sql, out error))
+                if (!Unary(out AttributePredicate? right, out error))
                 {
+                    node = null;
                     return false;
                 }
+
+                node = new AttributePredicate.Conjunction(node!, right!);
             }
 
             return true;
         }
 
         // unary := NOT unary | '(' or ')' | predicate
-        private bool Unary(StringBuilder sql, out string? error)
+        private bool Unary(out AttributePredicate? node, out string? error)
         {
             error = null;
+            node = null;
             SkipSpace();
 
             if (Keyword("not"))
             {
-                sql.Append("not ");
-                return Unary(sql, out error);
+                if (!Unary(out AttributePredicate? operand, out error))
+                {
+                    return false;
+                }
+
+                node = new AttributePredicate.Negation(operand!);
+                return true;
             }
 
             if (Peek() == '(')
@@ -214,9 +237,8 @@ public static class WhereClause
                 }
 
                 _at++;
-                sql.Append('(');
 
-                if (!Or(sql, out error))
+                if (!Or(out node, out error))
                 {
                     return false;
                 }
@@ -226,28 +248,32 @@ public static class WhereClause
                 if (Peek() != ')')
                 {
                     error = Unexpected("')'");
+                    node = null;
                     return false;
                 }
 
                 _at++;
                 _depth--;
-                sql.Append(')');
+
+                // The brackets are not kept. They said which tree to build, and
+                // the tree now says it; PredicateSql puts back the ones SQL
+                // precedence needs, which is a different and smaller set.
                 return true;
             }
 
-            return Predicate(sql, out error);
+            return Predicate(out node, out error);
         }
 
         // predicate := column ( IS [NOT] NULL | [NOT] IN (list) | [NOT] LIKE lit
         //                     | [NOT] BETWEEN lit AND lit | op lit )
-        private bool Predicate(StringBuilder sql, out string? error)
+        private bool Predicate(out AttributePredicate? node, out string? error)
         {
+            node = null;
+
             if (!Column(out string? column, out error))
             {
                 return false;
             }
-
-            string quoted = quote(column!);
 
             SkipSpace();
 
@@ -261,7 +287,7 @@ public static class WhereClause
                     return false;
                 }
 
-                sql.Append(quoted).Append(negated ? " is not null" : " is null");
+                node = new AttributePredicate.IsNull(column!, negated);
                 return true;
             }
 
@@ -269,7 +295,7 @@ public static class WhereClause
 
             if (Keyword("in"))
             {
-                return In(sql, quoted, not, out error);
+                return In(column!, not, out node, out error);
             }
 
             if (Keyword("like"))
@@ -279,13 +305,13 @@ public static class WhereClause
                     return false;
                 }
 
-                if (pattern is not string)
+                if (pattern is not string text)
                 {
                     error = "'like' compares text, so its right-hand side must be a quoted string.";
                     return false;
                 }
 
-                sql.Append(quoted).Append(not ? " not like " : " like ").Append(Bind(pattern));
+                node = new AttributePredicate.Matches(column!, text, not);
                 return true;
             }
 
@@ -307,9 +333,7 @@ public static class WhereClause
                     return false;
                 }
 
-                sql.Append(quoted).Append(not ? " not between " : " between ")
-                   .Append(Bind(low)).Append(" and ").Append(Bind(high));
-
+                node = new AttributePredicate.Between(column!, low, high, not);
                 return true;
             }
 
@@ -319,7 +343,7 @@ public static class WhereClause
                 return false;
             }
 
-            if (!Operator(out string? op, out error))
+            if (!Operator(out ComparisonOperator op, out error))
             {
                 return false;
             }
@@ -329,12 +353,14 @@ public static class WhereClause
                 return false;
             }
 
-            sql.Append(quoted).Append(' ').Append(op).Append(' ').Append(Bind(value));
+            node = new AttributePredicate.Comparison(column!, op, value);
             return true;
         }
 
-        private bool In(StringBuilder sql, string quoted, bool not, out string? error)
+        private bool In(string column, bool not, out AttributePredicate? node, out string? error)
         {
+            node = null;
+
             SkipSpace();
 
             if (Peek() != '(')
@@ -345,7 +371,7 @@ public static class WhereClause
 
             _at++;
 
-            List<string> placeholders = [];
+            List<object?> values = [];
 
             while (true)
             {
@@ -354,7 +380,7 @@ public static class WhereClause
                     return false;
                 }
 
-                placeholders.Add(Bind(value));
+                values.Add(value);
 
                 SkipSpace();
 
@@ -375,9 +401,7 @@ public static class WhereClause
 
             _at++;
 
-            sql.Append(quoted).Append(not ? " not in (" : " in (")
-               .Append(string.Join(", ", placeholders)).Append(')');
-
+            node = new AttributePredicate.OneOf(column, values, not);
             error = null;
             return true;
         }
@@ -454,22 +478,22 @@ public static class WhereClause
             return false;
         }
 
-        private bool Operator(out string? op, out string? error)
+        private bool Operator(out ComparisonOperator op, out string? error)
         {
             error = null;
-            op = null;
+            op = default;
 
             SkipSpace();
 
-            foreach (string candidate in (string[])["<>", "!=", "<=", ">=", "=", "<", ">"])
+            // Longest first, or '<' would match the front of '<='. '!=' is
+            // accepted because clients send it and becomes NotEqual, the same
+            // value '<>' produces — the database sees one spelling either way.
+            foreach ((string candidate, ComparisonOperator meaning) in Operators)
             {
                 if (text.AsSpan(_at).StartsWith(candidate, StringComparison.Ordinal))
                 {
                     _at += candidate.Length;
-
-                    // != is accepted because clients send it; <> is the SQL-92
-                    // spelling and the one emitted, so the database sees one form.
-                    op = candidate == "!=" ? "<>" : candidate;
+                    op = meaning;
                     return true;
                 }
             }
@@ -576,13 +600,6 @@ public static class WhereClause
 
             error = $"'{number}' is not a number this parser understands.";
             return false;
-        }
-
-        /// <summary>Adds a value and returns its placeholder.</summary>
-        private string Bind(object? value)
-        {
-            _parameters.Add(value);
-            return $"@w{(_parameters.Count - 1).ToString(CultureInfo.InvariantCulture)}";
         }
 
         /// <summary>Consumes a keyword if it is next, whole-word.</summary>

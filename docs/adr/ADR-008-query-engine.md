@@ -492,6 +492,25 @@ Three things follow, and only the third is a change of plan:
   the last, and the architecture test that fails the build on a *second* SQL-shaped
   member in the query model is now the only thing watching.
 
+**Amended 2026-08-19 — the expression tree now exists, and it was built for the
+other reason.** [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) §5 split
+`PredicateSql` out of `WhereClause`, so a predicate is parsed into an
+`AttributePredicate` and the statement is emitted from that. **This does not repay
+[D-40](../architecture-debt.md), and it is not the seam §4a-i declined to build.**
+The declined seam runs between the *query model* and the *provider* —
+`FeatureQuery.Where` would have to stop being a `ParsedWhere` — and it has not
+moved. A non-database provider still cannot consume a `FeatureQuery`, which is
+§4.1's cost arriving exactly as predicted.
+
+What changed is *why* a tree exists at all. This section reasoned about a second
+**back end** and correctly found none; the tree was built for a second **front
+end**, which arrived first — Filter Encoding 2.0 over WFS, needing somewhere to
+put a parsed predicate that is not SQL text. **So the consequence for D-40 is a
+cost, not a status:** paying it is now changing one member's type and emitting one
+layer lower, rather than designing and building a tree from nothing. The decision
+not to pay it stands, unchanged and for the unchanged reason — §82 asks what
+problem the abstraction solves today, and no non-database provider exists today.
+
 What is true instead, stated plainly so nobody has to rediscover it:
 
 - **`ParsedWhere` is the single permitted SQL-shaped member of the query model.**

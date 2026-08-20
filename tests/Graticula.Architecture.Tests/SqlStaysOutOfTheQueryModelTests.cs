@@ -20,7 +20,7 @@ namespace Graticula.Architecture.Tests;
 /// </para>
 /// <para>
 /// <c>FeatureQuery.Where</c> is a <see cref="ParsedWhere"/>, which carries SQL
-/// text — but text <see cref="WhereClause"/> emitted, from a parsed expression,
+/// text — but text <see cref="PredicateSql"/> emitted, from a parsed expression,
 /// with every literal bound. It is a deliberate, argued exception (ADR-008 §4a)
 /// and it is allowed here by name.
 /// </para>
@@ -87,12 +87,22 @@ public sealed class SqlStaysOutOfTheQueryModelTests
                 continue;
             }
 
-            // <b>The parser and its result are the sanctioned boundary, not
-            // instances of the problem.</b> ParsedWhere exists to carry SQL, and
-            // WhereClause exists to produce it — its `out ParsedWhere` is where
-            // the one permitted exception is manufactured. Everything downstream
-            // of them is what this test is for.
-            if (type == typeof(ParsedWhere) || type == typeof(WhereClause))
+            // <b>The parser, the emitter and their result are the sanctioned
+            // boundary, not instances of the problem.</b> ParsedWhere exists to
+            // carry SQL, and these two exist to produce it — their `out
+            // ParsedWhere` is where the one permitted exception is manufactured.
+            // Everything downstream of them is what this test is for.
+            //
+            // <b>PredicateSql joined this list on 2026-08-19 and it is not a
+            // widening.</b> WhereClause used to parse and emit in one pass; ADR-039
+            // §5 split the emitting half out so a second front end — Filter
+            // Encoding 2.0, over WFS — has one target instead of writing SQL of its
+            // own. The manufacture moved, it did not multiply. What would be a
+            // widening is a second entry in <see cref="Permitted"/>, and that list
+            // is still one long.
+            if (type == typeof(ParsedWhere)
+                || type == typeof(WhereClause)
+                || type == typeof(PredicateSql))
             {
                 continue;
             }
