@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The rasteriser adapter — ADR-041 §5.1.
+
+    Its own project because this is the ONLY place in the repository where
+    SkiaSharp may be named. build-vs-adopt-policy.md §4 permits a Tier 2 library
+    behind our own port; a project boundary is the only version of that rule a
+    build can check, and NativeDependencyTests checks it in both directions —
+    nobody else references the package, and this project still does.
+
+    Unlike Graticula.Import.Reader and Graticula.Overlay.Worker, this one IS
+    reachable from the host: those confine an untrusted-file parser and an
+    uninterruptible algorithm to killable child processes, and neither argument
+    applies to drawing our own geometry with our own style.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Render.Skia</RootNamespace>
+    <AssemblyName>Graticula.Render.Skia</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+    <!-- The Linux payloads. NoDependencies carries its own font and graphics
+         stack, so an air-gapped image needs no system packages; the other is
+         kept because a deployment that has them prefers the smaller one. Both
+         are declared so that the confinement rule sees the whole family. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
+  </ItemGroup>
+
+</Project>

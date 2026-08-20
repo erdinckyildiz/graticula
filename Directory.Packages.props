@@ -72,6 +72,33 @@
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
   </ItemGroup>
 
+  <ItemGroup Label="Rendering — Tier 2, behind our own port, in the serving process">
+    <!-- ADR-041. The only rasteriser in this repository, and the first native
+         binary admitted into the process that answers public requests.
+
+         Why that is not ADR-009 §2.2's rule being broken: GDAL is confined to a
+         child process because it parses a file somebody else chose. Skia parses
+         our own geometry and our own symbology document, never a caller's upload,
+         and the alternative to it is not "no native code" — it is a GL context,
+         which is what deferred ADR-004 in the first place.
+
+         MIT over Skia's BSD-3, so nothing propagates downstream. The managed
+         alternative, ImageSharp.Drawing, ships under a split licence that is free
+         to us and payable by a commercial redistributor of us, which would attach
+         a constraint CLAUDE.md §7 says this product does not have.
+
+         NoDependencies carries its own font and graphics stack, so an air-gapped
+         image needs no system packages — the specific question ADR-004 §0 raised
+         and could not answer. Both Linux variants are declared because a native
+         dependency arrives as a family and a rule naming one of them guards
+         nothing.
+
+         Confined to Graticula.Render.Skia by NativeDependencyTests. -->
+    <PackageVersion Include="SkiaSharp" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
+  </ItemGroup>
+
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />

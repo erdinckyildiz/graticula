@@ -71,6 +71,96 @@ public sealed class NativeDependencyTests
          + "the library lives where the cost can be killed. ADR-022 §9, Q-97."),
     ];
 
+    /// <summary>
+    /// Tier 2 libraries confined to one project but reachable from the host.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A second list, because <see cref="Confined"/> asserts two things and only one of them
+    /// applies here.</b> GDAL and NetTopologySuite are confined to one project <em>and</em> kept
+    /// out of the serving process, for reasons that are about the library rather than about tiers:
+    /// one parses untrusted files, the other cannot be interrupted. A rasteriser is neither, and it
+    /// has to be reachable from the host or the host cannot draw a map.
+    /// </para>
+    /// <para>
+    /// <b>What survives is the tier rule</b>
+    /// ([build-vs-adopt-policy.md](../../docs/build-vs-adopt-policy.md) §4): a Tier 2 library lives
+    /// behind our own port, in an adapter project, and its types appear nowhere else. The peer
+    /// implementation read for [ADR-041](../../docs/adr/ADR-041-the-map-renderer.md) §4 chose the
+    /// same library and let it into twenty files including their protocol handlers, which is
+    /// exactly what this forbids and the reason it is written down rather than assumed.
+    /// </para>
+    /// </remarks>
+    private static readonly (string Prefix, string Project, string Why)[] Ported =
+    [
+        ("SkiaSharp",
+         "Graticula.Render.Skia",
+         "The rasteriser is Tier 2 behind IMapCanvas. ADR-041 §5.1: no Skia type crosses into "
+         + "Tier 1, and the port is what makes that possible. A second project naming the library "
+         + "is the port stopping being a port."),
+    ];
+
+    [Fact]
+    public void A_ported_library_is_referenced_by_its_adapter_and_no_other()
+    {
+        DirectoryInfo root = FindRepositoryRoot();
+
+        List<string> offenders = [];
+        List<string> missing = [];
+
+        foreach ((string prefix, string project, string why) in Ported)
+        {
+            bool present = false;
+
+            foreach (string file in Directory.EnumerateFiles(
+                Path.Combine(root.FullName, "src"), "*.csproj", SearchOption.AllDirectories))
+            {
+                string owner = Path.GetFileNameWithoutExtension(file);
+
+                bool references = XDocument.Load(file)
+                    .Descendants("PackageReference")
+                    .Select(static element => element.Attribute("Include")?.Value ?? string.Empty)
+                    .Any(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+                if (!references)
+                {
+                    continue;
+                }
+
+                if (string.Equals(owner, project, StringComparison.Ordinal))
+                {
+                    present = true;
+                }
+                else
+                {
+                    offenders.Add($"{owner} references {prefix}*, which belongs to {project}. {why}");
+                }
+            }
+
+            // The other direction. A rule asserting only *nobody else* passes trivially once the
+            // project it names has gone or lost the reference, and then it reads as a guard while
+            // guarding nothing.
+            if (!present)
+            {
+                missing.Add(
+                    $"{project} does not reference {prefix}*, so this rule is asserting nothing. "
+                    + "Either the adapter moved — in which case this list moves with it — or the "
+                    + "library is gone, in which case delete the row.");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0 && missing.Count == 0,
+            $"""
+             A Tier 2 library is not confined to its adapter:
+
+                 {string.Join(Environment.NewLine + "    ", offenders.Concat(missing))}
+
+             build-vs-adopt-policy.md §4 permits a Tier 2 library behind our own port interface.
+             The port is worth nothing if a second project can reach past it.
+             """);
+    }
+
     [Fact]
     public void A_confined_dependency_is_referenced_by_its_one_project_and_no_other()
     {
