@@ -53,6 +53,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Render.Skia.Tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Api.Wms", "src\Graticula.Api.Wms\Graticula.Api.Wms.csproj", "{206838BA-F4E2-40AB-8C2B-594C087C5A9E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graticula.Api.OgcFeatures", "src\Graticula.Api.OgcFeatures\Graticula.Api.OgcFeatures.csproj", "{BA140095-A3CB-405E-AF8F-46A6CD53D940}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -339,6 +341,18 @@ Global
 		{206838BA-F4E2-40AB-8C2B-594C087C5A9E}.Release|x64.Build.0 = Release|Any CPU
 		{206838BA-F4E2-40AB-8C2B-594C087C5A9E}.Release|x86.ActiveCfg = Release|Any CPU
 		{206838BA-F4E2-40AB-8C2B-594C087C5A9E}.Release|x86.Build.0 = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|x64.Build.0 = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Debug|x86.Build.0 = Debug|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|x64.ActiveCfg = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|x64.Build.0 = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|x86.ActiveCfg = Release|Any CPU
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -367,5 +381,6 @@ Global
 		{1FDED5FB-8759-4110-B0C6-D754D2AC738F} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{AFCF5923-364C-4A45-8961-C7CE9B598F8F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{206838BA-F4E2-40AB-8C2B-594C087C5A9E} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{BA140095-A3CB-405E-AF8F-46A6CD53D940} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

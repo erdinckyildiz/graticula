@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Features;
+using Graticula.Formats;
 using Graticula.Geometries;
 
 namespace Graticula.Api.Wfs;
@@ -39,7 +40,16 @@ namespace Graticula.Api.Wfs;
 public sealed class GeoJsonFeatureCollectionWriter
 {
     /// <summary>The only reference GeoJSON is written in.</summary>
-    public const int Srid = 4326;
+    /// <summary>
+    /// The reference system this face writes in.
+    /// </summary>
+    /// <remarks>
+    /// <b>RFC 7946's, and it is not this surface's to choose.</b> Kept as a member
+    /// here because WFS callers ask this type what reference a GeoJSON response is
+    /// in; the value comes from <see cref="GeoJsonWriter.Srid"/>, which is the one
+    /// place that decides it now that two faces write the format.
+    /// </remarks>
+    public const int Srid = GeoJsonWriter.Srid;
 
     private readonly WfsFeatureType _type;
 
@@ -127,7 +137,7 @@ public sealed class GeoJsonFeatureCollectionWriter
 
         if (feature.Geometry is { } geometry)
         {
-            WriteGeometry(json, geometry);
+            GeoJsonWriter.WriteGeometry(json, geometry);
         }
         else
         {
@@ -139,175 +149,11 @@ public sealed class GeoJsonFeatureCollectionWriter
         for (int i = 0; i < feature.Schema.Count; i++)
         {
             json.WritePropertyName(feature.Schema.Names[i]);
-            WriteValue(json, feature[i]);
+            GeoJsonWriter.WriteValue(json, feature[i]);
         }
 
         json.WriteEndObject();
         json.WriteEndObject();
     }
 
-    private static void WriteValue(Utf8JsonWriter json, object? value)
-    {
-        switch (value)
-        {
-            case null:
-                json.WriteNullValue();
-                break;
-
-            case bool flag:
-                json.WriteBooleanValue(flag);
-                break;
-
-            case byte or sbyte or short or ushort or int or uint:
-                json.WriteNumberValue(Convert.ToInt64(value, CultureInfo.InvariantCulture));
-                break;
-
-            case long whole:
-                // <b>Written as a number and not as text, deliberately, and the
-                // risk is recorded rather than avoided.</b> FieldType.BigInteger's
-                // own remark notes that JavaScript loses integer precision above
-                // 2^53 — but a GeoJSON reader that is not JavaScript expects a
-                // number, and quoting every long would make ordinary identifiers
-                // strings for every client to work around. The surface that must
-                // choose the other way is a browser API, and this is not one.
-                json.WriteNumberValue(whole);
-                break;
-
-            case float or double or decimal:
-                json.WriteNumberValue(Convert.ToDouble(value, CultureInfo.InvariantCulture));
-                break;
-
-            case DateTime moment:
-                json.WriteStringValue(moment.ToUniversalTime()
-                    .ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture));
-                break;
-
-            case DateTimeOffset moment:
-                json.WriteStringValue(moment.UtcDateTime
-                    .ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture));
-                break;
-
-            case byte[] bytes:
-                json.WriteBase64StringValue(bytes);
-                break;
-
-            default:
-                json.WriteStringValue(GmlFeatureCollectionWriter.Text(value));
-                break;
-        }
-    }
-
-    private static void WriteGeometry(Utf8JsonWriter json, Geometry geometry)
-    {
-        json.WriteStartObject();
-
-        switch (geometry)
-        {
-            case Point point:
-                json.WriteString("type", "Point");
-                json.WriteStartArray("coordinates");
-
-                if (!point.IsEmpty)
-                {
-                    json.WriteNumberValue(point.X);
-                    json.WriteNumberValue(point.Y);
-                }
-
-                json.WriteEndArray();
-                break;
-
-            case LineString line:
-                json.WriteString("type", "LineString");
-                json.WriteStartArray("coordinates");
-                WritePositions(json, line.Coordinates);
-                json.WriteEndArray();
-                break;
-
-            case Polygon polygon:
-                json.WriteString("type", "Polygon");
-                json.WriteStartArray("coordinates");
-                WriteRings(json, polygon);
-                json.WriteEndArray();
-                break;
-
-            case MultiPoint points:
-                json.WriteString("type", "MultiPoint");
-                json.WriteStartArray("coordinates");
-
-                foreach (Point part in points.Parts)
-                {
-                    json.WriteStartArray();
-
-                    if (!part.IsEmpty)
-                    {
-                        json.WriteNumberValue(part.X);
-                        json.WriteNumberValue(part.Y);
-                    }
-
-                    json.WriteEndArray();
-                }
-
-                json.WriteEndArray();
-                break;
-
-            case MultiLineString lines:
-                json.WriteString("type", "MultiLineString");
-                json.WriteStartArray("coordinates");
-
-                foreach (LineString part in lines.Parts)
-                {
-                    json.WriteStartArray();
-                    WritePositions(json, part.Coordinates);
-                    json.WriteEndArray();
-                }
-
-                json.WriteEndArray();
-                break;
-
-            case MultiPolygon polygons:
-                json.WriteString("type", "MultiPolygon");
-                json.WriteStartArray("coordinates");
-
-                foreach (Polygon part in polygons.Parts)
-                {
-                    json.WriteStartArray();
-                    WriteRings(json, part);
-                    json.WriteEndArray();
-                }
-
-                json.WriteEndArray();
-                break;
-
-            default:
-                throw new NotSupportedException(
-                    $"'{geometry.Kind}' is not a geometry this surface can write as GeoJSON.");
-        }
-
-        json.WriteEndObject();
-    }
-
-    private static void WriteRings(Utf8JsonWriter json, Polygon polygon)
-    {
-        json.WriteStartArray();
-        WritePositions(json, polygon.Shell.Coordinates);
-        json.WriteEndArray();
-
-        foreach (LinearRing hole in polygon.Holes)
-        {
-            json.WriteStartArray();
-            WritePositions(json, hole.Coordinates);
-            json.WriteEndArray();
-        }
-    }
-
-    private static void WritePositions(Utf8JsonWriter json, XySequence coordinates)
-    {
-        for (int i = 0; i < coordinates.Count; i++)
-        {
-            json.WriteStartArray();
-            json.WriteNumberValue(coordinates.X(i));
-            json.WriteNumberValue(coordinates.Y(i));
-            json.WriteEndArray();
-        }
-    }
 }

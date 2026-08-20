@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    OGC API Features — ADR-042.
+
+    Its own project like the other protocol adapters. Unlike them it is not a
+    compatibility surface: ADR-005 chose this as the native face and v1-scope §4
+    inverted that for v1. This is the inversion being unwound, so §51's "outside
+    the core domain" reads differently here and ADR-042 says how.
+
+    No PackageReference. It writes JSON with System.Text.Json and geometry through
+    Graticula.Core's GeoJsonWriter, which the WFS face now shares.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Api.OgcFeatures</RootNamespace>
+    <AssemblyName>Graticula.Api.OgcFeatures</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+</Project>

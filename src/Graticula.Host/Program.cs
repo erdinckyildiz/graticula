@@ -899,6 +899,7 @@ public static class Program
         WfsEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
+        OgcFeaturesEndpoints.Map(app);
 
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
         // server connection wants a SOAP catalogue this product has never scoped;
