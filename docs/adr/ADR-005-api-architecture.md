@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **`REOPENED` 2026-08-13 by Q-88** — v1 ships ArcGIS only and OGC API Features moves to v2, which **inverts this ADR's central decision**. See §0. Previously: `ACCEPTED WITH CONDITIONS` |
+| **Status** | **`ACCEPTED WITH CONDITIONS` — re-closed 2026-08-20.** Reopened 2026-08-13 by Q-88 because v1 inverted its central decision; the inversion is unwound and the reason has expired. See §0b. |
 | **Confidence** | `MEDIUM-HIGH` |
 | **Decided** | 2026-08-12 |
 
@@ -62,6 +62,47 @@ the write-surface analysis — all of which are about ArcGIS surfaces or are
 protocol-independent.
 
 ---
+
+## 0b. Re-closed 2026-08-20 — the inversion is unwound, and what it cost is measurable
+
+**This ADR was reopened because v1 had one face and this decision assumed several.**
+That reason no longer holds. [ADR-042](ADR-042-ogc-api-features.md) built OGC API
+Features Parts 1 and 2, which is the surface §3 chose; the server now serves **five
+protocol faces over one query model**: ArcGIS FeatureServer, ArcGIS VectorTileServer
+and MapServer, WFS 2.0, WMS 1.3.0 with 1.1.1, and OGC API Features.
+
+**§3.2a said six faces would be *"the hardest available test"* of whether the
+internal interface is genuinely neutral. There are five, and the test can be run
+rather than argued.** Measured 2026-08-20:
+
+| Question | Answer | How it was checked |
+|---|---|---|
+| Does any protocol adapter write SQL? | **No. Zero occurrences** across all four adapter projects | `grep` for `CommandText`, `NpgsqlCommand` and `SELECT` in `Graticula.Api.*` |
+| Does every face read through one query model? | **Yes.** Eight `FeatureQuery` construction sites, all in the host's endpoint files, none in an adapter | the same |
+| Does any protocol type reach Tier 1? | **No** — `TierBoundaryTests` asserts `Graticula.Core` references nothing outside the base class library, and it passes | the architecture suite |
+| Is the domain free of protocol vocabulary? | **No, and this is the finding.** Three ArcGIS nouns are in Tier 1: `LayerDefinition.ObjectIdColumn`, `LayerDefinition.IsArcGisServable` and `FeatureQuery.ObjectIds`, plus `FeatureEdits.ObjectId` | `grep` for `ObjectId` under `Graticula.Core` |
+
+**So §8's rule — external protocols must not dictate internal domain architecture —
+held for the architecture and leaked in the naming.** A property called
+`IsArcGisServable` on a Tier 1 type is one protocol's requirement (Q-57: a unique
+32-bit integer identity) written into the domain's own vocabulary. It is
+[D-124](../architecture-debt.md), it is four names rather than a shape, and it is
+exactly what building one face first would be expected to cost.
+
+**The compatibility-layer boundary is the other thing that has to be said plainly.**
+§0 recorded that §51's *outside the core domain* must be amended or suspended,
+because v1 made the compatibility layer the product. **It is neither amended nor
+suspended: it is satisfied.** Every protocol face — including the ArcGIS ones — lives
+in its own project outside `Graticula.Core`, and the architecture suite fails the
+build if that reverses. What changed in v1 was which face a user is expected to
+reach for, not where any of them live.
+
+**A-026 stays dissolved.** It asked whether OGC API Features plus extensions can
+express §28. Parts 1 and 2 are built and §28 is not expressed through them; it is
+expressed through the catalogue, which every face reads. The question was about the
+wrong layer.
+
+**What this ADR still owes** is in §7's conditions, unchanged by the reopening.
 
 ## 1. Context
 
@@ -554,29 +595,33 @@ pipeline, ADR-006.
 
 ## 8. Conditions
 
-> **Deferred with the decision, recorded 2026-08-15.** These four are conditions
-> on **OGC API Features 1+2+3**, which [v1-scope](../v1-scope.md) §4 moved to v2
-> — that move is what left this ADR `REOPENED`. They are not v1 work and were
-> being counted as outstanding alongside conditions that are. They come back the
-> moment OGC API Features does, unchanged, and none of them is retracted.
+> **Returned 2026-08-20, unchanged, exactly as the deferral said they would.**
+> These four were deferred on 2026-08-15 because [v1-scope](../v1-scope.md) §4 had
+> moved OGC API Features to v2, and the note ended *"they come back the moment OGC
+> API Features does"*. [ADR-042](ADR-042-ogc-api-features.md) built it, so they are
+> live again.
 >
-> The one that survives the deferral in spirit is condition 2 — *the capability
-> report is generated, never hand-maintained* — because ADR-008 §2 makes the
-> same demand for the ArcGIS surface that v1 does ship. It is tracked there.
+> **Two of them are now unmet by what was built, and that is the point of writing
+> the deferral that way.** Condition 1 says Part 3 ships with Part 1; ADR-042
+> shipped Parts 1 and 2 and deferred Part 3 to [Q-132](../open-questions.md).
+> Condition 2 says the capability report is generated; the `conformsTo` list is a
+> hand-maintained array in `OgcNames`. **A condition that returns and is found
+> unmet has done its job** — the alternative was a deferral that quietly became a
+> retraction.
 
 
 1. **Part 3 ships with Part 1.** Publishing a filterless feature service and
    calling it OGC API Features conformant would be technically true and
-   practically useless. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+   practically useless. *(**LIVE and UNMET, 2026-08-20.** [ADR-042](ADR-042-ogc-api-features.md) §5.7 defers Part 3 to [Q-132](../open-questions.md), which contravenes this condition knowingly rather than by oversight. The surface is not filterless — Part 1 §7.15.4's per-property equality is implemented, and `bbox` and `datetime` with it — so the *practically useless* the condition warns about is not what shipped. What did ship is a feature service whose filtering cannot express `or`, a range, or a spatial predicate, which is less than this condition asked for. **Either Part 3 gets built or this condition gets amended by a decision; it must not stay unmet and unmentioned.**)*
 
-2. **The capability report is generated, never hand-maintained.** *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+2. **The capability report is generated, never hand-maintained.** *(**LIVE and UNMET, 2026-08-20.** `OgcNames.ConformsTo` is a hand-maintained array of five URIs. This is the condition's own failure mode: the list is what a validator checks, and nothing ties it to what the code actually does — a class removed in the code stays claimed in the array until somebody notices. ADR-008 §2 makes the same demand for the ArcGIS capability report and it is tracked there.)*
 
 3. **Every extension is reviewed against the additive-only rule** in §3.2 before
-   it ships. This is the rule most likely to erode quietly. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+   it ships. This is the rule most likely to erode quietly. *(**LIVE, not yet triggered.** Nothing extends OGC API Features here yet. It becomes real the first time a query parameter, a link relation or a media type is added that the specification does not define.)*
 
 4. **Optimistic concurrency must be built on database-maintained state** (§3.8),
    never on our own record of what we saw. Getting this wrong produces silent
-   lost updates, which is the worst defect class an editing API can have. *(Deferred with the decision — this is a condition on OGC API Features, which [v1-scope](../v1-scope.md) §4 moved to v2, and that move is what left this ADR `REOPENED`. Not retracted; it returns unchanged when the decision does.)*
+   lost updates, which is the worst defect class an editing API can have. *(**LIVE, not yet triggered.** This surface is read-only ([ADR-042](ADR-042-ogc-api-features.md) §5.7), so there is no concurrency to get wrong. It becomes real with Part 4.)*
 
 ## 9. Revisit triggers
 

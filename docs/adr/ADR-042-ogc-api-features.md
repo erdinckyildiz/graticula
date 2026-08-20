@@ -182,6 +182,16 @@ server has.
 
 - **Part 3, CQL2 filtering.** [Q-132](../open-questions.md), and it is where
   ADR-008's expression tree would earn its third caller.
+
+  **This contravenes [ADR-005](ADR-005-api-architecture.md) condition 1**, which
+  says *Part 3 ships with Part 1* and calls a filterless feature service
+  *"technically true and practically useless"*. That condition was deferred while
+  OGC API Features was out of scope and returns the moment it is built — so it
+  returned today, and it is unmet. **Recorded here rather than left for the
+  register to notice.** The mitigation is real and partial: Part 1 §7.15.4's
+  per-property equality is implemented, with `bbox` and `datetime`, so what shipped
+  is not filterless. What it cannot express is `or`, a range, or a spatial
+  predicate. **Either Part 3 gets built or condition 1 gets amended by a decision.**
 - **Part 4, transactions.** This surface is read-only, as WFS is.
 - **`sortby`.** It is not in Part 1 and the ordering is fixed at identity anyway;
   offering it would mean re-opening §5.5's paging guarantee.
@@ -206,6 +216,14 @@ designed for a different protocol.
 
 **Ports created.** None. One extracted:
 `Graticula.Core.Formats.GeoJsonWriter`.
+
+**And two of ADR-005's conditions came back unmet.** Deferring OGC API Features
+deferred four of its conditions with a note saying they return unchanged when the
+decision does. They returned: condition 1 wants Part 3 shipped with Part 1, and
+condition 2 wants the conformance list generated rather than hand-maintained —
+`OgcNames.ConformsTo` is an array of five URIs somebody has to keep true. **Both are
+live and unmet**, which is a deferral doing its job rather than quietly becoming a
+retraction.
 
 ## 7. Conditions
 
@@ -261,12 +279,33 @@ designed for a different protocol.
    the geographic and projected spellings of one box can disagree about a feature
    within ten centimetres of its edge. [Q-133](../open-questions.md). It is a
    consistency question between two transformation paths, not a missing feature.
-4. **ADR-005 re-closes, or says why it cannot.** It has been `REOPENED` since
-   2026-08-13 on the grounds that v1 inverted it. The inversion is unwound; the
-   ADR should not stay open on a reason that has expired.
-5. **[Q-89](../open-questions.md) is answered with what five faces showed**, not
-   with the recommendation it currently carries. It asked whether to build the
-   protocol-neutral interface on faith or extract it later; later has arrived.
+4. **DISCHARGED 2026-08-20. [ADR-005](ADR-005-api-architecture.md) is re-closed**,
+   with a §0b that measures rather than asserts. It had been `REOPENED` since
+   2026-08-13 on the grounds that v1 had one face and the decision assumed several;
+   there are five, so the reason expired rather than being argued away.
+
+   **And §51's boundary turned out to need neither amending nor suspending.** §0
+   said the compatibility layer becoming the product surface meant *outside the core
+   domain* had to give. It did not: every face, including the ArcGIS ones, lives in
+   its own project outside `Graticula.Core`, and the architecture suite fails the
+   build if that reverses. What v1 changed was which face a user reaches for.
+5. **DISCHARGED 2026-08-20, and the recommendation it carried was right.**
+   [Q-89](../open-questions.md) asked whether to build the protocol-neutral interface
+   on faith or extract it when the second caller arrived. Measured across five faces:
+   **zero SQL in any adapter project**, eight `FeatureQuery` construction sites all
+   in the host, and `TierBoundaryTests` still green.
+
+   **The interface was never built on faith and never needed to be.** It was
+   extracted twice, each time under pressure from a real second caller —
+   `AttributePredicate`/`PredicateSql` when WFS became the second consumer of the
+   where-clause emitter, and `GeoJsonWriter` when this surface became the second
+   writer of GeoJSON. Each cost a day.
+
+   **What building ArcGIS first did cost is four names.** `ObjectIdColumn`,
+   `IsArcGisServable`, `FeatureQuery.ObjectIds` and `FeatureEdits.ObjectId` are one
+   protocol's vocabulary sitting in Tier 1 — [D-124](../architecture-debt.md).
+   MASTER §8's rule held for the architecture and leaked in the naming, which is a
+   far smaller bill than an abstraction exercised by nothing.
 
 ## 8. Assumptions
 
