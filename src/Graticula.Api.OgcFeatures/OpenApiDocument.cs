@@ -114,9 +114,13 @@ public static class OpenApiDocument
 
             Parameter(json, "offset", "query", "How many features to skip.", "integer");
 
-            Parameter(json, "bbox", "query",
-                "Four numbers, or six with elevations between them, in the order the `bbox-crs` "
-                + "reference system defines.", "string");
+            // <b>An array, not a string, and the CITE suite is what said so.</b> Part 1
+            // §7.15.3 types `bbox` as an array of four or six numbers, and a
+            // generated client built from a `string` schema sends the whole box as
+            // one opaque value. It was declared as a string here until 2026-08-20.
+            ArrayParameter(json, "bbox",
+                "Four numbers, or six with minimum and maximum elevation between them, in the "
+                + "order the `bbox-crs` reference system defines.", 4, 6);
 
             Parameter(json, "bbox-crs", "query",
                 "The reference system the bounding box is written in. Default CRS84.", "string");
@@ -203,6 +207,31 @@ public static class OpenApiDocument
         }
 
         json.WriteEndObject();
+        json.WriteEndObject();
+        json.WriteEndObject();
+    }
+
+    /// <summary>A query parameter that is an array of numbers.</summary>
+    private static void ArrayParameter(
+        Utf8JsonWriter json, string name, string description, int minimum, int maximum)
+    {
+        json.WriteStartObject(name);
+        json.WriteString("name", name);
+        json.WriteString("in", "query");
+        json.WriteString("description", description);
+        json.WriteBoolean("required", false);
+        json.WriteString("style", "form");
+        json.WriteBoolean("explode", false);
+
+        json.WriteStartObject("schema");
+        json.WriteString("type", "array");
+        json.WriteNumber("minItems", minimum);
+        json.WriteNumber("maxItems", maximum);
+
+        json.WriteStartObject("items");
+        json.WriteString("type", "number");
+        json.WriteEndObject();
+
         json.WriteEndObject();
         json.WriteEndObject();
     }

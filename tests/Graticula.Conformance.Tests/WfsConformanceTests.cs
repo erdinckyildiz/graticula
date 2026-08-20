@@ -211,6 +211,15 @@ public sealed class WfsConformanceTests : ArcGisClient
 
         Assert.Contains($"graticula:{name}", await PublishedTypesAsync());
 
+        // <b>Read first, and put back exactly what was there.</b> The first version
+        // restored by writing nulls, which is not "unchanged" — it is *unconfigured*,
+        // and it wiped an explicit empty capability ceiling on the service this
+        // happens to pick. A console test failed hours later with checkboxes that had
+        // turned themselves on. [D-75](../../docs/architecture-debt.md) exactly: a
+        // test that mutates shared state fails somebody else, and restoring a value
+        // it never read is not restoring.
+        string before = await CapabilitiesAsync(root, bare, folder);
+
         await SetFeatureFaceAsync(root, bare, folder, serves: false);
 
         try
@@ -223,10 +232,85 @@ public sealed class WfsConformanceTests : ArcGisClient
         }
         finally
         {
-            await SetFeatureFaceAsync(root, bare, folder, serves: null);
+            await RestoreAsync(root, bare, before);
         }
 
         Assert.Contains($"graticula:{name}", await PublishedTypesAsync());
+    }
+
+    /// <summary>A service's capability document, as it stands now.</summary>
+    private async Task<string> CapabilitiesAsync(string root, string name, string? folder)
+    {
+        string path = $"/admin/services/{Uri.EscapeDataString(name)}/capabilities"
+            + (folder is { Length: > 0 } ? $"?folder={Uri.EscapeDataString(folder)}" : string.Empty);
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(root + path));
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.True(
+            response.IsSuccessStatusCode,
+            $"Could not read {name}'s capabilities: {(int)response.StatusCode}");
+
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    /// <summary>
+    /// Puts a service's capabilities back exactly as they were read.
+    /// </summary>
+    /// <remarks>
+    /// <b>The read document and the write document are the same shape on purpose</b>
+    /// — the admin surface says so in its own remarks — so restoring is echoing what
+    /// was read, with the two members the write shape does not carry removed.
+    /// </remarks>
+    private async Task RestoreAsync(string root, string name, string document)
+    {
+        System.Text.Json.JsonElement read =
+            System.Text.Json.JsonDocument.Parse(document).RootElement;
+
+        Dictionary<string, object?> body = new(StringComparer.Ordinal);
+
+        foreach (System.Text.Json.JsonProperty property in read.EnumerateObject())
+        {
+            if (property.Name is "name" or "configured" or "note"
+                or "serverRequestDeadlineSeconds")
+            {
+                continue;
+            }
+
+            body[property.Name] = property.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Null => null,
+                System.Text.Json.JsonValueKind.True => true,
+                System.Text.Json.JsonValueKind.False => false,
+                System.Text.Json.JsonValueKind.Number => property.Value.GetInt64(),
+                System.Text.Json.JsonValueKind.Array =>
+                    property.Value.EnumerateArray().Select(v => v.GetString()).ToArray(),
+                _ => property.Value.GetString(),
+            };
+        }
+
+        // The write shape spells this one differently from the read shape.
+        if (body.Remove("statementTimeoutMs", out object? timeout))
+        {
+            body["statementTimeoutMilliseconds"] = timeout;
+        }
+
+        using HttpRequestMessage request =
+            new(HttpMethod.Put, new Uri($"{root}/admin/services/{Uri.EscapeDataString(name)}/capabilities"))
+            {
+                Content = JsonContent.Create(body),
+            };
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.True(
+            response.IsSuccessStatusCode,
+            $"Could not restore {name}'s capabilities: {(int)response.StatusCode} "
+            + await response.Content.ReadAsStringAsync());
     }
 
     private async Task SetFeatureFaceAsync(string root, string name, string? folder, bool? serves)

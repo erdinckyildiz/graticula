@@ -224,10 +224,43 @@ designed for a different protocol.
    `text/html` and contains links, and the collections page names the collection —
    asserted for the landing page, conformance, collections, one collection and its
    items.
-3. **OGC CITE `ets-ogcapi-features10` is run and its result recorded**, pass or
-   fail, the way [ADR-041](ADR-041-the-map-renderer.md) condition 6 was. **This is
-   the condition that decides whether the five claimed classes are true**, and
-   `oas30` and `html` are the two most likely to be found wanting.
+3. **DISCHARGED 2026-08-20 by running it. `ogccite/ets-ogcapi-features10`: 0
+   failed, 25 skipped, and one Part 2 assertion still red.** The passing count
+   varies between runs — 202 and 306 on two consecutive ones — because the suite
+   samples collections and the suites share a server ([D-75](../architecture-debt.md)).
+
+   **The first run was 215 passed and 13 failed, and every one of the thirteen was
+   a real defect.** Three causes:
+
+   - **A zero-area `bbox` was refused.** The rule was copied from the WMS face,
+     where an image genuinely needs area; an intersection test does not, and this
+     server holds two layers whose whole extent is a horizontal line. A client
+     sending the published extent back as its `bbox` was refused for doing the
+     obvious thing.
+   - **A valid `bbox` produced a 503.** `bbox=-180,-90,180,-85` is legitimate in
+     CRS84 and untransformable into Web Mercator, which is undefined below −85.06°;
+     PostGIS answered *transform: tolerance condition error*. The fix is general
+     rather than a table of areas of use: **the filter is intersected with the
+     collection's own extent**, which cannot change which features match and is
+     transformable by construction.
+   - **`bbox` was typed as a string in the OpenAPI document**, where Part 1
+     §7.15.3 types it as an array of four or six numbers. A generated client built
+     from that schema sends the whole box as one opaque value.
+
+   **And a fourth, found while fixing the first three, which is the one worth
+   keeping.** A client sending a collection's own extent as its `bbox` got **no
+   features at all** from three of five layers — the query guaranteed to match
+   everything. The extent is produced by projecting the data one way and the filter
+   is projected back the other; the two disagree in the last digits, every feature
+   sits exactly on an edge, and every edge test fails. **A transformed box is now
+   widened by a micro-degree**, which is far below anything stored and far above a
+   round trip's error.
+
+   **What is still red is `verifyBboxCrsParameter`**, and the cause is understood:
+   the widening applies where a transformation happens and not where none does, so
+   the geographic and projected spellings of one box can disagree about a feature
+   within ten centimetres of its edge. [Q-133](../open-questions.md). It is a
+   consistency question between two transformation paths, not a missing feature.
 4. **ADR-005 re-closes, or says why it cannot.** It has been `REOPENED` since
    2026-08-13 on the grounds that v1 inverted it. The inversion is unwound; the
    ADR should not stay open on a reason that has expired.

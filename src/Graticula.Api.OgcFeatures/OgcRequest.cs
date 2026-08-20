@@ -63,6 +63,18 @@ public sealed class OgcRequest
     /// <summary>The reference system the bounding box is written in.</summary>
     public int BboxSrid { get; private init; } = AxisOrder.Wgs84;
 
+    /// <summary>
+    /// The eastern half of a bounding box that crosses the antimeridian, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>A <c>bbox</c> whose first longitude is greater than its third crosses the
+    /// antimeridian</b> — Part 1 §7.15.3 says so explicitly, and it is the one case
+    /// where the obvious validation is wrong. Refusing it, which this did until the
+    /// CITE suite asked, turns a legitimate query about the Pacific into a 400.
+    /// The box becomes two, split at ±180, and the filter is their union.
+    /// </remarks>
+    public Envelope? BboxEast { get; private init; }
+
     /// <summary>The reference system the response is written in.</summary>
     public int Srid { get; private init; } = AxisOrder.Wgs84;
 
@@ -171,7 +183,9 @@ public sealed class OgcRequest
         bool bboxLatitudeFirst =
             OgcNames.SridOf(parameter("bbox-crs"), out bool first) is not null && first;
 
-        if (!TryBbox(parameter("bbox"), bboxLatitudeFirst, out Envelope? bbox, out problem))
+        if (!TryBbox(
+                parameter("bbox"), bboxLatitudeFirst,
+                out Envelope? bbox, out Envelope? east, out problem))
         {
             return false;
         }
@@ -188,6 +202,7 @@ public sealed class OgcRequest
             Limit = limit,
             Offset = offset,
             Bbox = bbox,
+            BboxEast = east,
             BboxSrid = bboxSrid,
             Srid = srid,
             CrsUri = crsUri,
@@ -299,9 +314,14 @@ public sealed class OgcRequest
     /// and the response is a valid empty collection.
     /// </remarks>
     private static bool TryBbox(
-        string? value, bool latitudeFirst, out Envelope? bbox, out OgcProblem? problem)
+        string? value,
+        bool latitudeFirst,
+        out Envelope? bbox,
+        out Envelope? east,
+        out OgcProblem? problem)
     {
         bbox = null;
+        east = null;
         problem = null;
 
         if (string.IsNullOrWhiteSpace(value))
@@ -341,15 +361,30 @@ public sealed class OgcRequest
         (double minX, double minY, double maxX, double maxY) =
             latitudeFirst ? (b, a, d, c) : (a, b, c, d);
 
-        if (maxX <= minX || maxY <= minY)
+        // <b>A zero-width or zero-height box is a legitimate query, and refusing it
+        // was a rule copied from the wrong place.</b> WMS refuses one because an
+        // image needs area; an intersection test does not, and this server holds two
+        // layers whose whole extent is a horizontal line — so a client using the
+        // published extent as its `bbox` was refused for doing the obvious thing.
+        // Found by the CITE suite, which does exactly that.
+        if (maxY < minY)
         {
             problem = OgcProblem.BadRequest(
-                "`bbox` needs a positive width and height. In "
+                "`bbox` has its maximum latitude below its minimum. In "
                 + (latitudeFirst
                     ? "EPSG:4326 the order is miny,minx,maxy,maxx — latitude first."
                     : "CRS84 the order is minx,miny,maxx,maxy — longitude first."));
 
             return false;
+        }
+
+        // <b>West greater than east means the box crosses the antimeridian</b>,
+        // which Part 1 §7.15.3 defines rather than forbids. It becomes two boxes.
+        if (maxX < minX)
+        {
+            bbox = new Envelope(minX, minY, 180, maxY);
+            east = new Envelope(-180, minY, maxX, maxY);
+            return true;
         }
 
         bbox = new Envelope(minX, minY, maxX, maxY);

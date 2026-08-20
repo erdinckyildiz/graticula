@@ -267,13 +267,17 @@ internal static class OgcFeaturesEndpoints
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        if (!TryQuery(request!, layer, described, out FeatureQuery? features, out problem))
+        if (!TryQuery(
+                request!, layer, described, collection,
+                out FeatureQuery? features, out bool empty, out problem))
         {
             await RefuseAsync(context, problem!).ConfigureAwait(false);
             return;
         }
 
-        long matched = await source.CountAsync(features!, cancellation).ConfigureAwait(false);
+        long matched = empty
+            ? 0
+            : await source.CountAsync(features!, cancellation).ConfigureAwait(false);
 
         string self = $"{Origin(context)}{context.Request.Path}";
 
@@ -596,10 +600,13 @@ internal static class OgcFeaturesEndpoints
         OgcRequest request,
         PublishedLayer layer,
         LayerDescription described,
+        CollectionMetadata collection,
         out FeatureQuery? query,
+        out bool empty,
         out OgcProblem? problem)
     {
         query = null;
+        empty = false;
         problem = null;
 
         List<AttributePredicate> clauses = [];
@@ -670,7 +677,31 @@ internal static class OgcFeaturesEndpoints
 
         if (request.Bbox is { } bbox)
         {
-            spatial = new SpatialFilter(Rectangle(bbox));
+            List<Polygon> boxes = [];
+
+            foreach (Envelope? part in (Envelope?[])[bbox, request.BboxEast])
+            {
+                if (part is not { } box)
+                {
+                    continue;
+                }
+
+                if (Clamped(box, request.BboxSrid, collection) is { } usable)
+                {
+                    boxes.Add(Rectangle(
+                        Widened(usable, request.BboxSrid, layer.Definition.Srid)));
+                }
+            }
+
+            if (boxes.Count == 0)
+            {
+                // The filter and the data do not meet at all. Answering nothing is
+                // the same result the query would give, without the round trip.
+                empty = true;
+            }
+
+            spatial = new SpatialFilter(
+                boxes.Count == 1 ? boxes[0] : new MultiPolygon(boxes));
 
             filterSrid = request.BboxSrid == layer.Definition.Srid ? null : request.BboxSrid;
         }
@@ -815,6 +846,98 @@ internal static class OgcFeaturesEndpoints
 
         predicate = new AttributePredicate.Comparison(column, ComparisonOperator.Equal, value);
         return true;
+    }
+
+    /// <summary>
+    /// A bounding box widened by the error a coordinate transformation carries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An exact edge is not a test a transformed coordinate can pass.</b> A client
+    /// that sends a collection's own published extent as its <c>bbox</c> is asking
+    /// the one query guaranteed to match everything — and against a layer stored in
+    /// another reference system it matched **nothing**, because the extent was
+    /// produced by projecting the data one way and the filter is projected back the
+    /// other, and the two disagree in the last few digits. Every feature sits exactly
+    /// on an edge, and every edge test fails.
+    /// </para>
+    /// <para>
+    /// <b>Found by the CITE suite</b>, which asks precisely that question, and it is
+    /// the third defect this dataset's shape has produced today: the WMS face had to
+    /// pad degenerate extents for a related reason.
+    /// </para>
+    /// <para>
+    /// <b>A micro-degree, or a centimetre — and only where a transformation
+    /// happens.</b> Ten centimetres is far below anything this server stores and far
+    /// above a projection's round-trip error, which is the whole range the epsilon
+    /// has to sit in. A box already in the layer's own reference system is compared
+    /// exactly, because nothing has moved. A degenerate axis is widened either way:
+    /// a zero-area box is an equality test on a coordinate, and no stored coordinate
+    /// survives one.
+    /// </para>
+    /// </remarks>
+    private static Envelope Widened(Envelope box, int bboxSrid, int layerSrid)
+    {
+        bool geographic = bboxSrid is 4326 or 4258 or 4269;
+        bool transforming = bboxSrid != layerSrid;
+
+        double epsilon = geographic ? 0.000001 : 0.01;
+
+        double x = transforming || box.Width <= 0 ? epsilon : 0;
+        double y = transforming || box.Height <= 0 ? epsilon : 0;
+
+        return x == 0 && y == 0
+            ? box
+            : new Envelope(box.MinX - x, box.MinY - y, box.MaxX + x, box.MaxY + y);
+    }
+
+    /// <summary>
+    /// A bounding box narrowed to where the data actually is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This exists because a valid request produced a 503, and the reason is
+    /// worth stating exactly.</b> The CITE suite asks for
+    /// <c>bbox=-180,-90,180,-85</c>, which is legitimate in CRS84 and untransformable
+    /// into Web Mercator: EPSG:3857 is undefined below about −85.06°, and PostGIS
+    /// answers <c>transform: tolerance condition error</c> rather than an empty
+    /// result. The client did nothing wrong, so a refusal would be a wrong answer
+    /// too.
+    /// </para>
+    /// <para>
+    /// <b>Intersecting the filter with the collection's own extent cannot change
+    /// which features match</b> — nothing lies outside its own extent — and the
+    /// result is by construction transformable, because its corners came from the
+    /// layer's own data. That is general: it needs no table of areas of use and no
+    /// special case for Mercator.
+    /// </para>
+    /// <para>
+    /// <b>Only for geographic filters.</b> A box already in the layer's CRS needs no
+    /// transformation, and the collection's extent is published in CRS84, so this
+    /// can only narrow a box that is in CRS84 to begin with.
+    /// </para>
+    /// </remarks>
+    private static Envelope? Clamped(Envelope box, int bboxSrid, CollectionMetadata collection)
+    {
+        if (bboxSrid != Graticula.Geometries.AxisOrder.Wgs84
+            || collection.Extent is not { IsEmpty: false } extent)
+        {
+            return box;
+        }
+
+        double minX = Math.Max(box.MinX, extent.MinX);
+        double minY = Math.Max(box.MinY, extent.MinY);
+        double maxX = Math.Min(box.MaxX, extent.MaxX);
+        double maxY = Math.Min(box.MaxY, extent.MaxY);
+
+        // Disjoint. A zero-area overlap is kept: two things can touch along an edge,
+        // and a degenerate extent is exactly what two of this server's layers have.
+        if (maxX < minX || maxY < minY)
+        {
+            return null;
+        }
+
+        return new Envelope(minX, minY, maxX, maxY);
     }
 
     private static Polygon Rectangle(Envelope extent) =>
