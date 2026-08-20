@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>684cb50</code> · 2026-08-19 18:54</p>
+<p class="stamp">Generated from commit <code>bb78442</code> · 2026-08-20 08:44</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">39</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">71</div><div class="kpi-l">open debts</div><div class="kpi-n">49 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">9/71</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1450</div><div class="kpi-l">tests</div><div class="kpi-n">166 source files, 62,936 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1451</div><div class="kpi-l">tests</div><div class="kpi-n">166 source files, 63,059 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -487,7 +487,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">287</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:88.9%"></div></div><div class="bar-n">255</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:83.3%"></div></div><div class="bar-n">239</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:67.9%"></div></div><div class="bar-n">195</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:68.3%"></div></div><div class="bar-n">196</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:50.5%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">117</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:38.3%"></div></div><div class="bar-n">110</div></div>
@@ -496,6 +496,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">11</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>bb78442</code><time>2026-08-20</time><span>WFS 2.0 read-only, and what three real clients found in it</span></li>
+<li><code>eb868b2</code><time>2026-08-20</time><span>the where parser gets the expression tree its own remark described</span></li>
 <li><code>684cb50</code><time>2026-08-19</time><span>paging measured at the scale the question was about: 3,000,000 rows, 601 pages, no gaps</span></li>
 <li><code>a3e9b82</code><time>2026-08-19</time><span>the row ceiling is a deployment setting now, not a constant in the source</span></li>
 <li><code>a4425a8</code><time>2026-08-19</time><span>two Â§66 gates run by independent reviewers: both FAIL, and Correctness&#x27;s findings are repaired</span></li>
@@ -508,8 +510,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2fd4b65</code><time>2026-08-19</time><span>a registered database&#x27;s connection string can be changed, and ADR-007&#x27;s connection cap exists</span></li>
 <li><code>394ae90</code><time>2026-08-19</time><span>Q-20&#x27;s oracle gains the two comparisons the first run left out</span></li>
 <li><code>3c7d6bf</code><time>2026-08-19</time><span>Q-23 dissolved: nothing in this process holds a PROJ transformation object</span></li>
-<li><code>e36af19</code><time>2026-08-19</time><span>Q-04 answered by counting, and the formula it produced was wrong in two places</span></li>
-<li><code>10e10d4</code><time>2026-08-19</time><span>Q-20 measured: v1 has two geometry engines, not six, and they agree</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

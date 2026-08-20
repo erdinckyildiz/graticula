@@ -138,6 +138,72 @@ public sealed class ArcGisTokenTests : ArcGisClient
         Assert.Equal(byQuery, Count(headedBody.RootElement));
     }
 
+    [Fact]
+    public async Task The_administrative_token_endpoint_answers_the_probe_a_client_makes()
+    {
+        string root = await RequireServerAsync();
+
+        // <b>Pro asks with no credentials at all, to find out whether the endpoint
+        // exists.</b> It answered 404 until 2026-08-20, so the connection could not
+        // be created and the whole REST surface behind it was never reached. The
+        // answer now is a refusal a client can read, which is a different thing
+        // from an absence.
+        using HttpResponseMessage probe =
+            await Http.GetAsync(new Uri($"{root}/admin/generateToken?f=json"));
+
+        Assert.NotEqual(HttpStatusCode.NotFound, probe.StatusCode);
+
+        using JsonDocument refused =
+            JsonDocument.Parse(await probe.Content.ReadAsStringAsync());
+
+        // The administrative API spells an error differently from the REST one, and
+        // answering the REST shape here is a document the client cannot read.
+        Assert.Equal("error", refused.RootElement.GetProperty("status").GetString());
+        Assert.True(refused.RootElement.GetProperty("messages").GetArrayLength() > 0);
+
+        string? user = Environment.GetEnvironmentVariable("GRATICULA_TEST_USER");
+        string? password = Environment.GetEnvironmentVariable("GRATICULA_TEST_PASSWORD");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(password),
+            "GRATICULA_TEST_USER and GRATICULA_TEST_PASSWORD are not set, so this FAILS rather "
+            + "than skipping.");
+
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["username"] = user!,
+            ["password"] = password!,
+            ["client"] = "requestip",
+            ["expiration"] = "60",
+            ["f"] = "json",
+        });
+
+        using HttpResponseMessage issued =
+            await Http.PostAsync(new Uri($"{root}/admin/generateToken"), form);
+
+        issued.EnsureSuccessStatusCode();
+
+        using JsonDocument granted =
+            JsonDocument.Parse(await issued.Content.ReadAsStringAsync());
+
+        string token = granted.RootElement.GetProperty("token").GetString()!;
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
+        // <b>And it is a real credential, not a shape.</b> This server has one kind
+        // of session; what an ArcGIS client calls an administrative token is the
+        // token of whatever account signed in, and its privileges come from the
+        // account rather than from the door.
+        using HttpRequestMessage authorised = new(
+            HttpMethod.Get, new Uri($"{root}/admin/health"));
+
+        authorised.Headers.Add("Authorization", $"Bearer {token}");
+
+        using HttpResponseMessage health = await Http.SendAsync(authorised);
+
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+    }
+
     private async Task<int> ServiceCountAsync(string url)
     {
         using JsonDocument document =

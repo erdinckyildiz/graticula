@@ -268,6 +268,23 @@ internal static class AdminEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        // <b>The endpoint an Esri client probes before it will believe this is a
+        // server.</b> ArcGIS Pro's *New ArcGIS Server* connection never touches
+        // `/rest`: it asks `GET /admin/generateToken?f=json` and posts a SOAP body
+        // to `/services`, and decides from those. Both answered 404, so the
+        // connection could not be created and the REST surface behind it was never
+        // reached. Found by pointing a real Pro at this server and reading the log
+        // (Q-126).
+        //
+        // <b>Anonymous, deliberately, and it is the one route under /admin that
+        // is.</b> A token endpoint that required a token would be a lock with its
+        // key inside. The credential check is the same LoginService every other
+        // door uses, so the throttle and the audit record are shared rather than
+        // reimplemented — what differs is only the error shape, which the admin
+        // API spells differently from the REST one.
+        app.MapGet("/admin/generateToken", AdminTokenAsync);
+        app.MapPost("/admin/generateToken", AdminTokenAsync);
+
         app.MapGet("/admin/health", HealthAsync);
         app.MapPost("/admin/datasources/test", TestDataSourceAsync);
         app.MapPost("/admin/datasources", RegisterDataSourceAsync);
@@ -3818,6 +3835,112 @@ internal static class AdminEndpoints
     /// an outage is the worst possible response</b>, because it removes the only
     /// tool the administrator has left.
     /// </remarks>
+    /// <summary>
+    /// Issues a token in the shape the ArcGIS Server administrative API uses.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same token as everywhere else.</b> This server has one kind of
+    /// session and one place that checks a password; what an ArcGIS client calls
+    /// an *administrative* token is, here, the token of whatever account signed
+    /// in. Its privileges come from the account (ADR-018), not from the door it
+    /// came through, so nothing is elevated by asking at this path rather than at
+    /// <c>/rest/generateToken</c>.
+    /// </para>
+    /// <para>
+    /// <b>The error shape is the admin API's, which is not the REST one.</b>
+    /// <c>{"status":"error","messages":[...],"code":N}</c> rather than
+    /// <c>{"error":{...}}</c>. Answering the REST shape here would be a document
+    /// the client cannot read, which is the same failure as answering nothing.
+    /// </para>
+    /// <para>
+    /// <b>A credential-less probe is answered rather than refused blankly.</b> Pro
+    /// asks with no username at all, to find out whether this endpoint exists. It
+    /// gets a 401 with a message saying what is missing — which is true, is
+    /// readable, and is not a 404.
+    /// </para>
+    /// </remarks>
+    private static async Task AdminTokenAsync(
+        HttpContext context,
+        LoginService login,
+        CancellationToken cancellation)
+    {
+        string? name = null;
+        string? password = null;
+
+        if (context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            name = form["username"].ToString();
+            password = form["password"].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = context.Request.Query["username"].ToString();
+        }
+
+        if (string.IsNullOrEmpty(password))
+        {
+            password = context.Request.Query["password"].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
+        {
+            await AdminTokenError(
+                    context,
+                    StatusCodes.Status401Unauthorized,
+                    "Token not generated. 'username' and 'password' are required.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        LoginResult result = await login
+            .AuthenticateAsync(name, password, context.Connection.RemoteIpAddress, cancellation)
+            .ConfigureAwait(false);
+
+        if (!result.Succeeded)
+        {
+            // One message for wrong-name, wrong-password and disabled, for the
+            // reason the other doors give: distinguishing them is an account
+            // enumeration oracle. A throttle is still told apart, because a
+            // locked-out administrator cannot learn that any other way.
+            (int status, string message) = result.Failure switch
+            {
+                LoginFailure.AddressThrottled or LoginFailure.AccountThrottled => (
+                    StatusCodes.Status429TooManyRequests,
+                    "Token not generated. Too many failed sign-in attempts. Wait and try again."),
+                _ => (
+                    StatusCodes.Status401Unauthorized,
+                    "Token not generated. The name or password is incorrect."),
+            };
+
+            await AdminTokenError(context, status, message).ConfigureAwait(false);
+            return;
+        }
+
+        AuthenticatedSession session = result.Session!.Value;
+
+        await Results.Json(new
+        {
+            token = result.Token!,
+            expires = session.ExpiresAt.ToUnixTimeMilliseconds(),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static Task AdminTokenError(HttpContext context, int status, string message) =>
+        Results.Json(
+            new
+            {
+                status = "error",
+                messages = new[] { message },
+                code = status,
+            },
+            statusCode: status).ExecuteAsync(context);
+
     private static async Task HealthAsync(
         HttpContext context,
         IAdminCatalog catalog,
