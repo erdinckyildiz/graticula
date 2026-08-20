@@ -283,11 +283,31 @@ recorded, taken a third time, and recorded rather than absorbed.
    one and at eight concurrent requests. **ADR-004's surviving objection is a
    measurement and it deserves a measurement back.** Until it exists this ADR's
    throughput confidence is `LOW` and stays written that way.
-2. **A conformance suite that drives the live server**, in the shape
-   `WfsConformanceTests` now has: every published layer renders, the image is a valid
-   PNG of the requested size, an unknown layer is a service exception rather than a
-   blank image, and both versions' axis orders are asserted against a layer whose
-   extent is not square — because a square extent passes with the axes swapped.
+2. **DISCHARGED 2026-08-20. `WmsConformanceTests`, eighteen tests against the live
+   process.** Every published layer draws; both versions' documents carry what their
+   own version requires; a non-square extent is transposed between 1.3.0 and 1.1.1
+   and produces byte-identical images; and a refusal of each kind returns the
+   exception code that names it.
+
+   **It earned its place before it was written.** Three defects were found on the day
+   this surface was built and not one of them is visible in a unit test of the writer
+   that produced it:
+
+   - **Every 1.3.0 refusal answered HTTP 500.** The exception report opened its root
+     element in no namespace and then declared one as an attribute, which `XmlWriter`
+     refuses. Found by sending one bad `TIME` value at a running server; nothing had
+     ever exercised a refusal path, so the surface looked healthy from every angle
+     anyone had looked from.
+   - **Every capabilities document declared `encoding="utf-16"`.** `XmlWriter` over a
+     `StringBuilder` reports the buffer's encoding, not the wire's.
+   - **`GetFeatureInfo` returned features with no attributes.**
+     `FeatureQuery.Fields` empty means identity and geometry only, and an empty list
+     is what a caller gets by not thinking about it.
+
+   **And a fourth, found by the suite itself:** two layers here are horizontal lines,
+   so their extent has zero height, and a client using the published bounding box as
+   its `BBOX` was refused for a request it had every reason to believe in. Extents are
+   padded now.
 3. **A drawn map compared against the vector-tile face of the same layer**, by eye
    and recorded. ADR-033 derives two faces from one document and this is the first
    time anything has drawn either; a difference here is a defect in the derivation,

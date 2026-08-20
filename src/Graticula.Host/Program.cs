@@ -1692,7 +1692,11 @@ public static class Program
                     // has spoken WFS since 2026-08-19 and no service page said
                     // so, which made the surface discoverable only to somebody
                     // who already knew it existed.
-                    formats: [WfsEndpoints.DirectoryLink(null)]),
+                    formats:
+                    [
+                        WfsEndpoints.DirectoryLink(null),
+                        WmsEndpoints.DirectoryLink(null, null, 0),
+                    ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -1837,7 +1841,17 @@ public static class Program
                     // The WFS type name is the layer's name, which is why this is
                     // built here and not from the path: the ArcGIS layer id and
                     // the WFS type name are different identifiers for one layer.
-                    formats: [WfsEndpoints.DirectoryLink(layer.Definition.Name)]),
+                    // <b>The WMS link draws the layer rather than fetching its
+                    // capabilities.</b> A capabilities document on a layer page says
+                    // nothing about that layer, and the one thing somebody clicking
+                    // here wants to know is whether it draws — which is also the
+                    // fastest way to see that its stored symbology is wrong.
+                    formats:
+                    [
+                        WfsEndpoints.DirectoryLink(layer.Definition.Name),
+                        WmsEndpoints.DirectoryLink(
+                            layer.Definition.Name, description.Extent, layer.Definition.Srid),
+                    ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

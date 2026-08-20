@@ -726,6 +726,36 @@ public abstract class ConsoleTest : IAsyncLifetime
             + "if (!e || e.offsetParent === null) return false; e.click(); return true; })()");
     }
 
+    /// <summary>
+    /// Narrows a listing to one name, so a row on a later page becomes reachable.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because the console pages at ten and a test that walks everything cannot
+    /// assume everything fits.</b> Found 2026-08-20: publishing an eleventh service
+    /// into <c>hosted</c> put it on page two, and
+    /// <c>Every_service_reaches_its_own_limits_page_from_a_click</c> failed against a
+    /// console that was working correctly. The assumption was invisible while the
+    /// folder had ten.
+    /// </remarks>
+    /// <param name="input">The filter input's element id.</param>
+    /// <param name="text">What to type into it.</param>
+    protected async Task FilterAsync(string input, string text)
+    {
+        string quotedId = JsonSerializer.Serialize(input);
+        string quotedText = JsonSerializer.Serialize(text);
+
+        // <b>An `input` event, not a value assignment.</b> The console listens for
+        // the event; setting `value` alone changes what the box shows and not what
+        // the table is filtered by, which is a test that passes while proving the
+        // opposite of what it says.
+        bool typed = await Browser.EvaluateAsync<bool>(
+            $"(() => {{ const e = document.getElementById({quotedId}); if (!e) return false; "
+            + $"e.value = {quotedText}; "
+            + "e.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+
+        Assert.True(typed, $"There is no filter input with id '{input}' on this screen.");
+    }
+
     protected async Task ClickAsync(string selector)
     {
         string quoted = JsonSerializer.Serialize(selector);

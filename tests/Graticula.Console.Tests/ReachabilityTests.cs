@@ -71,6 +71,13 @@ public sealed class ReachabilityTests : ConsoleTest
             // first one's address.
             await OpenAsync(ServicesIn(folder), token);
             await ShowingAsync(folder, siblings);
+
+            // <b>Narrowed to this one first, because the listing pages at ten.</b>
+            // Walking every service and clicking its row assumed every service was on
+            // page one, which held until a folder had eleven. Filtering is also what
+            // an operator with a hundred services does, so the click being tested is
+            // the click they make.
+            await FilterAsync("serviceFilter", service[(service.LastIndexOf('/') + 1)..]);
             await ClickAsync(row);
 
             await WaitForAsync(

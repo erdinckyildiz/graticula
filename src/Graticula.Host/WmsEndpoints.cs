@@ -361,15 +361,13 @@ internal static class WmsEndpoints
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        Envelope? extent = described.Extent;
-
         return new WmsLayer(
             layer.Definition.Name,
             TitleOf(layer),
             Abstract: null,
             layer.Definition.Srid,
             layer.GeometryType,
-            extent,
+            Drawable(described.Extent),
             Geographic: null,
             Queryable: true,
             await TimeOfAsync(source, layer, described, cancellation).ConfigureAwait(false));
@@ -478,10 +476,46 @@ internal static class WmsEndpoints
 
                 if (!whole.IsEmpty)
                 {
-                    layers[indices[i]] = layers[indices[i]] with { Geographic = whole };
+                    layers[indices[i]] = layers[indices[i]] with { Geographic = Drawable(whole) };
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// An extent a client can send straight back as a <c>BBOX</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A layer can genuinely have no width.</b> Every feature of a road at one
+    /// latitude, or a single point, produces an extent with a zero dimension — and
+    /// this deployment has two of them. Published verbatim, a client that does the
+    /// obvious thing with the capabilities document sends <c>BBOX</c> with no area
+    /// and is refused for it, having done nothing wrong.
+    /// </para>
+    /// <para>
+    /// <b>Padded by a twentieth of the other dimension</b>, so a long thin layer
+    /// stays recognisably long and thin; where both are zero, by a ten-thousandth of
+    /// a degree, which is about eleven metres and is the smallest padding that
+    /// survives being written with ten decimal places.
+    /// </para>
+    /// </remarks>
+    private static Envelope? Drawable(Envelope? extent)
+    {
+        if (extent is not { IsEmpty: false } box)
+        {
+            return extent;
+        }
+
+        if (box.Width > 0 && box.Height > 0)
+        {
+            return box;
+        }
+
+        double x = box.Width > 0 ? 0 : Math.Max(box.Height, 0.0001) / 20;
+        double y = box.Height > 0 ? 0 : Math.Max(box.Width, 0.0001) / 20;
+
+        return new Envelope(box.MinX - x, box.MinY - y, box.MaxX + x, box.MaxY + y);
     }
 
     private static string TitleOf(PublishedLayer layer) =>
