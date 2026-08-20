@@ -108,7 +108,7 @@ narrowed to PostGIS estates, and it is the price of shipping.
 
 **WMS, ArcGIS MapServer, ImageServer, OGC API Maps and Coverages, WCS.**
 
-- **Q-85 dissolves.** ADR-004 stays `DEFERRED` and no longer contradicts an
+- **Q-85 dissolves.** ~~ADR-004 stays `DEFERRED`~~ and no longer contradicts an
   in-scope capability, which was review finding S2/A7.
 - **ADR-009 can re-close.** ImageServer was what reopened it; the near-free
   operations (`identify`, histograms, footprint query) go with the rest and

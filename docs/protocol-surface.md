@@ -29,7 +29,7 @@ to build.
 | **Tile** — Q-67 | decided, measured ×3 | MVT + TileJSON · WMTS · ArcGIS VectorTileServer · **OGC API Tiles** · **PMTiles** |
 | **Job + Python** — ADR-011, Q-17b | reopened | ArcGIS GPServer · **WPS 2.0** · **OGC API Processes** |
 | **Raster** — ADR-009, Q-17c | reopened | ArcGIS ImageServer · **WCS 2.0.1** · **OGC API Coverages** |
-| **Render** — ADR-004 | deferred | ArcGIS MapServer · WMS 1.1.1/1.3 · **OGC API Maps** |
+| **Render** — ADR-004 | **shipped 2026-08-20** ([ADR-041](adr/ADR-041-the-map-renderer.md)): WMS 1.3.0/1.1.1 and ArcGIS MapServer, off one CPU rasteriser behind a Tier 1 port | ArcGIS MapServer · WMS 1.1.1/1.3 · **OGC API Maps** |
 | **Catalog** | exists, no protocol | **OGC API Records** · **STAC API** |
 | **Geometry** — ADR-003 | decided | ArcGIS GeometryServer |
 | **Style store** — Q-25 | decided | **OGC API Styles** |

@@ -164,7 +164,7 @@ the last two days moved us further behind:**
 
 | Decision | Capability GeoServer has | Does it matter? |
 |---|---|---|
-| Vector-first | Server-side raster rendering | **Deferred, not rejected** — see §6a. The owner prefers an ArcGIS MapServer-style rendered service to WMS |
+| Vector-first | Server-side raster rendering | **Built 2026-08-20** ([ADR-041](adr/ADR-041-the-map-renderer.md)); was *deferred, not rejected* — see §6a and §6b. The owner prefers an ArcGIS MapServer-style rendered service to WMS |
 | Q-47 | WMS in v1 | Yes for migration, and it is recorded as such. But the owner rejects WMS on its merits, not as a scope cut |
 | Q-67 | Tiles from any registered store | Owner: no. Tiles are wanted from hosted data, which is where they are |
 | Q-70 | Deployment without PostgreSQL | **Overstated in the first draft of this table.** PostgreSQL is bundled inside the appliance; the operator never installs or manages it, and data still comes from any of three engines. The narrow fact survives — a site forbidding PostgreSQL binaries anywhere cannot run us — but the operational impact is close to zero |
@@ -197,8 +197,9 @@ change the shape of the answer rather than the facts in it:
 > *"We can design a better symbology."*
 > *"Ours shall work on all DBs as well. PostgreSQL is a builtin db inside."*
 
-**Recorded as a stated preference and direction, not as a decision.** ADR-004
-remains `DEFERRED` and v1 scope is unchanged — confirmed by the owner on being
+**Recorded as a stated preference and direction, not as a decision.** ~~ADR-004
+remains `DEFERRED`~~ — **it was un-deferred and built on 2026-08-20, see §6b** — and
+v1 scope is unchanged — confirmed by the owner on being
 asked directly. What is now on the record is *why* WMS is out: it is rejected on
 its merits, not merely cut for scope, and the preferred future shape is a
 REST-style rendered map service in the manner of an ArcGIS MapService.
@@ -230,6 +231,38 @@ run 3 showed this runtime is not yet sized for (A-037).
 
 None of that is an argument against building it. It is the reason it is a
 separate decision with its own ADR rather than a scope note.
+
+## 6b. 2026-08-20: the later horizon arrived, and the bill was itemised
+
+**The owner asked for WMS on 2026-08-20 and it was built the same day**, together
+with the ArcGIS MapServer face they said they preferred, off one renderer
+([ADR-041](adr/ADR-041-the-map-renderer.md)). §6a's second horizon is no longer
+*later*, and this section exists because a positioning document that still called it
+that would misdescribe the product to whoever reads it next.
+
+**§6a listed four costs of un-deferring. All four came due, and none was a surprise**,
+which is the only thing that makes an informed deferral worth writing:
+
+| §6a said | What happened |
+|---|---|
+| Reopens Q-26, cross-tile labels | **Reopened.** A client tiling its WMS requests sees a name on one side of a seam and not the other. Named in ADR-041 §7, not solved |
+| Symbology becomes Tier 1 | **It already was**, from [ADR-033](adr/ADR-033-symbology.md) on 2026-08-17, built for a different reason. This decision inherited it |
+| Fonts into the air-gap checklist | **Yes** (Q-15), narrowed: one package with no system dependencies |
+| CPU- and allocation-heavy | **Measured, and the premise inverted** |
+
+**That last row is the one worth reading.** ADR-004 §0's objection was allocation
+pressure, citing 80.9% GC pause from the MVT benchmark. The map renderer was measured
+before it shipped: **0.1% to 2.3%**, and a rendered map costs *less* than the
+FeatureServer JSON of the same features, because pixels are a fixed budget and
+features are not. The objection was real and it was answered by measuring rather than
+by arguing, which is §3's rule working.
+
+**What is still not true is the claim itself.** §6a called *"better rendered maps than
+GeoServer"* premature rather than wrong. It is still premature: what exists is one
+CPU rasteriser, two faces, labels with a stated limit, and a CITE run at 187 of 193.
+GeoServer has SLD, a raster pipeline, and twenty years of cartographic corner cases.
+**The claim moved from *not built* to *built and unproven*, and that is a smaller
+distance than it sounds.**
 
 ### The version that is true, testable, and prioritises the work
 

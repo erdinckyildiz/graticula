@@ -25,7 +25,15 @@ namespace Graticula.Conformance.Tests;
 /// types, so a test that reads it from a constant would agree with the server
 /// while both were wrong.
 /// </para>
+/// <para>
+/// <b>In the catalogue-walk collection, because this class walks the catalogue.</b>
+/// xUnit runs test classes in parallel, and another class in this assembly publishes,
+/// deletes and reconfigures services. A walker outside the collection sees the
+/// catalogue mid-change and reports it as a defect in whatever it was testing —
+/// [D-75](../../docs/architecture-debt.md), three times on 2026-08-20.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class ServiceFolderConformanceTests : ArcGisClient
 {
     /// <summary>A client that does not follow redirects, so they can be seen.</summary>
@@ -297,11 +305,40 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
         // reported zero ungoverned about routes it had never looked at. Naming
         // each family here is what turns "forgot to audit a surface" from silence
         // into a failure.
+        //
+        // <b>And on 2026-08-20 it failed anyway, because the list was in two
+        // places.</b> The audit's own prefixes and this array had to be edited
+        // together for one new surface, so WMS, MapServer and OGC API Features were
+        // added to neither and `/admin/routes` went on reporting *ungoverned: 0*
+        // about eight routes it never saw. **A list edited in two places is edited in
+        // one.** These families are the ArcGIS sub-surfaces, which have no prefix of
+        // their own; the prefixes come from the server's own list below.
         foreach (string family in (string[])
             ["FeatureServer", "VectorTileServer", "GeometryServer", "attachments",
-             "queryRelatedRecords", "/wfs"])
+             "queryRelatedRecords"])
         {
             Assert.Contains(patterns, p => p.Contains(family, StringComparison.Ordinal));
+        }
+
+        // <b>Every surface this suite knows about is one the audit looked at.</b>
+        // The list stays this suite's own — it references none of our assemblies on
+        // purpose, because a test reading the server's constant cannot notice the
+        // server being wrong about it. What the audit publishes is its *scope*, and
+        // these two independent lists are then compared.
+        string[] scope =
+        [
+            .. audit.GetProperty("filteredOn").EnumerateArray().Select(p => p.GetString()!),
+        ];
+
+        foreach (string surface in (string[])["/rest/services", "/wfs", "/wms", "/ogc/features"])
+        {
+            Assert.Contains(
+                scope,
+                p => p.StartsWith(surface, StringComparison.OrdinalIgnoreCase));
+
+            Assert.Contains(
+                patterns,
+                p => p.StartsWith(surface, StringComparison.OrdinalIgnoreCase));
         }
     }
 

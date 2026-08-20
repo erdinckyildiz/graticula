@@ -91,12 +91,31 @@ internal static class FeatureServerQueryParameters
     /// Parameters accepted and ignored, with the reason each is harmless.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Every entry here is a claim that ignoring it cannot lose data.</b>
-    /// Quantization and generalisation both ask for <em>less</em> — coarser
-    /// coordinates, fewer vertices — so ignoring them returns more than was
-    /// asked for, which costs bandwidth and never accuracy. If an entry is ever
-    /// added whose omission changes an answer, this list has become the silent
-    /// degradation ADR-008 §2 forbids.
+    /// Quantization asks for <em>less</em> — coarser coordinates — so ignoring it
+    /// returns more than was asked for, which costs bandwidth and never accuracy. If an
+    /// entry is ever added whose omission changes an answer, this list has become the
+    /// silent degradation ADR-008 §2 forbids.
+    /// </para>
+    /// <para>
+    /// <b>And the entry can rot in the other direction, which nothing was watching
+    /// for.</b> On 2026-08-20 three of these sentences were false because the code had
+    /// grown past them: <c>maxAllowableOffset</c> said <em>geometry is returned
+    /// ungeneralised</em> while the parser had been threading the tolerance into the
+    /// query and PostGIS had been generalising — 26.2 MB became 4.8 MB on the same
+    /// request; <c>token</c> said <em>authentication is by header</em> while
+    /// <c>?token=</c> authenticated on every route; <c>datumTransformation</c> said
+    /// <em>no reprojection happens</em> while <c>outSR</c> reprojected.
+    /// </para>
+    /// <para>
+    /// <b>A false entry here is worse than a missing one.</b> Each is logged to the
+    /// operator verbatim, so the server was telling whoever read the log that it had
+    /// dropped a parameter it had honoured — and a client reading the same claim would
+    /// build a workaround for a capability it already had. `maxAllowableOffset` left
+    /// this table; the other two kept their key, because <see cref="TryUnknown"/>
+    /// refuses anything absent from it, and had their sentence corrected.
+    /// </para>
     /// </remarks>
     private static readonly Dictionary<string, string> IgnoredParameters = new(StringComparer.Ordinal)
     {
@@ -111,16 +130,30 @@ internal static class FeatureServerQueryParameters
         // client's own placement, which is a missing capability rather than a
         // wrong answer.
         ["returnCentroid"] = "no centroid is computed, so labels use the client's own placement",
-        ["maxAllowableOffset"] = "geometry is returned ungeneralised",
         ["returnExceededLimitFeatures"] = "the transfer limit is reported either way",
         ["cacheHint"] = "nothing is cached yet",
-        ["datumTransformation"] = "no reprojection happens, so none is applied",
+        // <b>Reprojection does happen — measured, `outSR=3857` returns Web Mercator
+        // metres — so *no reprojection happens* was false.</b> What is missing is the
+        // *choice*: PostGIS picks the transformation for the datum pair and a caller
+        // cannot name a different one. That is a real difference of up to a few metres
+        // on some pairs, and it belongs in the sentence rather than behind it.
+        ["datumTransformation"] = "the transformation for the datum pair is the database's "
+            + "default and cannot be chosen; coordinates may differ by a few metres from a "
+            + "client that names one",
         ["gdbVersion"] = "there is no version tree",
         ["historicMoment"] = "there is no history",
         // f=html renders the query page (ADR-023 §4b). Anything else — pbf,
         // geojson, kmz — is still ignored, and this is where that is said.
         ["f"] = "only json and html are produced; any other format returns json",
-        ["token"] = "authentication is by header; see ADR-015 §4",
+        // <b>It is not ignored, and saying so was wrong for a day.</b> This read
+        // *authentication is by header* until 2026-08-20, and by then `?token=`
+        // authenticated on every route — which is what the security gate proved by
+        // harvesting a live one from the log. What is true is narrower: the parameter
+        // works, the header is preferred, and the value never reaches the log
+        // (`QueryRedaction`). Kept in this table only so `TryUnknown` does not refuse
+        // the request an Esri client has always sent.
+        ["token"] = "the token authenticates; the header form is preferred and the value is "
+            + "redacted from the log",
         ["resultType"] = "no result-type specialisation exists",
         ["sqlFormat"] = "no SQL is exposed",
     };

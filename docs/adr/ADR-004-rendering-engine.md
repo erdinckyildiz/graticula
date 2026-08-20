@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `DEFERRED` — confirmed 2026-08-12 (WMS out of v1) and **re-confirmed 2026-08-13** by the owner, who at the same time recorded a clear preference for the capability this ADR would deliver. See §0. |
+| **Status** | **`ACCEPTED` — un-deferred 2026-08-20 by [ADR-041](ADR-041-the-map-renderer.md), which is where the decision now lives. See §0b.** Previously `DEFERRED` — confirmed 2026-08-12 (WMS out of v1) and re-confirmed 2026-08-13 by the owner, who at the same time recorded a clear preference for the capability this ADR would deliver. See §0. |
 | **Confidence** | — |
 | **Decided** | — |
 
@@ -58,6 +58,36 @@ decision** (CLAUDE.md §2):
 what would make *"better capabilities than GeoServer"* a true claim rather than
 a premature one. That is an argument for building it eventually, and not an
 argument for building it first.
+
+## 0b. Un-deferred 2026-08-20, and the eight documents that did not hear about it
+
+**[ADR-041](ADR-041-the-map-renderer.md) took this decision on 2026-08-20**, on the
+owner's instruction, and amended this ADR — in its own front matter. **This file was
+not touched**, so for a day the repository held a renderer, a WMS surface, an ArcGIS
+MapServer face, a CITE run and a benchmark, beside a decision that read `DEFERRED` and
+a §5 that read *Pending*.
+
+**Contradiction sweep 3 found it and found the eight downstream restatements**, which
+are the reason a stale status is expensive rather than untidy: each was written by
+somebody trusting this file.
+
+| Where | What it said | Corrected |
+|---|---|---|
+| [v1-scope.md](../v1-scope.md) §3b | ADR-004 stays `DEFERRED` | §3b's amendment note |
+| [v1-scope.md](../v1-scope.md) §3b | *Q-85 dissolves* on the same grounds | as above |
+| [open-questions.md](../open-questions.md) Q-26 | *no longer a problem the platform has* | reopened |
+| [open-questions.md](../open-questions.md) Q-47 | WMS-client migration unsupported | answered again |
+| [protocol-surface.md](../protocol-surface.md) | Render — deferred | the row now says shipped |
+| [product-context.md](../product-context.md) | WMS: cannot migrate | corrected |
+| [competitive-position.md](../competitive-position.md) §6a | ADR-004 remains `DEFERRED` | corrected |
+| [architecture-completeness.md](../architecture-completeness.md) | rendering rescoped, deferred | corrected |
+
+**The process finding is the one to keep**, and it is the sweep's own: on 2026-08-19
+one surface shipped and four capability documents were amended for it, one of them
+with a paragraph explaining why it was deliberately *not* amended further. On
+2026-08-20 four surfaces shipped and none of those documents was touched. **The
+repository has a working propagation discipline and nothing that notices when it is
+skipped.** [D-126](../architecture-debt.md).
 
 ## 1. Context
 
@@ -157,7 +187,34 @@ Not yet written — no option is preferred yet.
 
 ## 5. Decision
 
-Pending.
+**Taken 2026-08-20, in [ADR-041](ADR-041-the-map-renderer.md).** This section said
+*Pending* for eight days after the deferral and for a further day after the renderer
+shipped, which is the contradiction sweep's finding and is why the sentence is now
+here rather than in the amending document alone.
+
+**What was decided**, in summary — ADR-041 is the text that governs:
+
+- **A CPU rasteriser, SkiaSharp, behind a Tier 1 port** (`IMapCanvas`), confined to
+  one project by an architecture test. §1's *"either MapLibre Native with its headless
+  GPU-context problem or writing our own"* was a false dichotomy: a CPU rasteriser
+  needs no GL context.
+- **The cartography is ours and stays ours.** Style interpretation, symbol
+  resolution, label placement and the scale rules are `Graticula.Core.Cartography`,
+  with no package references. Only the triangle filling is adopted.
+- **The symbology model is [ADR-033](ADR-033-symbology.md)'s**, which §0 said would be
+  *"the interesting part"* of any un-deferral and which was built on 2026-08-17 for a
+  different reason. This decision inherits it rather than designing one.
+- **Two faces off one renderer**: WMS 1.3.0 and 1.1.1, and ArcGIS MapServer — the
+  shape §0 recorded the owner preferring.
+- **Labels are in**, by owner decision, with the limit stated rather than discovered.
+
+**§0's costs came due and are recorded where it said they would be.** Q-26 reopens —
+label placement is per-request, so a client tiling its WMS requests sees a name on one
+side of a seam and not the other. Fonts enter the air-gap checklist (Q-15), narrowed
+by `NativeAssets.Linux.NoDependencies`. And §0's allocation objection was answered
+with a measurement rather than an argument: `benchmarks/map-rendering` found **0.1% to
+2.3% GC pause** where the objection cited 80.9%, and found the map *cheaper* than the
+FeatureServer JSON of the same features.
 
 ## 6. Consequences
 

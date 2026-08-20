@@ -109,10 +109,17 @@ public sealed record WfsRequest(
             fault = new WfsFault(
                 WfsFaultCode.OperationNotSupported,
                 "request",
+                // <b>One list, and this was the second copy of it.</b> ADR-039
+                // condition 2 already repaired the capabilities abstract for saying
+                // GetPropertyValue was not implemented hours after §5 started
+                // advertising it. This sentence said the same thing and survived,
+                // so a client that mistyped an operation was handed a list
+                // contradicting the capabilities document it had just read. Found by
+                // contradiction sweep 3.
                 $"'{requested}' is not an operation this server offers. It offers "
-                + "GetCapabilities, DescribeFeatureType, GetFeature, ListStoredQueries and "
-                + "DescribeStoredQueries. Transaction, LockFeature and GetPropertyValue are not "
-                + "implemented.");
+                + "GetCapabilities, DescribeFeatureType, GetFeature, GetPropertyValue, "
+                + "ListStoredQueries and DescribeStoredQueries. Transaction and LockFeature "
+                + "are not implemented.");
 
             return false;
         }

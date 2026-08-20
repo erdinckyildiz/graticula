@@ -25,7 +25,15 @@ namespace Graticula.Conformance.Tests;
 /// rendered faces that drew independently would eventually disagree, and the person
 /// who found out would be a user comparing them.
 /// </para>
+/// <para>
+/// <b>In the catalogue-walk collection, because this class walks the catalogue.</b>
+/// xUnit runs test classes in parallel, and another class in this assembly publishes,
+/// deletes and reconfigures services. A walker outside the collection sees the
+/// catalogue mid-change and reports it as a defect in whatever it was testing —
+/// [D-75](../../docs/architecture-debt.md), three times on 2026-08-20.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class MapServerConformanceTests : ArcGisClient
 {
     private async Task<(string MediaType, byte[] Body)> RawAsync(string path)

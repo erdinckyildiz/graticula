@@ -120,7 +120,7 @@ internal static class MapServerEndpoints
             .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (service is null)
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
         {
             return;
         }
@@ -279,7 +279,7 @@ internal static class MapServerEndpoints
             .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (service is null)
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
         {
             return;
         }
@@ -407,7 +407,7 @@ internal static class MapServerEndpoints
             .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (service is null)
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
         {
             return;
         }
@@ -509,7 +509,7 @@ internal static class MapServerEndpoints
             .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (service is null)
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
         {
             return;
         }
@@ -553,6 +553,42 @@ internal static class MapServerEndpoints
     }
 
     // ---------- shared ----------
+
+    /// <summary>
+    /// Whether this service's feature face is switched on, and a refusal when it is not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-123](../../docs/architecture-debt.md), on the door built two commits
+    /// after it closed.</b> That row is about a face an operator switched off staying
+    /// open on a new surface, and it says a second protocol quietly reopening a closed
+    /// door is the failure a new surface is most likely to introduce. WFS was
+    /// repaired, WMS and OGC API Features copied the repair — **and this face was
+    /// built the same day without it**, so a service with `servesFeatures` false
+    /// answered a full document and rendered images of its data.
+    /// </para>
+    /// <para>
+    /// <b>404, matching the FeatureServer door.</b> `ServiceLookup.LayerAsync` answers
+    /// the same way for the same reason (ADR-031 condition 2): a face configured off
+    /// is absent, not forbidden.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> DrawableAsync(HttpContext context, PublishedService service)
+    {
+        if (service.Limits.AllowsFeatures(dataSupportsIt: true))
+        {
+            return true;
+        }
+
+        await RefuseAsync(
+            context,
+            404,
+            $"No map service '{service.QualifiedName}'. This service's feature face is switched "
+            + "off, so it draws nothing and describes nothing.")
+            .ConfigureAwait(false);
+
+        return false;
+    }
 
     private static async Task<List<FeatureServerMetadataWriter.ServiceLayer>> LayersOfAsync(
         ServiceContexts contexts, PublishedService service, CancellationToken cancellation)

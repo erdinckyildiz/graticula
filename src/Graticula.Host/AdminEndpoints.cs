@@ -263,6 +263,27 @@ internal sealed record SystemLimitsRequest(
 /// </remarks>
 internal static class AdminEndpoints
 {
+    /// <summary>
+    /// Every URL prefix that serves somebody's data, and therefore must be governed.
+    /// </summary>
+    /// <remarks>
+    /// <b>One list, read by the audit and by the test that checks the audit.</b> It
+    /// used to be a predicate here and a separate array of family names in
+    /// <c>ServiceFolderConformanceTests</c>, so adding a surface meant editing two
+    /// places — and the second was the one nobody edited. That is how WMS, MapServer
+    /// and OGC API Features went unaudited while <c>/admin/routes</c> reported
+    /// <em>ungoverned: 0</em>, which is
+    /// [D-119](../../docs/architecture-debt.md)'s own defect recurring on the surfaces
+    /// built after it closed.
+    /// </remarks>
+    public static readonly string[] Served =
+    [
+        "/rest/services",
+        "/wfs",
+        "/wms",
+        "/ogc/features",
+    ];
+
     /// <summary>Maps the admin surface.</summary>
     public static void MapAdmin(this WebApplication app)
     {
@@ -529,18 +550,41 @@ internal static class AdminEndpoints
             // here is ADR-018 condition 5 failing.
             ungoverned = routes.Count(r =>
                 !(bool)r.GetType().GetProperty("governed")!.GetValue(r)!),
+
+            // <b>What this audit looked at, said out loud.</b> A reader could see
+            // *ungoverned: 0* and not what the zero was about — and on 2026-08-20 it
+            // was about a set that excluded three whole protocol surfaces. An audit
+            // that does not publish its own scope cannot be checked against the
+            // server it audits. [D-119](../../docs/architecture-debt.md).
+            filteredOn = Served,
         }).ExecuteAsync(context).ConfigureAwait(false);
 
         // <b>Every prefix that serves somebody's data.</b> Adding a protocol
         // surface means adding it here, and the conformance suite asserts that
         // each named family actually appears — so a surface forgotten here shows
         // up as a missing family rather than as silence.
+        //
+        // <b>That safety net did not fire, and the reason is worth keeping.</b>
+        // [D-119](../../docs/architecture-debt.md) closed on 2026-08-19 saying
+        // exactly the sentence above, and then WMS, MapServer and OGC API Features
+        // were built without being added here — so `/admin/routes` went on reporting
+        // *ungoverned: 0* about a set that excluded eight routes, which is D-119's own
+        // defect with more surfaces behind it. The net could not catch it because the
+        // suite's family list named only the surfaces that already existed. **A list
+        // that has to be edited twice for one surface gets edited once.**
         static bool Data(string pattern)
         {
             string path = pattern.StartsWith('/') ? pattern : "/" + pattern;
 
-            return path.StartsWith("/rest/services", StringComparison.OrdinalIgnoreCase)
-                || path.StartsWith("/wfs", StringComparison.OrdinalIgnoreCase);
+            foreach (string prefix in Served)
+            {
+                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 

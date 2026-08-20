@@ -30,7 +30,17 @@ namespace Graticula.Conformance.Tests;
 /// is worse than a page that says nothing, and a service whose feature face an
 /// operator switched off is switched off on every door or on none.
 /// </para>
+/// <para>
+/// <b>In the catalogue-walk collection, because this class mutates a live
+/// service.</b> It switches a service's feature face off and back on, and xUnit runs
+/// test classes in parallel — so on 2026-08-20 it ran beside `ArcGisConsistencyTests`
+/// and `ServiceFolderConformanceTests` walking the same service and 404'd them.
+/// Those were read as [D-75](../../docs/architecture-debt.md) recurrences with no
+/// cause found; the cause was this class not being in the collection that exists to
+/// prevent exactly it.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class WfsConformanceTests : ArcGisClient
 {
     private const string Wfs = "http://www.opengis.net/wfs/2.0";

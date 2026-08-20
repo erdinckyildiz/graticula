@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Http;
@@ -54,6 +55,19 @@ internal static class ErrorResponse
     public static void LogTruncated(ILogger logger, Exception exception) =>
         Log.FailedMidResponse(logger, exception);
 
+    /// <summary>
+    /// How long a caller refused by the connection budget is asked to wait.
+    /// </summary>
+    /// <remarks>
+    /// <b>The budget's own wait window, and that is the reasoning rather than a round
+    /// number.</b> A caller is refused only after the server has already waited
+    /// `ConnectionBudget.Default` — five seconds — for a slot, so a slot has been busy for
+    /// at least that long and asking for less would send the client straight back into a
+    /// queue that has not moved. It is a hint and not a contract: RFC 9110 §10.2.3 says a
+    /// client may retry sooner, and this server will refuse it again if it does.
+    /// </remarks>
+    private const int RetrySeconds = 5;
+
     /// <summary>Maps an exception to a status and a message for the caller.</summary>
     public static async Task WriteAsync(HttpContext context, Exception exception, ILogger logger)
     {
@@ -79,6 +93,24 @@ internal static class ErrorResponse
 
         context.Response.Clear();
         context.Response.StatusCode = status;
+
+        // <b>The retry signal ADR-007 §4.9 asks admission control to send, and it was
+        // missing for a day.</b> `ConnectionBudgetFullException`'s own remark said the
+        // refusal comes *with a `Retry-After`*; nothing in this path ever set one, and the
+        // performance gate read the live headers off a real 503 and found it absent. A
+        // budget refusal is the one 503 here that is genuinely transient — a slot frees
+        // when somebody's query finishes — so a client that backs off gets served, and a
+        // client that hammers makes it worse for everybody.
+        //
+        // <b>Deliberately not set on the other 503s.</b> An unreachable database and a
+        // geometry request that ran out of memory both produce the same outcome on retry,
+        // and `Retry-After` on those would be a promise this server cannot keep.
+        if (exception is ConnectionBudgetFullException)
+        {
+            context.Response.Headers.RetryAfter =
+                RetrySeconds.ToString(CultureInfo.InvariantCulture);
+        }
+
         await Results.Json(new { error = new { code = status, message } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);

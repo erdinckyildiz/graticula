@@ -294,10 +294,31 @@ public sealed class WmsRequest
             format = parsed;
         }
 
+        // <b>The same refusal `GetMap` makes, and it was missing here.</b> ADR-041
+        // §5.2 says a style named anything but the default is refused rather than
+        // approximated, and `TryStyles` enforces that for `GetMap` — but `TryLegend`
+        // never called it, so `GetLegendGraphic` answered any name with the default
+        // swatch. **It is the operation the capabilities document points every
+        // legend-drawing client at**, under a remark asserting the opposite. Found by
+        // contradiction sweep 3.
+        string? style = parameter("STYLE")?.Trim();
+
+        if (style is { Length: > 0 }
+            && !string.Equals(style, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            fault = new WmsFault(
+                WmsFault.StyleNotDefined,
+                $"`{style}` is not a style this server defines. A layer here has one "
+                + "symbology, its own; ask for it with `STYLE=` or `STYLE=default`.",
+                "STYLE");
+
+            return false;
+        }
+
         request = new WmsRequest(version, WmsOperation.GetLegendGraphic)
         {
             Layers = [layer.Trim()],
-            Styles = [parameter("STYLE")?.Trim() ?? string.Empty],
+            Styles = [style ?? string.Empty],
             Format = format,
             Width = Size(parameter("WIDTH"), 20, 1024),
             Height = Size(parameter("HEIGHT"), 20, 1024),

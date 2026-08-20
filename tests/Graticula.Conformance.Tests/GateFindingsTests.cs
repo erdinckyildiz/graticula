@@ -11,23 +11,39 @@ using Xunit;
 namespace Graticula.Conformance.Tests;
 
 /// <summary>
-/// The five defects the §66 gates found on 2026-08-20, each with a test.
+/// The seven defects the §66 gates found on 2026-08-20, each with a test.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Kept together on purpose.</b> They are not one subject — an axis rule, an
-/// output CRS, a metadata document, a timestamp and a capability string — but they
-/// share a provenance, and a reader asking <em>what did the gate find</em> should be
-/// able to read the answer in one place rather than five.
+/// output CRS, a metadata document, a timestamp, a capability string, a style name
+/// and an error message — but they share a provenance, and a reader asking
+/// <em>what did the gates find</em> should be able to read the answer in one place
+/// rather than seven.
 /// </para>
 /// <para>
-/// <b>Every one was a wrong answer with a 200 on it.</b> That is the defect class
-/// the correctness gate went looking for, and not one of the five raised an error
+/// <b>Five came from the correctness gate.</b> Each was a wrong answer with a 200 on
+/// it — the class that gate went looking for, and not one of them raised an error
 /// anywhere: transposed coordinates, a colour the server does not draw, an empty
 /// result for a moment that exists, and an operation promised in a document and
 /// missing from the route table.
 /// </para>
+/// <para>
+/// <b>Two came from the consistency sweep, and they are disagreements rather than
+/// wrong answers.</b> One WMS request refused a style name that a second request
+/// accepted on the same layer, and a WFS refusal named an operation the same server
+/// advertises and answers. Neither is wrong in isolation; both are wrong beside their
+/// neighbour, which is the only way that class of defect is ever visible.
+/// </para>
+/// <para>
+/// <b>In the catalogue-walk collection, because this class walks the catalogue.</b>
+/// xUnit runs test classes in parallel, and another class in this assembly publishes,
+/// deletes and reconfigures services. A walker outside the collection sees the
+/// catalogue mid-change and reports it as a defect in whatever it was testing —
+/// [D-75](../../docs/architecture-debt.md), three times on 2026-08-20.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class GateFindingsTests : ArcGisClient
 {
     private async Task<(HttpStatusCode Status, string Body)> FetchAsync(string path)
@@ -235,7 +251,106 @@ public sealed class GateFindingsTests : ArcGisClient
         }
     }
 
+    // ---------- consistency S1: two doors, one lock ----------
+
+    [Fact]
+    public async Task An_unknown_style_is_refused_by_the_legend_as_well_as_by_the_map()
+    {
+        // <b>GetMap refused it and GetLegendGraphic drew the default swatch.</b> A
+        // legend is read by a human and believed; one that silently describes a
+        // different style than the map beside it is worse than an error.
+        const string Nonsense = "no-such-style-9e3f";
+
+        string? layer = await FirstWmsLayerAsync();
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        string escaped = Uri.EscapeDataString(layer);
+
+        (_, string map) = await FetchAsync(
+            "/wms?service=WMS&version=1.3.0&request=GetMap"
+            + $"&layers={escaped}&styles={Nonsense}&crs=EPSG:4326"
+            + "&bbox=35,25,43,45&width=200&height=150&format=image%2Fpng");
+
+        Assert.Equal("StyleNotDefined", RefusalCode(map));
+
+        (_, string legend) = await FetchAsync(
+            "/wms?service=WMS&version=1.3.0&request=GetLegendGraphic"
+            + $"&layer={escaped}&style={Nonsense}&format=image%2Fpng");
+
+        // <b>The code, not the status.</b> A WMS refusal is a ServiceExceptionReport
+        // carried by a 200 — that is what the specification asks for and what CITE
+        // checks — so a test that asserted on the status would pass for the wrong
+        // reason on one face and fail for the wrong reason on the other. This one did:
+        // it read the legend's correct refusal as a success because the 200 was there.
+        Assert.Equal("StyleNotDefined", RefusalCode(legend));
+    }
+
+    // ---------- consistency S3: a refusal that named an implemented operation ----------
+
+    [Fact]
+    public async Task The_wfs_refusal_never_names_an_operation_the_capabilities_advertise()
+    {
+        // <b>The message said GetPropertyValue is not implemented while the same
+        // server advertised and answered it.</b> An error message is the only
+        // documentation many clients read.
+        (_, string capabilities) = await FetchAsync(
+            "/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
+
+        string[] advertised =
+        [
+            .. XDocument.Parse(capabilities)
+                .Descendants()
+                .Where(e => e.Name.LocalName == "Operation")
+                .Select(e => e.Attribute("name")?.Value)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Select(name => name!),
+        ];
+
+        Assert.NotEmpty(advertised);
+
+        (_, string refusal) = await FetchAsync(
+            "/wfs?service=WFS&version=2.0.0&request=NoSuchOperation");
+
+        foreach (string operation in advertised)
+        {
+            Assert.False(
+                refusal.Contains($"{operation} are not", StringComparison.Ordinal)
+                    || refusal.Contains($"{operation} is not", StringComparison.Ordinal),
+                $"the refusal says {operation} is not implemented and GetCapabilities "
+                + $"advertises it. Full text: {refusal}");
+        }
+    }
+
     // ---------- helpers ----------
+
+    private static string RefusalCode(string body)
+    {
+        XDocument document = XDocument.Parse(body);
+
+        Assert.True(
+            document.Root!.Name.LocalName == "ServiceExceptionReport",
+            $"answered with <{document.Root.Name.LocalName}> rather than a refusal.");
+
+        return document.Descendants()
+            .First(e => e.Name.LocalName == "ServiceException")
+            .Attribute("code")!.Value;
+    }
+
+    private async Task<string?> FirstWmsLayerAsync()
+    {
+        (_, string body) = await FetchAsync(
+            "/wms?service=WMS&version=1.3.0&request=GetCapabilities");
+
+        return XDocument.Parse(body)
+            .Descendants()
+            .Where(e => e.Name.LocalName == "Layer")
+            .Select(e => e.Elements().FirstOrDefault(c => c.Name.LocalName == "Name")?.Value)
+            .FirstOrDefault(name => !string.IsNullOrEmpty(name));
+    }
 
     private static string Colour(JsonElement drawingInfo) =>
         drawingInfo.GetProperty("renderer").GetProperty("symbol").GetProperty("color").ToString();

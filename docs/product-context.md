@@ -417,7 +417,7 @@ tiles**. What that means for migration:
 | OGC API Features | Yes, natively |
 | Vector tiles / MapLibre | Yes, natively |
 | WFS | Yes, via the compatibility layer |
-| **WMS** | **No** |
+| **WMS** | **Yes, from 2026-08-20** |
 | ArcGIS REST | Depends on Q-17 |
 
 Much of a GeoServer estate is consumed through WMS, so this is a material limit

@@ -26,7 +26,15 @@ namespace Graticula.Conformance.Tests;
 /// So these assert the code as well as the document — a 200 carrying a problem
 /// object would satisfy neither the specification nor a proxy.
 /// </para>
+/// <para>
+/// <b>In the catalogue-walk collection, because this class walks the catalogue.</b>
+/// xUnit runs test classes in parallel, and another class in this assembly publishes,
+/// deletes and reconfigures services. A walker outside the collection sees the
+/// catalogue mid-change and reports it as a defect in whatever it was testing —
+/// [D-75](../../docs/architecture-debt.md), three times on 2026-08-20.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class OgcFeaturesConformanceTests : ArcGisClient
 {
     private const string Root = "/ogc/features/v1";
