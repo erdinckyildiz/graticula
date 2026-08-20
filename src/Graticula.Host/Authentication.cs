@@ -27,11 +27,27 @@ namespace Graticula.Host;
 /// mean "not authenticated", they resolve the same way.
 /// </para>
 /// <para>
-/// <b>The ArcGIS <c>token=</c> query parameter is not accepted yet.</b> ADR-015
-/// §4 requires it for unmodified clients and requires four mitigations with it,
-/// one of which is that query strings are redacted before logging on those
-/// routes. Accepting the parameter without the redaction would be the weakening
-/// without the bound, so it waits for them.
+/// <b>The ArcGIS <c>token=</c> query parameter is accepted, and the sentence here
+/// said otherwise for a day.</b> It read *"not accepted yet … so it waits for
+/// [the mitigations]"* while the code accepted it — the parameter was added on
+/// 2026-08-20 with the ArcGIS token endpoints, and this remark was not. The
+/// security gate found the consequence rather than the contradiction: live root
+/// session tokens in the server's own log, harvested and replayed against a private
+/// layer.
+/// </para>
+/// <para>
+/// <b>The parameter is accepted because Q-17 requires unmodified Esri clients to
+/// work</b> — ArcGIS Pro and every SDK put the token in the URL — and ADR-015 §4
+/// permits it under four mitigations, all required. The first is that query strings
+/// are redacted before logging, which is now <see cref="QueryRedaction"/> and is a
+/// code path rather than a setting. The header form is tried first and is what a
+/// client that offers the choice will use.
+/// </para>
+/// <para>
+/// <b>What the channel still costs is recorded in
+/// [D-120](../../docs/architecture-debt.md)</b>, and it is narrower than it was: the
+/// credential is out of this server's own log, and what remains is every proxy and
+/// browser history between the client and here.
 /// </para>
 /// </remarks>
 internal sealed class Authentication

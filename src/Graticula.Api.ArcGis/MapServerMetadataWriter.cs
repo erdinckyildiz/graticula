@@ -124,13 +124,17 @@ public static class MapServerMetadataWriter
     /// <param name="drawingInfo">Its symbology in Esri form, or null for none.</param>
     /// <param name="displayField">The column a client shows as a feature's name.</param>
     /// <param name="maxRecordCount">What a query may return.</param>
+    /// <param name="hasLabels">Whether its stored style labels features.</param>
+    /// <param name="capabilities">What this layer offers, comma-separated.</param>
     /// <returns>The document.</returns>
     public static object Layer(
         FeatureServerMetadataWriter.ServiceLayer layer,
         IReadOnlyList<object> fields,
         object? drawingInfo,
         string? displayField,
-        int maxRecordCount)
+        int maxRecordCount,
+        bool hasLabels = false,
+        string capabilities = "Map")
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -158,8 +162,12 @@ public static class MapServerMetadataWriter
             relationships = Array.Empty<object>(),
             canModifyLayer = false,
             canScaleSymbols = false,
-            hasLabels = false,
-            capabilities = "Map,Query,Data",
+
+            // <b>Reported, not assumed.</b> This was hardcoded false for every layer
+            // until the correctness gate read it against a layer whose stored style
+            // has a `symbol` layer and does draw labels.
+            hasLabels,
+            capabilities,
             maxRecordCount,
             supportsStatistics = true,
             supportsAdvancedQueries = true,
@@ -317,7 +325,7 @@ public static class MapServerMetadataWriter
         : null;
 
     private static string Units(int srid) =>
-        srid is 4326 or 4269 or 4267 ? "esriDecimalDegrees" : "esriMeters";
+        AxisOrder.IsGeographic(srid) ? "esriDecimalDegrees" : "esriMeters";
 
     /// <summary>An Esri geometry type name.</summary>
     /// <param name="kind">The geometry.</param>
@@ -353,7 +361,7 @@ public static class MapServerMetadataWriter
         width <= 0
             ? 0
             : Graticula.Cartography.MapScale.Denominator(
-                extent.Width / width, srid is 4326 or 4258 or 4269);
+                extent.Width / width, AxisOrder.IsGeographic(srid));
 
     /// <summary>A number as ArcGIS writes one in a URL.</summary>
     /// <param name="value">The number.</param>

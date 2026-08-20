@@ -31,7 +31,29 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1032.
+    // The next id is 1033.
+
+    /// <summary>
+    /// One request, with its query string redacted.
+    /// </summary>
+    /// <remarks>
+    /// <b>This replaces ASP.NET's own request logging, which writes the raw URL.</b>
+    /// ADR-015 §4.1: a token may travel in the query string because Esri clients put
+    /// it there, and *"redaction is the code path, and logging the raw query on a
+    /// token-bearing route is the bug"*. The framework's line is filtered off in
+    /// `Program`; this is what is written instead.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    /// <param name="method">The HTTP method.</param>
+    /// <param name="path">The path.</param>
+    /// <param name="query">The query string, already redacted.</param>
+    /// <param name="status">The status code answered.</param>
+    [LoggerMessage(
+        EventId = 1032,
+        Level = LogLevel.Information,
+        Message = "{Method} {Path}{Query} - {Status}")]
+    public static partial void Request(
+        ILogger logger, string method, string? path, string query, int status);
 
     [LoggerMessage(
         EventId = 1024,

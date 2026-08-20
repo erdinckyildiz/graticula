@@ -267,6 +267,16 @@ public static class Program
             settings.SessionLifetime,
             services.GetRequiredService<TimeProvider>()));
 
+        // <b>The framework's own request logging is silenced, and this server writes
+        // its own line instead.</b> `Microsoft.AspNetCore.Hosting.Diagnostics` logs
+        // the full URL — query string included — before any middleware runs, so a
+        // token sent as `?token=` was written down in full on every request. ADR-015
+        // §4's first mitigation says redaction is *the code path*, not a
+        // configuration, which is why the line is replaced rather than the level
+        // lowered: a filter leaves the raw query one setting away from returning.
+        builder.Logging.AddFilter(
+            "Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+
         WebApplication app = builder.Build();
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
 
@@ -347,6 +357,35 @@ public static class Program
         // routing and a 500 from the exception handler, which are exactly the
         // responses a hardening pass forgets.</b> Added by the §66 security
         // gate; see SecurityHeaders.
+        // <b>The request line this server writes, with credentials removed.</b>
+        // ADR-015 §4.1 and its condition 2. Every request is logged once, after it
+        // completes, with its status and the query string redacted by
+        // `QueryRedaction` — which is a pure function with its own tests, so the
+        // redaction can be asserted rather than trusted.
+        ILogger requests = app.Services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("requests");
+
+        app.Use(async (context, next) =>
+        {
+            await next().ConfigureAwait(false);
+
+            // <b>Guarded and computed into a local</b>, which is ImportScratch's
+            // pattern for CA1873 and the analyser is right in general: a deployment
+            // that turns request logging off should not pay to build a string nothing
+            // writes. Here the work is one pass over the query string.
+            if (requests.IsEnabled(LogLevel.Information))
+            {
+                string redacted = QueryRedaction.Redact(context.Request.QueryString.Value);
+
+                Log.Request(
+                    requests,
+                    context.Request.Method,
+                    context.Request.Path.Value,
+                    redacted,
+                    context.Response.StatusCode);
+            }
+        });
+
         app.UseSecurityHeaders(settings.RequireHttps);
 
         // <b>Before authentication, so that a request cannot outlive its deadline by

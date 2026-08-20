@@ -523,7 +523,22 @@ internal static class WmsEndpoints
             ? $"{folder}/{layer.ServiceName} — {layer.Definition.Name}"
             : $"{layer.ServiceName} — {layer.Definition.Name}";
 
-    private static async Task<TimeDimension?> TimeOfAsync(
+    /// <summary>
+    /// A layer's time dimension, measured once and cached.
+    /// </summary>
+    /// <remarks>
+    /// <b>Public because OGC API Features needs the same answer.</b> Its collection
+    /// document reported no temporal interval while its <c>datetime</c> filter worked
+    /// — so a client reading the document concluded the collection had no time and
+    /// never sent the parameter. One measurement and one cache for both faces, rather
+    /// than a second min/max query with its own answer.
+    /// </remarks>
+    /// <param name="source">The layer's feature source.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="described">Its columns and extent.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The dimension, or null when the layer has no single date column.</returns>
+    public static async Task<TimeDimension?> TimeOfAsync(
         IFeatureSource source,
         PublishedLayer layer,
         LayerDescription described,
@@ -825,7 +840,8 @@ internal static class WmsEndpoints
     /// almost every request. The same gap as
     /// [Q-123](../../docs/open-questions.md), from the other direction.
     /// </remarks>
-    private static bool IsGeographic(int srid) => srid is 4326 or 4258 or 4269;
+    private static bool IsGeographic(int srid) =>
+        Graticula.Geometries.AxisOrder.IsGeographic(srid);
 
     // ---------- GetFeatureInfo ----------
 

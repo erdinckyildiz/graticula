@@ -281,7 +281,7 @@ internal static class OgcFeaturesEndpoints
 
         string self = $"{Origin(context)}{context.Request.Path}";
 
-        OgcFeatureWriter writer = new(collection, self);
+        OgcFeatureWriter writer = new(collection, self, request!.LatitudeFirst);
 
         if (WantsHtml(context))
         {
@@ -340,11 +340,12 @@ internal static class OgcFeaturesEndpoints
 
         int srid = Graticula.Geometries.AxisOrder.Wgs84;
         string crsUri = OgcNames.Crs84;
+        bool latitudeFirst = false;
 
         if (context.Request.Query["crs"] is { Count: > 0 } asked
             && !string.IsNullOrWhiteSpace(asked.ToString()))
         {
-            if (OgcNames.SridOf(asked.ToString(), out _) is not { } code
+            if (OgcNames.SridOf(asked.ToString(), out latitudeFirst) is not { } code
                 || !collection.CoordinateSystems.Contains(asked.ToString(), StringComparer.Ordinal))
             {
                 await RefuseAsync(context, OgcProblem.BadRequest(
@@ -389,6 +390,8 @@ internal static class OgcFeaturesEndpoints
 
             string document = OgcFeatureWriter.WriteOne(
                 feature,
+                latitudeFirst: latitudeFirst,
+                links:
                 [
                     new OgcDocuments.Link(
                         Origin(context) + context.Request.Path, "self", OgcNames.GeoJson,
@@ -530,13 +533,18 @@ internal static class OgcFeaturesEndpoints
         PublishedLayer layer,
         CancellationToken cancellation)
     {
-        (_, LayerDescription described) =
+        (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
         Envelope? geographic = await GeographicAsync(
             projector, described.Extent, layer.Definition.Srid, cancellation).ConfigureAwait(false);
 
-        string? temporal = Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields);
+        // <b>The same measurement the WMS face makes, from the same cache.</b> This
+        // reported the column and left the interval empty, so a collection document
+        // said the collection had no time while its own `datetime` filter worked on
+        // it — and a client reads the document to decide whether to ask.
+        Graticula.Api.Wms.TimeDimension? time = await WmsEndpoints
+            .TimeOfAsync(source, layer, described, cancellation).ConfigureAwait(false);
 
         return new CollectionMetadata(
             layer.Definition.Name,
@@ -548,7 +556,9 @@ internal static class OgcFeaturesEndpoints
             layer.GeometryType,
             geographic,
             described.Fields,
-            temporal);
+            time?.Field,
+            time?.From,
+            time?.Until);
     }
 
     private static async Task<Envelope?> GeographicAsync(
@@ -878,7 +888,7 @@ internal static class OgcFeaturesEndpoints
     /// </remarks>
     private static Envelope Widened(Envelope box, int bboxSrid, int layerSrid)
     {
-        bool geographic = bboxSrid is 4326 or 4258 or 4269;
+        bool geographic = Graticula.Geometries.AxisOrder.IsGeographic(bboxSrid);
         bool transforming = bboxSrid != layerSrid;
 
         double epsilon = geographic ? 0.000001 : 0.01;

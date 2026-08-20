@@ -40,8 +40,23 @@ public static class GeoJsonWriter
     /// </summary>
     /// <param name="json">Where to write.</param>
     /// <param name="geometry">The geometry, already in the document's CRS.</param>
+    /// <param name="latitudeFirst">
+    /// <para>
+    /// Whether to write each position as latitude then longitude.
+    /// </para>
+    /// <para>
+    /// <b>Default false, and plain GeoJSON must never pass true.</b> RFC 7946 has one
+    /// axis order and no way to declare another. OGC API Features Part 2 is the only
+    /// caller that may set it: there a CRS is negotiated out of band and announced in
+    /// a <c>Content-Crs</c> header, and asking for <c>EPSG/0/4326</c> means asking for
+    /// that authority's own order. **A response that carries the header and not the
+    /// order is a wrong answer a client cannot detect** — which is what this server
+    /// did until the correctness gate found it on 2026-08-20.
+    /// </para>
+    /// </param>
     /// <exception cref="NotSupportedException">A geometry kind with no GeoJSON shape.</exception>
-    public static void WriteGeometry(Utf8JsonWriter json, Geometry geometry)
+    public static void WriteGeometry(
+        Utf8JsonWriter json, Geometry geometry, bool latitudeFirst = false)
     {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentNullException.ThrowIfNull(geometry);
@@ -56,8 +71,7 @@ public static class GeoJsonWriter
 
                 if (!point.IsEmpty)
                 {
-                    json.WriteNumberValue(point.X);
-                    json.WriteNumberValue(point.Y);
+                    WritePosition(json, point.X, point.Y, latitudeFirst);
                 }
 
                 json.WriteEndArray();
@@ -66,14 +80,14 @@ public static class GeoJsonWriter
             case LineString line:
                 json.WriteString("type", "LineString");
                 json.WriteStartArray("coordinates");
-                WritePositions(json, line.Coordinates);
+                WritePositions(json, line.Coordinates, latitudeFirst);
                 json.WriteEndArray();
                 break;
 
             case Polygon polygon:
                 json.WriteString("type", "Polygon");
                 json.WriteStartArray("coordinates");
-                WriteRings(json, polygon);
+                WriteRings(json, polygon, latitudeFirst);
                 json.WriteEndArray();
                 break;
 
@@ -87,8 +101,7 @@ public static class GeoJsonWriter
 
                     if (!part.IsEmpty)
                     {
-                        json.WriteNumberValue(part.X);
-                        json.WriteNumberValue(part.Y);
+                        WritePosition(json, part.X, part.Y, latitudeFirst);
                     }
 
                     json.WriteEndArray();
@@ -104,7 +117,7 @@ public static class GeoJsonWriter
                 foreach (LineString part in lines.Parts)
                 {
                     json.WriteStartArray();
-                    WritePositions(json, part.Coordinates);
+                    WritePositions(json, part.Coordinates, latitudeFirst);
                     json.WriteEndArray();
                 }
 
@@ -118,7 +131,7 @@ public static class GeoJsonWriter
                 foreach (Polygon part in polygons.Parts)
                 {
                     json.WriteStartArray();
-                    WriteRings(json, part);
+                    WriteRings(json, part, latitudeFirst);
                     json.WriteEndArray();
                 }
 
@@ -219,28 +232,35 @@ public static class GeoJsonWriter
     /// <summary>How a timestamp is written, in UTC.</summary>
     private const string Timestamp = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
-    private static void WriteRings(Utf8JsonWriter json, Polygon polygon)
+    private static void WriteRings(Utf8JsonWriter json, Polygon polygon, bool latitudeFirst)
     {
         json.WriteStartArray();
-        WritePositions(json, polygon.Shell.Coordinates);
+        WritePositions(json, polygon.Shell.Coordinates, latitudeFirst);
         json.WriteEndArray();
 
         foreach (LinearRing hole in polygon.Holes)
         {
             json.WriteStartArray();
-            WritePositions(json, hole.Coordinates);
+            WritePositions(json, hole.Coordinates, latitudeFirst);
             json.WriteEndArray();
         }
     }
 
-    private static void WritePositions(Utf8JsonWriter json, XySequence coordinates)
+    private static void WritePositions(
+        Utf8JsonWriter json, XySequence coordinates, bool latitudeFirst)
     {
         for (int i = 0; i < coordinates.Count; i++)
         {
             json.WriteStartArray();
-            json.WriteNumberValue(coordinates.X(i));
-            json.WriteNumberValue(coordinates.Y(i));
+            WritePosition(json, coordinates.X(i), coordinates.Y(i), latitudeFirst);
             json.WriteEndArray();
         }
+    }
+
+    /// <summary>One position, in the order the negotiated reference system defines.</summary>
+    private static void WritePosition(Utf8JsonWriter json, double x, double y, bool latitudeFirst)
+    {
+        json.WriteNumberValue(latitudeFirst ? y : x);
+        json.WriteNumberValue(latitudeFirst ? x : y);
     }
 }

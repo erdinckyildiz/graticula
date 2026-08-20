@@ -452,10 +452,22 @@ group layer has no owner to transfer.
    cache. Unmeasured, so A-046 remains `UNVALIDATED`.
 2. **Token redaction is tested by asserting on log output**, not by reading the
    code. §4.1 fails silently otherwise, and silently is the only way it fails.
-   **NOT YET APPLICABLE, and deliberately so.** §4's `token=` query parameter is
-   not accepted (D-10). Accepting it before the redaction exists would be the
-   weakening without the bound. This condition becomes due in the same change
-   that adds `/generateToken`, not before.
+   **DISCHARGED 2026-08-20 — and it became due on 2026-08-20 and was missed by half a
+   day.** This condition said it *"becomes due in the same change that adds
+   `/generateToken`, not before"*. That change shipped that morning with the `token=`
+   query parameter and without the redaction, and `Authentication`'s class remark
+   still read *"not accepted yet … so it waits for them"* — the code and its own
+   documentation disagreeing in the direction of a skipped guard.
+
+   **[Security gate 2](../reviews/security-gate-2.md) found the consequence rather
+   than the contradiction**: a `root` session token read out of this server's log file
+   and replayed against a private layer.
+
+   `QueryRedaction` is the code path §4.1 asks for — the framework's own request
+   logging writes the raw URL before any middleware runs, so it is filtered off and
+   this server writes its own line. Seventeen unit tests cover the function and
+   `TokenIsNotLoggedTests` asserts on the log itself, which is the form this condition
+   demands: a correct function that nothing calls redacts nothing.
 3. **Lockout is tested for the denial-of-service inversion** — that locking one
    account cannot be used to lock out an organisation.
    **DISCHARGED**, and the shape of the fix matters more than the test.

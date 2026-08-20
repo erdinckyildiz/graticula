@@ -38,8 +38,20 @@ namespace Graticula.Host;
 /// </remarks>
 internal static class MapServerEndpoints
 {
-    /// <summary>What this face offers, in ArcGIS's own vocabulary.</summary>
-    private const string Capabilities = "Map,Query,Data";
+    /// <summary>
+    /// What this face offers, in ArcGIS's own vocabulary.
+    /// </summary>
+    /// <remarks>
+    /// <b>"Map" alone, and it used to say "Map,Query,Data".</b> There is no
+    /// <c>/MapServer/{id}/query</c> route on this server — ADR-041 §5.5 scoped this
+    /// face to export, identify and legend — so the document was promising an
+    /// operation that answered 404, which the correctness gate found by reading the
+    /// claim and then trying it. A claimed capability is a contract a client checks
+    /// before it acts; the one thing it must never be is untrue. Querying the same
+    /// data works at <c>/FeatureServer/{id}/query</c>, which is where the layer
+    /// document's own links point.
+    /// </remarks>
+    private const string Capabilities = "Map";
 
     /// <summary>How many features one identify may return per layer.</summary>
     private const int MaximumIdentifyResults = 20;
@@ -177,6 +189,15 @@ internal static class MapServerEndpoints
             layer.Definition.Srid,
             described.Extent);
 
+        // <b>The layer's own stored style, not a synthesised one.</b> This called
+        // the two-argument `DrawingInfo`, which always invents an appearance from the
+        // name and geometry — so this document reported a colour the server does not
+        // draw, while the legend, the rendered map and the FeatureServer document all
+        // agreed on the real one. Found by the correctness gate 2026-08-20 by asking
+        // four faces about one layer.
+        object drawingInfo = FeatureServerMetadataWriter.Drawing(
+            layer.Definition.Name, layer.GeometryType, layer.Symbology, out _);
+
         object document = MapServerMetadataWriter.Layer(
             entry,
             [.. described.Fields.Select(f => (object)new
@@ -187,9 +208,11 @@ internal static class MapServerEndpoints
                 nullable = f.Nullable,
                 length = f.MaxLength,
             })],
-            FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.GeometryType),
+            drawingInfo,
             described.Fields.Count > 0 ? described.Fields[0].Name : null,
-            settings.MaximumRecordCount);
+            settings.MaximumRecordCount,
+            Labels(layer),
+            Capabilities);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -210,6 +233,35 @@ internal static class MapServerEndpoints
         }
 
         await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether a layer's stored style draws labels.
+    /// </summary>
+    /// <remarks>
+    /// <b>Asked of the style rather than assumed.</b> `hasLabels` was written as
+    /// false for every layer, including ones whose stored document has a `symbol`
+    /// layer and whose map does draw names. A client reads this to decide whether to
+    /// offer a label toggle.
+    /// </remarks>
+    private static bool Labels(PublishedLayer layer)
+    {
+        if (layer.Symbology is not { Length: > 0 } stored)
+        {
+            return false;
+        }
+
+        try
+        {
+            return SymbologyPlan.Compile(stored).HasLabels;
+        }
+        catch (SymbologyException)
+        {
+            // A style this server stores and cannot compile answers the question with
+            // "no labels" rather than failing the whole document. The style itself is
+            // the defect and GetMap will say so.
+            return false;
+        }
     }
 
     // ---------- export ----------
@@ -573,7 +625,8 @@ internal static class MapServerEndpoints
             extent.MinX, extent.MinY,
         ])));
 
-    private static bool IsGeographic(int srid) => srid is 4326 or 4258 or 4269;
+    private static bool IsGeographic(int srid) =>
+        Graticula.Geometries.AxisOrder.IsGeographic(srid);
 }
 
 /// <summary>An image size, as a bound rather than a request.</summary>

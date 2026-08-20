@@ -20,14 +20,29 @@ namespace Graticula.Geometries;
 /// exactly like an unknown extent and is why it is so often misdiagnosed.
 /// </para>
 /// <para>
-/// <b>What this knows is one code, and it says so rather than implying more.</b> The
-/// general answer is in <c>spatial_ref_sys</c> — a CRS is latitude-first when its
-/// definition says so, which covers every geographic system and no projected one —
-/// and reading it costs a round trip per layer in documents meant to be cheap. 4326
-/// is what nearly every client asks for and the one that has to be right today;
-/// everything else is written easting first, correct for projected systems and wrong
-/// for any other geographic one. That gap is
-/// [Q-123](../../../docs/open-questions.md), and it is a gap rather than a guess.
+/// <b>The rule is *geographic*, not *4326*, and that correction cost a gate.</b> This
+/// answered true for 4326 alone until 2026-08-20. EPSG:4258 (ETRS89) — the standard
+/// geographic system across most of Europe — has the identical authoritative axis
+/// order and was being written longitude-first, on WFS and on WMS 1.3.0, with no
+/// error anywhere: a valid 200 with every coordinate transposed. The correctness gate
+/// found it by asking for one feature in both systems and reading the two answers side
+/// by side.
+/// </para>
+/// <para>
+/// <b>What replaces it is a range, and it is a heuristic stated as one.</b> EPSG
+/// numbers its geographic 2D systems in 4000–4999, and the authority defines those
+/// latitude-first; projected systems live elsewhere and are easting-first. That gets
+/// 4326, 4258, 4269 and 4267 right — every geographic system a client of this server
+/// has asked for — and it is not the general answer.
+/// </para>
+/// <para>
+/// <b>What it still does not cover, precisely.</b> Geographic systems numbered outside
+/// the block, and the handful of *projected* systems the authority defines
+/// northing-first — EPSG:2180 and several Nordic grids among them — which this still
+/// writes easting-first. The general answer is a per-CRS lookup, and it is not
+/// available here: this deployment's <c>spatial_ref_sys.srtext</c> carries **no AXIS
+/// clauses at all**, so the database cannot be asked. That is
+/// [Q-123](../../../docs/open-questions.md), still open and now narrower.
 /// </para>
 /// </remarks>
 public static class AxisOrder
@@ -35,8 +50,28 @@ public static class AxisOrder
     /// <summary>WGS 84, the code the trap is about.</summary>
     public const int Wgs84 = 4326;
 
+    /// <summary>The first EPSG code of the geographic 2D block.</summary>
+    private const int FirstGeographic = 4000;
+
+    /// <summary>The last EPSG code of the geographic 2D block.</summary>
+    private const int LastGeographic = 4999;
+
     /// <summary>Whether a CRS puts latitude first when named authoritatively.</summary>
     /// <param name="srid">The EPSG code.</param>
     /// <returns>Whether latitude comes first.</returns>
-    public static bool IsLatitudeFirst(int srid) => srid == Wgs84;
+    public static bool IsLatitudeFirst(int srid) =>
+        srid is >= FirstGeographic and <= LastGeographic;
+
+    /// <summary>
+    /// Whether a CRS measures in degrees.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same block, asked a different question.</b> Scale denominators, zoom
+    /// levels and the metres-per-degree conversion all need this, and three faces were
+    /// each carrying their own two- or three-code list of it.
+    /// </remarks>
+    /// <param name="srid">The EPSG code.</param>
+    /// <returns>Whether it is a geographic system.</returns>
+    public static bool IsGeographic(int srid) =>
+        srid is >= FirstGeographic and <= LastGeographic;
 }

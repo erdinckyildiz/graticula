@@ -229,7 +229,23 @@ public static class FeatureServerMetadataWriter
     /// which of the two happened.
     /// </para>
     /// </remarks>
-    private static object Drawing(
+    /// <summary>
+    /// A layer's <c>drawingInfo</c>: its stored symbology, or a generated appearance.
+    /// </summary>
+    /// <remarks>
+    /// <b>Made public 2026-08-20 because a second face needed it and took the wrong
+    /// door.</b> The MapServer layer document called the two-argument
+    /// <see cref="DrawingInfo(string, GeometryKind)"/>, which always synthesises from
+    /// the name and geometry — so it reported a colour the server does not draw, while
+    /// the legend, the rendered map and the FeatureServer document all agreed on the
+    /// real one. Found by the correctness gate.
+    /// </remarks>
+    /// <param name="layerName">The layer's name, which decides a generated colour.</param>
+    /// <param name="geometryType">What shape its features are.</param>
+    /// <param name="symbology">Its stored canonical document, or null.</param>
+    /// <param name="generated">Whether the answer was synthesised rather than stored.</param>
+    /// <returns>The drawing information.</returns>
+    public static object Drawing(
         string layerName, GeometryKind geometryType, string? symbology, out bool generated)
     {
         if (!string.IsNullOrWhiteSpace(symbology))
@@ -860,5 +876,5 @@ public static class FeatureServerMetadataWriter
     /// narrow, visible, and cheap to fix when that arrives.
     /// </remarks>
     private static string UnitsOf(int srid) =>
-        srid is 4326 or 4269 or 4267 ? "esriDecimalDegrees" : "esriMeters";
+        AxisOrder.IsGeographic(srid) ? "esriDecimalDegrees" : "esriMeters";
 }

@@ -32,17 +32,26 @@ public sealed class OgcFeatureWriter
 {
     private readonly CollectionMetadata _collection;
     private readonly string _self;
+    private readonly bool _latitudeFirst;
 
     /// <summary>Opens a writer for one collection.</summary>
     /// <param name="collection">The collection being written.</param>
     /// <param name="self">The absolute address of this collection's items.</param>
-    public OgcFeatureWriter(CollectionMetadata collection, string self)
+    /// <param name="latitudeFirst">
+    /// Whether the negotiated reference system puts latitude before longitude.
+    /// <b>Part 2 §6.4: once a CRS is negotiated the coordinates follow that CRS's own
+    /// axis order</b>, and GeoJSON has nowhere to say which — the <c>Content-Crs</c>
+    /// header is the only signal, so writing the wrong order under the right header
+    /// is a wrong answer a client cannot detect.
+    /// </param>
+    public OgcFeatureWriter(CollectionMetadata collection, string self, bool latitudeFirst = false)
     {
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentException.ThrowIfNullOrWhiteSpace(self);
 
         _collection = collection;
         _self = self;
+        _latitudeFirst = latitudeFirst;
     }
 
     /// <summary>
@@ -78,7 +87,7 @@ public sealed class OgcFeatureWriter
 
         await foreach (Feature feature in features.WithCancellation(cancellation).ConfigureAwait(false))
         {
-            WriteFeature(json, feature);
+            WriteFeature(json, feature, _latitudeFirst);
             written++;
 
             // Flushed as it goes, so a large page reaches the client while the rest
@@ -115,7 +124,9 @@ public sealed class OgcFeatureWriter
     /// <param name="feature">The feature, already in the response's CRS.</param>
     /// <param name="links">The links this document carries.</param>
     /// <returns>The JSON.</returns>
-    public static string WriteOne(Feature feature, IReadOnlyList<OgcDocuments.Link> links)
+    /// <param name="latitudeFirst">Whether the negotiated CRS puts latitude first.</param>
+    public static string WriteOne(
+        Feature feature, IReadOnlyList<OgcDocuments.Link> links, bool latitudeFirst = false)
     {
         ArgumentNullException.ThrowIfNull(feature);
         ArgumentNullException.ThrowIfNull(links);
@@ -125,7 +136,7 @@ public sealed class OgcFeatureWriter
         using (Utf8JsonWriter json = new(stream, new JsonWriterOptions { Indented = true }))
         {
             json.WriteStartObject();
-            WriteFeatureBody(json, feature);
+            WriteFeatureBody(json, feature, latitudeFirst);
             OgcDocuments.WriteLinks(json, links);
             json.WriteEndObject();
         }
@@ -133,14 +144,15 @@ public sealed class OgcFeatureWriter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    private static void WriteFeature(Utf8JsonWriter json, Feature feature)
+    private static void WriteFeature(Utf8JsonWriter json, Feature feature, bool latitudeFirst)
     {
         json.WriteStartObject();
-        WriteFeatureBody(json, feature);
+        WriteFeatureBody(json, feature, latitudeFirst);
         json.WriteEndObject();
     }
 
-    private static void WriteFeatureBody(Utf8JsonWriter json, Feature feature)
+    private static void WriteFeatureBody(
+        Utf8JsonWriter json, Feature feature, bool latitudeFirst)
     {
         json.WriteString("type", "Feature");
 
@@ -154,7 +166,7 @@ public sealed class OgcFeatureWriter
 
         if (feature.Geometry is { } geometry)
         {
-            GeoJsonWriter.WriteGeometry(json, geometry);
+            GeoJsonWriter.WriteGeometry(json, geometry, latitudeFirst);
         }
         else
         {

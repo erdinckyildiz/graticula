@@ -81,6 +81,20 @@ public sealed class OgcRequest
     /// <summary>The <c>crs</c> URI as the client wrote it, for the response header.</summary>
     public string CrsUri { get; private init; } = OgcNames.Crs84;
 
+    /// <summary>
+    /// Whether the response's coordinates go latitude first.
+    /// </summary>
+    /// <remarks>
+    /// <b>This was computed and thrown away until 2026-08-20, and the correctness
+    /// gate found it.</b> <c>CRS84</c> and <c>EPSG/0/4326</c> are the same datum in
+    /// opposite orders, and asking for the second returned the first's coordinates
+    /// with the second's name in the <c>Content-Crs</c> header. A conforming client
+    /// trusts that header to know how to read the geometry, so it placed every point
+    /// in the wrong hemisphere — and the server was **claiming** the CRS conformance
+    /// class while doing it, which is worse than not offering it.
+    /// </remarks>
+    public bool LatitudeFirst { get; private init; }
+
     /// <summary>The first instant included, or null for no lower bound.</summary>
     public DateTimeOffset? From { get; private init; }
 
@@ -173,6 +187,9 @@ public sealed class OgcRequest
             return false;
         }
 
+        bool latitudeFirst =
+            OgcNames.SridOf(parameter("crs"), out bool responseFirst) is not null && responseFirst;
+
         if (!TryCrs(
                 parameter("bbox-crs"), collection, "bbox-crs",
                 out int bboxSrid, out _, out problem))
@@ -206,6 +223,7 @@ public sealed class OgcRequest
             BboxSrid = bboxSrid,
             Srid = srid,
             CrsUri = crsUri,
+            LatitudeFirst = latitudeFirst,
             From = from,
             Until = until,
             Properties = properties,
@@ -526,7 +544,15 @@ public sealed class OgcRequest
             }
 
             at = parsed;
-            end = i == 0 ? parsed.AddDays(1) : parsed.AddTicks(1);
+
+            // <b>A microsecond, not a tick, and the difference is the whole bug.</b>
+            // A .NET tick is 100 nanoseconds; PostgreSQL's `timestamptz` resolves to
+            // a microsecond. `parsed.AddTicks(1)` round-trips through the database
+            // back to `parsed`, so the predicate became `column >= X AND column < X`
+            // — unsatisfiable by construction, and **every exact-instant `datetime`
+            // returned nothing**. Found by the correctness gate 2026-08-20, which
+            // asked a temporal layer for the moment one of its own rows carries.
+            end = i == 0 ? parsed.AddDays(1) : parsed.AddMicroseconds(1);
             return true;
         }
 
