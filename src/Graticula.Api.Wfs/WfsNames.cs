@@ -110,8 +110,16 @@ public static class WfsNames
     /// geographic one. That gap is [Q-123](../../../docs/open-questions.md), and
     /// it is a gap rather than a guess.
     /// </para>
+    /// <para>
+    /// <b>Moved into <see cref="Graticula.Geometries.AxisOrder"/> 2026-08-20 and
+    /// kept here as the WFS spelling of it.</b> WMS 1.3.0 has the same trap with a
+    /// different parameter name, and two surfaces each holding the answer is how the
+    /// two come to disagree — [ADR-041](../../../docs/adr/ADR-041-the-map-renderer.md)
+    /// §5.4. The gap above is now one gap rather than two.
+    /// </para>
     /// </remarks>
     /// <param name="srid">The EPSG code.</param>
     /// <returns>Whether latitude comes first.</returns>
-    public static bool IsLatitudeFirst(int srid) => srid == 4326;
+    public static bool IsLatitudeFirst(int srid) =>
+        Graticula.Geometries.AxisOrder.IsLatitudeFirst(srid);
 }

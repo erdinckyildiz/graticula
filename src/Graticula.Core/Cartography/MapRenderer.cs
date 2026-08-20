@@ -78,8 +78,32 @@ public sealed class MapRenderer
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     public void Draw(SymbologyPlan plan, IEnumerable<Feature> features)
     {
-        ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(features);
+
+        Pass pass = Begin(plan);
+
+        foreach (Feature feature in features)
+        {
+            pass.Draw(feature);
+        }
+    }
+
+    /// <summary>
+    /// Opens a pass over one layer, so the caller can feed it features as they arrive.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because the features arrive asynchronously and materialising them does not
+    /// scale.</b> A provider streams rows; collecting a whole layer's extent into a
+    /// list before drawing any of it holds every geometry in the map at once, which
+    /// on a dense extent is the largest allocation in the request and is exactly what
+    /// [ADR-004](../../../docs/adr/ADR-004-rendering-engine.md) §0 warned about.
+    /// Tier 1 stays synchronous and the iteration stays with whoever owns the reader.
+    /// </remarks>
+    /// <param name="plan">The compiled style.</param>
+    /// <returns>The pass.</returns>
+    public Pass Begin(SymbologyPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
 
         List<PlanLayer> applicable = [];
 
@@ -91,32 +115,54 @@ public sealed class MapRenderer
             }
         }
 
-        if (applicable.Count == 0)
+        return new Pass(this, applicable);
+    }
+
+    /// <summary>One layer being drawn, feature by feature.</summary>
+    /// <remarks>
+    /// The applicable style layers are resolved once when the pass opens rather than
+    /// once per feature, which on a style with a zoom range is a comparison per
+    /// feature per layer saved for nothing given up.
+    /// </remarks>
+    public sealed class Pass
+    {
+        private readonly MapRenderer _renderer;
+        private readonly List<PlanLayer> _layers;
+
+        internal Pass(MapRenderer renderer, List<PlanLayer> layers)
         {
-            return;
+            _renderer = renderer;
+            _layers = layers;
         }
 
-        foreach (Feature feature in features)
+        /// <summary>Whether this pass would draw anything at all.</summary>
+        public bool DrawsNothing => _layers.Count == 0;
+
+        /// <summary>Draws one feature.</summary>
+        /// <param name="feature">The feature, already in the image's CRS.</param>
+        public void Draw(Feature feature)
         {
-            if (feature.Geometry is not { IsEmpty: false } geometry)
+            ArgumentNullException.ThrowIfNull(feature);
+
+            if (_layers.Count == 0 || feature.Geometry is not { IsEmpty: false } geometry)
             {
-                continue;
+                return;
             }
 
-            _attributes.Current = feature;
+            _renderer._attributes.Current = feature;
 
-            StyleExpression.Context context = new(_attributes, _zoom);
+            StyleExpression.Context context = new(_renderer._attributes, _renderer._zoom);
 
             bool painted = false;
 
-            foreach (PlanLayer layer in applicable)
+            foreach (PlanLayer layer in _layers)
             {
-                painted |= Apply(layer, geometry, context);
+                painted |= _renderer.Apply(layer, geometry, context);
             }
 
             if (painted)
             {
-                Drawn++;
+                _renderer.Drawn++;
             }
         }
     }

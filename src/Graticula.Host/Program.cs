@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Cartography;
 using Graticula.Features;
 using System.Diagnostics;
 using Graticula.Diagnostics;
@@ -94,6 +95,14 @@ public static class Program
         // stacks and it cannot change while the process runs, so scanning it per
         // request would be work in exchange for nothing.
         builder.Services.AddSingleton(_ => new GlyphStore(GlyphStore.BesideThisOne()));
+
+        // <b>The rasteriser, behind its port, and this is the only line that names
+        // the adapter.</b> ADR-041 §5.1: everything that draws asks for
+        // IMapCanvasFactory and receives whatever is registered here, so replacing
+        // the implementation is this line and nothing else. A singleton because the
+        // factory holds nothing; the canvases it makes are per request and disposed.
+        builder.Services.AddSingleton<IMapCanvasFactory>(
+            _ => new Graticula.Render.Skia.SkiaMapCanvasFactory());
 
         // <b>The geodatabase reader, and the loop that uses it.</b> Registered even when the executable
         // is absent: `Available` is the question every caller asks, and a missing registration would
@@ -888,6 +897,7 @@ public static class Program
         // with a different discovery document, and a client pastes one address for
         // the whole server rather than one per service (ADR-039 §5).
         WfsEndpoints.Map(app);
+        WmsEndpoints.Map(app);
 
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
         // server connection wants a SOAP catalogue this product has never scoped;

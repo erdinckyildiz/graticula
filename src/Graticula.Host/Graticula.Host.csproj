@@ -20,6 +20,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
     <ProjectReference Include="..\Graticula.Api.Wfs\Graticula.Api.Wfs.csproj" />
+    <ProjectReference Include="..\Graticula.Api.Wms\Graticula.Api.Wms.csproj" />
+    <ProjectReference Include="..\Graticula.Render.Skia\Graticula.Render.Skia.csproj" />
     <ProjectReference Include="..\Graticula.Platform.Postgres\Graticula.Platform.Postgres.csproj" />
     <ProjectReference Include="..\Graticula.Security.Argon2\Graticula.Security.Argon2.csproj" />
     <ProjectReference Include="..\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />

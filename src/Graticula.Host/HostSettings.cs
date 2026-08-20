@@ -54,6 +54,9 @@ internal sealed record HostSettings(
     int PerSourceConcurrency,
     int MaximumRecordCount,
     int DefaultRecordCount,
+    int MaximumImageWidth,
+    int MaximumImageHeight,
+    int JpegQuality,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -313,6 +316,21 @@ internal sealed record HostSettings(
                 keys.Value("MaximumRecordCount", Graticula.Features.FeatureQuery.MaximumLimit),
                 1,
                 Graticula.Features.FeatureQuery.MaximumLimit)),
+
+            // <b>The largest image a stranger may ask this server to allocate.</b>
+            // ADR-041: a WMS WIDTH and HEIGHT are a memory allocation the caller
+            // chooses, and 20,000 x 20,000 is four gigabytes of surface in a request
+            // that costs nothing to send. 4,096 covers every real map client and a
+            // print at 300 dpi on A3; an operator with a plotter raises it knowingly.
+            // Published in the capabilities document as MaxWidth and MaxHeight, so a
+            // client learns the limit rather than discovering it by refusal.
+            Math.Clamp(keys.Value("MaximumImageWidth", 4096), 16, 16384),
+            Math.Clamp(keys.Value("MaximumImageHeight", 4096), 16, 16384),
+
+            // JPEG quality. 85 is where the artefacts stop being visible on a map's
+            // hard edges, which is a harder case than a photograph: a one-pixel road
+            // over a flat fill is exactly what block transforms smear.
+            Math.Clamp(keys.Value("JpegQuality", 85), 1, 100),
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

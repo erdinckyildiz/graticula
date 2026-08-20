@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The WMS compatibility adapter — ADR-005 §3.3 and §51, built by ADR-041.
+
+    Its own project for the same reason Graticula.Api.Wfs is: §51 puts a
+    compatibility surface outside the core domain, and a project boundary is the
+    only version of that rule a build can check.
+
+    No PackageReference. This project speaks WMS and draws through
+    Graticula.Core's IMapCanvas; it never names a rasteriser, which is ADR-041
+    §5.1 and is what the peer implementation read for §4 did not do.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Api.Wms</RootNamespace>
+    <AssemblyName>Graticula.Api.Wms</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+</Project>
