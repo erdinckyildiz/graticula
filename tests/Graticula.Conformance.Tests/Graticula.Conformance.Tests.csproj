@@ -8,6 +8,14 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+
+    <!-- A PNG decoder, and only that. This suite drives the server over HTTP and
+         references none of our assemblies on purpose; asserting that a drawn map
+         carries the colour the tile face publishes needs pixels, and pixels need a
+         decoder. NativeDependencyTests confines SkiaSharp to Graticula.Render.Skia
+         among the src projects, which is where the port rule applies — a test that
+         reads an image is not a second implementation reaching past IMapCanvas. -->
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
   <ItemGroup>

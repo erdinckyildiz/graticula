@@ -229,12 +229,30 @@ public static class CapabilitiesDocument
         writer.WriteEndElement();
     }
 
+    /// <summary>
+    /// The address a client appends its parameters to.
+    /// </summary>
+    /// <remarks>
+    /// <b>It must end in <c>?</c> or <c>&amp;</c>, and that is a requirement rather
+    /// than a convention.</b> WMS 1.3.0 (OGC 06-042) §6.3.3: an OnlineResource URL
+    /// for HTTP GET is a **URL prefix**, so a client builds a request by concatenating
+    /// its parameters onto it without having to decide whether a separator is needed.
+    /// A bare address works with every client that adds the <c>?</c> itself and
+    /// silently produces <c>/wmsservice=WMS</c> in one that does not.
+    /// </remarks>
+    /// <param name="endpoint">This service's address.</param>
+    /// <returns>The prefix.</returns>
+    private static string Prefix(string endpoint) =>
+        endpoint.EndsWith('?') || endpoint.EndsWith('&')
+            ? endpoint
+            : endpoint + (endpoint.Contains('?', StringComparison.Ordinal) ? "&" : "?");
+
     private static void WriteHttpGet(XmlWriter writer, string endpoint)
     {
         writer.WriteStartElement("DCPType");
         writer.WriteStartElement("HTTP");
         writer.WriteStartElement("Get");
-        WriteOnlineResource(writer, endpoint);
+        WriteOnlineResource(writer, Prefix(endpoint));
         writer.WriteEndElement();
         writer.WriteEndElement();
         writer.WriteEndElement();

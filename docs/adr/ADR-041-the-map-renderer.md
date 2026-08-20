@@ -340,10 +340,19 @@ recorded, taken a third time, and recorded rather than absorbed.
    so their extent has zero height, and a client using the published bounding box as
    its `BBOX` was refused for a request it had every reason to believe in. Extents are
    padded now.
-3. **A drawn map compared against the vector-tile face of the same layer**, by eye
-   and recorded. ADR-033 derives two faces from one document and this is the first
-   time anything has drawn either; a difference here is a defect in the derivation,
-   not in the renderer.
+3. **DISCHARGED 2026-08-20, and by pixels rather than by eye.** The condition asked
+   for a visual comparison; `A_drawn_map_uses_the_colour_the_tile_face_publishes`
+   reads the fill colour the **tile face** publishes for a layer and requires the
+   **drawn map** to contain pixels of it. The same question, with an answer that
+   survives being run again.
+
+   **It failed twice before it passed, and neither failure was the renderer.** The
+   first version drew one layer at 128² over the whole country and found nothing —
+   correctly, because that layer's fifty polygons are sub-pixel at that scale and
+   anti-alias away to nothing. The second walked every service and was failed by a
+   registered service that has no tile face at all. Both are recorded because the
+   pattern keeps recurring here: a test that can fail for a reason unrelated to what
+   it asserts is a test its reader learns to ignore.
 4. **DISCHARGED 2026-08-20.** `NativeDependencyTests.A_ported_library_is_referenced_by_its_adapter_and_no_other`
    asserts both directions: no other project references `SkiaSharp*`, and
    `Graticula.Render.Skia` still does — so the rule cannot pass by the adapter having
@@ -358,8 +367,39 @@ recorded, taken a third time, and recorded rather than absorbed.
    was not academic**: every 1.3.0 refusal was answering HTTP 500 when that test was
    written, so the failure mode this condition exists to prevent was present and
    invisible.
-6. **OGC CITE for WMS is run and its result recorded**, pass or fail, the way
-   [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) condition 3 was.
+6. **DISCHARGED 2026-08-20 by running it. `ogccite/ets-wms13`: 187 passed, 6
+   failed.** The result is recorded here whichever way it went, which is what the
+   condition asked for.
+
+   **One failure was ours and is fixed.** `capability-onlineresource`: WMS 1.3.0
+   (OGC 06-042) §6.3.3 requires an HTTP GET `OnlineResource` to be a **URL prefix** —
+   it must end in `?` or `&` so a client concatenates its parameters onto it without
+   deciding whether a separator is needed. This server published a bare
+   `https://host/wms`, which works with every client that adds the `?` itself and
+   produces `/wmsservice=WMS` in one that does not. It ends in `?` now, and the count
+   went from 184/7 to 187/6.
+
+   **The remaining six are one cause, and it is not a defect here.** `transparent-true`,
+   `no-bgcolor`, `blue-bgcolor`, `bbox-pixel-interpretation`, `bbox-exponential` and
+   `std-data-queryable` all send `LAYERS=` **empty**, because the CTL suite names the
+   CITE reference dataset's own layers — `streams`, `lakes`, `ponds`, `bridges`,
+   `road-segments`, `divided-routes`, `buildings`, `map-neatline` — and this server
+   publishes none of them. Read out of the suite's own `basic.xml` and confirmed in
+   two run logs rather than inferred. **The behaviours those six test were checked by
+   hand and are right**: no `BGCOLOR` gives white, `BGCOLOR=0x0000FF` gives blue, and
+   `TRANSPARENT=TRUE` gives alpha 0.
+
+   **So `areCoreConformanceClassesPassed` is false and the honest reading is *not
+   yet*, not *no*.** Publishing the CITE dataset and re-running is what turns six
+   unrun assertions into a real number, and it is the next thing this condition wants
+   rather than something it excuses.
+
+   **Two things the run needed that are worth writing down**, because both cost time
+   and neither is in any documentation: the container resolves the host only with
+   `--add-host DESKTOP-M804G0L:host-gateway`, and the CTL suite uses Java's default
+   trust store — unlike `ets-wfs20` — so the development certificate has to be
+   imported with `keytool -importcert -cacerts` or every test dies on a PKIX error
+   while reporting *0 tests run, core conformance passed*.
 
 ## 8. Assumptions
 

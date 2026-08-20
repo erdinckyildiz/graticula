@@ -261,6 +261,198 @@ public sealed class WmsConformanceTests : ArcGisClient
         Assert.Equal<byte>([0xFF, 0xD8, 0xFF], jpeg[..3]);
     }
 
+    [Fact]
+    public async Task A_drawn_map_uses_the_colour_the_tile_face_publishes()
+    {
+        // <b>[ADR-041](../../docs/adr/ADR-041-the-map-renderer.md) condition 3, and
+        // it is [A-077](../../docs/architecture-assumptions.md)'s only evidence.</b>
+        // ADR-033 stores one canonical symbology document per layer and derives two
+        // faces from it: a MapLibre style for the tile service and, since 2026-08-20,
+        // pixels for the map. Until this test the derivation's fidelity had been
+        // asserted by reading it and tested by nothing.
+        //
+        // <b>Pixels rather than eyes.</b> The condition asked for a comparison by
+        // eye; this compares the fill colour the tile face publishes with the fill
+        // colour the renderer paints, which is the same question with an answer that
+        // survives being run again.
+        //
+        // <b>Every candidate is tried, because a layer can be too small to see.</b>
+        // The first version drew one layer at 128² over the whole country and found
+        // no matching pixel — correctly: its fifty polygons are sub-pixel at that
+        // scale and anti-alias away to nothing. A test that can fail for a reason
+        // unrelated to what it asserts is a test that teaches its reader to ignore it.
+        List<(string Layer, string Bbox, string Colour)> candidates = await FilledLayersAsync();
+
+        Assert.True(
+            candidates.Count > 0,
+            "No published layer has a stored style with a constant fill colour, so this asserted "
+            + "nothing about ADR-033's derivation.");
+
+        List<string> misses = [];
+
+        foreach ((string layer, string bbox, string colour) in candidates)
+        {
+            (string mediaType, byte[] image) = await RawAsync(
+                MapUrl(layer, crs: "CRS:84", bbox: bbox, width: 768, height: 768,
+                    extra: "&transparent=true"));
+
+            Assert.Equal("image/png", mediaType);
+
+            int matched = Painted(image, Hex(colour));
+
+            if (matched > 0)
+            {
+                return;
+            }
+
+            misses.Add($"{layer} ({colour})");
+        }
+
+        Assert.Fail(
+            "The tile face publishes a fill colour for each of these and the drawn map has no "
+            + $"pixel of it in any: {string.Join(", ", misses)}. One canonical document, two "
+            + "faces, two answers — a defect in ADR-033's derivation rather than in the renderer.");
+    }
+
+    /// <summary>How many pixels carry a colour, ignoring alpha.</summary>
+    /// <remarks>
+    /// <b>Alpha is not compared</b>: the style's own opacity folds into it, and what
+    /// is being asserted is that the hue the tile face publishes is the hue drawn.
+    /// Two shades of tolerance, because premultiplying and unpremultiplying a
+    /// translucent colour through the encoder loses a least significant bit.
+    /// </remarks>
+    private static int Painted(byte[] png, (byte R, byte G, byte B) wanted)
+    {
+        using SkiaSharp.SKBitmap bitmap = SkiaSharp.SKBitmap.Decode(png);
+
+        Assert.NotNull(bitmap);
+
+        int matched = 0;
+
+        for (int y = 0; y < bitmap.Height; y++)
+        {
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                SkiaSharp.SKColor pixel = bitmap.GetPixel(x, y);
+
+                if (pixel.Alpha > 0
+                    && Math.Abs(pixel.Red - wanted.R) <= 2
+                    && Math.Abs(pixel.Green - wanted.G) <= 2
+                    && Math.Abs(pixel.Blue - wanted.B) <= 2)
+                {
+                    matched++;
+                }
+            }
+        }
+
+        return matched;
+    }
+
+    /// <summary>Splits <c>#rrggbb</c> or <c>rgba(...)</c> into channels.</summary>
+    private static (byte R, byte G, byte B) Hex(string colour)
+    {
+        if (colour.StartsWith('#') && colour.Length >= 7)
+        {
+            return (
+                Convert.ToByte(colour.Substring(1, 2), 16),
+                Convert.ToByte(colour.Substring(3, 2), 16),
+                Convert.ToByte(colour.Substring(5, 2), 16));
+        }
+
+        string[] parts = colour[(colour.IndexOf('(', StringComparison.Ordinal) + 1)..]
+            .TrimEnd(')')
+            .Split(',');
+
+        return (
+            (byte)double.Parse(parts[0], CultureInfo.InvariantCulture),
+            (byte)double.Parse(parts[1], CultureInfo.InvariantCulture),
+            (byte)double.Parse(parts[2], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// Every layer whose tile-face style declares one constant fill colour.
+    /// </summary>
+    /// <remarks>
+    /// <b>Constant, because a <c>match</c> over a column has no single answer</b> and
+    /// comparing against its fallback would assert that the fallback is what draws —
+    /// only true where the data has no matching value.
+    /// </remarks>
+    private async Task<List<(string Layer, string Bbox, string Colour)>> FilledLayersAsync()
+    {
+        List<(string Layer, string Bbox, string Colour)> found = [];
+        IReadOnlyList<XElement> published = await PublishedAsync();
+
+        foreach (string service in await EveryServiceNameAsync())
+        {
+            System.Text.Json.JsonElement style;
+
+            try
+            {
+                style = await GetJsonAsync(
+                    $"/rest/services/{service}/VectorTileServer/resources/styles/root.json");
+            }
+            catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException
+                or Xunit.Sdk.XunitException)
+            {
+                // A registered service has no tile face, and GetJsonAsync fails a
+                // test rather than returning null when a document 400s. This is a
+                // search across every service; a service without the document is
+                // simply not one of the candidates.
+                continue;
+            }
+
+            if (!style.TryGetProperty("layers", out System.Text.Json.JsonElement layers))
+            {
+                continue;
+            }
+
+            foreach (System.Text.Json.JsonElement entry in layers.EnumerateArray())
+            {
+                if (!string.Equals(
+                        entry.GetProperty("type").GetString(), "fill", StringComparison.Ordinal)
+                    || !entry.TryGetProperty("paint", out System.Text.Json.JsonElement paint)
+                    || !paint.TryGetProperty("fill-color", out System.Text.Json.JsonElement colour)
+                    || colour.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                string name = entry.TryGetProperty(
+                    "source-layer", out System.Text.Json.JsonElement source)
+                        ? source.GetString()!
+                        : entry.GetProperty("id").GetString()!;
+
+                foreach (XElement layer in published)
+                {
+                    if (!string.Equals(Child(layer, "Name"), name, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    XElement? box = layer.Elements()
+                        .FirstOrDefault(e => e.Name.LocalName == "EX_GeographicBoundingBox");
+
+                    if (box is null)
+                    {
+                        continue;
+                    }
+
+                    found.Add((
+                        name,
+                        string.Join(
+                            ',',
+                            Child(box, "westBoundLongitude"),
+                            Child(box, "southBoundLatitude"),
+                            Child(box, "eastBoundLongitude"),
+                            Child(box, "northBoundLatitude")),
+                        colour.GetString()!));
+                }
+            }
+        }
+
+        return found;
+    }
+
     // ---------- feature info and legends ----------
 
     [Fact]
