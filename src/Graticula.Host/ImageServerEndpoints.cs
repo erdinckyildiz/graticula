@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Cartography;
@@ -77,6 +78,7 @@ internal static class ImageServerEndpoints
         HttpContext context,
         string serviceName,
         ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
         CancellationToken cancellation)
     {
         PublishedCoverage? coverage =
@@ -88,6 +90,9 @@ internal static class ImageServerEndpoints
         }
 
         CoverageInfo info = coverage.Info;
+
+        BandStatistics[] statistics =
+            await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false);
 
         object document = new
         {
@@ -128,6 +133,100 @@ internal static class ImageServerEndpoints
             editFieldsInfo = (object?)null,
             hasColormap = false,
             hasMultidimensions = false,
+
+            /*
+              <b>Everything below is here because ArcGIS Pro's own raster reader refused
+              the service without it</b>
+              ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md)
+              condition 1). `arcpy.Raster` opens Esri's public Terrain3D image service
+              from this machine and answered ERROR 000732 — *does not exist or is not
+              supported* — for ours, in 0.01 s, before a byte crossed the network. A
+              document short of what the reader parses is refused locally, and the
+              refusal names nothing.
+
+              <b>Every value is a fact about this service rather than a shape to satisfy
+              a parser.</b> The temptation with a list this long is to fill it with
+              plausible numbers; band statistics are deliberately still absent below
+              rather than invented, because a made-up minimum is a stretch applied to
+              somebody's data on a lie.
+            */
+
+            // Unnamed, because a GeoTIFF carries no band names and inventing
+            // Red/Green/Blue would claim a three-band raster is optical.
+            bandNames = BandNames(info.Bands.Count),
+
+            // The stored tile, which is what a range read fetches. Zero when the file
+            // is striped rather than tiled, and zero is the honest answer there.
+            blockWidth = info.TileWidth,
+            blockHeight = info.TileHeight,
+
+            // <b>What this server does to the pixels, not what the file does.</b> The
+            // source may be DEFLATE or LZW inside; by the time anything leaves here it
+            // has been decoded, coloured and re-encoded as the requested format.
+            compressionType = "None",
+            defaultCompressionQuality = 90,
+
+            // True: the warp resamples, and `CoverageWarp.Resample` says why it is
+            // nearest neighbour.
+            resampling = true,
+
+            // One raster, not a mosaic — ADR-043 §3.2 scopes the first cut that way,
+            // so there is no method to choose between and no operator to apply.
+            serviceSourceType = "esriImageServiceSourceTypeRasterDataset",
+            defaultMosaicMethod = "None",
+            allowedMosaicMethods = string.Empty,
+            mosaicOperator = "First",
+            maxMosaicImageCount = 0,
+
+            // No cache of any kind yet. `tileInfo` is null rather than an empty object,
+            // which is how a client tells *no cache* from *a cache with no levels*.
+            singleFusedMapCache = false,
+            tileInfo = (object?)null,
+
+            hasHistograms = false,
+            hasRasterAttributeTable = false,
+
+            // A raster dataset has no attribute rows, so the field list is empty and
+            // says so rather than being omitted.
+            objectIdField = "OBJECTID",
+            fields = Array.Empty<object>(),
+            maxRecordCount = 1000,
+
+            minScale = 0,
+            maxScale = 0,
+            meanPixelSize = (info.PixelWidth + info.PixelHeight) / 2,
+
+            // <b>Not offered, and each of these is a capability this face does not
+            // answer</b> — correctness gate 2's fifth finding, applied to the flags
+            // rather than only to the capabilities string.
+            allowCopy = false,
+            allowAnalysis = false,
+            allowComputeTiePoints = false,
+            maxDownloadImageCount = 0,
+            maxDownloadSizeLimit = 0,
+
+            uncompressedSize = (long)info.Width * info.Height * info.Bands.Count
+                * BytesPer(info.Bands[0].Kind),
+
+            /*
+              <b>Measured, not invented, and that distinction is the reason this is the
+              last field to arrive.</b> ArcGIS Pro's raster reader needs band statistics
+              to construct a raster at all — without them `arcpy.Raster` answers *does
+              not exist or is not supported* — and the tempting fix for a list of
+              missing fields is to fill it with plausible numbers. A made-up minimum is
+              a stretch applied to somebody's data on a lie: every default rendering
+              downstream, in Pro and here, is computed from these.
+
+              <b>Read from the coarsest overview.</b> That is a few thousand samples
+              rather than the whole raster, it is what a pyramid is for, and it is what
+              every implementation of this does. The numbers are therefore approximate
+              in the way a sample is approximate — and they are approximate about real
+              pixels, which is a different thing from being made up.
+            */
+            minValues = Array.ConvertAll(statistics, b => b.Minimum),
+            maxValues = Array.ConvertAll(statistics, b => b.Maximum),
+            meanValues = Array.ConvertAll(statistics, b => b.Mean),
+            stdvValues = Array.ConvertAll(statistics, b => b.StandardDeviation),
         };
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -592,6 +691,143 @@ internal static class ImageServerEndpoints
         string.Create(
             CultureInfo.InvariantCulture,
             $"{extent.MinX},{extent.MinY},{extent.MaxX},{extent.MaxY}");
+
+    /// <summary>What a band's values look like, sampled.</summary>
+    private readonly record struct BandStatistics(
+        double Minimum, double Maximum, double Mean, double StandardDeviation);
+
+    /// <summary>
+    /// Samples a coverage's coarsest resolution and describes each band.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Computed per request rather than stored, in this first cut.</b> The coarsest
+    /// overview of a pyramid is a few thousand samples, so the read is small; storing
+    /// them would be a migration and a staleness question — a raster registered in
+    /// place can be overwritten underneath us, and statistics stored at registration
+    /// would then describe a file that no longer exists. That is a real decision and it
+    /// belongs in its own change rather than in this one.
+    /// </para>
+    /// <para>
+    /// <b>No-data samples are excluded.</b> A raster whose absent pixels are stored as
+    /// zero would otherwise report a minimum of zero and a mean pulled towards it, and
+    /// every default stretch computed from that is wrong in the same direction.
+    /// </para>
+    /// <para>
+    /// <b>A failure here is empty statistics, not a failed request.</b> The document is
+    /// answerable without touching the file — that is what registering in place buys —
+    /// and a storage hiccup should not take the service description down with it.
+    /// </para>
+    /// </remarks>
+    private static async Task<BandStatistics[]> MeasureAsync(
+        PublishedCoverage coverage,
+        ICoverageReaderFactory readers,
+        CancellationToken cancellation)
+    {
+        CoverageInfo info = coverage.Info;
+
+        BandStatistics[] statistics = new BandStatistics[info.Bands.Count];
+
+        try
+        {
+            int level = info.Overviews.Count;
+
+            (int width, int height) = level == 0
+                ? (info.Width, info.Height)
+                : (info.Overviews[level - 1].Width, info.Overviews[level - 1].Height);
+
+            // Bounded, so a file with no pyramid does not read a hundred megapixels to
+            // describe itself.
+            width = Math.Min(width, 512);
+            height = Math.Min(height, 512);
+
+            using ICoverageReader reader =
+                await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+            CoverageWindow window = await reader
+                .ReadAsync(level, 0, 0, width, height, cancellation)
+                .ConfigureAwait(false);
+
+            for (int band = 0; band < info.Bands.Count; band++)
+            {
+                double? noData = info.Bands[band].NoData;
+
+                double min = double.MaxValue;
+                double max = double.MinValue;
+                double sum = 0;
+                double squares = 0;
+                long counted = 0;
+
+                for (int i = band; i < window.Samples.Length; i += window.Bands)
+                {
+                    double value = window.Samples[i];
+
+                    if (noData is { } absent && value == absent)
+                    {
+                        continue;
+                    }
+
+                    min = Math.Min(min, value);
+                    max = Math.Max(max, value);
+                    sum += value;
+                    squares += value * value;
+                    counted++;
+                }
+
+                if (counted == 0)
+                {
+                    statistics[band] = new BandStatistics(0, 0, 0, 0);
+                    continue;
+                }
+
+                double mean = sum / counted;
+                double variance = Math.Max(0, (squares / counted) - (mean * mean));
+
+                statistics[band] = new BandStatistics(min, max, mean, Math.Sqrt(variance));
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+            or UnauthorizedAccessException)
+        {
+            for (int band = 0; band < statistics.Length; band++)
+            {
+                statistics[band] = new BandStatistics(0, 0, 0, 0);
+            }
+        }
+
+        return statistics;
+    }
+
+    /// <summary>
+    /// Band names, which a GeoTIFF does not carry.
+    /// </summary>
+    /// <remarks>
+    /// <b>Numbered rather than guessed.</b> A three-band raster is very often red,
+    /// green and blue and is sometimes near-infrared, and a service that named them
+    /// wrongly would have every downstream analysis applied to the wrong channel. The
+    /// format does not say, so neither does this.
+    /// </remarks>
+    private static string[] BandNames(int count)
+    {
+        string[] names = new string[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            names[i] = "Band_" + (i + 1).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return names;
+    }
+
+    /// <summary>How many bytes one sample occupies.</summary>
+    private static int BytesPer(SampleKind kind) => kind switch
+    {
+        SampleKind.Unsigned8 => 1,
+        SampleKind.Signed16 or SampleKind.Unsigned16 => 2,
+        SampleKind.Signed32 or SampleKind.Real32 => 4,
+        SampleKind.Real64 => 8,
+        _ => 1,
+    };
 
     /// <summary>Esri's name for a sample kind.</summary>
     private static string PixelType(SampleKind kind) => kind switch
