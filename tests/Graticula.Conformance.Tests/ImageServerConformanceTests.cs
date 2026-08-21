@@ -182,11 +182,76 @@ public sealed class ImageServerConformanceTests : ArcGisClient
     }
 
     [Fact]
-    public async Task A_reference_system_this_service_cannot_answer_in_is_refused_by_name()
+    public async Task A_request_in_another_reference_is_drawn_rather_than_refused()
     {
-        // <b>Refused rather than answered in the wrong system.</b> Reading a Web
-        // Mercator bbox as degrees would draw somewhere else and return it with a 200,
-        // which is the defect class correctness gate 2 found five times in one day.
+        // <b>The behaviour this test asserted was the opposite until 2026-08-21.</b> The
+        // face first shipped refusing every reference but the coverage's, because
+        // reading a Web Mercator box as degrees would draw somewhere else and return it
+        // with a 200 — correctness gate 2's whole subject. The warp exists now and its
+        // error is measured at 0.0223 pixels (benchmarks/raster-warp), so refusing
+        // became the more expensive of the two answers.
+        string? service = await AnyImageServiceAsync();
+
+        if (service is null)
+        {
+            return;
+        }
+
+        (_, string body, _) = await FetchAsync($"/rest/services/{service}/ImageServer?f=json");
+
+        JsonElement document = JsonDocument.Parse(body).RootElement;
+        int native = document.GetProperty("spatialReference").GetProperty("wkid").GetInt32();
+
+        if (native != 4326)
+        {
+            // The conversion below is WGS 84 to Web Mercator and nothing else, so a
+            // coverage in another reference is not a case this test can construct.
+            return;
+        }
+
+        JsonElement extent = document.GetProperty("fullExtent");
+
+        (double x0, double y0) = Mercator(
+            extent.GetProperty("xmin").GetDouble(), extent.GetProperty("ymin").GetDouble());
+
+        (double x1, double y1) = Mercator(
+            extent.GetProperty("xmax").GetDouble(), extent.GetProperty("ymax").GetDouble());
+
+        string root = await RequireServerAsync();
+
+        using HttpRequestMessage request = new(
+            HttpMethod.Get,
+            new Uri($"{root}/rest/services/{service}/ImageServer/exportImage"
+                + $"?bbox={Number(x0)},{Number(y0)},{Number(x1)},{Number(y1)}"
+                + "&bboxSR=3857&size=128,128&format=png&f=image"));
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+
+        byte[] png = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal<byte[]>([0x89, 0x50, 0x4E, 0x47], png[..4]);
+
+        // <b>Not blank.</b> A warp that landed every pixel outside the window would
+        // return a valid transparent PNG and pass every check above, which is exactly
+        // the shape of a wrong answer with a 200 on it. A PNG of a solid colour
+        // compresses to a few hundred bytes; one carrying the ramp does not.
+        Assert.True(
+            png.Length > 1000,
+            $"The reprojected image is {png.Length} bytes, which is about what an empty "
+            + "one costs. A warp that misses draws nothing and still answers 200.");
+    }
+
+    [Fact]
+    public async Task A_request_in_another_reference_with_no_extent_is_refused_by_name()
+    {
+        // There is no default extent to give it: the coverage's own extent is written in
+        // the coverage's own reference, so answering would mean guessing which ground
+        // the client meant.
         string? service = await AnyImageServiceAsync();
 
         if (service is null)
@@ -208,12 +273,46 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         JsonElement error = JsonDocument.Parse(refusal).RootElement.GetProperty("error");
 
         Assert.Equal(400, error.GetProperty("code").GetInt32());
-
-        string message = error.GetProperty("message").GetString() ?? string.Empty;
-
         Assert.Contains(
-            native.ToString(CultureInfo.InvariantCulture), message, StringComparison.Ordinal);
+            "bbox",
+            error.GetProperty("message").GetString() ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task Two_different_references_in_one_request_are_refused()
+    {
+        // Esri allows bboxSR and imageSR to differ; this server does not, because the
+        // extent would be read in one and the pixels laid out in the other — a picture
+        // of the right ground at the wrong shape.
+        string? service = await AnyImageServiceAsync();
+
+        if (service is null)
+        {
+            return;
+        }
+
+        (_, string refusal, _) = await FetchAsync(
+            $"/rest/services/{service}/ImageServer/exportImage"
+            + "?bboxSR=4326&imageSR=3857&bbox=0,0,1,1&f=image");
+
+        JsonElement error = JsonDocument.Parse(refusal).RootElement.GetProperty("error");
+
+        Assert.Equal(400, error.GetProperty("code").GetInt32());
+    }
+
+    /// <summary>WGS 84 to Web Mercator, which is a sphere and a logarithm.</summary>
+    private static (double X, double Y) Mercator(double lon, double lat)
+    {
+        const double R = 20037508.342789244;
+
+        return (
+            lon * R / 180,
+            Math.Log(Math.Tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180) * R / 180);
+    }
+
+    private static string Number(double value) =>
+        value.ToString("R", CultureInfo.InvariantCulture);
 
     [Fact]
     public async Task Identify_answers_a_point_inside_the_coverage_with_a_value()

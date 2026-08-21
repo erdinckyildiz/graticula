@@ -30,12 +30,13 @@ namespace Graticula.Host;
 internal sealed class ImageServerExportParameters
 {
     private ImageServerExportParameters(
-        Envelope extent, int width, int height, MapImageFormat format)
+        Envelope extent, int width, int height, MapImageFormat format, int srid)
     {
         Extent = extent;
         Width = width;
         Height = height;
         Format = format;
+        Srid = srid;
     }
 
     /// <summary>The ground to draw, in the coverage's own reference.</summary>
@@ -49,6 +50,18 @@ internal sealed class ImageServerExportParameters
 
     /// <summary>What to encode as.</summary>
     public MapImageFormat Format { get; }
+
+    /// <summary>
+    /// The reference the extent is written in, and the image is drawn in.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read rather than refused, from 2026-08-21.</b> Until the warp existed this
+    /// parser refused anything but the coverage's own system, because answering in the
+    /// wrong reference while claiming the right one is worse than refusing. The warp
+    /// exists now — <see cref="CoverageWarp"/>, with its error measured in
+    /// `benchmarks/raster-warp` — so the honest answer changed.
+    /// </remarks>
+    public int Srid { get; }
 
     /// <summary>Reads and checks an export request.</summary>
     /// <param name="parameter">Reads one query parameter, case-insensitively.</param>
@@ -69,13 +82,31 @@ internal sealed class ImageServerExportParameters
 
         asked = null;
 
-        if (!TryReference(parameter("bboxSR"), info, out error)
-            || !TryReference(parameter("imageSR"), info, out error))
+        // <b>`bboxSR` says what the box is written in; `imageSR` says what to draw
+        // in.</b> Esri allows them to differ and this server does not: a request that
+        // gave two would have its extent read in one and its pixels laid out in the
+        // other, which is a picture of the right place at the wrong shape. Both are
+        // read, and disagreeing is refused rather than silently resolved.
+        if (!TryReference(parameter("bboxSR"), info, out int boxSrid, out error)
+            || !TryReference(parameter("imageSR"), info, out int imageSrid, out error))
         {
             return false;
         }
 
-        if (!TryExtent(parameter("bbox"), info, out Envelope extent, out error))
+        if (parameter("bboxSR") is { Length: > 0 } && parameter("imageSR") is { Length: > 0 }
+            && boxSrid != imageSrid)
+        {
+            error = $"`bboxSR` is EPSG:{boxSrid.ToString(CultureInfo.InvariantCulture)} and "
+                + $"`imageSR` is EPSG:{imageSrid.ToString(CultureInfo.InvariantCulture)}. This "
+                + "server draws in the reference the extent is written in; asking for two "
+                + "would give a picture of the right ground at the wrong shape.";
+
+            return false;
+        }
+
+        int srid = parameter("bboxSR") is { Length: > 0 } ? boxSrid : imageSrid;
+
+        if (!TryExtent(parameter("bbox"), info, srid, out Envelope extent, out error))
         {
             return false;
         }
@@ -90,7 +121,7 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        asked = new ImageServerExportParameters(extent, width, height, format);
+        asked = new ImageServerExportParameters(extent, width, height, format, srid);
         return true;
     }
 
@@ -120,8 +151,23 @@ internal sealed class ImageServerExportParameters
         x = 0;
         y = 0;
 
-        if (!TryReference(parameter("sr"), info, out error))
+        // <b>`identify` still answers only in the coverage's own reference, and that is
+        // a smaller limitation than it sounds.</b> Warping a whole image is a grid of
+        // control points amortised over a million pixels; projecting one point is a
+        // round trip for one answer, and the point of `identify` is that it is cheap.
+        // The client already has the service document, which names the reference.
+        if (!TryReference(parameter("sr"), info, out int srid, out error))
         {
+            return false;
+        }
+
+        if (srid != info.Srid)
+        {
+            error = $"`identify` reads a point in this service's own reference, EPSG:"
+                + info.Srid.ToString(CultureInfo.InvariantCulture)
+                + $", and the request named EPSG:{srid.ToString(CultureInfo.InvariantCulture)}. "
+                + "Exporting an image will reproject; asking about one pixel will not.";
+
             return false;
         }
 
@@ -152,19 +198,21 @@ internal sealed class ImageServerExportParameters
     }
 
     /// <summary>
-    /// Refuses a reference system this cut cannot warp into.
+    /// Reads a reference system, defaulting to the coverage's own.
     /// </summary>
     /// <remarks>
-    /// <b>Refused rather than ignored, which is the whole point.</b> Accepting
-    /// <c>bboxSR=3857</c> and reading the numbers as degrees would draw a picture of
-    /// somewhere else and return it with a 200 — the defect class correctness gate 2
-    /// was built to find, five times in one day. The message names the system that
-    /// works, and the service document advertises it, so a client that reads either
-    /// never sends the wrong one.
+    /// <b>Anything the projection engine knows is accepted now.</b> This used to refuse
+    /// every system but the coverage's, because until the warp existed the alternative
+    /// was to read the numbers in the wrong units and draw somewhere else — a 200
+    /// carrying a picture of the wrong place, which is correctness gate 2's whole
+    /// subject. What the request cannot do is name a system the database has never
+    /// heard of, and that is refused by the projection itself with the sentence
+    /// `ErrorResponse` gives it.
     /// </remarks>
-    private static bool TryReference(string? text, CoverageInfo info, out string? error)
+    private static bool TryReference(string? text, CoverageInfo info, out int srid, out string? error)
     {
         error = null;
+        srid = info.Srid;
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -181,32 +229,22 @@ internal sealed class ImageServerExportParameters
             value = new string([.. value[at..].Where(char.IsDigit)]);
         }
 
-        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int srid))
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out srid)
+            || srid <= 0)
         {
+            srid = info.Srid;
+
             error = $"'{text}' is not a coordinate reference this server recognises. Write an "
                 + "EPSG code.";
 
             return false;
         }
 
-        if (srid == info.Srid)
-        {
-            return true;
-        }
-
-        error = $"This image service is stored in EPSG:"
-            + info.Srid.ToString(CultureInfo.InvariantCulture)
-            + $" and the request asked for EPSG:{srid.ToString(CultureInfo.InvariantCulture)}. "
-            + "Reprojecting imagery needs a per-pixel warp, which this server does not do yet "
-            + "(ADR-043 condition 2), and answering in the wrong reference while claiming the "
-            + "right one would be worse than refusing. Ask in the service's own reference — the "
-            + "service document names it.";
-
-        return false;
+        return true;
     }
 
     private static bool TryExtent(
-        string? text, CoverageInfo info, out Envelope extent, out string? error)
+        string? text, CoverageInfo info, int srid, out Envelope extent, out string? error)
     {
         error = null;
 
@@ -216,6 +254,19 @@ internal sealed class ImageServerExportParameters
         if (string.IsNullOrWhiteSpace(text))
         {
             extent = info.Extent;
+
+            if (srid != info.Srid)
+            {
+                extent = info.Extent;
+
+                error = "A request in a reference other than this service's own has to say "
+                    + "which ground it wants: there is no default extent to give it, because "
+                    + "the coverage's own extent is written in the coverage's own reference. "
+                    + "Send a `bbox`.";
+
+                return false;
+            }
+
             return true;
         }
 

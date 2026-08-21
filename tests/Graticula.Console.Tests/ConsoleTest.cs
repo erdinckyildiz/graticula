@@ -291,9 +291,9 @@ public abstract class ConsoleTest : IAsyncLifetime
           console draws and what the server holds.
 
           The walk that clicks through to a per-service page filters separately — see
-          <see cref="ImageServicesAsync"/> — because *the console lists it* and *the
-          console has a settings page for it* are two different claims, and on
-          2026-08-21 the first became true for image services while the second did not.
+          <see cref="ImageServicesAsync"/> — because *the ArcGIS catalogue publishes it*
+          and *the console can manage it* are two different claims, and on 2026-08-21
+          the first became true for image services while the second stayed false.
         */
         static string[] Holds(JsonElement catalogue) =>
             catalogue.TryGetProperty("services", out JsonElement services)
@@ -308,16 +308,17 @@ public abstract class ConsoleTest : IAsyncLifetime
     }
 
     /// <summary>
-    /// Every service that is an image service, which the console lists and cannot open.
+    /// Every service that is an image service, which the console knows nothing about.
     /// </summary>
     /// <remarks>
     /// <b>[D-136](../../docs/architecture-debt.md), named rather than hidden.</b> An
     /// ImageServer holds a registered coverage
     /// ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md)) and the
-    /// console has no screen for one, so a test that walks to a per-service page hangs
-    /// on it until it times out — and reports that as a reachability failure of the
-    /// console's own screens, which names the wrong thing. Skipping them keeps the
-    /// message honest; the gap is recorded where a gap belongs.
+    /// console has no screen for one — it is absent from `/admin/services` too, so it
+    /// does not appear in any list there. The walk that clicks through to a per-service
+    /// page therefore has nothing to click, and skipping these keeps the two claims
+    /// apart: *the catalogue publishes it* and *the console can manage it*. The second
+    /// is false, and it is false in a register rather than in a silence.
     /// </remarks>
     /// <returns>Their qualified names.</returns>
     protected async Task<HashSet<string>> ImageServicesAsync()

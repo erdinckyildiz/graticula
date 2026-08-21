@@ -68,6 +68,18 @@ true about v1.
 
 ### 3.2 The first cut is the catalogue and `exportImage`
 
+> **AMENDED 2026-08-21: the warp landed, so the cut grew by the thing that made it
+> usable.** The paragraph below was written expecting requests only in the coverage's
+> own reference, and that was how it first shipped — a client asking for Web Mercator
+> was refused with a sentence naming the system that worked. Condition 2's measurement
+> is what changed it: the interpolation error is 0.0223 pixels, which is small enough
+> that refusing was the more expensive of the two answers.
+>
+> **`identify` still answers only in the coverage's own reference**, and that asymmetry
+> is deliberate. Warping an image amortises one grid of control points over a million
+> pixels; projecting a single point is a round trip for one answer, and the whole point
+> of `identify` is that it is cheap.
+
 `GET|POST /rest/services/{name}/ImageServer` — the service document.
 `GET|POST .../ImageServer/exportImage` — pixels, rendered here.
 `GET|POST .../ImageServer/identify` — the value under a point.
@@ -152,6 +164,23 @@ and it is why WMS and MapServer get raster for free once this lands.
    `benchmarks/` saying how far a pixel can land from where it belongs, at the
    grid density shipped.
 
+   **DISCHARGED 2026-08-21.**
+   [benchmarks/raster-warp/RESULTS.md](../../benchmarks/raster-warp/RESULTS.md):
+   at the shipped density the worst pixel lands **0.0223 coverage pixels** from
+   where it belongs, and the error falls by four for every doubling of the grid —
+   which is what bilinear interpolation of a smooth function does, and is the
+   check that the arithmetic is right rather than merely small.
+
+   **Measured against the closed form of EPSG:3857 rather than against PostGIS**,
+   deliberately: measuring against the projection library would mix its own datum
+   handling into the number this condition is about. And the harness is a test
+   rather than a script, so the claim fails the build when it stops being true —
+   [D-30](../architecture-debt.md) is a debt row about benchmarks nobody re-runs.
+
+   **What it does not cover is stated in the results**: other projections curve
+   harder than Mercator, and the nearest-neighbour resampler's own half-pixel
+   dominates this figure anyway.
+
 3. **`exportImage` is bounded the way `GetMap` is.** The same image ceiling, the same
    connection budget, the same deadline. A raster request can be arbitrarily more
    expensive than a vector one at identical pixel dimensions, and
@@ -162,6 +191,11 @@ and it is why WMS and MapServer get raster for free once this lands.
    caller.** SkiaSharp's containment is enforced; the TIFF reader's must be enforced the
    same way and on the same day, because a port with one implementation and no test is
    a port by intention only.
+
+   **DISCHARGED 2026-08-21**, the same day the adapter landed.
+   `NativeDependencyTests` carries `BitMiracle.LibTiff` beside `SkiaSharp` and checks
+   it in both directions — no other project references the package, and
+   `Graticula.Raster.Tiff` still does.
 
 5. **The near-free operations are not claimed until they are served.** ADR-009's table
    listed six of them as almost free and §2 above shows they are not. The service

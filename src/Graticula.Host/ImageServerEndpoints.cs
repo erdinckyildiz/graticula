@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -155,6 +156,7 @@ internal static class ImageServerEndpoints
         ICoverageCatalog coverages,
         ICoverageReaderFactory readers,
         IMapCanvasFactory canvases,
+        IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -181,24 +183,15 @@ internal static class ImageServerEndpoints
 
         canvas.Clear(asked.Format == MapImageFormat.Png ? Rgba.Transparent : Rgba.White);
 
-        CoveragePlan? plan =
-            CoveragePlanner.Plan(coverage.Info, asked.Extent, asked.Width, asked.Height);
-
-        // <b>No overlap is a valid empty image, not a refusal.</b> ADR-041 condition 5
-        // asks the vector faces for this and the reason is the same here: a client
-        // panning off the edge of its own data has not made a mistake.
-        if (plan is { } read)
+        if (asked.Srid == coverage.Info.Srid)
         {
-            using ICoverageReader reader =
-                await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-
-            CoverageWindow window = await reader.ReadAsync(
-                read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+            await DrawAlignedAsync(canvas, coverage, asked, readers, cancellation)
                 .ConfigureAwait(false);
-
-            Rgba[] pixels = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
-
-            canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
+        }
+        else
+        {
+            await DrawWarpedAsync(canvas, coverage, asked, readers, projector, cancellation)
+                .ConfigureAwait(false);
         }
 
         byte[] image = canvas.Encode(asked.Format, 90);
@@ -207,6 +200,146 @@ internal static class ImageServerEndpoints
             asked.Format == MapImageFormat.Png ? "image/png" : "image/jpeg";
 
         await context.Response.Body.WriteAsync(image, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Draws a coverage into a request written in its own reference.
+    /// </summary>
+    /// <remarks>
+    /// <b>No projection at all, and that is worth keeping separate from the warped
+    /// path.</b> A request in the coverage's own system needs one window read and one
+    /// blit; routing it through the warp would cost a round trip to the projection
+    /// engine and a per-pixel resample to arrive at the same picture.
+    /// </remarks>
+    private static async Task DrawAlignedAsync(
+        IMapCanvas canvas,
+        PublishedCoverage coverage,
+        ImageServerExportParameters asked,
+        ICoverageReaderFactory readers,
+        CancellationToken cancellation)
+    {
+        CoveragePlan? plan =
+            CoveragePlanner.Plan(coverage.Info, asked.Extent, asked.Width, asked.Height);
+
+        // <b>No overlap is a valid empty image, not a refusal.</b> ADR-041 condition 5
+        // asks the vector faces for this and the reason is the same here: a client
+        // panning off the edge of its own data has not made a mistake.
+        if (plan is not { } read)
+        {
+            return;
+        }
+
+        using ICoverageReader reader =
+            await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+        CoverageWindow window = await reader.ReadAsync(
+            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+            .ConfigureAwait(false);
+
+        Rgba[] pixels = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
+
+        canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
+    }
+
+    /// <summary>
+    /// Draws a coverage into a request written in some other reference.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three steps, and the middle one is the only approximation.</b> The canvas's
+    /// control grid is projected into the coverage's reference — one round trip, a few
+    /// hundred points, <see cref="IProjector"/>'s work and not ours. The grid's own
+    /// bounding box says which window to read. Then every canvas pixel finds its ground
+    /// position by interpolating between control points, which is where the error lives
+    /// and what the raster-warp benchmark measures.
+    /// </para>
+    /// <para>
+    /// <b>The window is planned at the canvas's own pixel count.</b> That is what stops
+    /// a reprojected image being read at full resolution when it will be drawn small —
+    /// the saving the aligned path gets for free.
+    /// </para>
+    /// </remarks>
+    private static async Task DrawWarpedAsync(
+        IMapCanvas canvas,
+        PublishedCoverage coverage,
+        ImageServerExportParameters asked,
+        ICoverageReaderFactory readers,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        int steps = CoverageWarp.StepsFor(asked.Width, asked.Height);
+
+        Point[] grid = CoverageWarp.ControlPoints(asked.Extent, asked.Width, asked.Height, steps);
+
+        (IReadOnlyList<Geometry> projected, _) = await projector
+            .ProjectAsync(grid, asked.Srid, coverage.Info.Srid, cancellation)
+            .ConfigureAwait(false);
+
+        double[] groundX = new double[projected.Count];
+        double[] groundY = new double[projected.Count];
+
+        double minX = double.MaxValue;
+        double minY = double.MaxValue;
+        double maxX = double.MinValue;
+        double maxY = double.MinValue;
+
+        for (int i = 0; i < projected.Count; i++)
+        {
+            if (projected[i] is not Point point)
+            {
+                // A projector that returned something other than the points it was
+                // given has broken its own contract; drawing a partial picture from the
+                // rest would be a map with a hole nobody can see.
+                return;
+            }
+
+            groundX[i] = point.X;
+            groundY[i] = point.Y;
+
+            minX = Math.Min(minX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxX = Math.Max(maxX, point.X);
+            maxY = Math.Max(maxY, point.Y);
+        }
+
+        CoveragePlan? plan = CoveragePlanner.Plan(
+            coverage.Info, new Envelope(minX, minY, maxX, maxY), asked.Width, asked.Height);
+
+        if (plan is not { } read)
+        {
+            return;
+        }
+
+        using ICoverageReader reader =
+            await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+        CoverageWindow window = await reader.ReadAsync(
+            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+            .ConfigureAwait(false);
+
+        Rgba[] painted = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
+
+        (int levelWidth, int levelHeight) = read.Overview == 0
+            ? (coverage.Info.Width, coverage.Info.Height)
+            : (coverage.Info.Overviews[read.Overview - 1].Width,
+               coverage.Info.Overviews[read.Overview - 1].Height);
+
+        double perPixelX = (coverage.Info.Extent.MaxX - coverage.Info.Extent.MinX) / levelWidth;
+        double perPixelY = (coverage.Info.Extent.MaxY - coverage.Info.Extent.MinY) / levelHeight;
+
+        CoverageWarp warp = new(asked.Width, asked.Height, steps, groundX, groundY);
+
+        Rgba[] pixels = warp.Resample(
+            painted,
+            window.Width,
+            window.Height,
+            coverage.Info.Extent.MinX + (read.X * perPixelX),
+            coverage.Info.Extent.MaxY - (read.Y * perPixelY),
+            perPixelX,
+            perPixelY);
+
+        canvas.DrawImage(
+            pixels, asked.Width, asked.Height, new PixelBox(0, 0, asked.Width, asked.Height));
     }
 
     private static async Task IdentifyAsync(
