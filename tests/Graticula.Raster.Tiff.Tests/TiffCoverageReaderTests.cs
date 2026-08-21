@@ -210,6 +210,46 @@ public sealed class TiffCoverageReaderTests
         Assert.Equal(256, reader.Info.Width);
     }
 
+    [Theory]
+    [MemberData(nameof(EveryFile))]
+    public async Task A_corpus_file_is_not_blank(string file)
+    {
+        /*
+          <b>Written after one of them was, and everything still passed.</b>
+          `gray-byte-nodata.tif` was silently all zeros for its first generation: the
+          MEM driver treats `SetNoDataValue` as an instruction to initialise the buffer,
+          so setting it after writing the pixels wiped them. GDAL agreed the file was
+          empty, so every probe matched, and the no-data test asserted only that *some*
+          pixel was absent — trivially true of an image where all of them are.
+
+          It was caught by rendering a PNG and looking at it. This is the cheap version
+          of that: `truth.json` now carries how many distinct values band one holds, and
+          a ramp cannot have one.
+        */
+        JsonElement expected = Truth.Value.GetProperty(file);
+
+        int distinct = expected.GetProperty("distinctValuesInBand1").GetInt32();
+
+        Assert.True(
+            distinct > 8,
+            $"{file} has {distinct} distinct values in band 1. The corpus is a ramp, so a "
+            + "file with almost none is a file whose pixels were lost on the way in — and "
+            + "every probe against it passes, because the expected answers came from the "
+            + "same empty file.");
+
+        using TiffCoverageReader reader = TiffCoverageReader.Open(Path.Combine(Corpus, file));
+
+        CoverageWindow window = await reader.ReadAsync(
+            0, 0, 0, Math.Min(64, reader.Info.Width), Math.Min(64, reader.Info.Height),
+            CancellationToken.None);
+
+        Assert.True(
+            window.Samples.Distinct().Count() > 8,
+            $"{file} read back {window.Samples.Distinct().Count()} distinct values, and "
+            + "GDAL says the file holds " + distinct.ToString(CultureInfo.InvariantCulture)
+            + ". The reader is flattening it.");
+    }
+
     [Fact]
     public void A_declared_no_data_value_survives_the_read()
     {

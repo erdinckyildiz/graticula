@@ -12,6 +12,19 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Graticula.Render.Skia\Graticula.Render.Skia.csproj" />
+
+    <!--
+      The reader, so that one test can go from a real GeoTIFF to a PNG. Everything
+      else here draws shapes the test made up; ADR-043's chain has four links and a
+      suite that only ever tests them apart cannot notice them disagreeing.
+    -->
+    <ProjectReference Include="..\..\src\Graticula.Raster.Tiff\Graticula.Raster.Tiff.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Graticula.Raster.Tiff.Tests\corpus\**\*.tif"
+          Link="corpus\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

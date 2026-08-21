@@ -86,6 +86,43 @@ public interface IMapCanvas : IDisposable
     /// <param name="y">Anchor, pixel y.</param>
     void DrawLabel(string text, MapSymbol.Label symbol, double x, double y);
 
+    /// <summary>
+    /// Draws an image already reduced to colours, into a pixel rectangle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The sixth method, and it is what makes a raster a layer rather than a
+    /// separate product</b>
+    /// ([ADR-043](../../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) §3.6).
+    /// Without it a coverage can be read and coloured and then has nowhere to go: WMS
+    /// and MapServer draw through this port, so a canvas that cannot place a bitmap
+    /// cannot put imagery under a vector map.
+    /// </para>
+    /// <para>
+    /// <b>It takes colours, never samples.</b> The array is already RGBA, one entry
+    /// per pixel, row-major from the top — which means the stretch, the ramp and the
+    /// no-data rule have all been applied before this is called. Passing raw samples
+    /// and a colour ramp across here would be the same mistake as passing a style
+    /// expression instead of a resolved symbol: the boundary would stop meaning
+    /// anything, and the thing on the far side would be deciding what the map looks
+    /// like.
+    /// </para>
+    /// <para>
+    /// <b>Scaling is the rasteriser's, and that is deliberate.</b> The source is
+    /// whatever size the coverage window was; the destination is where it belongs on
+    /// the map. Resampling between them is mechanical, it is the one thing the adopted
+    /// library is genuinely better at than we would be, and it is the same division
+    /// this port already makes for filling a polygon.
+    /// </para>
+    /// </remarks>
+    /// <param name="pixels">
+    /// The colours, row-major from the top, <c>width * height</c> long.
+    /// </param>
+    /// <param name="width">The source width in pixels.</param>
+    /// <param name="height">The source height in pixels.</param>
+    /// <param name="destination">Where it goes on this canvas.</param>
+    void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination);
+
     /// <summary>Encodes the image.</summary>
     /// <param name="format">Which format.</param>
     /// <param name="quality">JPEG quality, 1–100; ignored by PNG.</param>

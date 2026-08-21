@@ -76,14 +76,23 @@ def write(name, width, height, bands, dtype, epsg, compress,
 
     for b in range(bands):
         band = memory.GetRasterBand(b + 1)
+
+        # <b>Before the pixels, not after, and this was a real bug.</b> The MEM driver
+        # treats SetNoDataValue as an instruction to initialise the buffer to that
+        # value, so setting it after WriteRaster wipes everything just written. The
+        # corpus's no-data file was silently all zeros for its first generation, GDAL
+        # agreed it was all zeros, and the reader test passed because it only asserted
+        # that *some* pixel was absent -- which is trivially true of an empty image.
+        # Caught by looking at the rendered PNG, which was one flat colour.
+        if nodata is not None:
+            band.SetNoDataValue(nodata)
+
         if dtype == gdal.GDT_Float32:
             band.WriteRaster(0, 0, width, height,
                              struct.pack(f"<{len(planes[b])}f", *planes[b]),
                              buf_type=dtype)
         else:
             band.WriteRaster(0, 0, width, height, bytes(planes[b]), buf_type=dtype)
-        if nodata is not None:
-            band.SetNoDataValue(nodata)
 
     if overviews:
         memory.BuildOverviews("AVERAGE", [2, 4])

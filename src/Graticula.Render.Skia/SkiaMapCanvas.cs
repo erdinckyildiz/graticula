@@ -221,6 +221,89 @@ public sealed class SkiaMapCanvas : IMapCanvas
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The colours arrive as RGBA and the surface is RGBA, so the copy is a
+    /// memcpy.</b> `SKColorType.Rgba8888` is what this canvas was created with —
+    /// choosing BGRA here to match a platform default would put a per-pixel swizzle in
+    /// the one place a raster face cannot afford one.
+    /// </para>
+    /// <para>
+    /// <b>Unpremultiplied, because the samples were.</b> The surface is premultiplied,
+    /// and Skia converts on draw; doing it here by hand would be the same arithmetic in
+    /// a slower place, and getting it wrong shows as a dark fringe around every
+    /// no-data edge rather than as an error.
+    /// </para>
+    /// <para>
+    /// <b>High-quality resampling, and the reason is what a coverage window is.</b>
+    /// The source is the pixels the reader returned for whichever overview was chosen,
+    /// so it is rarely the destination's size — nearest-neighbour would alias a
+    /// continuous surface into visible blocks, which is a wrong-looking map rather
+    /// than a slow one.
+    /// </para>
+    /// </remarks>
+    public void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        if (pixels.Length < width * height)
+        {
+            throw new RenderException(
+                $"An image of {width}x{height} needs {width * height} colours and "
+                + $"{pixels.Length} were given. A short buffer would draw whatever followed it "
+                + "in memory, which is a picture rather than an error.");
+        }
+
+        SKImageInfo info = new(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+
+        using SKBitmap bitmap = new();
+
+        byte[] bytes = new byte[width * height * 4];
+
+        for (int i = 0, at = 0; i < width * height; i++, at += 4)
+        {
+            Rgba colour = pixels[i];
+            bytes[at] = colour.R;
+            bytes[at + 1] = colour.G;
+            bytes[at + 2] = colour.B;
+            bytes[at + 3] = colour.A;
+        }
+
+        System.Runtime.InteropServices.GCHandle handle =
+            System.Runtime.InteropServices.GCHandle.Alloc(
+                bytes, System.Runtime.InteropServices.GCHandleType.Pinned);
+
+        try
+        {
+            bitmap.InstallPixels(info, handle.AddrOfPinnedObject(), width * 4);
+
+            using SKPaint paint = new() { IsAntialias = true };
+
+            using SKImage image = SKImage.FromBitmap(bitmap);
+
+            _canvas.DrawImage(
+                image,
+                new SKRect(0, 0, width, height),
+                new SKRect(
+                    (float)destination.MinX,
+                    (float)destination.MinY,
+                    (float)destination.MaxX,
+                    (float)destination.MaxY),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+                paint);
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    /// <inheritdoc/>
     public byte[] Encode(MapImageFormat format, int quality)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
