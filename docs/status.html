@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>3c823f9</code> · 2026-08-21 22:01</p>
+<p class="stamp">Generated from commit <code>005a7d8</code> · 2026-08-21 22:25</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">43</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">85/175</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">66</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">81</div><div class="kpi-l">open debts</div><div class="kpi-n">53 repaid · 5 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">80</div><div class="kpi-l">open debts</div><div class="kpi-n">54 repaid · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/74</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1652</div><div class="kpi-l">tests</div><div class="kpi-n">219 source files, 80,570 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1652</div><div class="kpi-l">tests</div><div class="kpi-n">219 source files, 80,628 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">175 items</span></div><p><b>90 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>81 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">174 items</span></div><p><b>90 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>80 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -432,7 +432,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-133</td><td>Two background workers write a full stack trace every three seconds for as long as the platform store is down.</td><td class="muted-t">Any outage long enough to matter, which is the only kind worth reading a log about.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-134</td><td>~~The OpenLayers viewer was dead, and every View in: Map link on every service page led to it.~~ view.js declared const OSMTILES while ground.js, loaded before it on the same page, declared the same name in the same global lexical scope.</td><td class="muted-t">Found by pointing a headless browser at the page while adding the MapServer face to it.</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-135</td><td>~~The one face whose purpose is to draw a map was the only face with no viewer.~~ FeatureServer service pages offered View in: Map · ArcGIS SDK, two real viewers.</td><td class="muted-t">Asked by the owner on 2026-08-21: why does MapServer not have it.</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class=""><td class="id">D-136</td><td>The console has no screen for an image service, and the admin API grew the routes it was missing.</td><td class="muted-t">Before anybody is asked to operate an image service from the console.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-136</td><td>~~The console has no screen for an image service.~~ RESOLVED 2026-08-22.</td><td class="muted-t">Closed.</td><td><span class="pill good">RESOLVED</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -529,6 +529,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>005a7d8</code><time>2026-08-21</time><span>the ImageServer document says forty more true things, and ArcGIS Pro still says no</span></li>
 <li><code>3c823f9</code><time>2026-08-21</time><span>the four console failures were the machine, and D-75 is corrected for it</span></li>
 <li><code>248676c</code><time>2026-08-21</time><span>an image service can be stopped and removed, and D-136 is corrected for the third time</span></li>
 <li><code>de88a98</code><time>2026-08-21</time><span>the ArcGIS SDK draws our ImageServer, and asking it found two things our tests could not</span></li>
@@ -542,7 +543,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e387b9a</code><time>2026-08-20</time><span>seven of nine Â§66 gates have run, and the two blanks are not waiting on us</span></li>
 <li><code>263ff72</code><time>2026-08-20</time><span>the failure gate: a liveness probe that would have caused the restart it prevents</span></li>
 <li><code>71fdf3d</code><time>2026-08-20</time><span>two more Â§66 gates, and a false claim in a table that logs itself to the operator</span></li>
-<li><code>841bbd6</code><time>2026-08-20</time><span>two Â§66 gates on the five new faces: six defects, all repaired</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

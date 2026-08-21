@@ -2780,6 +2780,17 @@ async function showService(qualified) {
   drawServiceDelete();
   drawServiceTabs();
 
+  // <b>An image service has no FeatureServer face, so asking for one is a 404 in the
+  // console's own network log.</b> `kind` comes from the row that was just drawn, so
+  // this costs nothing and skips a request that could only ever fail. The panel below
+  // describes layers; a coverage's own description is on the settings page instead.
+  const kind = (SERVICE_ROWS.find(r =>
+    r.name === name && (r.folder || null) === (folder || null)) || {}).kind;
+
+  if (kind === "ImageServer") {
+    return;
+  }
+
   try {
     const doc = await api(
       `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer?f=json`);
@@ -3781,8 +3792,44 @@ function serviceSettingsMarkup(name, folder) {
   // backtick inside an HTML comment inside a template literal closes the literal. `node --check` caught
   // it. An explanation does not go inside a string.
 
+
+  // <b>Both halves are rendered and one is revealed, and the explanation is out here
+  // because D-77 is about exactly this.</b> A backtick inside an HTML comment inside a
+  // template literal closes the literal — five times now in this file, and its own
+  // note two hundred lines up says an explanation does not go inside a string.
+  //
+  // An image service holds a coverage rather than layers, so none of the feature
+  // settings apply to one: nothing to query, no vector tiles, no Create or Delete.
+  // Which half applies is decided by loadServiceCapabilities, after the panel is
+  // drawn, which is this panel's existing order — markup first, values after, so a
+  // control never shows a figure it did not read.
+  //
+  // Until 2026-08-21 only the feature half existed, so clicking an ImageServer opened
+  // the feature editor and offered five operations it does not answer. That is
+  // correctness gate 2's fifth finding told by a different surface: the service
+  // document claimed Map,Query,Data with no query route, and here the console claimed
+  // it on the service's behalf.
+
   return `
     <section class="page" id="page-capabilities">
+      <div id="coverageSettings" hidden>
+        <h4>This service holds a coverage</h4>
+        <dl class="facts" id="coverageFacts"><dt>Reading it…</dt><dd></dd></dl>
+
+        <p class="hint"><b>An image service has no feature settings.</b> There is
+          nothing to query, create or delete: it answers <code>exportImage</code> and
+          <code>identify</code>, and what it draws is decided by the coverage's own
+          rendering rule. Sharing and status are where every service's are.</p>
+
+        <p class="hint">Imagery is registered where it lives and is never copied, so
+          this server holds a reference rather than the file. Removing the registration
+          leaves the file untouched.</p>
+
+        <p><a class="button" id="coverageView" target="_blank" rel="noreferrer" href="#"
+          >Open in the ArcGIS SDK viewer</a></p>
+      </div>
+
+      <div id="featureSettings">
       <h4>Faces this service offers</h4>
       <div class="grid2">
         <label><input type="checkbox" id="capFeatures"> Feature access</label>
@@ -3800,6 +3847,7 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint"><b>One setting per service.</b> Every layer this service holds offers what is
         ticked here; there is no per-layer version of this, and the console used to imply there
         was — D-61.</p>
+          </div>
     </section>
 
     <section class="page" id="page-sharing">
@@ -4425,11 +4473,23 @@ async function loadFolders() {
  * (ADR-034 §5h). The system services are in it rather than beside it: the geometry service is
  * a service in `Utilities`, and now that a folder is a thing it can be listed as one.
  */
+/**
+ * The services the list last read, kept so that other panels can ask what kind one is.
+ *
+ * <b>A cache of a fact, not of a decision.</b> `kind` is written once at registration
+ * and never changes, so a stale entry cannot be wrong about it — which is why this is
+ * safe to hold and why nothing else about a service is held here. The alternative was
+ * a second request per panel to learn one word.
+ */
+let SERVICE_ROWS = [];
+
 async function loadServices() {
   const [{ services }, system] = await Promise.all([
     api("/admin/featureservices"),
     api("/admin/services").catch(() => ({ services: [] })),
   ]);
+
+  SERVICE_ROWS = services || [];
 
   const inFolder = (folder) => (folder ?? "") === (selectedFolder ?? "");
 
@@ -5122,6 +5182,78 @@ async function loadServiceCapabilities(name, folderGiven) {
     + `?folder=${encodeURIComponent(folder || "")}`) || {};
 
   const set = (id, v) => { const el = $(id); if (el && v != null) el.value = v; };
+
+  /*
+    <b>Which half of this page applies is decided here, because here is where the
+    service's kind is known.</b> The markup renders both and hides neither on its own;
+    doing it the other way round would mean the page's shape depended on a list fetched
+    somewhere else, and the two would drift.
+
+    An image service reports its own facts out of the ArcGIS document rather than the
+    admin API, because that document is where they live — and reading it here is the
+    same request an ArcGIS client makes, so a difference between what the console shows
+    and what a client sees is not possible.
+  */
+  const raster = $("coverageSettings");
+  const features = $("featureSettings");
+
+  if (raster && c.kind === "ImageServer") {
+    raster.hidden = false;
+    if (features) features.hidden = true;
+
+    // <b>Limits is a feature service's page and it 404s for a coverage.</b> A tab that
+    // leads to a refusal is worse than one that is not offered: the operator cannot
+    // tell a missing screen from a broken one. Record counts, edit ceilings and
+    // response-byte bounds are all about rows, and a coverage has none.
+    for (const tab of document.querySelectorAll("#serviceNav a[data-service-page=limits]")) {
+      tab.hidden = true;
+    }
+
+    // <b>And no Save, because there is nothing on this page to save.</b> This panel's
+    // own note two hundred lines up says a button that does nothing contradicts the
+    // sentence above it — written for the Sharing page, true here for the same reason:
+    // everything shown is read from the coverage and none of it is editable.
+    for (const save of document.querySelectorAll("#servicePagesBody [data-service-save]")) {
+      save.closest("div")?.setAttribute("hidden", "hidden");
+    }
+
+    const qualified = folder ? `${folder}/${service}` : service;
+    const view = $("coverageView");
+
+    if (view) {
+      view.href = `/studio/map.html?face=imageserver&service=${encodeURIComponent(qualified)}`;
+    }
+
+    const doc = await api(`/rest/services/${qualified}/ImageServer?f=json`) || {};
+    const facts = $("coverageFacts");
+
+    if (facts) {
+      const rows = [
+        ["Size", doc.extent ? `${Math.round((doc.extent.xmax - doc.extent.xmin) / (doc.pixelSizeX || 1))} × ${Math.round((doc.extent.ymax - doc.extent.ymin) / (doc.pixelSizeY || 1))} pixels` : null],
+        ["Bands", doc.bandCount],
+        ["Pixel type", doc.pixelType],
+        ["Reference", doc.spatialReference ? `EPSG:${doc.spatialReference.wkid}` : null],
+        // <b>Rounded, because the number is a division and the division shows.</b>
+        // The pixel size is the extent over the pixel count, so it arrives as
+        // 0.010000000000000009 and printing that says *this measurement is precise to
+        // seventeen digits*, which it is not. Six significant figures is more than any
+        // raster's georeference carries.
+        ["Pixel size", doc.pixelSizeX
+          ? `${Number(doc.pixelSizeX.toPrecision(6))} × ${Number(doc.pixelSizeY.toPrecision(6))}`
+          : null],
+        ["No data", doc.noDataValue ?? "none declared"],
+        ["Formats", doc.supportedImageFormatTypes],
+      ].filter(([, v]) => v !== null && v !== undefined && v !== "");
+
+      facts.innerHTML = rows.map(([k, v]) =>
+        `<dt>${h(k)}</dt><dd>${h(String(v))}</dd>`).join("");
+    }
+
+    return;
+  }
+
+  if (raster) raster.hidden = true;
+  if (features) features.hidden = false;
 
   if ($("capFeatures")) $("capFeatures").checked = c.servesFeatures !== false;
   if ($("capTiles") && !$("capTiles").disabled) $("capTiles").checked = c.servesTiles !== false;

@@ -2774,11 +2774,36 @@ internal static class AdminEndpoints
     /// records every screen opening is one nobody reads.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Which kind of service this is, asked of the one catalogue that can answer.
+    /// </summary>
+    /// <remarks>
+    /// <b>A lookup rather than a column on the limits row, because the limits row is a
+    /// feature service's.</b> An ImageServer has no capability ceiling and never will;
+    /// what the console needs from here is one fact to stop it drawing five operations
+    /// the service does not answer.
+    /// </remarks>
+    private static async Task<string> KindOfAsync(
+        ICoverageCatalog coverages,
+        string name,
+        string? folder,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(coverages);
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        return await coverages.FindAsync(at, name, cancellation).ConfigureAwait(false) is not null
+            ? "ImageServer"
+            : "FeatureServer";
+    }
+
     private static async Task GetServiceCapabilitiesAsync(
         HttpContext context,
         string name,
         string? folder,
         IAdminCatalog catalog,
+        ICoverageCatalog coverages,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -2815,6 +2840,16 @@ internal static class AdminEndpoints
             serverRequestDeadlineSeconds = settings.RequestDeadline > TimeSpan.Zero
                 ? (int?)settings.RequestDeadline.TotalSeconds
                 : null,
+
+            // <b>The kind, so the console can tell which settings apply.</b> This
+            // endpoint answers for any service and every field below describes a
+            // feature service; an ImageServer holds a coverage and has none of them,
+            // so the console needs one fact to know not to draw them. Reading it from
+            // the row rather than inferring it from null capabilities: a feature
+            // service that has never been configured has nulls too.
+            kind = await KindOfAsync(coverages, name, at, cancellation)
+                .ConfigureAwait(false),
+
             servesFeatures = limits.ServesFeatures,
             servesTiles = limits.ServesTiles,
             capabilities = limits.Ceiling,

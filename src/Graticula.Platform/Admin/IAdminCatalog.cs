@@ -251,8 +251,31 @@ public readonly record struct AdminService(
     /// <summary>Its address in the directory: <c>folder/name</c>, or just the name.</summary>
     public string Qualified => Folder is null ? Name : $"{Folder}/{Name}";
 
-    /// <summary>Whether it holds nothing, and may therefore be removed.</summary>
-    public bool IsEmpty => Layers == 0 && Groups == 0;
+    /// <summary>
+    /// Whether it holds nothing, and may therefore be removed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An image service holds a coverage and no layers, so counting layers called
+    /// every one of them empty.</b> The SQL sweep was taught about coverages on
+    /// 2026-08-21 and stopped deleting them; this flag was not, so the console went on
+    /// listing them under *remove empty services* — offering a destructive action for
+    /// something it would then decline to remove. A button that lists a thing and does
+    /// not act on it teaches an operator that the button is unreliable, which is worse
+    /// than either behaviour on its own.
+    /// </para>
+    /// <para>
+    /// <b>Decided on the kind rather than on a coverage count.</b> Adding a fourth
+    /// number to this record would mean every caller that builds an
+    /// <see cref="AdminService"/> has to know how to count coverages, and the one that
+    /// forgets writes zero — which is the `is_hosted` mistake `PostgresLayerCatalog`
+    /// records at length. The kind is already carried and already true.
+    /// </para>
+    /// </remarks>
+    public bool IsEmpty =>
+        Layers == 0
+        && Groups == 0
+        && !string.Equals(Kind, "ImageServer", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
