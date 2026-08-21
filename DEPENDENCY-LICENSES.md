@@ -41,7 +41,26 @@ fact.
 | xunit.runner.visualstudio | 2.8.2 | **Apache-2.0** | nuspec | **Yes** |
 | Microsoft.NET.Test.Sdk | 17.12.0 | **MIT** | nuspec | **Yes** |
 | Microsoft.Extensions.TimeProvider.Testing | 9.0.0 | **MIT** | nuspec | **Yes** |
+| **SkiaSharp** | 3.119.2 | **MIT** | nuspec `<license type="expression">MIT</license>` | **Yes** |
+| **SkiaSharp.NativeAssets.Linux** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
+| **SkiaSharp.NativeAssets.Linux.NoDependencies** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
+| **BitMiracle.LibTiff.NET** | 2.4.660 | **BSD-3-Clause**, with **IJG JPEG** and **libtiff** BSD-style notices bundled | the project's own licence page, cited from its nuspec `licenseUrl` | **Yes**, and the three notices go in `NOTICE` |
 | **DejaVu Sans** (font, redistributed) | 2.37 | **Bitstream Vera** (permissive) + public-domain DejaVu changes | the licence text shipped in [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) | **Yes**, with one obligation that is not the usual one — see below |
+
+> **AMENDED 2026-08-21. Four packages were shipping and not in this table.**
+> The gate ran on 2026-08-15 and passed on six packages; SkiaSharp and its two
+> native-asset packages arrived on 2026-08-20 with
+> [ADR-041](docs/adr/ADR-041-the-map-renderer.md) and nothing brought them here, so the
+> row in [architecture-completeness.md](docs/architecture-completeness.md) said `PASS`
+> about a dependency set that had grown by three. **All four are verified now from
+> their own nuspecs** — the same standard the original six were held to — and all four
+> are MIT or BSD-3, so the result does not change. What changed is that it is checked
+> rather than assumed.
+>
+> **This is [D-126](docs/architecture-debt.md) again**, in the register a licensing
+> gate reads: a decision shipped and the document that describes its consequences was
+> not told. The repayable form there is a check, and a dependency added without a row
+> here is exactly the kind of thing a check would catch.
 
 **Result: pass.** No GPL or AGPL component is linked into anything shipped,
 which is the one class the Apache-2.0 outbound choice (Q-73) made disqualifying.

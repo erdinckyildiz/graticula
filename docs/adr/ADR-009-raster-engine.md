@@ -8,6 +8,29 @@
 
 ---
 
+## 0a. `AMENDED` 2026-08-21 — the trigger fired, and §2.1 is half reversed
+
+> **[ADR-043](ADR-043-imageserver-and-the-raster-face.md) takes the decision this ADR
+> parked.** §0 below says the reopening trigger is *ImageServer, or any part of the
+> expensive group, returning to scope*. The owner returned it on 2026-08-21 and chose
+> the widest cut: the catalogue plus `exportImage`, with imagery registered in place.
+>
+> **What reverses.** §2.1's *serve COG, let the client render* no longer describes the
+> export path: the server decides what colour a pixel becomes. It still describes
+> direct delivery, and §2.4's range-request proxy is what makes *registered in place*
+> possible at all, so that section is load-bearing rather than superseded.
+>
+> **What this ADR got wrong, and it is worth reading before planning from §0's table.**
+> The cost decomposition was written on 2026-08-12 against a design. Measured against
+> the code on 2026-08-21, the *near-free* group is not near-free — there is no raster
+> code in `src` at all, and `LayerDefinition` requires a table and a geometry column, so
+> every layer this server can hold is a PostGIS table. And the *expensive* group is
+> cheaper than stated, because ADR-041 shipped the delivery half. ADR-043 §2 carries the
+> measurement.
+>
+> **The decomposition itself is not retracted and is still the right way in.** That was
+> §0's own advice and this is what taking it looks like.
+
 ## 0. `REOPENED` 2026-08-13 — ImageServer is in scope
 
 > **RE-CLOSED 2026-08-15. The trigger was removed before it was answered.**
