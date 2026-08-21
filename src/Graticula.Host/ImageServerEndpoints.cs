@@ -107,6 +107,11 @@ internal static class ImageServerEndpoints
             copyrightText = string.Empty,
             serviceDataType = "esriImageServiceDataTypeGeneric",
 
+            // <b>Named, because a client reads this before it asks.</b> `jpgpng` is
+            // first for the same reason it is the SDK's default, and it is answered as
+            // PNG — which is what the format means when the picture has transparency.
+            supportedImageFormatTypes = "JPGPNG,PNG,PNG8,PNG24,PNG32,JPG,JPEG",
+
             // <b>Absent rather than zero when the file declares none.</b> Zero is a
             // legitimate measurement, so reporting it as the no-data value would tell a
             // client to discard real pixels.
@@ -134,8 +139,16 @@ internal static class ImageServerEndpoints
                     path,
                     $"{coverage.QualifiedName} (ImageServer)",
                     document,
+                    // <b>A viewer first, then the raw export.</b> The MapServer face
+                    // shipped with only an export link and it was criticised for it the
+                    // next day: a single PNG of the full extent is not a map, because a
+                    // PNG does not zoom. `face=imageserver` points the ArcGIS SDK
+                    // viewer at this service, which is also how ADR-043 condition 1 is
+                    // paid — Esri's own client asking for the pixels.
                     links:
                     [
+                        ("ArcGIS SDK", "/studio/map.html?face=imageserver"
+                            + $"&service={Uri.EscapeDataString(coverage.QualifiedName)}"),
                         ("Export", $"{path}/exportImage?bbox={Extent(info.Extent)}"
                             + $"&bboxSR={info.Srid.ToString(CultureInfo.InvariantCulture)}"
                             + "&size=800,600&format=png&f=image"),
@@ -157,6 +170,7 @@ internal static class ImageServerEndpoints
         ICoverageReaderFactory readers,
         IMapCanvasFactory canvases,
         IProjector projector,
+        ConnectionBudget budget,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -178,6 +192,30 @@ internal static class ImageServerEndpoints
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
         }
+
+        /*
+          <b>The same admission control a feature request meets, and
+          [ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) condition
+          3 asks for it because a raster is not a vector at the same pixel count.</b> A
+          `GetMap` over an empty extent draws nothing and costs nothing; an
+          `exportImage` over the same extent still decompresses every tile the window
+          touches. Two clients panning a large coverage can put more work through this
+          face than a hundred through the feature one.
+
+          <b>Keyed on the coverage rather than on a database.</b> `ConnectionBudget` is
+          named for what it originally bounded and what it actually is is an admission
+          gate with a per-source and a per-worker limit; a coverage is a source. The
+          refusal, the five-second wait and the `Retry-After` are then the ones a client
+          already knows, which is worth more than a bound of its own that behaves
+          slightly differently.
+
+          <b>Taken before the canvas is allocated.</b> A 4096² canvas is 64 MB of
+          pixels, so admitting the request and then refusing it would have paid the
+          largest single cost of serving it.
+        */
+        using ConnectionBudget.Lease lease =
+            await budget.EnterAsync($"coverage:{coverage.Path}", cancellation)
+                .ConfigureAwait(false);
 
         using IMapCanvas canvas = canvases.Create(asked!.Width, asked.Height);
 

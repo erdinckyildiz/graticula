@@ -159,6 +159,26 @@ and it is why WMS and MapServer get raster for free once this lands.
    FeatureServer path and what ArcGIS Pro 3.6 paid on 2026-08-19. The same standard
    applies here and this condition is not discharged by a conformance suite.
 
+   **DISCHARGED 2026-08-21.** The **ArcGIS Maps SDK for JavaScript 4.29** loaded
+   `hosted/look_imagery` as an `ImageryLayer`, read the service document for its extent
+   and reference, and asked for pixels **in Web Mercator** —
+   `bboxSR=3857&imageSR=3857&size=1280,804&format=jpgpng` — which the warp answered. The
+   raster draws registered against an OpenStreetMap basemap, in the right place and at
+   the right size.
+
+   **And it found two defects that no test of ours had.** `format=jpgpng` is the SDK's
+   default and the parser refused it by name, so the first attempt framed correctly on
+   empty ground: a request refused with a good reason, rendered as a blank map. That is
+   the failure mode a conformance suite written against our own reading of the
+   specification cannot find, which is the whole argument for this condition. The
+   second was ours reading the SDK wrongly rather than the reverse — `layer.bandCount`
+   is undefined because the SDK parses it into `rasterInfo` — and it printed *?-band*
+   beside a picture that plainly had three.
+
+   **What is still owed is ArcGIS Pro**, which is the client an administrator actually
+   uses and the one that paid this condition for the FeatureServer path. The SDK is a
+   real Esri client and it is not that one.
+
 2. **The warp's error is measured and stated, not assumed.** Control-point
    interpolation is an approximation; the condition is a number in
    `benchmarks/` saying how far a pixel can land from where it belongs, at the
@@ -187,6 +207,24 @@ and it is why WMS and MapServer get raster for free once this lands.
    [D-128](../architecture-debt.md) already records that the budget does not shed load
    on every path.
 
+   **DISCHARGED 2026-08-21, and it inherits D-128 rather than escaping it.** The image
+   ceiling is `MaximumImageWidth`/`Height`, named in the refusal rather than clamped
+   silently. The deadline is the pipeline's, so it applies without this face doing
+   anything. The budget is `ConnectionBudget`, entered on a key of
+   `coverage:{path}` — that class is named for what it first bounded, and what it is
+   is an admission gate with a per-source and a per-worker limit; a coverage is a
+   source. Taken **before** the canvas is allocated, because a 4096² canvas is 64 MB
+   and admitting a request to then refuse it would have paid the largest single cost
+   of serving it.
+
+   **What it does not do is refuse, and that is D-128 exactly.** Measured: a 2048²
+   export costs 0.39 s alone, 0.98 s at concurrency 24 and 2.38 s at 48 — every one a
+   200, because slots free inside the five-second wait. The gate bounds the wait for a
+   slot and not the hold after admission, which is the finding performance gate 2 made
+   about the query faces and which is now confirmed on this one. **The condition asked
+   for the same bounds `GetMap` has and this face has them, weakness included**;
+   fixing the weakness is D-128's job and needs its own decision.
+
 4. **The architecture test covers the new adapter before the adapter has a second
    caller.** SkiaSharp's containment is enforced; the TIFF reader's must be enforced the
    same way and on the same day, because a port with one implementation and no test is
@@ -203,8 +241,29 @@ and it is why WMS and MapServer get raster for free once this lands.
    correctness gate 2's finding 5, and it cost that gate a `Map,Query,Data` string that
    was untrue.
 
+   **DISCHARGED 2026-08-21.** The capabilities string is `Image` and nothing else, and
+   the flags beside it say what they mean: `allowRasterFunction` false,
+   `supportsStatistics` false, `supportsAdvancedQueries` false. `hasColormap` and
+   `hasMultidimensions` likewise. **Asserted from outside rather than by reading the
+   code** — `ImageServerConformanceTests` checks that `Image` is claimed and that
+   `Catalog` and `Download` are not, which is the shape of the test that would have
+   caught finding 5 a day earlier than a person did.
+
 6. **`NOTICE` carries the three attributions** — BitMiracle, IJG and libtiff — before
    anything ships that links the reader.
+
+   **DISCHARGED 2026-08-21, with the notices reproduced rather than named.** A BSD-3
+   clause requires the copyright notice, the conditions and the disclaimer to appear in
+   the materials provided with a binary distribution; pointing at
+   `DEPENDENCY-LICENSES.md`, which records *which* licence applies, discharges none of
+   that. `NOTICE` now carries all three in full, and SkiaSharp's MIT text with them for
+   the same reason.
+
+   **And it was still called `gis-server`.** The product was renamed on 2026-08-17 and
+   [ADR-032](ADR-032-the-product-is-named-graticula.md) §5 lists the two places the old
+   name survives — the `GisServer:*` configuration keys and the `gisserver` default
+   schema. `NOTICE` is neither: it is the product's own identity, in the file that
+   travels with every copy. Four days, and it took a licensing condition to notice.
 
 ## 6. What this does not decide
 

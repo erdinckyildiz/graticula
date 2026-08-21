@@ -371,13 +371,31 @@ internal sealed class ImageServerExportParameters
                 format = MapImageFormat.Png;
                 return true;
 
+            // <b>`jpgpng` is what every ArcGIS client sends, and refusing it meant none of
+            // them could draw an image service at all.</b> Esri's own name for *JPEG
+            // where the picture is opaque, PNG where it is not* — a size optimisation
+            // that leaves the choice to the server. Answering PNG satisfies it: the
+            // format's whole point is that transparency survives, and a client that
+            // asked for it has said it will take either.
+            //
+            // Found on 2026-08-21 by pointing the ArcGIS Maps SDK at this face for
+            // ADR-043 condition 1. The SDK asked, the parser refused by name, the map
+            // framed correctly on empty ground — a request refused with a reason,
+            // rendered as a blank map, which is the failure mode a conformance suite of
+            // our own tests could not have found.
+            case "jpgpng":
             case "jpg":
             case "jpeg":
-                format = MapImageFormat.Jpeg;
+                format = text.Trim().Equals("jpgpng", StringComparison.OrdinalIgnoreCase)
+                    ? MapImageFormat.Png
+                    : MapImageFormat.Jpeg;
+
                 return true;
 
             default:
-                error = $"`format={text}` is not one this server writes. It writes png and jpg.";
+                error = $"`format={text}` is not one this server writes. It writes png, jpg and "
+                    + "jpgpng, which it answers as png.";
+
                 return false;
         }
     }

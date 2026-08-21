@@ -42,15 +42,21 @@
     same layer through both is the only way to see whether they agree, which is what
     the correctness gate had to do by hand on 2026-08-20.
   */
-  const face = (query.get("face") || "featureserver").toLowerCase() === "mapserver"
-    ? "MapServer"
-    : "FeatureServer";
+  const FACES = {
+    mapserver: "MapServer",
+    imageserver: "ImageServer",
+    featureserver: "FeatureServer",
+  };
+
+  const face = FACES[(query.get("face") || "featureserver").toLowerCase()] || "FeatureServer";
 
   // A MapServer is addressed as a whole: the service is the map, and a sublayer is
   // something to switch off rather than something to point at.
   const url = service
     ? `${location.origin}/rest/services/${service.split("/").map(encodeURIComponent).join("/")}`
-      + (face === "MapServer" ? "/MapServer" : `/FeatureServer/${encodeURIComponent(layerId ?? "0")}`)
+      + (face === "FeatureServer"
+        ? `/FeatureServer/${encodeURIComponent(layerId ?? "0")}`
+        : `/${face}`)
     : `${location.origin}/rest/services/${encodeURIComponent(layerId || "landmarks")}`
       + "/FeatureServer/0";
 
@@ -82,9 +88,10 @@
   require([
     "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
     "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
-    "esri/layers/WebTileLayer", "esri/layers/MapImageLayer", "esri/Basemap",
+    "esri/layers/WebTileLayer", "esri/layers/MapImageLayer",
+    "esri/layers/ImageryLayer", "esri/Basemap",
   ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
-      MapImageLayer, Basemap) => {
+      MapImageLayer, ImageryLayer, Basemap) => {
 
     /*
       The ground, and there are two of them.
@@ -175,22 +182,39 @@
       let refusal = null;
       let drawn = null;
 
-      if (typeof features.queryFeatureCount === "function") {
+      // <b>Asked of the face, not of the object.</b> This tested whether the layer
+      // had a `queryFeatureCount` method, and an `ImageryLayer` does — it just answers
+      // *query operation is not supported on the input image service*, which then
+      // appeared in the header as though something had gone wrong. What decides the
+      // question is which face is being drawn, and that is known without asking.
+      if (face === "FeatureServer" && typeof features.queryFeatureCount === "function") {
         try {
           count = await features.queryFeatureCount();
         } catch (e) {
           refusal = e.message || String(e);
         }
-      } else {
+      } else if (features.sublayers) {
         // <b>A map service has no feature count and asking would be the wrong
         // question.</b> It returns pixels; the number that matters is how many of
         // its sublayers are switched on, because that is what the picker changes and
         // what the next request will draw. `/MapServer/{id}/query` does not exist —
         // the capabilities string says `Map` and only `Map`, which the correctness
         // gate made true on 2026-08-20 by removing the claim rather than the route.
-        const on = (features.sublayers || []).filter(l => l.visible).length;
-        const all = (features.sublayers || []).length;
+        const on = features.sublayers.filter(l => l.visible).length;
+        const all = features.sublayers.length;
         drawn = `${on} of ${all} sublayer${all === 1 ? "" : "s"} drawn, server-side`;
+      } else {
+        // An image service has neither: one coverage, one picture. What is worth
+        // saying is what the pixels are, because that is what decides whether the
+        // stretch it was given makes any sense.
+        // <b>`rasterInfo` first, because that is where the SDK puts it.</b> The
+        // service document's `bandCount` is what this server sends; the SDK parses it
+        // into `rasterInfo` and leaves `layer.bandCount` undefined, so reading the
+        // obvious property printed "?-band" beside a picture that plainly had three.
+        const info = features.rasterInfo || {};
+        const bands = info.bandCount ?? features.bandCount ?? "?";
+        const type = info.pixelType ?? features.pixelType ?? "?";
+        drawn = `${bands}-band ${type} raster, drawn server-side`;
       }
 
       const box = features.fullExtent;
@@ -277,7 +301,18 @@
         switching one off sends `layers=show:` with the rest, which this server's
         export parser understands.
       */
-      const features = face === "MapServer"
+      /*
+        <b>Three faces, three layer types, and the third is the SDK's own client for
+        an image service.</b> `ImageryLayer` asks `/ImageServer/exportImage` for a PNG
+        of the current view and reads the service document to know the extent and the
+        reference — which is the point of pointing it here at all
+        ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) condition
+        1). A viewer of our own drawing our own pixels proves the pixels; Esri's own
+        client asking for them proves the contract.
+      */
+      const features = face === "ImageServer"
+        ? new ImageryLayer({ url: at })
+        : face === "MapServer"
         ? new MapImageLayer({ url: at })
         : new FeatureLayer({
           url: at,
@@ -324,7 +359,13 @@
     // links here without one, because "View In" on a service means the service —
     // which is what an ArcGIS directory does too. Group layers are skipped: they
     // hold no features. Named with a layer, only that layer is drawn.
-    if (service && layerId === null) {
+    // <b>An image service holds one coverage and publishes no layer list</b>, so there
+    // is nothing to pick between and the picker would be an empty row. It is drawn
+    // directly, which is also what its service document expects to be read for.
+    if (service && face === "ImageServer") {
+      document.getElementById("which").textContent = `${service} (ImageServer)`;
+      add(`${location.origin}/rest/services/${service}/ImageServer`);
+    } else if (service && layerId === null) {
       fetch(`${location.origin}/rest/services/${service}/${face}?f=json`,
         { headers: { Accept: "application/json" } })
         .then(response => response.json())
