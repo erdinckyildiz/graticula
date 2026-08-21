@@ -98,6 +98,15 @@ public sealed class NativeDependencyTests
          "The rasteriser is Tier 2 behind IMapCanvas. ADR-041 §5.1: no Skia type crosses into "
          + "Tier 1, and the port is what makes that possible. A second project naming the library "
          + "is the port stopping being a port."),
+
+        ("BitMiracle.LibTiff",
+         "Graticula.Raster.Tiff",
+         "The raster reader is Tier 2 behind ICoverageReader. ADR-043 §3.5 draws the line at the "
+         + "same place ADR-041 drew it for the canvas: the library hands us numbers and we decide "
+         + "what colour they are, so no TIFF type — directory, strip, photometric interpretation — "
+         + "may appear in a Tier 1 signature. Its condition 4 asks for this test on the same day "
+         + "as the adapter, because a port with one implementation and no test is a port by "
+         + "intention only."),
     ];
 
     [Fact]

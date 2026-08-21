@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Raster.Tiff.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Raster.Tiff\Graticula.Raster.Tiff.csproj" />
+  </ItemGroup>
+
+  <!--
+    The corpus is data the tests read, written by GDAL rather than by us.
+    tools/make-raster-corpus.py says why. Copied rather than embedded so a failing
+    test can be reproduced by opening the file in anything else.
+  -->
+  <ItemGroup>
+    <None Include="corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

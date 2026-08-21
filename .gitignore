@@ -39,6 +39,20 @@ data/
 *.dbf
 *.shx
 
+# A pattern with no slash matches directories as well as files, and two of these
+# nearly cost us a project. `src/Graticula.Raster.Tiff/` ends in `.Tiff`, so `*.tiff`
+# swallowed the whole adapter — every file in it, silently, with `git status` showing
+# nothing to commit. Caught on 2026-08-21 only because the directory was missing from
+# a status listing somebody read.
+!src/Graticula.Raster.Tiff/
+
+# The raster corpus is data the tests read, not local data, and it stays as files so
+# that a wrong pixel can be opened in QGIS. Named rather than blanket-excepted: a
+# `!tests/**/corpus/**` also pulled in the loose .shp/.dbf/.shx beside the shapefile
+# corpus's zips, which somebody deliberately left out, and changing that decision as a
+# side effect of adding a second format is not this rule's business.
+!tests/Graticula.Raster.Tiff.Tests/corpus/**
+
 # Local configuration and secrets
 .env
 .env.*

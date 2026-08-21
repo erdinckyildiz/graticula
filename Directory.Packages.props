@@ -94,6 +94,11 @@
          nothing.
 
          Confined to Graticula.Render.Skia by NativeDependencyTests. -->
+    <!-- The raster reader, ADR-043 §3.5. BSD-3-Clause with bundled IJG JPEG and
+         libtiff notices; DEPENDENCY-LICENSES.md carries all three. Managed code
+         with no native asset, which is why it is a smaller answer than GDAL for
+         an air-gapped image (Q-15). -->
+    <PackageVersion Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
     <PackageVersion Include="SkiaSharp" Version="3.119.2" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />

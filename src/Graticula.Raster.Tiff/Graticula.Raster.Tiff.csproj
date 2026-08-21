@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The raster reader adapter — ADR-043 §3.5.
+
+    Its own project because this is the ONLY place in the repository where
+    BitMiracle.LibTiff.NET may be named. build-vs-adopt-policy.md §4 permits a
+    Tier 2 library behind our own port, and a project boundary is the only
+    version of that rule a build can check — NativeDependencyTests checks it in
+    both directions, as it does for SkiaSharp.
+
+    Not GDAL, and that is A-016 rather than preference: GDAL is deliberately kept
+    out of the serving process, and putting it back to serve one surface would
+    reverse an assumption four other decisions rest on.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Raster.Tiff</RootNamespace>
+    <AssemblyName>Graticula.Raster.Tiff</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BitMiracle.LibTiff.NET" />
+  </ItemGroup>
+
+</Project>
