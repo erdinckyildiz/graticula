@@ -94,4 +94,26 @@ public abstract record AttributePredicate
     /// <summary>A field is one of a list, or is none of them.</summary>
     public sealed record OneOf(string Column, IReadOnlyList<object?> Values, bool Negated)
         : AttributePredicate;
+
+    /// <summary>
+    /// Nothing matches, and that is the answer rather than a failure.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because "no rows" and "your request was wrong" are different answers and a
+    /// query model with no way to say the first says the second.</b> A WFS
+    /// <c>ResourceId</c> naming a resource this server does not have selects nothing —
+    /// the request is well formed and the collection comes back empty. Before this
+    /// existed the only way to express it was an <see cref="OneOf"/> with an empty list,
+    /// which <c>PredicateSql</c> correctly refuses, so the caller got a 400 saying the
+    /// identity column holds whole numbers. True, and not what they asked.
+    /// </para>
+    /// <para>
+    /// <b>It emits <c>false</c>, which the planner removes.</b> There is no cost to
+    /// asking the database a question with no answer, and asking it keeps one path
+    /// through the code rather than a short circuit in each front end that would then
+    /// have to reproduce paging, counting and the response shape.
+    /// </para>
+    /// </remarks>
+    public sealed record MatchesNothing : AttributePredicate;
 }

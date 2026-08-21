@@ -722,7 +722,7 @@ internal static class WfsEndpoints
 
         if (!FilterReader.TryRead(
                 request.Filter, described.Fields, layer.Definition.Srid,
-                out ParsedFilter filter, out fault))
+                out ParsedFilter filter, out fault, layer.Definition.GeometryColumn))
         {
             return false;
         }
@@ -801,7 +801,11 @@ internal static class WfsEndpoints
         {
             if (!PredicateSql.TryEmit(
                     predicate,
-                    [.. described.Fields.Select(f => f.Name)],
+
+                    // The geometry column joins the list because a null check may now name
+                    // it — see `FilterReader.TryNull`. Nothing else can reach it: the
+                    // reader refuses the geometry for every other predicate before this.
+                    [.. described.Fields.Select(f => f.Name), layer.Definition.GeometryColumn],
                     LayerDefinition.Quote,
                     out ParsedWhere emitted,
                     out string? error))
@@ -903,18 +907,35 @@ internal static class WfsEndpoints
             if (!long.TryParse(
                     identity, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number))
             {
-                fault = WfsFault.Invalid(
-                    "resourceId",
-                    $"'{given}' is not an identifier of this feature type: its identity column "
-                    + $"'{column}' holds whole numbers.");
+                /*
+                  <b>An identifier nothing holds is an empty answer, not a refusal.</b> WFS
+                  2.0 §7.9.2.4.2 says a `ResourceId` naming a resource the server does not
+                  have selects nothing — the request is well formed and the answer is a
+                  collection with no members. This refused it with a 400, on the grounds
+                  that the identity column holds whole numbers and the text was not one,
+                  which is true and is not the question the client asked.
 
-                return false;
+                  <b>The two look the same from here and are not.</b> A malformed *type
+                  name* in the identifier is still refused above: `other_layer.4` in a
+                  request for this layer is a client asking the wrong resource, and
+                  answering it with silence would hide a real mistake. What is skipped is
+                  only the value, and only when the column could never hold it.
+
+                  Found on 2026-08-21 by re-running the OGC suite, which charges 25
+                  failures for it — one per feature type.
+                */
+                continue;
             }
 
             values.Add(number);
         }
 
-        predicate = new AttributePredicate.OneOf(column, values, Negated: false);
+        // Every identifier named a resource this feature type could not hold, so the
+        // answer is an empty collection rather than a refusal — see the `continue` above.
+        predicate = values.Count == 0
+            ? new AttributePredicate.MatchesNothing()
+            : new AttributePredicate.OneOf(column, values, Negated: false);
+
         return true;
     }
 

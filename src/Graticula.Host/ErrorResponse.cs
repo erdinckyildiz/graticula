@@ -292,6 +292,29 @@ internal static class ErrorResponse
         // asked for. Found when a vector tile request hit a datastore whose
         // search_path excluded the schema PostGIS is installed in: every
         // spatial function was undefined, and the server blamed the network.
+        // <b>42883 covers two situations and only one of them is the operator's.</b>
+        // *function st_intersects does not exist* is PostGIS missing, which is the case
+        // below and is correctly a 500. *operator does not exist: timestamp with time
+        // zone = text* is a caller comparing a column to a literal this server did not
+        // convert — the request cannot be served, the database is entirely healthy, and
+        // 500 is both the wrong status and the wrong story. Found on 2026-08-21 by
+        // re-running the WFS conformance suite: four assertions answered 500 with a
+        // sentence telling an operator to check whether PostGIS was installed.
+        //
+        // <b>The limitation itself is [Q-124](../../docs/open-questions.md) and is not
+        // fixed here.</b> Neither front end converts a date literal, deliberately, so
+        // that the two give the same answer to the same question. What this changes is
+        // that the refusal now says so instead of blaming the database.
+        PostgresException { SqlState: "42883" } e
+            when e.MessageText.StartsWith("operator does not exist", StringComparison.Ordinal) => (
+                StatusCodes.Status400BadRequest,
+                "This filter compares a column with a value of a type this server does not convert "
+                + $"for it — the database reports: {e.MessageText}. The usual case is a date or "
+                + "timestamp column: every filter language here sends its literals as text, and "
+                + "neither the ArcGIS `where` grammar nor Filter Encoding converts them, so the "
+                + "comparison reaches the database as text. The database is healthy; the request "
+                + "cannot be answered as written."),
+
         PostgresException { SqlState: "42883" } => (
             StatusCodes.Status500InternalServerError,
             "The database is reachable but does not have a function this server needs. The usual "

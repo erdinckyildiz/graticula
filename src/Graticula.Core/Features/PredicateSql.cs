@@ -106,6 +106,13 @@ public static class PredicateSql
 
         switch (node)
         {
+            // <b>`false`, and the planner deletes it.</b> There is no parameter to bind and
+            // nothing to resolve against the columns, so this is the one predicate that
+            // cannot fail to emit — which is the point of it existing at all.
+            case AttributePredicate.MatchesNothing:
+                sql.Append("false");
+                return true;
+
             case AttributePredicate.Conjunction and:
                 return Branch(and.Left, " and ", and.Right, sql, parameters, columns, quote, depth, out error);
 

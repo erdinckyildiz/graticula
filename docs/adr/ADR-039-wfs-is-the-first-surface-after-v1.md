@@ -232,6 +232,61 @@ stand at FAIL, which is the cost §1 records the owner accepting.
 **Ports created.** None. No Tier 2 dependency is adopted: `System.Xml` is the base library, and GML
 is written from `Graticula.Geometries` types rather than from a geometry library.
 
+## 6b. The suite re-run, 2026-08-21: 297 of 391 became 405 of 420
+
+**§6 above records a number and not a breakdown, and that was the whole problem.** The
+2026-08-19 run left 94 failures and nobody wrote down what they were, so for two days
+the only thing anybody could say about this surface was a figure that was already
+stale. Re-run on the owner's instruction. Evidence:
+[cite-wfs20-2026-08-21.rdf](../reviews/cite-wfs20-2026-08-21.rdf).
+
+**The first re-run measured 104 of 420, which reads worse than 94 of 391 and is not.**
+Both the numerator and the denominator moved: `hosted/wms_time_demo` was published on
+2026-08-20, and this suite repeats every assertion against every feature type, so one
+more layer adds assertions to both columns. **That is the property that makes a raw
+count from this suite almost meaningless**, and the same property is what turns a
+single missing operator into twenty-five failures.
+
+**Five causes, and the arithmetic is the finding.**
+
+| Was | Cause | Now |
+|---|---|---|
+| 25 | An unknown `ResourceId` answered 400. WFS 2.0 §7.9.2.4.2 says it selects nothing | **Fixed** — an empty collection |
+| 25 | `Not(PropertyIsNull(geom))`: `DescribeFeatureType` publishes the geometry, the filter refused it | **Fixed** — the null predicates accept it, comparisons still do not |
+| 24 | `PropertyIsNull(gml:name)`: GML's inherited properties were not modelled | **Fixed** — matched by the namespace, answered without SQL |
+| 13 | Two `ResourceId` children of one `Filter` returned one feature | **Fixed** — Filter Encoding §7.11's implicit union |
+| 4 | A date literal reached PostgreSQL as text and the response was **500** | **Refusal corrected**, limitation kept — [Q-124](../open-questions.md) |
+
+**Four fixes, and none of them is large.** `PropertyIsNotNull` was one case in a switch
+and one argument, because `AttributePredicate.IsNull` already carried a `Negated` flag
+for the ArcGIS front end. The implicit union was `FirstOrDefault()` reading the first of
+two siblings. The unknown identifier needed a predicate meaning *nothing matches*, which
+the query model had no way to say — an empty `OneOf` is correctly refused — so
+`AttributePredicate.MatchesNothing` exists now and emits `false`.
+
+**The 500 is the one worth keeping.** A filter comparing a timestamp column to a literal
+raised `42883`, which `ErrorResponse` classified as *the database does not have a
+function this server needs; the usual cause is PostGIS not being installed*. The
+database was healthy and the caller's filter was the problem. **That is the third time
+that file has confused a caller's mistake for a connectivity failure** — its own
+comments record 42883-for-schema and the timeout arriving *wearing the connectivity
+costume* — and the pattern is now: `42883` whose message begins *operator does not
+exist* is a 400 that says so. **The limitation itself is unchanged and deliberate**:
+neither front end converts a date literal, so both give the same answer to the same
+question (Q-124).
+
+**Fifteen remain, and they are singles rather than families.** Four are Q-124's date
+literals, honestly refused now. Two want 404 where a stored query gives 400, two are
+`GetFeatureById` returning no identifier, four are exception-code XPath mismatches, one
+emits `next` on a hits-only response, and one accepts a `GetCapabilities` with no
+`service` parameter that should be refused. **None is a family, so none of them costs
+twenty-five.**
+
+**What this says about the number in §6.** 76% became 96% in an afternoon, and the work
+was four small changes. The failures were never evidence that this surface was far from
+conforming; they were evidence that nobody had read the report. A count from a
+conformance suite is not a measurement until somebody groups it.
+
 ## 7. Conditions
 
 1. **A real QGIS connects to `/wfs` and draws a layer, and a real GDAL `ogr2ogr` reads one.** This

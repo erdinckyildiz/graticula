@@ -52,13 +52,18 @@ public static class FilterReader
     /// <param name="layerSrid">The layer's coordinate reference.</param>
     /// <param name="filter">What the filter says.</param>
     /// <param name="fault">Why it was refused.</param>
+    /// <param name="geometryColumn">
+    /// The layer's geometry column, so that a null check may name it. Omitted, the
+    /// geometry is not a property any predicate can mention.
+    /// </param>
     /// <returns>Whether it read.</returns>
     public static bool TryRead(
         string? xml,
         IReadOnlyList<FieldDescription> fields,
         int layerSrid,
         out ParsedFilter filter,
-        out WfsFault? fault)
+        out WfsFault? fault,
+        string? geometryColumn = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -91,13 +96,53 @@ public static class FilterReader
             ? root.Elements().FirstOrDefault()
             : root;
 
+        /*
+          <b>Several `ResourceId` children of one `Filter` are one filter, not the first
+          of several.</b> Filter Encoding 2.0 §7.11 makes a list of identities an implicit
+          union — `<Filter><ResourceId rid="a"/><ResourceId rid="b"/></Filter>` asks for
+          both — and this read `FirstOrDefault()` and answered with one feature. A 200
+          carrying half of what was asked for, with nothing to say so.
+
+          <b>Only identities, and only at the top.</b> Filter Encoding gives no implicit
+          combination to anything else: two sibling comparisons under one `Filter` are not
+          a valid document, and guessing `And` for them would be inventing a meaning the
+          specification declines to give. Those still take the first child, which is what
+          the tolerance above is for.
+
+          Found on 2026-08-21 by re-running the OGC suite, which charges 13 failures for
+          it. The KVP spelling `resourceId=a,b` was correct throughout — the two spellings
+          disagreed, which is the class the consistency gate exists for.
+        */
+        if (root.Name == fes + "Filter")
+        {
+            List<XElement> identities = [.. root.Elements().Where(e => e.Name == fes + "ResourceId")];
+
+            if (identities.Count > 1 && identities.Count == root.Elements().Count())
+            {
+                List<string> rids = [];
+
+                foreach (XElement each in identities)
+                {
+                    if (!TryResourceId(each, out Part one, out fault))
+                    {
+                        return false;
+                    }
+
+                    rids.AddRange(one.Ids);
+                }
+
+                filter = new ParsedFilter(null, null, null, rids);
+                return true;
+            }
+        }
+
         if (body is null)
         {
             fault = WfsFault.Invalid("filter", "The filter is empty.");
             return false;
         }
 
-        if (!TryPart(body, fields, layerSrid, 0, out Part part, out fault))
+        if (!TryPart(body, fields, layerSrid, 0, geometryColumn, out Part part, out fault))
         {
             return false;
         }
@@ -123,6 +168,7 @@ public static class FilterReader
         IReadOnlyList<FieldDescription> fields,
         int layerSrid,
         int depth,
+        string? geometryColumn,
         out Part part,
         out WfsFault? fault)
     {
@@ -154,11 +200,19 @@ public static class FilterReader
 
         return name switch
         {
-            "And" => TryLogical(element, fields, layerSrid, depth, and: true, out part, out fault),
-            "Or" => TryLogical(element, fields, layerSrid, depth, and: false, out part, out fault),
-            "Not" => TryNot(element, fields, layerSrid, depth, out part, out fault),
+            "And" => TryLogical(element, fields, layerSrid, depth, geometryColumn, and: true, out part, out fault),
+            "Or" => TryLogical(element, fields, layerSrid, depth, geometryColumn, and: false, out part, out fault),
+            "Not" => TryNot(element, fields, layerSrid, depth, geometryColumn, out part, out fault),
             "ResourceId" => TryResourceId(element, out part, out fault),
-            "PropertyIsNull" => TryNull(element, fields, out part, out fault),
+            "PropertyIsNull" => TryNull(element, fields, geometryColumn, negated: false, out part, out fault),
+
+            // <b>Its own operator in Filter Encoding 2.0, and it was simply missing.</b>
+            // `AttributePredicate.IsNull` already carried a `Negated` flag for the ArcGIS
+            // front end, so the whole of this was one case and one argument. The OGC suite
+            // charges 25 failures for it — one per feature type — which is what makes a
+            // missing operator look like a catastrophe in a conformance report and a
+            // one-line change in the code.
+            "PropertyIsNotNull" => TryNull(element, fields, geometryColumn, negated: true, out part, out fault),
             "PropertyIsLike" => TryLike(element, fields, out part, out fault),
             "PropertyIsBetween" => TryBetween(element, fields, out part, out fault),
             _ when Comparisons.ContainsKey(name) =>
@@ -225,6 +279,7 @@ public static class FilterReader
         IReadOnlyList<FieldDescription> fields,
         int layerSrid,
         int depth,
+        string? geometryColumn,
         bool and,
         out Part part,
         out WfsFault? fault)
@@ -249,7 +304,7 @@ public static class FilterReader
 
         foreach (XElement child in children)
         {
-            if (!TryPart(child, fields, layerSrid, depth + 1, out Part one, out fault))
+            if (!TryPart(child, fields, layerSrid, depth + 1, geometryColumn, out Part one, out fault))
             {
                 return false;
             }
@@ -305,6 +360,7 @@ public static class FilterReader
         IReadOnlyList<FieldDescription> fields,
         int layerSrid,
         int depth,
+        string? geometryColumn,
         out Part part,
         out WfsFault? fault)
     {
@@ -316,7 +372,7 @@ public static class FilterReader
             return false;
         }
 
-        if (!TryPart(child, fields, layerSrid, depth + 1, out Part inner, out fault))
+        if (!TryPart(child, fields, layerSrid, depth + 1, geometryColumn, out Part inner, out fault))
         {
             return false;
         }
@@ -379,18 +435,165 @@ public static class FilterReader
     private static bool TryNull(
         XElement element,
         IReadOnlyList<FieldDescription> fields,
+        string? geometryColumn,
+        bool negated,
         out Part part,
         out WfsFault? fault)
     {
         part = Part.Empty;
+        fault = null;
+
+        /*
+          <b>The geometry counts as a property here, and only here.</b>
+          `DescribeFeatureType` publishes the geometry as an element of the feature type —
+          it has to, a client needs to know its name and type — while `described.Fields`
+          holds the attribute columns alone. So this server's own schema said `geom`
+          existed and this server's own filter said it did not, about the same layer, in
+          the same request. That is two parts of one server disagreeing, which is the
+          class the consistency gate exists for, and the OGC suite charges 23 failures for
+          it.
+
+          <b>Asking whether a geometry is null is a real question.</b> A row whose geometry
+          column is empty is a row nothing can draw and nothing spatial can match, and
+          finding those is ordinary data work. Comparing a geometry to a literal is not a
+          real question, so `PropertyIsEqualTo` and its family still refuse it with the
+          sentence below — a spatial predicate is how you ask that.
+        */
+        /*
+          <b>GML's own properties exist on every feature type and this server holds none
+          of them.</b> A feature type derived from `gml:AbstractFeatureType` inherits
+          `gml:name`, `gml:description` and `gml:identifier`, all optional. That is not a
+          courtesy of the schema — it is what the derivation means, and our
+          `DescribeFeatureType` declares that derivation. So a filter naming `gml:name` is
+          valid against every layer here, and this refused it: *'name' is not a property of
+          this feature type*, 24 times in the OGC suite, once per layer.
+
+          <b>Nothing populates them, so the answer is known without asking the database.</b>
+          Every feature's `gml:name` is absent, so `PropertyIsNull` matches everything and
+          `PropertyIsNotNull` matches nothing. Both are answered here rather than in SQL,
+          because there is no column to ask about.
+
+          <b>The namespace decides, not the local name.</b> `look_buildings` has an
+          attribute column called `name`, and a client filtering on that must keep getting
+          its own column. Only a reference whose prefix resolves to the GML 3.2 namespace
+          is one of these.
+        */
+        if (TryGmlProperty(element, out fault))
+        {
+            part = new Part(
+                negated
+                    ? new AttributePredicate.MatchesNothing()
+                    : new AttributePredicate.Negation(new AttributePredicate.MatchesNothing()),
+                null,
+                null,
+                []);
+
+            return true;
+        }
+
+        if (fault is not null)
+        {
+            return false;
+        }
+
+        if (geometryColumn is { Length: > 0 }
+            && TryGeometryReference(element, geometryColumn, out fault))
+        {
+            part = new Part(new AttributePredicate.IsNull(geometryColumn, negated), null, null, []);
+            return true;
+        }
+
+        if (fault is not null)
+        {
+            return false;
+        }
 
         if (!TryProperty(element, fields, out FieldDescription field, out fault))
         {
             return false;
         }
 
-        part = new Part(new AttributePredicate.IsNull(field.Name, Negated: false), null, null, []);
+        part = new Part(new AttributePredicate.IsNull(field.Name, negated), null, null, []);
         return true;
+    }
+
+    /// <summary>
+    /// Whether this predicate's ValueReference names one of GML's own properties.
+    /// </summary>
+    /// <remarks>
+    /// Returns false with no fault when it names something else, so the caller falls
+    /// through to the geometry and then to the ordinary field lookup.
+    /// </remarks>
+    private static bool TryGmlProperty(XElement element, out WfsFault? fault)
+    {
+        fault = null;
+
+        XNamespace fes = WfsNames.Fes;
+
+        XElement? reference = element.Element(fes + "ValueReference")
+            ?? element.Element(fes + "PropertyName");
+
+        if (reference is null)
+        {
+            return false;
+        }
+
+        string text = reference.Value.Trim();
+        int colon = text.LastIndexOf(':');
+
+        // Unprefixed means the feature type's own namespace, which is never GML's.
+        if (colon <= 0 || colon == text.Length - 1)
+        {
+            return false;
+        }
+
+        XNamespace bound = reference.GetNamespaceOfPrefix(text[..colon]) ?? XNamespace.None;
+
+        return bound == XNamespace.Get(GmlNamespace)
+            && GmlProperties.Contains(text[(colon + 1)..]);
+    }
+
+    /// <summary>GML 3.2's own namespace, which a prefix must resolve to.</summary>
+    private const string GmlNamespace = "http://www.opengis.net/gml/3.2";
+
+    /// <summary>
+    /// The properties every feature type inherits and this server never populates.
+    /// </summary>
+    /// <remarks>
+    /// <c>gml:boundedBy</c> is deliberately absent: it is derived from the geometry rather
+    /// than stored, so a filter on it has an answer this could not give without asking the
+    /// database, and answering it as *always absent* would be a wrong answer rather than a
+    /// missing one.
+    /// </remarks>
+    private static readonly HashSet<string> GmlProperties =
+        new(StringComparer.Ordinal) { "name", "description", "identifier" };
+
+    /// <summary>Whether this predicate's ValueReference names the geometry column.</summary>
+    /// <remarks>
+    /// Returns false with no fault when it names something else, so the caller falls
+    /// through to the ordinary field lookup and that lookup writes the message.
+    /// </remarks>
+    private static bool TryGeometryReference(
+        XElement element, string geometryColumn, out WfsFault? fault)
+    {
+        fault = null;
+
+        XNamespace fes = WfsNames.Fes;
+
+        XElement? reference = element.Element(fes + "ValueReference")
+            ?? element.Element(fes + "PropertyName");
+
+        if (reference is null || string.IsNullOrWhiteSpace(reference.Value))
+        {
+            return false;
+        }
+
+        if (!ValueReference.TryLocalName(reference.Value, out string local, out fault))
+        {
+            return false;
+        }
+
+        return string.Equals(local, geometryColumn, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryBetween(
