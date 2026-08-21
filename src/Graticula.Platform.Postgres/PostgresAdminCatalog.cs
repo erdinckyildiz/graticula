@@ -889,10 +889,24 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // <b>`group_layer` counts as holding something.</b> A service with no feature
         // layers and a group layer is not empty — the group is a container the operator
         // made, and it is exactly the sort of thing this must not take away.
+        //
+        // <b>And so does `coverage`, added 2026-08-21 the day image services arrived.</b>
+        // An ImageServer holds a registered raster and no layers at all, so before this
+        // line every one of them looked empty: pressing *remove empty services* deleted
+        // the lot, and `on delete cascade` took the registrations with them. Found by
+        // registering a coverage, running the suite, and finding the coverage gone.
+        //
+        // **The general shape is what to keep.** This query decides emptiness by listing
+        // the kinds of thing a service can hold, so every new kind has to be added here
+        // or it is silently destroyed by a button labelled harmless. That is
+        // [ADR-043](../../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) §4's
+        // stated consequence arriving, and it is the third list in this repository that
+        // had to grow when a face did — after `AdminEndpoints.Served` and the viewers.
         const string Sql = """
             delete from service s
              where not exists (select 1 from layer l where l.service_id = s.id)
                and not exists (select 1 from group_layer g where g.service_id = s.id)
+               and not exists (select 1 from coverage c where c.service_id = s.id)
             returning coalesce(nullif(s.folder, '') || '/', '') || s.name
             """;
 

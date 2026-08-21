@@ -278,6 +278,19 @@ internal static class ErrorResponse
             + "extent, lower resultRecordCount, or index the geometry column. The database is "
             + "up and reachable; this server stopped waiting for one statement."),
 
+        // <b>A name already taken is the caller's problem, and it was reported as an
+        // outage.</b> 23505 is a unique-constraint violation — publishing a service
+        // whose name exists, or registering one file twice — and it fell through to the
+        // general Npgsql branch, so a publisher who picked a taken name was told the
+        // database was unreachable. Found on 2026-08-21 by registering the same
+        // coverage twice. 409 is the status for it, and the fourth instance of this
+        // file mistaking a caller's mistake for a connectivity failure.
+        PostgresException { SqlState: "23505" } => (
+            StatusCodes.Status409Conflict,
+            "Something with that name or location is already registered here. The database is "
+            + "healthy; it refused a duplicate. Pick another name, or look at what is already "
+            + "published at that address."),
+
         PostgresException { SqlState: "42P01" } => (
             StatusCodes.Status503ServiceUnavailable,
             "The table behind this layer no longer exists. The registration and the database have "

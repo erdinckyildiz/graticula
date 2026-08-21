@@ -12,6 +12,8 @@ using Graticula.Features;
 using System.Diagnostics;
 using Graticula.Diagnostics;
 using Graticula.Geometries;
+using Graticula.Raster.Tiff;
+using Graticula.Coverages;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
@@ -205,6 +207,14 @@ public static class Program
 
         builder.Services.AddSingleton(services =>
             new PostGisImporter(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
+
+        // <b>The raster reader and the coverage catalogue, ADR-043.</b> The factory is
+        // the only place the host names a raster format, which is what makes the
+        // adapter's project boundary a boundary rather than a suggestion.
+        builder.Services.AddSingleton<ICoverageReaderFactory, TiffCoverageReaderFactory>();
+
+        builder.Services.AddSingleton<ICoverageCatalog>(services =>
+            new PostgresCoverageCatalog(services.GetRequiredService<NpgsqlDataSource>()));
 
         builder.Services.AddSingleton<IProjector>(services =>
             new PostGisProjector(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
@@ -845,8 +855,9 @@ public static class Program
             HttpContext context,
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
+            ICoverageCatalog coverages,
             CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, system, folder: null, cancellation))
+            CatalogueAsync(context, catalog, system, coverages, null, cancellation))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // Everything the datastore owns. The literal segment is more specific
@@ -857,9 +868,11 @@ public static class Program
             HttpContext context,
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
+            ICoverageCatalog coverages,
             CancellationToken cancellation) =>
             CatalogueAsync(
-                context, catalog, system, FeatureServerMetadataWriter.HostedFolder, cancellation))
+                context, catalog, system, coverages,
+                FeatureServerMetadataWriter.HostedFolder, cancellation))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // <b>Any folder's own directory.</b> Added 2026-08-17 with named folders: the two
@@ -872,8 +885,9 @@ public static class Program
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
             string folder,
+            ICoverageCatalog coverages,
             CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, system, folder, cancellation))
+            CatalogueAsync(context, catalog, system, coverages, folder, cancellation))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // Where the system services live. ArcGIS puts the geometry service in a
@@ -882,8 +896,9 @@ public static class Program
             HttpContext context,
             PostgresLayerCatalog catalog,
             PostgresSystemServices system,
+            ICoverageCatalog coverages,
             CancellationToken cancellation) =>
-            CatalogueAsync(context, catalog, system, "Utilities", cancellation))
+            CatalogueAsync(context, catalog, system, coverages, "Utilities", cancellation))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // <b>Two URL spaces, and a layer answers on exactly one.</b> Hosted
@@ -968,6 +983,8 @@ public static class Program
         WfsEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
+        ImageServerEndpoints.Map(app);
+        CoverageAdminEndpoints.Map(app);
         OgcFeaturesEndpoints.Map(app);
 
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
@@ -1130,6 +1147,7 @@ public static class Program
         HttpContext context,
         PostgresLayerCatalog catalog,
         PostgresSystemServices system,
+        ICoverageCatalog coverages,
         string? folder,
         CancellationToken cancellation)
     {
@@ -1251,11 +1269,33 @@ public static class Program
                 s.Layers.Any(l => l.Definition.GeometryColumn is { Length: > 0 })),
         ];
 
+        /*
+          <b>Image services, ADR-043, and they are the first entry here that is not a
+          second face on a layer.</b> The three above are the same published data under
+          three types; a coverage is its own thing with no layer behind it, so it is
+          read from its own catalogue and filtered by the same sharing rule rather than
+          inheriting one.
+
+          <b>Stopped ones follow the rule the others follow</b> — visible only to
+          somebody who may manage the server — so a service an operator switched off
+          does not vanish from their own directory.
+        */
+        List<PublishedCoverage> imagery =
+        [
+            .. (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(c => string.Equals(
+                    c.Folder ?? string.Empty, folder ?? string.Empty, StringComparison.Ordinal))
+                .Where(c => seesStopped || c.Status == ServiceStatus.Started)
+                .Where(c => LayerAccess.Evaluate(
+                    c.Sharing, c.Owner, current.Principal, current.Authorization).IsAllowed()),
+        ];
+
         List<(string Name, string Type)> everything =
         [
             .. visible.Select(s => (s.QualifiedName, Type: "FeatureServer")),
             .. drawable.Select(s => (s.QualifiedName, Type: "MapServer")),
             .. tileable.Select(s => (s.QualifiedName, Type: "VectorTileServer")),
+            .. imagery.Select(c => (c.QualifiedName, Type: "ImageServer")),
             .. systemServices,
         ];
 
@@ -1277,7 +1317,8 @@ public static class Program
             folder,
             tileable.Select(s => s.Name),
             systemServices,
-            drawable.Select(s => s.Name)));
+            drawable.Select(s => s.Name),
+            imagery.Select(c => c.Name)));
     }
 
     /// <summary>

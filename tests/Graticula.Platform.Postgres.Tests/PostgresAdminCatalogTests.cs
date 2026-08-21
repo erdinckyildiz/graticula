@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
+using Graticula.Coverages;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
@@ -639,12 +640,40 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         await admin.CreateGroupLayerAsync(
             null, "holds_a_group", "a group", null, CancellationToken.None);
 
+        // <b>And a service whose only content is a registered coverage.</b> An
+        // ImageServer has no layers and no group layers, so before 2026-08-21 it looked
+        // empty to this query and pressing *remove empty services* deleted every one of
+        // them — with `on delete cascade` taking the registrations too. Found by
+        // registering a coverage, running the suite, and finding it gone.
+        PostgresCoverageCatalog coverages = new(DataSource);
+
+        await coverages.RegisterAsync(
+            null,
+            "holds_a_coverage",
+            $"C:/nowhere/{Guid.NewGuid():N}.tif",
+            new CoverageInfo(
+                16,
+                16,
+                4326,
+                new Envelope(0, 0, 1, 1),
+                [new BandInfo(0, SampleKind.Unsigned8, null, null, null)],
+                [],
+                0,
+                0),
+            owner,
+            CancellationToken.None);
+
         IReadOnlyList<string> removed =
             await admin.SweepEmptyServicesAsync(CancellationToken.None);
 
         Assert.Equal(2, removed.Count);
         Assert.Contains("leftover_a", removed);
         Assert.Contains("shelf/leftover_b", removed);
+
+        Assert.DoesNotContain("holds_a_coverage", removed);
+
+        Assert.NotNull(
+            await coverages.FindAsync(null, "holds_a_coverage", CancellationToken.None));
 
         PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
 

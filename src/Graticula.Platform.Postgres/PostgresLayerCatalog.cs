@@ -89,7 +89,18 @@ public sealed class PostgresLayerCatalog
     private const string ServiceFrom =
         "from service s "
         + "left join layer l on l.service_id = s.id "
-        + "left join data_source d on d.id = l.data_source_id";
+        + "left join data_source d on d.id = l.data_source_id "
+
+        // <b>An image service is not a feature service with nothing in it.</b> The left
+        // join above exists so a service an administrator has just created appears
+        // before its first layer does — which is right, and it also let every
+        // ImageServer through as a layerless FeatureServer the day coverages arrived.
+        // The directory listed one, a client followed it to `/FeatureServer/0`, and got
+        // a 404 that reads as a broken service rather than as one of another kind.
+        // Filtering on kind here rather than in each caller keeps the two questions
+        // apart: *has this service any layers yet* and *is this the sort of service
+        // that has layers at all*.
+        + "where s.kind is distinct from 'ImageServer'";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly SecretProtector _secrets;
@@ -379,7 +390,9 @@ public sealed class PostgresLayerCatalog
             // to — the folder half was coalesce-then-lower against an index that
             // was lower-then-coalesce, so the whole index was unusable and the
             // lookup scanned every service on every request.
-            + "where coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
+            // `and` rather than `where`: ServiceFrom carries the kind filter, so the
+            // clause is already open.
+            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
             + "  and lower(s.name) = lower(@name) "
             + "order by l.layer_index");
 

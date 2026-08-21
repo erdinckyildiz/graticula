@@ -284,6 +284,17 @@ public abstract class ConsoleTest : IAsyncLifetime
         // console's rows carry.</b> The two agreeing by construction is what lets a
         // test wait for the screen to be showing the folder it asked for, rather
         // than for it to be showing anything at all.
+        /*
+          <b>Every kind, including the ones the console has no screens for.</b> This is
+          the catalogue's own answer and it is what the services list is checked
+          against, so filtering here would hide a real difference between what the
+          console draws and what the server holds.
+
+          The walk that clicks through to a per-service page filters separately — see
+          <see cref="ImageServicesAsync"/> — because *the console lists it* and *the
+          console has a settings page for it* are two different claims, and on
+          2026-08-21 the first became true for image services while the second did not.
+        */
         static string[] Holds(JsonElement catalogue) =>
             catalogue.TryGetProperty("services", out JsonElement services)
             && services.ValueKind == JsonValueKind.Array
@@ -291,8 +302,52 @@ public abstract class ConsoleTest : IAsyncLifetime
                     .Select(s => s.TryGetProperty("name", out JsonElement n) ? n.GetString() : null)
                     .Where(n => !string.IsNullOrEmpty(n))
                     .Select(n => n!)
+                    .Distinct(StringComparer.Ordinal)
                     .ToArray()
                 : Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// Every service that is an image service, which the console lists and cannot open.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-136](../../docs/architecture-debt.md), named rather than hidden.</b> An
+    /// ImageServer holds a registered coverage
+    /// ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md)) and the
+    /// console has no screen for one, so a test that walks to a per-service page hangs
+    /// on it until it times out — and reports that as a reachability failure of the
+    /// console's own screens, which names the wrong thing. Skipping them keeps the
+    /// message honest; the gap is recorded where a gap belongs.
+    /// </remarks>
+    /// <returns>Their qualified names.</returns>
+    protected async Task<HashSet<string>> ImageServicesAsync()
+    {
+        HashSet<string> found = new(StringComparer.Ordinal);
+
+        foreach (string? folder in (string?[])[null, "hosted", "turkiye"])
+        {
+            JsonElement catalogue = await ReadAsync(
+                folder is null ? "/rest/services" : $"/rest/services/{folder}");
+
+            if (!catalogue.TryGetProperty("services", out JsonElement services)
+                || services.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement service in services.EnumerateArray())
+            {
+                if (service.TryGetProperty("type", out JsonElement type)
+                    && string.Equals(type.GetString(), "ImageServer", StringComparison.Ordinal)
+                    && service.TryGetProperty("name", out JsonElement name)
+                    && name.GetString() is { Length: > 0 } qualified)
+                {
+                    found.Add(qualified);
+                }
+            }
+        }
+
+        return found;
     }
 
     /// <summary>

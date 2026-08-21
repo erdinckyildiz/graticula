@@ -114,18 +114,42 @@ public sealed class ErrorResponseTests
     }
 
     [Fact]
+    public void A_duplicate_is_a_conflict_rather_than_an_outage()
+    {
+        // <b>The fourth time this file has confused a caller's mistake for a
+        // connectivity failure</b> — after 42883-for-schema, 42703, and the statement
+        // timeout that arrived "wearing the connectivity costume". A name already taken
+        // is something the caller can fix, and telling them the database is down sends
+        // them to look at a database that is working.
+        (int status, string message) = ErrorResponse.Classify(WithSqlState("23505"));
+
+        Assert.Equal(409, status);
+        Assert.Contains("already registered", message, StringComparison.Ordinal);
+        Assert.Contains("healthy", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_unknown_postgres_error_is_503_rather_than_falling_through_to_500()
     {
-        // 23505 has no case of its own. It must still be a 503 attributed to a
-        // database rather than to our own logic — the NpgsqlException arm does
-        // that, and it only works because it is ordered after the specific ones.
+        // <b>The example moved on 2026-08-21, and the reason is the point of the
+        // test.</b> This used 23505 as its unclassified code; 23505 is a unique
+        // violation, and registering the same coverage twice showed a publisher being
+        // told the database was unreachable when it had simply refused a duplicate. So
+        // 23505 now has a case of its own and answers 409, and this test needs a code
+        // that genuinely has none. 40001 is a serialisation failure — real, rare, and
+        // nothing here reasons about it.
+        //
+        // What is under test is unchanged: an error this file does not recognise must
+        // still be a 503 attributed to a database rather than to our own logic. The
+        // NpgsqlException arm does that, and it only works because it is ordered after
+        // every specific one.
         //
         // The message used to say "the layer's data source, not the server".
         // Stopping the datastore for the ADR-017 condition 1 test showed it
         // saying exactly that while the *platform store* was what had failed,
         // which sends an administrator to the wrong database during an outage.
         // It now names the two endpoints that can tell them apart.
-        (int status, string message) = ErrorResponse.Classify(WithSqlState("23505"));
+        (int status, string message) = ErrorResponse.Classify(WithSqlState("40001"));
 
         Assert.Equal(503, status);
         Assert.Contains("/healthz/ready", message, StringComparison.Ordinal);

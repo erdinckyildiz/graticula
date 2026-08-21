@@ -296,6 +296,10 @@ public static class FeatureServerMetadataWriter
     /// <param name="mapServices">
     /// Services with a drawable layer, which also answer as a MapServer — ADR-041.
     /// </param>
+    /// <param name="imageServices">
+    /// Registered coverages, which answer only as an ImageServer — ADR-043. Unlike the
+    /// three above, these are not another face on a layer.
+    /// </param>
     /// <returns>The catalogue document.</returns>
     public static object Catalogue(
         IEnumerable<string> serviceNames,
@@ -303,7 +307,8 @@ public static class FeatureServerMetadataWriter
         string? folder = null,
         IEnumerable<string>? tileServices = null,
         IEnumerable<(string Name, string Type)>? systemServices = null,
-        IEnumerable<string>? mapServices = null)
+        IEnumerable<string>? mapServices = null,
+        IEnumerable<string>? imageServices = null)
     {
         ArgumentNullException.ThrowIfNull(serviceNames);
         ArgumentNullException.ThrowIfNull(folders);
@@ -334,6 +339,17 @@ public static class FeatureServerMetadataWriter
         {
             services.AddRange(
                 mapServices.Select(name => new { name = Qualify(name), type = "MapServer" }));
+        }
+
+        // <b>And the raster face, added 2026-08-21 with ADR-043.</b> Unlike the three
+        // above it is not the same service under another type: an image service holds a
+        // coverage rather than layers, so it appears once and only here. Leaving it out
+        // is what the criticism of MapServer's missing viewer was about two commits
+        // earlier — a face nobody can find is a face nobody checks.
+        if (imageServices is not null)
+        {
+            services.AddRange(
+                imageServices.Select(name => new { name = Qualify(name), type = "ImageServer" }));
         }
 
         // A service that is not a layer — the geometry service — carries its

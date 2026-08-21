@@ -51,10 +51,21 @@ public sealed class ReachabilityTests : ConsoleTest
         // is how it came to fail about one run in three.
         List<(string Service, string Folder, string[] Siblings)> work = new();
 
+        // Image services are listed by the console and have no screens behind them —
+        // D-136. Walking to one waits for a page that will not arrive and then reports
+        // a reachability failure about the console's own screens, which is the wrong
+        // sentence about the wrong thing.
+        HashSet<string> imagery = await ImageServicesAsync();
+
         foreach ((string folder, string[] services) in await FoldersWithServicesAsync())
         {
             foreach (string service in services)
             {
+                if (imagery.Contains(service))
+                {
+                    continue;
+                }
+
                 work.Add((service, folder, services));
             }
         }

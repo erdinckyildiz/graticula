@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(29);
+    public static SchemaVersion ComponentSchemaVersion => new(30);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -64,7 +64,88 @@ public static class PlatformMigrations
         GroupSettingsV27,
         JobsV28,
         JobInspectKindV29,
+        CoveragesV30,
     ]);
+
+
+    /// <summary>
+    /// A coverage: imagery registered where it lives, rather than a table.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its own table, because a raster is not a feature layer and bending
+    /// <c>layer</c> to hold one would reach every face at once.</b> `layer` requires a
+    /// schema, a table, a geometry column and an identity column — every layer this
+    /// server holds is a PostGIS table, and a GeoTIFF on a disk is not one. Making
+    /// those columns nullable would make them nullable for the seven faces that read
+    /// them and rely on them being there.
+    /// </para>
+    /// <para>
+    /// <b>No new service kind is needed.</b> `service.kind` is free text defaulting to
+    /// `FeatureServer`, so an ImageServer is a service whose kind says so, and the
+    /// sharing, status, owner and folder rules that already govern a service govern
+    /// this one unchanged. That is the property worth keeping: a coverage is private or
+    /// public by the same mechanism as everything else, and the authorisation path has
+    /// no second case to get wrong.
+    /// </para>
+    /// <para>
+    /// <b>One coverage per service, deliberately.</b>
+    /// [ADR-043](../../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) §3.2
+    /// scopes the first cut to one raster, one rendering rule, one request — a mosaic
+    /// is a second decision with a dataset model behind it. The unique constraint says
+    /// so in the schema rather than in a comment, and relaxing it later is an expand.
+    /// </para>
+    /// <para>
+    /// <b>What is stored is what registration read, and it is stored because the file
+    /// is not opened again until somebody asks for pixels.</b> ADR-043 §3.3 registers
+    /// in place; the service document has to be answerable without touching a disk that
+    /// may be an object store.
+    /// </para>
+    /// </remarks>
+    private static Migration CoveragesV30 => Migration.Expand(
+        new SchemaVersion(30),
+        "Imagery is registered where it lives and described here, so a service document "
+        + "needs no disk (ADR-043).",
+
+        """
+        create table coverage (
+            id             uuid        not null primary key,
+            service_id     uuid        not null references service (id) on delete cascade,
+            name           text        not null,
+            path           text        not null,
+            srid           integer     not null,
+            width          integer     not null,
+            height         integer     not null,
+            band_count     integer     not null,
+            sample_kind    integer     not null,
+            no_data        double precision,
+            min_x          double precision not null,
+            min_y          double precision not null,
+            max_x          double precision not null,
+            max_y          double precision not null,
+            tile_width     integer     not null default 0,
+            tile_height    integer     not null default 0,
+            overview_count integer     not null default 0,
+            style          text,
+            registered_at  timestamptz not null default now(),
+            constraint coverage_size_positive
+              check (width > 0 and height > 0 and band_count > 0),
+            constraint coverage_extent_ordered
+              check (max_x > min_x and max_y > min_y)
+        )
+        """,
+
+        // One per service — see the remark. Relaxing this is an expand, and tightening
+        // it later would not be.
+        "create unique index coverage_one_per_service on coverage (service_id)",
+
+        // <b>The path is unique, and this is a registration rule rather than a physical
+        // one.</b> Publishing one file twice gives two services that answer identically
+        // and diverge the moment one is restyled, which is the shape D-61 recorded for
+        // a setting living on the wrong object. A deployment that genuinely wants two
+        // views of one raster wants two rendering rules on one coverage, and that is a
+        // different feature.
+        "create unique index coverage_path_once on coverage (lower(path))");
 
     /// <summary>
     /// A system service can be stopped, like every other service.
