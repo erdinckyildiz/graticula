@@ -46,6 +46,134 @@ internal static class CoverageAdminEndpoints
 
         app.MapPost("/admin/coverages", RegisterAsync);
         app.MapGet("/admin/coverages", ListAsync);
+
+        // <b>Here rather than on `/admin/services`, and sharing deliberately stays
+        // there.</b> Sharing already works for a coverage through the generic service
+        // route, because a coverage's scope lives on its `service` row like everything
+        // else — duplicating it would be two ways to do one thing, and the second one
+        // is the one that drifts. Stopping and removing do not work there: the generic
+        // stop is for system services and the ordinary one is per layer, which a
+        // coverage does not have. So they arrive here, keyed the way registration is.
+        app.MapPost("/admin/coverages/{name}/start", (
+            HttpContext c, string name, string? folder, ICoverageCatalog k, IAuditLog l,
+            CancellationToken t) => StatusAsync(c, name, folder, ServiceStatus.Started, k, l, t));
+
+        app.MapPost("/admin/coverages/{name}/stop", (
+            HttpContext c, string name, string? folder, ICoverageCatalog k, IAuditLog l,
+            CancellationToken t) => StatusAsync(c, name, folder, ServiceStatus.Stopped, k, l, t));
+
+        app.MapDelete("/admin/coverages/{name}", RemoveAsync);
+    }
+
+    private static async Task StatusAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        ServiceStatus status,
+        ICoverageCatalog coverages,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(coverages);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await coverages.SetStatusAsync(at, name, status, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, Missing(name, at)).ConfigureAwait(false);
+            return;
+        }
+
+        await RecordAsync(
+            context, audit, "coverage.status", Qualify(name, at),
+            new { status = status == ServiceStatus.Started ? "started" : "stopped" },
+            cancellation).ConfigureAwait(false);
+
+        await Results.Ok(new
+        {
+            name = Qualify(name, at),
+            status = status == ServiceStatus.Started ? "started" : "stopped",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task RemoveAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        ICoverageCatalog coverages,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(coverages);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await coverages.RemoveAsync(at, name, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, Missing(name, at)).ConfigureAwait(false);
+            return;
+        }
+
+        await RecordAsync(
+            context, audit, "coverage.remove", Qualify(name, at),
+            new { fileRemoved = false },
+            cancellation).ConfigureAwait(false);
+
+        // <b>Said out loud, because *remove* means two different things here.</b>
+        // Imagery is registered in place, so this removes the registration and leaves
+        // the file exactly where it was. An administrator who expected the other
+        // meaning should find that out from the response rather than from a backup.
+        await Results.Ok(new
+        {
+            name = Qualify(name, at),
+            removed = true,
+            fileRemoved = false,
+            note = "The registration is gone. The file was never copied here and has not "
+                + "been touched.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static string Qualify(string name, string? folder) =>
+        string.IsNullOrEmpty(folder) ? name : $"{folder}/{name}";
+
+    private static string Missing(string name, string? folder) =>
+        $"No image service '{Qualify(name, folder)}'. Coverages are addressed by the service "
+        + "name with the folder as a `folder` parameter, which is how `/admin/services` "
+        + "addresses one too.";
+
+    private static Task RecordAsync(
+        HttpContext context,
+        IAuditLog audit,
+        string action,
+        string resource,
+        object detail,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal principal = context.Features.Get<RequestPrincipal>()
+            ?? new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
+
+        return audit.RecordAsync(
+            new AuditEvent(
+                principal.Principal.Id,
+                principal.Principal.Name,
+                context.Connection.RemoteIpAddress?.ToString(),
+                action,
+                resource,
+                System.Text.Json.JsonSerializer.Serialize(detail),
+                true),
+            cancellation);
     }
 
     private static async Task ListAsync(
@@ -74,6 +202,12 @@ internal static class CoverageAdminEndpoints
                 bands = c.Info.Bands.Count,
                 overviews = c.Info.Overviews.Count,
                 sharing = c.Sharing.ToString().ToLowerInvariant(),
+
+                // <b>Status, because an administrator listing coverages is usually
+                // looking for the one that stopped answering.</b> It was absent until
+                // 2026-08-21 and the only way to find out was to ask the face and read
+                // the refusal, which is the wrong direction round.
+                status = c.Status == ServiceStatus.Started ? "started" : "stopped",
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

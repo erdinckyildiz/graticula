@@ -496,25 +496,49 @@ internal static class ImageServerEndpoints
             ?? new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
 
         bool visible = coverage is not null
-            && coverage.Status == ServiceStatus.Started
             && LayerAccess.Evaluate(
                 coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization)
                 .IsAllowed();
 
-        if (visible)
+        if (!visible)
         {
-            return coverage;
+            await RefuseAsync(
+                context,
+                404,
+                $"No image service '{serviceName}' is visible to you. It may not exist, or it "
+                + "may not be shared with you — this response is deliberate: telling the two "
+                + "apart would say whether something exists that you may not see.")
+                .ConfigureAwait(false);
+
+            return null;
         }
 
-        await RefuseAsync(
-            context,
-            404,
-            $"No image service '{serviceName}' is visible to you. It may not exist, or it may "
-            + "not be shared with you — this response is deliberate: telling the two apart "
-            + "would say whether something exists that you may not see.")
-            .ConfigureAwait(false);
+        /*
+          <b>Stopped is its own answer, and it comes after the sharing check for a
+          reason.</b> A caller who has already been allowed to see the service is owed
+          the actual reason it is not answering; one who has not is owed nothing, which
+          is why this cannot come first. That order is what keeps *stopped* from being
+          an oracle for *exists*.
 
-        return null;
+          <b>This face conflated the two until 2026-08-21</b>, so an operator who
+          stopped a coverage and then asked for it was told it might not exist. The
+          other faces have said so separately since D-123, and there was no reason for
+          this one to differ except that it was written in an afternoon.
+        */
+        if (coverage!.Status != ServiceStatus.Started)
+        {
+            await RefuseAsync(
+                context,
+                503,
+                $"The image service '{serviceName}' is stopped. It exists and you may see it; "
+                + "an administrator switched it off. Start it with "
+                + "`POST /admin/coverages/{name}/start`.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        return coverage;
     }
 
     private static (string? Folder, string Name) Split(HttpContext context, string serviceName) =>

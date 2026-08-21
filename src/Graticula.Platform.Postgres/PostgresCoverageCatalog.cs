@@ -189,6 +189,59 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             owner);
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> RemoveAsync(
+        string? folder, string serviceName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        // <b>The service goes and the coverage follows it.</b> `on delete cascade` is
+        // declared on the coverage's foreign key, so deleting the container is one
+        // statement rather than two with a window between them — the same reasoning
+        // registration uses for its transaction, in the other direction.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            delete from service s
+             using coverage c
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetStatusAsync(
+        string? folder, string serviceName, ServiceStatus status, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        // The join to `coverage` is what keeps this route from reaching a feature
+        // service that happens to share a name in another folder's spelling: this
+        // endpoint administers coverages and should refuse anything else rather than
+        // quietly succeed against it.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update service s
+               set status = @status, updated_at = now()
+              from coverage c
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "status", status == ServiceStatus.Started ? "started" : "stopped");
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
     /// <summary>
     /// Rebuilds what registration read, without opening the file.
     /// </summary>

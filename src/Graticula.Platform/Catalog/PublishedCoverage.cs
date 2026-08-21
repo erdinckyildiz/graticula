@@ -161,4 +161,35 @@ public interface ICoverageCatalog
         CoverageInfo info,
         Guid? owner,
         System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a coverage and the service that published it.
+    /// </summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether one was there to remove.</returns>
+    /// <remarks>
+    /// <b>The file is not touched.</b> Imagery is registered in place, so removing the
+    /// registration removes this server's knowledge of it and nothing else — which is
+    /// the property that makes registering in place safe to undo. A delete that reached
+    /// into somebody's storage would make publishing a raster a decision about their
+    /// data rather than about this catalogue.
+    /// </remarks>
+    System.Threading.Tasks.Task<bool> RemoveAsync(
+        string? folder, string serviceName, System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts or stops the service that publishes a coverage.
+    /// </summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="status">What it should become.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether one was there to change.</returns>
+    System.Threading.Tasks.Task<bool> SetStatusAsync(
+        string? folder,
+        string serviceName,
+        ServiceStatus status,
+        System.Threading.CancellationToken cancellationToken);
 }
