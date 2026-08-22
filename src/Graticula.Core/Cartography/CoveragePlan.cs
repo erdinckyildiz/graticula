@@ -87,8 +87,7 @@ public static class CoveragePlanner
         // Ground per pixel at the chosen level. Derived from the level's own size
         // rather than from 2^overview, because a pyramid's levels round rather than
         // halve exactly and an odd image's third level is not its width over eight.
-        double perPixelX = (info.Extent.MaxX - info.Extent.MinX) / levelWidth;
-        double perPixelY = (info.Extent.MaxY - info.Extent.MinY) / levelHeight;
+        (double perPixelX, double perPixelY) = PixelSize(info, overview);
 
         int left = (int)Math.Floor((minX - info.Extent.MinX) / perPixelX);
         int top = (int)Math.Floor((info.Extent.MaxY - maxY) / perPixelY);
@@ -150,6 +149,31 @@ public static class CoveragePlanner
         }
 
         return best;
+    }
+
+    /// <summary>How much ground one pixel of an overview level covers.</summary>
+    /// <param name="info">The coverage.</param>
+    /// <param name="overview">Zero for full resolution; higher indexes the overviews.</param>
+    /// <returns>Ground units per pixel, east-west and north-south.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="info"/> is null.</exception>
+    /// <remarks>
+    /// <b>Public because the caller of <see cref="Plan"/> needs the same number, and was
+    /// working it out again by hand.</b> The planner divides the extent by the level's size to
+    /// choose a read window; the code that draws the result divides the extent by the level's
+    /// size to place it. Two copies of one calculation, and the copy in the drawing path had
+    /// the level lookup written out longhand — so a change to how a level's size is found
+    /// would have moved one and not the other, and the symptom would be a picture slightly
+    /// out of place at one overview level only.
+    /// </remarks>
+    public static (double X, double Y) PixelSize(CoverageInfo info, int overview)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+
+        (int width, int height) = Size(info, overview);
+
+        return (
+            (info.Extent.MaxX - info.Extent.MinX) / width,
+            (info.Extent.MaxY - info.Extent.MinY) / height);
     }
 
     private static (int Width, int Height) Size(CoverageInfo info, int overview) =>

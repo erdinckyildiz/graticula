@@ -5248,6 +5248,31 @@ async function loadServiceCapabilities(name, folderGiven) {
     same request an ArcGIS client makes, so a difference between what the console shows
     and what a client sees is not possible.
   */
+  /*
+    <b>Who may read this service, in the head bar, on every one of its pages.</b>
+    [D-141](../../docs/architecture-debt.md): sharing was a pill on the services list and
+    nothing at all here, so an operator who arrived from a bookmark or a shared link read a
+    whole settings page with no sign of whether the thing was private. *You can see it on the
+    other screen* is not an answer when the other screen is not the one they are on.
+
+    <b>In the head bar rather than on the Capabilities page.</b> A service has four pages and
+    the fact is true on all of them; putting it on one would have fixed a quarter of the
+    problem and made the other three look deliberate.
+
+    <b>From the server's answer, not from the list this reader may never have seen.</b> The
+    same rule the `kind` lookup two hundred lines down had to learn the hard way.
+  */
+  const scope = $("serviceScope");
+
+  if (scope) {
+    scope.hidden = !c.sharing;
+
+    if (c.sharing) {
+      scope.className = "pill p-" + c.sharing;
+      scope.textContent = c.sharing;
+    }
+  }
+
   const raster = $("coverageSettings");
   const features = $("featureSettings");
 

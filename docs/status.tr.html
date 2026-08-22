@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>cfc17f3</code> · 2026-08-22 21:34</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a2e8c16</code> · 2026-08-22 21:34</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">45</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">97/187</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">açık soru</div><div class="kpi-n">62 yanıtlandı · 3 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">84</div><div class="kpi-l">açık borç</div><div class="kpi-n">56 ödendi · 6 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">83</div><div class="kpi-l">açık borç</div><div class="kpi-n">58 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/74</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1706</div><div class="kpi-l">test</div><div class="kpi-n">227 kaynak dosya, 84,099 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1708</div><div class="kpi-l">test</div><div class="kpi-n">227 kaynak dosya, 84,187 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">178 madde</span></div><p><b>90 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>84 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">177 madde</span></div><p><b>90 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>83 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -437,9 +437,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-137</td><td>~~No ArcGIS Pro user can open imagery from this server, and one untrue word would fix it.~~ RESOLVED 2026-08-22, the day it was taken on, by serving the operation rather than claiming it — ADR-044.</td><td class="muted-t">Serve the operation rather than claim it.</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-138</td><td>~~The request log records almost nothing, so the server cannot say what a client asked it for.~~ WITHDRAWN 2026-08-22, the day it was written, because it was not true.</td><td class="muted-t">n/a.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-139</td><td>POST is refused on every ArcGIS rendering and query operation, and the REST specification documents it.</td><td class="muted-t">One parameter reader that takes both, and every ArcGIS face routed through it.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-140</td><td>The map viewer has no visible keyboard focus and its error panel is silent to a screen reader.</td><td class="muted-t">Restore the focus ring on the map surface and the zoom widget, and give #note role=&quot;status&quot; with aria-live=&quot;polite&quot;.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-141</td><td>A private image service&#x27;s own settings page carries no sign that it is private.</td><td class="muted-t">Put the sharing state on the service&#x27;s own header, where every one of its pages can see it, rather than on the settings…</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class="done"><td class="id">D-140</td><td>~~The map viewer has no visible keyboard focus and its error panel is silent to a screen reader.~~ RESOLVED 2026-08-22.</td><td class="muted-t">Restore the focus ring on the map surface and the zoom widget, and give #note role=&quot;status&quot; with aria-live=&quot;polite&quot;.</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-141</td><td>~~A private image service&#x27;s own settings page carries no sign that it is private.~~ RESOLVED 2026-08-22.</td><td class="muted-t">Put the sharing state on the service&#x27;s own header, where every one of its pages can see it, rather than on the settings…</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-142</td><td>~~Switching between Server and Studio showed the sign-in screen for about a second.~~ RESOLVED 2026-08-22.</td><td class="muted-t">n/a.</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class=""><td class="id">D-143</td><td>ListPagingTests.Filteringreturnstothefirstpage fails about one run in six, and the cause is not established.</td><td class="muted-t">Instrument the screen rather than the test.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div></section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -529,13 +530,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:47.1%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:38.0%"></div></div><div class="bar-n">117</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:35.7%"></div></div><div class="bar-n">110</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.3%"></div></div><div class="bar-n">81</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.9%"></div></div><div class="bar-n">83</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:7.1%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:5.8%"></div></div><div class="bar-n">18</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:5.5%"></div></div><div class="bar-n">17</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a2e8c16</code><time>2026-08-22</time><span>the status page names cfc17f3</span></li>
 <li><code>cfc17f3</code><time>2026-08-22</time><span>the password screen flashed on every surface switch, and the first fix only looked like one</span></li>
 <li><code>4dadb60</code><time>2026-08-22</time><span>the status page names the commit it reports on</span></li>
 <li><code>61e215d</code><time>2026-08-22</time><span>the audit trail had 18,215 rows and nothing that could read them</span></li>
@@ -549,7 +551,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>de88a98</code><time>2026-08-21</time><span>the ArcGIS SDK draws our ImageServer, and asking it found two things our tests could not</span></li>
 <li><code>e86c4cc</code><time>2026-08-21</time><span>the warp lands, and its error is 0.0223 pixels rather than a claim</span></li>
 <li><code>aaacca0</code><time>2026-08-21</time><span>ImageServer serves a registered coverage, and three lists had to learn a new kind</span></li>
-<li><code>3414eb0</code><time>2026-08-21</time><span>the canvas learns to draw an image, and a corpus file turns out to have been empty</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

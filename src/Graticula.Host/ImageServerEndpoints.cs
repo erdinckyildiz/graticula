@@ -787,13 +787,11 @@ internal static class ImageServerEndpoints
 
         Rgba[] painted = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
 
-        (int levelWidth, int levelHeight) = read.Overview == 0
-            ? (coverage.Info.Width, coverage.Info.Height)
-            : (coverage.Info.Overviews[read.Overview - 1].Width,
-               coverage.Info.Overviews[read.Overview - 1].Height);
-
-        double perPixelX = (coverage.Info.Extent.MaxX - coverage.Info.Extent.MinX) / levelWidth;
-        double perPixelY = (coverage.Info.Extent.MaxY - coverage.Info.Extent.MinY) / levelHeight;
+        // <b>Asked of the planner rather than worked out again.</b> This was the same
+        // division with the level lookup written out longhand beside it — one calculation in
+        // two places, and the other copy is the one that chose the read window.
+        (double perPixelX, double perPixelY) =
+            CoveragePlanner.PixelSize(coverage.Info, read.Overview);
 
         CoverageWarp warp = new(asked.Width, asked.Height, steps, groundX, groundY);
 
@@ -1162,6 +1160,11 @@ internal static class ImageServerEndpoints
         double columnAt = (x - info.Extent.MinX) / info.PixelWidth;
         double rowAt = (info.Extent.MaxY - y) / info.PixelHeight;
 
+        // <b>`Math.Clamp` throws when its minimum exceeds its maximum, so a zero-width
+        // coverage would fault here — and it cannot be one.</b> `CoverageInfo`'s constructor
+        // refuses a width or height of zero, so `Width - 1` is never below zero for any
+        // instance that exists. Written down because a review raised it as a suspicion it
+        // could not confirm, and an invariant nobody can find reads as a missing guard.
         int column = Math.Clamp(
             (int)Math.Floor(columnAt + (Math.Abs(columnAt) * 1e-12) + 1e-9),
             0,

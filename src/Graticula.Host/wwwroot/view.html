@@ -96,6 +96,37 @@
   #attrs td { font-family: var(--mono); font-size: 11.5px; word-break: break-word; }
   #attrs tr:first-child th, #attrs tr:first-child td { border-top: 0; }
   .ol-attribution { font-size: 11px; }
+
+  /*
+    <b>A focus ring, because there was none anywhere on this page.</b> [D-140](../../../docs/architecture-debt.md).
+    The *Frame layer* button and the attribution link showed the browser's own ring; the map
+    surface and the SDK's zoom widget did not, because the Calcite theme this page loads sets
+    `outline: none` on them. A keyboard reader could tab into the map and have no idea they
+    were there — and the gap looked like a rendering fault rather than a missing style, which
+    is why it survived a review that checked everything else.
+
+    <b>Declared here rather than fought for in the SDK's own stylesheet.</b> The theme arrives
+    from a CDN and its selectors are its own; a rule of ours on the elements it renders is the
+    part we control, and `:focus-visible` means a mouse click does not draw one.
+  */
+  :focus-visible,
+  #view:focus-visible,
+  .esri-widget--button:focus-visible,
+  .esri-view-surface:focus-visible,
+  .esri-view-surface--inset-outline:focus-visible {
+    outline: 2px solid #0b6157 !important;
+    outline-offset: 2px;
+  }
+
+  /*
+    <b>The note is announced, not just displayed.</b> It is the only thing on the page that
+    says *the layer would not draw* — including the deliberate refusal for a private service,
+    which is carefully worded and which a screen-reader user never heard. `role="status"` with
+    `aria-live="polite"` reads it out when it appears, and *polite* rather than *assertive*
+    because it is an explanation rather than an interruption.
+
+    The attributes are on the element in the markup; this rule only exists to say why.
+  */
 </style>
 </head>
 <body>
@@ -114,7 +145,7 @@
   </header>
   <div id="map"></div>
 </div>
-<div id="note"></div>
+<div id="note" role="status" aria-live="polite"></div>
 <div id="attrs"></div>
 
 <!--

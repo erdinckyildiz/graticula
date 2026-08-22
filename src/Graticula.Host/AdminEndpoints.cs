@@ -2783,6 +2783,57 @@ internal static class AdminEndpoints
     /// what the console needs from here is one fact to stop it drawing five operations
     /// the service does not answer.
     /// </remarks>
+    /// <summary>Who may read a service, for a page that shows one service.</summary>
+    /// <param name="catalog">The admin catalogue.</param>
+    /// <param name="coverages">The coverage catalogue.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The scope, lower-cased, or null when the service is not found.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Two catalogues, because a coverage is not in the feature-service listing.</b> An
+    /// ImageServer holds a coverage and is a row in `coverage`; asking only
+    /// `ListServicesAsync` would report every image service as *not found* and the page would
+    /// show nothing — which is the same class of omission
+    /// [D-136](../../docs/architecture-debt.md) records, arriving through a different door.
+    /// </para>
+    /// <para>
+    /// <b>A listing rather than a lookup, because there is no lookup.</b>
+    /// `IAdminCatalog` answers *every service* and nothing narrower; adding a
+    /// single-service read for one field on one page would be a port change for a caption.
+    /// The listing is already what the services screen reads on every visit.
+    /// </para>
+    /// </remarks>
+    private static async Task<string?> SharingOfAsync(
+        IAdminCatalog catalog,
+        ICoverageCatalog coverages,
+        string name,
+        string? folder,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(coverages);
+
+        if (await coverages.FindAsync(folder, name, cancellation).ConfigureAwait(false)
+            is { } coverage)
+        {
+            return coverage.Sharing.ToString().ToLowerInvariant();
+        }
+
+        foreach (AdminService service in
+            await catalog.ListServicesAsync(cancellation).ConfigureAwait(false))
+        {
+            if (string.Equals(service.Name, name, StringComparison.Ordinal)
+                && string.Equals(service.Folder, folder, StringComparison.Ordinal))
+            {
+                return service.Sharing.ToString().ToLowerInvariant();
+            }
+        }
+
+        return null;
+    }
+
     private static async Task<string> KindOfAsync(
         ICoverageCatalog coverages,
         string name,
@@ -2848,6 +2899,16 @@ internal static class AdminEndpoints
             // the row rather than inferring it from null capabilities: a feature
             // service that has never been configured has nulls too.
             kind = await KindOfAsync(coverages, name, at, cancellation)
+                .ConfigureAwait(false),
+
+            // <b>And who may read it, because the page that shows a service's settings said
+            // nothing about that.</b> [D-141](../../docs/architecture-debt.md): sharing is a
+            // pill on the services list, and an operator who arrived from a bookmark or a
+            // shared link — the path that was broken for a different reason the same day —
+            // read a whole settings page with no sign of whether the thing was private.
+            // *You can see it on the other screen* is not an answer when the other screen is
+            // not the one they are on.
+            sharing = await SharingOfAsync(catalog, coverages, name, at, cancellation)
                 .ConfigureAwait(false),
 
             servesFeatures = limits.ServesFeatures,

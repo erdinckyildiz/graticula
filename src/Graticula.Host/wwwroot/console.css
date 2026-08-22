@@ -926,7 +926,14 @@ label.field {
 dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--gap-4); margin: 0;
            font-size: var(--t-small); }
 dl.facts dt { color: var(--muted); }
-dl.facts dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+/*
+  <b>`overflow-wrap: anywhere`, not `word-break: break-all`.</b> `break-all` breaks every word
+  at the edge whether it needs to or not, so a facts list 900 pixels wide split `JPEG` into
+  `JPE` and `G`. `anywhere` breaks only a word that cannot fit — which is what these values
+  need, because a path or a format list has no spaces to break at and a wkid has nothing to
+  gain from being split at all.
+*/
+dl.facts dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
 dl.facts dd .mono { font-weight: 600; color: var(--ink); }
 dl.facts dd .why { font-family: var(--sans); font-weight: 400; word-break: normal;
                    color: var(--muted); }
