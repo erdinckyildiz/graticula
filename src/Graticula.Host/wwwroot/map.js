@@ -126,10 +126,28 @@
       ? []
       : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
 
+    /*
+      <b>The caption said Natural Earth while the map drew OpenStreetMap, with OSM's own
+      attribution visible in the corner at the same time.</b> `groundLayers` was changed
+      to prefer OSM whenever the SDK exposes `WebTileLayer` — which is always, the way
+      this page calls it — and this sentence was not changed with it. A page that
+      contradicts what it is showing is worse than one that says nothing, because the
+      caption is the part a reader believes.
+
+      <b>Read from what was actually built rather than restated.</b> The layers come back
+      from `groundLayers`; asking them what they are means the caption cannot drift from
+      them again, which is the only durable fix for a sentence that describes code
+      somewhere else.
+    */
+    const osm = ground.some(layer => layer?.copyright?.includes("OpenStreetMap"));
+
     document.getElementById("ground").textContent = template
       ? "Basemap: " + template
-      : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "
-        + "from here. The console's map panel takes a tile template if you have one.";
+      : osm
+        ? "Ground is OpenStreetMap. The console's map panel takes a tile template if you "
+          + "have one."
+        : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "
+          + "from here. The console's map panel takes a tile template if you have one.";
 
     /*
       Web Mercator, named rather than inherited — hosted data is stored in 3857
@@ -260,10 +278,22 @@
         + (box
           ? `<span><code>${size}</code> at <code>${corner}</code>`
             + (degrees ? ` — <code>${degrees}</code>` : "")
-            + `</span><button id="frame">Frame layer</button>`
+            + `</span><button id="frameLayer">Frame layer</button>`
           : `<span>no extent in the layer document</span>`);
 
-      const frame = document.getElementById("frame");
+      // <b>`frameLayer`, not `frame`, and the rename is the whole fix.</b> This page's
+      // layout wrapper is `<div id="frame">` and this button was `id="frame"` too, so
+      // `getElementById("frame")` returned the wrapper — first in document order — and
+      // the frame-the-layer handler was attached to the entire page. Every click
+      // anywhere, including on the SDK's own zoom buttons and the mouse-down half of a
+      // drag to pan, snapped the view back to the layer's extent. Wheel zoom and
+      // keyboard panning were the only gestures that escaped it.
+      //
+      // <b>The same failure was already found once, in the other viewer, by a different
+      // route</b> — see `fitWhenSized` in view.js, whose note records a `postrender`
+      // handler that re-framed the map whenever it was panned. Two viewers, two
+      // mechanisms, one symptom: a map that will not stay where it is put.
+      const frame = document.getElementById("frameLayer");
       if (frame) {
         frame.onclick = () => view.goTo(features.fullExtent.expand(1.4))
           .catch(error => problem("The view could not move.", String(error.message || error)));

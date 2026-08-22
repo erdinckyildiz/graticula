@@ -346,10 +346,11 @@ internal static class MapServerEndpoints
         // already has one — makes `Query["f"]` the string "json,image", and a plain
         // equality check then reads it as neither. The image came back for a request
         // that asked for JSON, which is a wrong answer with a 200 on it.
-        if (string.Equals(Format(context), "json", StringComparison.OrdinalIgnoreCase))
+        if (ArcGisResponseFormat.WantsJson(context))
         {
             string href = $"{context.Request.Scheme}://{context.Request.Host}"
-                + $"{context.Request.Path}{Replaced(context.Request.QueryString.Value, "image")}";
+                + context.Request.Path
+                + ArcGisResponseFormat.WithFormat(context.Request.QueryString.Value, "image");
 
             await Results.Ok(MapServerMetadataWriter.Export(
                 href,
@@ -370,46 +371,12 @@ internal static class MapServerEndpoints
         await context.Response.Body.WriteAsync(image, cancellation).ConfigureAwait(false);
     }
 
-    /// <summary>The response format asked for, taking the first if several were sent.</summary>
-    private static string Format(HttpContext context)
-    {
-        Microsoft.Extensions.Primitives.StringValues values = default;
-
-        foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> pair
-            in context.Request.Query)
-        {
-            if (string.Equals(pair.Key, "f", StringComparison.OrdinalIgnoreCase))
-            {
-                values = pair.Value;
-                break;
-            }
-        }
-
-        return values.Count > 0 ? values[0] ?? string.Empty : string.Empty;
-    }
-
-    /// <summary>The query string with <c>f</c> replaced, so a href fetches the image.</summary>
-    private static string Replaced(string? query, string format)
-    {
-        if (string.IsNullOrEmpty(query))
-        {
-            return $"?f={format}";
-        }
-
-        List<string> parts = [];
-
-        foreach (string part in query.TrimStart('?').Split('&'))
-        {
-            if (!part.StartsWith("f=", StringComparison.OrdinalIgnoreCase))
-            {
-                parts.Add(part);
-            }
-        }
-
-        parts.Add($"f={format}");
-
-        return "?" + string.Join('&', parts);
-    }
+    // <b>Reading `f` moved to ArcGisResponseFormat, because this face was the only one
+    // doing it.</b> `ImageServer/exportImage` ignored the parameter entirely and answered
+    // PNG bytes for `f=json` — two faces on one server disagreeing about a parameter both
+    // document. The careful part, that a query string carrying `f` twice makes
+    // `Query["f"]` the single string "json,image", is worth having in one place rather
+    // than rediscovered in the second.
 
     // ---------- identify ----------
 

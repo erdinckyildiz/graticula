@@ -2780,12 +2780,53 @@ async function showService(qualified) {
   drawServiceDelete();
   drawServiceTabs();
 
-  // <b>An image service has no FeatureServer face, so asking for one is a 404 in the
-  // console's own network log.</b> `kind` comes from the row that was just drawn, so
-  // this costs nothing and skips a request that could only ever fail. The panel below
-  // describes layers; a coverage's own description is on the settings page instead.
-  const kind = (SERVICE_ROWS.find(r =>
-    r.name === name && (r.folder || null) === (folder || null)) || {}).kind;
+  /*
+    <b>An image service has no FeatureServer face, so asking for one is a 404 — and worse
+    than a 404 in the network log, a red toast on the page saying no such layer is visible
+    to you.</b>
+
+    <b>This read the kind out of `SERVICE_ROWS`, and that was a race rather than a
+    guard.</b> That array is filled as a side effect of having rendered a services list,
+    so it is populated when a reader clicks through from the list and empty when they open
+    `#/service/hosted/tile_gray` directly — from a bookmark, a shared link, or a page
+    reload. Empty means `kind` is undefined, undefined is not `"ImageServer"`, and the
+    FeatureServer branch runs for a coverage. Reproduced three times out of three on a
+    fresh session, and a deliberate delay made it pass, which is what makes it a race:
+    waiting 1000 ms still failed and 1500 ms succeeded.
+
+    <b>The server already answers this.</b> `/admin/services/{name}/capabilities` carries
+    `kind`, added the day the coverage panel was — it was simply not the thing being read
+    here. Asking it costs one request that the settings panel below makes anyway, and it
+    cannot be empty because of what a reader clicked on earlier.
+
+    <b>This is the third time a control on this screen has depended on state that exists
+    only if you arrived a particular way.</b> The rule the repeat argues for: a page
+    decides what to draw from what the server says, never from what a previous page left
+    behind.
+  */
+  /*
+    <b>Inside its own try, because a service can be gone by the time this asks.</b> The
+    line below it — the FeatureServer probe — has always been inside a try for exactly
+    that reason, and putting a second request in front of it without one produced an
+    unhandled rejection the moment a test's temporary import service was removed while
+    its page was open. Caught by the console suite on the first full run after the
+    change, which is the run that exists for this.
+
+    <b>A failure here means *carry on*, not *stop*.</b> If the kind cannot be read, the
+    path below runs and fails in the way it already knew how to fail — with a message on
+    the page — rather than with a rejection nobody handles.
+  */
+  let kind = null;
+
+  try {
+    const settings = await api(
+      `/admin/services/${encodeURIComponent(name)}/capabilities`
+        + (folder ? `?folder=${encodeURIComponent(folder)}` : ""));
+
+    kind = settings ? settings.kind : null;
+  } catch {
+    kind = null;
+  }
 
   if (kind === "ImageServer") {
     return;
@@ -3825,7 +3866,7 @@ function serviceSettingsMarkup(name, folder) {
           this server holds a reference rather than the file. Removing the registration
           leaves the file untouched.</p>
 
-        <p><a class="button" id="coverageView" target="_blank" rel="noreferrer" href="#"
+        <p><a class="btn" id="coverageView" target="_blank" rel="noreferrer" href="#"
           >Open in the ArcGIS SDK viewer</a></p>
       </div>
 
@@ -5225,6 +5266,32 @@ async function loadServiceCapabilities(name, folderGiven) {
     }
 
     const doc = await api(`/rest/services/${qualified}/ImageServer?f=json`) || {};
+    /*
+      <b>What a pixel is measured in, which the service document does not say.</b> It
+      gives a reference code and two numbers, and the numbers are in whatever that
+      reference counts in. Naming it from the code is the only way to label the row.
+
+      <b>Geographic references are the ones worth naming</b>, and this only knows the two
+      that matter here: 4326 and its equivalents are degrees, everything else this server
+      serves is projected and counts in metres. A reference that is neither — feet, or a
+      geographic code not in the list — gets `units` rather than a wrong name, because a
+      wrong unit is what this row exists to stop.
+    */
+    const GEOGRAPHIC = [4326, 4269, 4267, 4258];
+
+    function groundUnit(document) {
+      const wkid = document?.spatialReference?.wkid;
+
+      if (GEOGRAPHIC.includes(wkid)) {
+        return "degrees";
+      }
+
+      // 2000-32760 is the bulk of the projected EPSG range, and every projected system
+      // this server can serve from PostGIS within it is metric. Outside it, say nothing
+      // rather than guess.
+      return wkid >= 2000 && wkid <= 32760 ? "m" : "units";
+    }
+
     const facts = $("coverageFacts");
 
     if (facts) {
@@ -5238,11 +5305,28 @@ async function loadServiceCapabilities(name, folderGiven) {
         // 0.010000000000000009 and printing that says *this measurement is precise to
         // seventeen digits*, which it is not. Six significant figures is more than any
         // raster's georeference carries.
+        //
+        // <b>And with its unit, because without one the number is unreadable.</b> This
+        // showed `0.01 × 0.01` for a coverage in EPSG:4326 and `100 × 100` for one in
+        // EPSG:3857 — degrees beside metres, four orders of magnitude apart on the
+        // ground, rendered as though they were comparable. An operator reading the two
+        // rows would conclude the second raster was ten thousand times coarser, when it
+        // is roughly a hundred times finer. The note two hundred lines above this one
+        // records a real incident in this codebase from exactly that conflation.
         ["Pixel size", doc.pixelSizeX
-          ? `${Number(doc.pixelSizeX.toPrecision(6))} × ${Number(doc.pixelSizeY.toPrecision(6))}`
+          ? `${Number(doc.pixelSizeX.toPrecision(6))} × `
+            + `${Number(doc.pixelSizeY.toPrecision(6))} ${groundUnit(doc)}`
           : null],
         ["No data", doc.noDataValue ?? "none declared"],
         ["Formats", doc.supportedImageFormatTypes],
+        // <b>The scheme, and the sentence saying it is not a cache.</b> An operator who
+        // reads *tiled* on this page will ask where the tiles are kept, and the answer is
+        // nowhere: each one is drawn when it is asked for, out of the same file
+        // exportImage reads. Saying so here costs a line and saves that question.
+        ["Tiles", doc.tileInfo
+          ? `${doc.tileInfo.rows} px, ${doc.tileInfo.lods.length} levels, `
+            + `EPSG:${doc.tileInfo.spatialReference.wkid}, drawn on request`
+          : null],
       ].filter(([, v]) => v !== null && v !== undefined && v !== "");
 
       facts.innerHTML = rows.map(([k, v]) =>

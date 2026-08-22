@@ -767,7 +767,7 @@ function loadMap(document_) {
       ? `<span><code>${mapExtent.map(v => Math.round(v)).join(", ")}</code></span>`
       : `<span>no extent in the service document</span>`)
     + `<span><code>EPSG:3857</code></span>`
-    + (mapExtent ? `<button id="frame">Frame layer</button>` : "")
+    + (mapExtent ? `<button id="frameLayer">Frame layer</button>` : "")
     + `<a href="${escape(serviceUrl())}/MapServer?f=html" style="color:var(--accent)">`
     + `service document</a>`;
 
@@ -857,7 +857,7 @@ async function load(layerId, name) {
     + (empty ? "<span>nothing to frame</span>" : `<span><code>${
         extent.map(v => Math.round(v)).join(", ")}</code></span>`)
     + `<span><code>EPSG:3857</code></span>`
-    + (empty ? "" : `<button id="frame">Frame layer</button>`)
+    + (empty ? "" : `<button id="frameLayer">Frame layer</button>`)
     + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
 
   $("title").textContent = name ? `${SERVICE} — ${name}` : `${SERVICE} / ${layerId}`;

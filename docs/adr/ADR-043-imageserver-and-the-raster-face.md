@@ -80,9 +80,20 @@ true about v1.
 > pixels; projecting a single point is a round trip for one answer, and the whole point
 > of `identify` is that it is cheap.
 
+> **AMENDED 2026-08-22: tiles are in, by
+> [ADR-044](ADR-044-tiles-are-served-because-the-claim-had-to-be-true.md).** Not because
+> the reasoning below was wrong — it was about keeping the increment reviewable, and it
+> did that — but because ArcGIS Pro will not open an image service whose capabilities
+> lack the word `Tilemap`, and the choice was between serving the operation and claiming
+> it. `tileInfo` is populated, `singleFusedMapCache` stays false, and a tile is rendered
+> when it is asked for.
+
 `GET|POST /rest/services/{name}/ImageServer` — the service document.
 `GET|POST .../ImageServer/exportImage` — pixels, rendered here.
 `GET|POST .../ImageServer/identify` — the value under a point.
+`GET .../ImageServer/tile/{level}/{row}/{column}` — one tile of the scheme.
+`GET .../ImageServer/tilemap/{level}/{row}/{column}/{across}/{down}` — which of a block
+this coverage has ground for.
 
 **Raster function chains and dynamic mosaicking are not in the first cut** and this
 document does not pretend otherwise. One raster, one rendering rule, one request. A
@@ -175,9 +186,43 @@ and it is why WMS and MapServer get raster for free once this lands.
    is undefined because the SDK parses it into `rasterInfo` — and it printed *?-band*
    beside a picture that plainly had three.
 
-   **What is still owed is ArcGIS Pro**, which is the client an administrator actually
-   uses and the one that paid this condition for the FeatureServer path. The SDK is a
-   real Esri client and it is not that one.
+   **ArcGIS Pro 3.6 was the other half and it was paid on 2026-08-22, at a price.**
+   Driven through arcpy — the library Pro itself is built on, ArcInfo licensed —
+   `MakeImageServerLayer` makes a layer, `Describe` reports 1 band, EPSG:4326 and the
+   coverage's own extent, `arcpy.Raster` reports `U8`, and the raster draws.
+   **Every step of a nine-step probe matches Esri's own `WorldElevation3D/Terrain3D`
+   service, including the two steps that fail** — `CopyRaster` fails identically against
+   both, because an image service that says `allowCopy: false` does not offer a download.
+   `tools/pro-probe.py` runs the two side by side for exactly that reason: without the
+   control column, a step no image service passes reads as a defect in this one, and it
+   was misread that way twice before the control was added.
+
+   **It cost four defects of ours, and none of them was findable from inside.** `bbox`
+   arrives from Pro as an envelope object and this server read only the four-number
+   spelling. `bboxSR` arrives as `{"wkid":102100,"latestWkid":3857}` — the retired Web
+   Mercator code and the live one together — and the parser kept every digit after the
+   first `wkid` and made 1021003857 of them. `format=None` is a client saying *your
+   choice* and was refused by name, which is `format=jpgpng` above repeated one client
+   later. And an unserved operation answered with an empty-bodied 404, which Pro asked
+   for forty times in a single workflow. All four were found by replaying Pro's own
+   request rather than by reading the code, which is the part that generalises: a parser
+   that reads one documented spelling refuses the other with a correct sentence, and a
+   test written from the same reading of the specification agrees with it.
+
+   **The request came from a proxy, and the proxy was unnecessary** — the server's own log
+   had every one of these requests, and the file that looked empty was a stale one at a
+   path the development script computed wrongly. That was [D-138](../architecture-debt.md),
+   written and withdrawn on the same day.
+
+   **It was discharged with a hole in it for part of a day, and the hole is worth
+   leaving in the record.** Pro's raster reader refuses an image service whose
+   `capabilities` does not contain `Tilemap`, and this face had no route for that word; the
+   probe above first ran with it temporarily typed in and nothing behind it, which is
+   precisely the state condition 5 exists to keep out of a release. It was taken back out,
+   ADR-044 was written and accepted, the scheme and the two routes were built, and the
+   probe was run again against the served version. **That second run is the one this
+   discharge rests on** — [ADR-044](ADR-044-tiles-are-served-because-the-claim-had-to-be-true.md)
+   condition 6, and [Q-134](../open-questions.md) for the measured grid.
 
 2. **The warp's error is measured and stated, not assumed.** Control-point
    interpolation is an approximation; the condition is a number in
@@ -241,13 +286,38 @@ and it is why WMS and MapServer get raster for free once this lands.
    correctness gate 2's finding 5, and it cost that gate a `Map,Query,Data` string that
    was untrue.
 
-   **DISCHARGED 2026-08-21.** The capabilities string is `Image` and nothing else, and
-   the flags beside it say what they mean: `allowRasterFunction` false,
-   `supportsStatistics` false, `supportsAdvancedQueries` false. `hasColormap` and
-   `hasMultidimensions` likewise. **Asserted from outside rather than by reading the
-   code** — `ImageServerConformanceTests` checks that `Image` is claimed and that
-   `Catalog` and `Download` are not, which is the shape of the test that would have
-   caught finding 5 a day earlier than a person did.
+   **DISCHARGED 2026-08-21, and the discharge was tested on 2026-08-22 by something
+   wanting to be claimed.** The capabilities string is `Image` and nothing else, and the
+   flags beside it say what they mean: `allowRasterFunction` false, `supportsStatistics`
+   false, `supportsAdvancedQueries` false. `hasColormap` and `hasMultidimensions`
+   likewise. **Asserted from outside rather than by reading the code** —
+   `ImageServerConformanceTests` reads the document a client reads.
+
+   **`allowAnalysis` changed from false to true and that is not a weakening of this
+   condition.** It reads as *this server performs analysis* and it means *this service
+   may be used as input to analysis*: its pixels can be read for an arbitrary extent,
+   size and reference, which is what `exportImage` does. False was a cautious guess about
+   somebody else's vocabulary. `allowRasterFunction` stays false and is the real limit,
+   because that is the flag that would claim server-side function chains.
+
+   **`Tilemap` is claimed now and the condition is why it took a day longer than typing
+   it.** ArcGIS Pro's raster reader gates on that word ([Q-134](../open-questions.md)) and
+   never calls the operation, so claiming it would have worked and nobody would have
+   caught it. This face had no `tilemap` route, no tiling scheme and `tileInfo: null` — a
+   client reading the claim would have had no scheme in which to name a tile, which is not
+   merely unserved but unaddressable. **The operation is served instead**:
+   [ADR-044](ADR-044-tiles-are-served-because-the-claim-had-to-be-true.md), the owner's
+   decision, amending §3.2's first cut.
+
+   **The test was tightened twice on the way and the second time is the one that
+   matters.** First from `Contains("Image")` to `Assert.Equal("Image", claimed)`, because
+   the old assertion would have passed `Image,Tilemap` without noticing — a condition
+   whose test tolerates the thing it forbids is not discharged, it is unmeasured. Then to
+   a second test that splits the string and asks each word to answer over HTTP: `Image`
+   must return a PNG, `Tilemap` must have a populated `tileInfo` and answer a `tilemap`
+   request, **and a word the test does not recognise fails it.** Reading a claim out of a
+   document and comparing it with a string proves the claim was made, not that it was
+   true, and that gap is exactly the one `Map,Query,Data` stood in.
 
 6. **`NOTICE` carries the three attributions** — BitMiracle, IJG and libtiff — before
    anything ships that links the reader.

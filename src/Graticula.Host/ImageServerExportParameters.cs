@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using Graticula.Cartography;
 using Graticula.Coverages;
 using Graticula.Geometries;
@@ -29,6 +30,22 @@ namespace Graticula.Host;
 /// </remarks>
 internal sealed class ImageServerExportParameters
 {
+    /// <summary>Builds a request for one tile, which nothing asked for in a query.</summary>
+    /// <param name="extent">The ground the tile covers.</param>
+    /// <param name="size">Its edge in pixels; tiles are square.</param>
+    /// <param name="srid">The reference the tiling scheme is laid out in.</param>
+    /// <returns>The same thing a parsed <c>exportImage</c> produces.</returns>
+    /// <remarks>
+    /// <b>A tile is an <c>exportImage</c> whose parameters came from a scheme instead of
+    /// from a client.</b> Building the same type rather than a second one means the tile
+    /// route cannot drift from the export route in how it chooses an overview, whether it
+    /// warps, or what it does at the coverage's edge — the three places the two would
+    /// otherwise diverge silently and produce a tiled map that disagrees with the exported
+    /// image of the same ground.
+    /// </remarks>
+    internal static ImageServerExportParameters ForTile(Envelope extent, int size, int srid) =>
+        new(extent, size, size, MapImageFormat.Png, srid);
+
     private ImageServerExportParameters(
         Envelope extent, int width, int height, MapImageFormat format, int srid)
     {
@@ -194,6 +211,18 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
+        // See AllFinite. This is the one that answered a 500 without signing in.
+        if (!AllFinite(x, y))
+        {
+            x = 0;
+            y = 0;
+
+            error = $"`geometry={geometry}` has an ordinate that is not a finite number. A "
+                + "point needs two real numbers; `NaN` and infinity name no ground.";
+
+            return false;
+        }
+
         return true;
     }
 
@@ -209,6 +238,150 @@ internal sealed class ImageServerExportParameters
     /// heard of, and that is refused by the projection itself with the sentence
     /// `ErrorResponse` gives it.
     /// </remarks>
+    /// <summary>Whether every ordinate is a real, finite number.</summary>
+    /// <param name="ordinates">The numbers as they parsed.</param>
+    /// <returns>Whether all of them can name ground.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b><c>double.TryParse</c> accepts <c>NaN</c>, and every comparison with <c>NaN</c> is
+    /// false, so a coordinate that is not a number passes any bounds check written as
+    /// <i>outside, therefore refuse</i>.</b> It is neither inside nor outside, and the code
+    /// that decides between those two has no third branch.
+    /// </para>
+    /// <para>
+    /// <b>It cost a 500 reachable without signing in.</b>
+    /// <c>identify?geometry=NaN,NaN</c> passed the extent check, reached the response, and
+    /// `System.Text.Json` threw — non-finite numbers cannot be written as JSON at all — so
+    /// the client got an unhandled exception where it had asked a question about a pixel.
+    /// The same hole in <c>exportImage</c> was quieter and no better:
+    /// <c>bbox=NaN,NaN,NaN,NaN</c> passed the has-area check, drew nothing, and answered
+    /// HTTP 200 with a blank picture.
+    /// </para>
+    /// <para>
+    /// <b>Refused at parse time rather than guarded at each use.</b> A coordinate that is
+    /// not a number is not a coordinate, and there is exactly one place where that is worth
+    /// saying. The alternative — writing every later comparison so that <c>NaN</c> falls the
+    /// right way — is a rule that has to be remembered at every new use of the value, which
+    /// is the kind of rule that is remembered four times out of five.
+    /// </para>
+    /// <para>
+    /// The envelope-object spelling of <c>bbox</c> was never exposed to this, because bare
+    /// <c>NaN</c> is not valid JSON and <see cref="TryEnvelopeObject"/> refuses it before
+    /// this could be asked. Checked rather than assumed.
+    /// </para>
+    /// </remarks>
+    private static bool AllFinite(params double[] ordinates)
+    {
+        foreach (double ordinate in ordinates)
+        {
+            if (!double.IsFinite(ordinate))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Reads an EPSG code out of an Esri spatial-reference object.</summary>
+    /// <param name="json">The object as it arrived.</param>
+    /// <param name="srid">The code it names.</param>
+    /// <returns>Whether one was found.</returns>
+    /// <remarks>
+    /// <b><c>latestWkid</c> wins over <c>wkid</c>, and that is the whole reason this is
+    /// a method rather than a line.</b> A client that sends both is telling a server it
+    /// may be old which code it prefers to be understood by; the newer one is the one
+    /// this server's projection tables are written in. Web Mercator is the case that
+    /// matters — 102100 is the retired code and 3857 is the live one, and PostGIS knows
+    /// only the second.
+    /// </remarks>
+    private static bool TryReferenceObject(string json, out int srid)
+    {
+        srid = 0;
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (root.TryGetProperty("latestWkid", out JsonElement latest)
+                && latest.ValueKind == JsonValueKind.Number
+                && latest.TryGetInt32(out int latestCode)
+                && latestCode > 0)
+            {
+                srid = latestCode;
+                return true;
+            }
+
+            if (root.TryGetProperty("wkid", out JsonElement wkid)
+                && wkid.ValueKind == JsonValueKind.Number
+                && wkid.TryGetInt32(out int code)
+                && code > 0)
+            {
+                srid = code;
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>Reads the four ordinates out of an Esri envelope object.</summary>
+    /// <param name="json">The object as it arrived.</param>
+    /// <param name="ordinates">minx, miny, maxx, maxy.</param>
+    /// <returns>Whether all four were found.</returns>
+    /// <remarks>
+    /// <b>ArcGIS Pro sends <c>bbox</c> as an envelope object, not as four numbers.</b>
+    /// The REST specification documents both forms and this server read only one, so
+    /// every request Pro made was refused with <i>`bbox` holds four numbers</i> — a
+    /// correct sentence about a form the client never claimed to be using. The envelope
+    /// may also carry its own <c>spatialReference</c>; that is deliberately not read
+    /// here, because <c>bboxSR</c> is the parameter this server settles the reference
+    /// from and two sources for one answer is how they come to disagree.
+    /// </remarks>
+    private static bool TryEnvelopeObject(string json, out double[] ordinates)
+    {
+        ordinates = new double[4];
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            string[] names = ["xmin", "ymin", "xmax", "ymax"];
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (!root.TryGetProperty(names[i], out JsonElement value)
+                    || value.ValueKind != JsonValueKind.Number
+                    || !value.TryGetDouble(out ordinates[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private static bool TryReference(string? text, CoverageInfo info, out int srid, out string? error)
     {
         error = null;
@@ -221,12 +394,29 @@ internal sealed class ImageServerExportParameters
 
         string value = text.Trim();
 
-        // Esri sends either a bare code or a JSON object with a wkid in it.
-        int at = value.IndexOf("wkid", StringComparison.OrdinalIgnoreCase);
-
-        if (at >= 0)
+        // <b>Esri sends either a bare code or a JSON object, and the object usually
+        // carries two codes rather than one.</b> ArcGIS Pro sends
+        // `{"wkid":102100,"latestWkid":3857}`: the old Web Mercator code and the one
+        // that replaced it, together, so that a server of any age finds one it knows.
+        //
+        // <b>The first version of this read the object by keeping every digit after the
+        // first `wkid`</b>, which turned that pair into 1021003857 and refused it as an
+        // unknown reference. Found by replaying Pro's own request from a proxy trace
+        // rather than by reading the code, which is the only reason the shape of the
+        // real thing was visible at all.
+        if (value.StartsWith('{'))
         {
-            value = new string([.. value[at..].Where(char.IsDigit)]);
+            if (!TryReferenceObject(value, out srid))
+            {
+                srid = info.Srid;
+
+                error = $"'{text}' is a spatial reference object with no `wkid` or "
+                    + "`latestWkid` in it. This server reads references by EPSG code.";
+
+                return false;
+            }
+
+            return true;
         }
 
         if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out srid)
@@ -270,8 +460,24 @@ internal sealed class ImageServerExportParameters
             return true;
         }
 
-        string[] parts = text.Split(',');
         double[] ordinates = new double[4];
+
+        // The envelope form, which is what ArcGIS Pro sends. See TryEnvelopeObject.
+        if (text.TrimStart().StartsWith('{'))
+        {
+            if (!TryEnvelopeObject(text.Trim(), out ordinates))
+            {
+                extent = info.Extent;
+                error = "`bbox` came as an object, which this server reads, but it has no "
+                    + "`xmin`, `ymin`, `xmax` and `ymax` numbers in it.";
+
+                return false;
+            }
+
+            return Area(ordinates, info, out extent, out error);
+        }
+
+        string[] parts = text.Split(',');
 
         if (parts.Length != 4)
         {
@@ -293,6 +499,34 @@ internal sealed class ImageServerExportParameters
                 return false;
             }
         }
+
+        // See AllFinite. `NaN` and the infinities parse and then pass every bounds check.
+        if (!AllFinite(ordinates))
+        {
+            extent = info.Extent;
+            error = $"`bbox={text}` has an ordinate that is not a finite number. A box needs "
+                + "four real numbers; `NaN` and infinity name no ground.";
+
+            return false;
+        }
+
+        return Area(ordinates, info, out extent, out error);
+    }
+
+    /// <summary>Turns four checked ordinates into an extent.</summary>
+    /// <param name="ordinates">minx, miny, maxx, maxy.</param>
+    /// <param name="info">The coverage, for the extent an error falls back to.</param>
+    /// <param name="extent">The box.</param>
+    /// <param name="error">Why it was refused.</param>
+    /// <returns>Whether the box has area.</returns>
+    /// <remarks>
+    /// Shared by the two spellings of <c>bbox</c> so that a box with no area is refused
+    /// with the same sentence whichever way it arrived.
+    /// </remarks>
+    private static bool Area(
+        double[] ordinates, CoverageInfo info, out Envelope extent, out string? error)
+    {
+        error = null;
 
         if (ordinates[2] <= ordinates[0] || ordinates[3] <= ordinates[1])
         {
@@ -357,7 +591,13 @@ internal sealed class ImageServerExportParameters
         error = null;
         format = MapImageFormat.Png;
 
-        if (string.IsNullOrWhiteSpace(text))
+        // <b>`None` is a client saying *unspecified*, not naming a format called None.</b>
+        // ArcGIS Pro sends `format=None&compression=None` when it wants the server's own
+        // choice, and this server refused it by name — the same mistake `jpgpng` below
+        // records, found the same way and one client later. An empty parameter and an
+        // absent one already meant *your choice*; this is a third spelling of it.
+        if (string.IsNullOrWhiteSpace(text)
+            || text.Trim().Equals("none", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -393,8 +633,14 @@ internal sealed class ImageServerExportParameters
                 return true;
 
             default:
-                error = $"`format={text}` is not one this server writes. It writes png, jpg and "
-                    + "jpgpng, which it answers as png.";
+                // <b>Names every spelling it takes, because the short version sent a
+                // client away that had asked for something this server does write.</b> The
+                // message used to say *png, jpg and jpgpng* while `png8`, `png24`, `png32`
+                // and `jpeg` all worked — a refusal that undersells the server is as
+                // misleading as one that oversells it.
+                error = $"`format={text}` is not one this server writes. It writes png, png8, "
+                    + "png24, png32, jpg, jpeg, and jpgpng — which it answers as png. An "
+                    + "absent format, an empty one, or `None` all mean this server chooses.";
 
                 return false;
         }
