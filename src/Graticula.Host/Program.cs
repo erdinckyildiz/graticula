@@ -262,6 +262,36 @@ public static class Program
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
 
+        /*
+          <b>The request log is a singleton because it owns a queue and a background
+          flusher, not because it is cheap to share.</b> A scoped one would start a thread
+          per request, which is the opposite of the point.
+          [ADR-045](../../docs/adr/ADR-045-the-server-keeps-a-log-you-can-ask-questions-of.md).
+
+          <b>Registered as its concrete type as well as its port.</b> The Logs screen needs
+          `Dropped` and `Waiting` to show how much the log is losing, and those are not on
+          `IRequestLog` beyond the count — condition 6 asks for the drop to be visible, and
+          the health of the writer is a different question from reading the log.
+        */
+        builder.Services.AddSingleton(services =>
+            new PostgresRequestLog(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton<IRequestLog>(services =>
+            services.GetRequiredService<PostgresRequestLog>());
+
+        builder.Services.AddSingleton<IClientEventLog>(services =>
+            new PostgresClientEventLog(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton<ILogReader>(services =>
+            new PostgresLogReader(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton(services =>
+            new PostgresRequestLogHealth(services.GetRequiredService<PostgresRequestLog>()));
+
+        // ADR-045 condition 3: the cap is enforced, not promised. LogRetention states the
+        // window and says how much it swept.
+        builder.Services.AddHostedService<LogRetention>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -375,9 +405,27 @@ public static class Program
         ILogger requests = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("requests");
 
+        IRequestLog requestLog = app.Services.GetRequiredService<IRequestLog>();
+
         app.Use(async (context, next) =>
         {
+            long started = Stopwatch.GetTimestamp();
+
             await next().ConfigureAwait(false);
+
+            /*
+              <b>Redacted once and used twice.</b> The text line and the stored row are the
+              same sentence written to two places, so they read the same query string —
+              redacting separately would be two chances to get
+              [D-120](../../docs/architecture-debt.md) wrong instead of one.
+
+              <b>The redaction is not optional here, and the guard below is why that needs
+              saying.</b> The text line is skipped when the logger is off; the stored row is
+              not, because the Logs screen is the log now and a deployment that turns the
+              console's logger down did not ask to stop recording. So the redaction happens
+              before the guard rather than inside it.
+            */
+            string redacted = QueryRedaction.Redact(context.Request.QueryString.Value);
 
             // <b>Guarded and computed into a local</b>, which is ImportScratch's
             // pattern for CA1873 and the analyser is right in general: a deployment
@@ -385,8 +433,6 @@ public static class Program
             // writes. Here the work is one pass over the query string.
             if (requests.IsEnabled(LogLevel.Information))
             {
-                string redacted = QueryRedaction.Redact(context.Request.QueryString.Value);
-
                 Log.Request(
                     requests,
                     context.Request.Method,
@@ -394,6 +440,37 @@ public static class Program
                     redacted,
                     context.Response.StatusCode);
             }
+
+            /*
+              <b>Queued, never awaited — `Record` returns void for exactly this reason.</b>
+              ADR-045 condition 1: a request must not wait on the log. If the queue is full
+              this entry is dropped and counted, and the Logs screen shows the count.
+
+              <b>Read from the features after `next`, because that is when it is known.</b>
+              The principal is resolved by a middleware further in, so asking before would
+              record every request as anonymous — including every administrative one, which
+              is the opposite of useful.
+            */
+            if (!settings.RequestLog)
+            {
+                return;
+            }
+
+            RequestPrincipal? who = context.Features.Get<RequestPrincipal>();
+
+            requestLog.Record(new RequestEntry(
+                context.Request.Method,
+                context.Request.Path.Value ?? "/",
+                redacted is { Length: > 0 } ? redacted : null,
+                context.Response.StatusCode,
+                (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                who is { } resolved && !resolved.Principal.IsAnonymous
+                    ? resolved.Principal.Name
+                    : null,
+                context.Connection.RemoteIpAddress?.ToString(),
+                RequestFacts.Face(context.Request.Path),
+                RequestFacts.Service(context.Request.Path),
+                context.Response.ContentLength));
         });
 
         app.UseSecurityHeaders(settings.RequireHttps);
@@ -984,6 +1061,7 @@ public static class Program
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
+        LogEndpoints.Map(app);
         CoverageAdminEndpoints.Map(app);
         OgcFeaturesEndpoints.Map(app);
 

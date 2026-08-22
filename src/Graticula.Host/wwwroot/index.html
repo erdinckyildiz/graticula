@@ -679,6 +679,92 @@
     is that mistake, made by me, against my own server.
   -->
   <!-- Groups — ADR-036. Studio's, because a group is about who may read somebody's content. -->
+  <!-- ------------------------------------------------- SERVER · logs -->
+  <!--
+    <b>ADR-045. Three logs, one screen, and the source selector comes first because it changes
+    what every other control means.</b>
+
+    <b>Built from this console's own shapes rather than new ones</b> — `pagehead`, `toolbar`,
+    `panel widetable`, `hint`, the same as Services. The first draft of this screen invented a
+    `tabrow`, a `filters` grid and a `check` label; none of them existed, and a screen that
+    brings its own three concepts is how a console stops looking like one product. The source
+    selector is the toolbar's segmented control, the filters are the toolbar, and the rows are
+    the table every other screen uses.
+
+    <b>The dropped counter is not decoration.</b> The request log is lossy by design: a bounded
+    queue, and full means drop. Condition 6 asks for that to be visible, because rows shown
+    without it would be claiming a completeness this log does not have.
+  -->
+  <section class="view" id="view-logs">
+    <div class="pagehead">
+      <div>
+        <h2>Logs</h2>
+        <p>What this server and its studio have been doing.</p>
+      </div>
+    </div>
+
+    <!--
+      <b>Three sentences, because the three logs answer different questions and a reader
+      choosing between them needs to know which.</b> The studio one is the least obvious and the
+      most valuable: a viewer failure that never reached the server appears nowhere else.
+    -->
+    <p class="lede"><b>Administration</b> is the audit trail — every action that changed
+      something, who did it, and from where. <b>Requests</b> is one row per HTTP request, with
+      its status and how long it took. <b>Studio viewer</b> is what the map viewer reported
+      from a browser, which is where a failure that never reached the server shows up.</p>
+
+    <div class="toolbar">
+      <span id="logSources"></span>
+      <span style="flex:1"></span>
+      <span class="val" id="logCount"></span>
+      <button class="tiny ghost" id="logRefresh" title="Read the log again">&#8635;</button>
+    </div>
+
+    <div class="toolbar">
+      <!--
+        <b>Real labels, not placeholders alone.</b> A placeholder vanishes the moment somebody
+        types, so the only thing telling them what the box means is gone exactly when they have
+        committed to it — and it is not reliably announced at all.
+      -->
+      <label for="logText">Contains</label>
+      <input type="search" id="logText" placeholder="a path, a service, a message"
+             autocomplete="off">
+
+      <label for="logWho">Who</label>
+      <input type="text" id="logWho" placeholder="a principal name" autocomplete="off">
+
+      <label for="logSince">Since</label>
+      <select id="logSince">
+        <option value="1">Last hour</option>
+        <option value="24" selected>Last day</option>
+        <option value="168">Last week</option>
+        <option value="720">Last 30 days</option>
+        <option value="">All of it</option>
+      </select>
+      <!-- Filled per source: an action for the audit trail, a status for requests, a kind for
+           studio events. Empty for a source that has none. -->
+      <span id="logOwn"></span>
+      <label><input type="checkbox" id="logFailed"> Only failures</label>
+    </div>
+
+    <p class="hint" id="logWriter"></p>
+
+    <div class="panel widetable">
+      <table>
+        <thead><tr>
+          <th style="width:1%">When</th>
+          <th>What</th>
+          <th>Who</th>
+          <th>From</th>
+          <th>Resource</th>
+        </tr></thead>
+        <tbody id="logRows"></tbody>
+      </table>
+    </div>
+
+    <p><button class="ghost" id="logMore" hidden>Older</button></p>
+  </section>
+
   <section class="view" id="view-groups">
     <div class="pagehead">
       <div>

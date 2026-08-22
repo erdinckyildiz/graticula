@@ -123,6 +123,8 @@
   is not — that split is the fix for four rounds of "Natural Earth is still
   showing". Loaded before view.js so the constant exists when it reads it.
 -->
+<!-- First, so it is listening before anything else can throw. ADR-045. -->
+<script src="report.js"></script>
 <script src="ground.js" defer></script>
 <script src="view.js" defer></script>
 </body>

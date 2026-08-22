@@ -30,6 +30,23 @@ const $ = id => document.getElementById(id);
 function problem(title, detail) {
   $("note").innerHTML = `<b>${escape(title)}</b>${detail}`;
   $("note").className = "on";
+
+  /*
+    <b>Said to the operator's log as well as to the reader on the page.</b> The SDK
+    resolves its own load failures internally, so a service answering an error envelope
+    inside an HTTP 200 — this server's convention everywhere — produces no window error
+    for `report.js` to catch. This is the only path by which *the viewer could not draw
+    the layer* reaches the server at all. ADR-045.
+
+    <b>Wrapped, because a reporter that throws would turn one failure into two.</b>
+  */
+  try {
+    if (window.reportStudio) {
+      window.reportStudio("viewer", title, { detail: String(detail).slice(0, 800) });
+    }
+  } catch (ignored) {
+    // The page is already telling the reader. Nothing more to do.
+  }
 }
 
 function escape(value) {

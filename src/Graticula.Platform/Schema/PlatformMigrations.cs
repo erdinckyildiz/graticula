@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(30);
+    public static SchemaVersion ComponentSchemaVersion => new(31);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -65,6 +65,7 @@ public static class PlatformMigrations
         JobsV28,
         JobInspectKindV29,
         CoveragesV30,
+        LogsV31,
     ]);
 
 
@@ -102,6 +103,94 @@ public static class PlatformMigrations
     /// may be an object store.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Two logs a person can ask questions of: what was requested, and what the studio saw.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>`audit_event` already existed and is untouched by this.</b> It has recorded every
+    /// administrative action since the store's first migrations — 18,215 rows on the
+    /// development store when this was written — and nothing has ever read it. What was
+    /// missing was never the audit trail; it was a way to ask it anything, and the two
+    /// things this adds beside it.
+    /// [ADR-045](../../../docs/adr/ADR-045-the-server-keeps-a-log-you-can-ask-questions-of.md).
+    /// </para>
+    /// <para>
+    /// <b>`request_log.query` holds a redacted query string, and the column comment says so
+    /// because a schema outlives the code that fills it.</b> Esri clients send a session
+    /// token as `?token=` — [D-120](../../../docs/architecture-debt.md) — so an unredacted
+    /// query string is a credential, and this table has an index on it. Everything written
+    /// here goes through `QueryRedaction.Redact` first.
+    /// </para>
+    /// <para>
+    /// <b>No foreign key to `principal`, unlike `audit_event`.</b> A request log row is
+    /// written for anonymous callers too, and one that referenced a principal would have to
+    /// resolve it on the hot path. The name is copied instead: a log records what was true
+    /// when it was written, and a principal renamed afterwards does not retroactively change
+    /// who made a request.
+    /// </para>
+    /// <para>
+    /// <b>Indexed on time descending only, and that is a deliberate floor rather than a
+    /// finished answer.</b> Newest-first is how every one of these is read; a status or path
+    /// index is a decision to make when a real query is slow, on evidence, rather than three
+    /// speculative indexes making every insert more expensive on the hot path this ADR's
+    /// first condition is about.
+    /// </para>
+    /// </remarks>
+    private static Migration LogsV31 => Migration.Expand(
+        new SchemaVersion(31),
+        "A request log and a studio event log, so what the server and the studio did can be "
+        + "asked rather than grepped (ADR-045).",
+
+        """
+        create table request_log (
+            id              bigserial   not null primary key,
+            occurred_at     timestamptz not null default now(),
+            method          text        not null,
+            path            text        not null,
+            query           text        null,
+            status          integer     not null,
+            duration_ms     integer     not null,
+            principal_name  text        null,
+            source_address  inet        null,
+            face            text        null,
+            service         text        null,
+            bytes           bigint      null,
+            constraint request_log_status_plausible check (status between 100 and 599),
+            constraint request_log_duration_not_negative check (duration_ms >= 0)
+        )
+        """,
+
+        "comment on column request_log.query is "
+        + "'Redacted by QueryRedaction before insert: an Esri token arrives here (D-120).'",
+
+        "create index request_log_time_idx on request_log (occurred_at desc)",
+
+        """
+        create table client_event (
+            id              bigserial   not null primary key,
+            occurred_at     timestamptz not null default now(),
+            kind            text        not null,
+            page            text        null,
+            message         text        not null,
+            detail          jsonb       not null default '{}'::jsonb,
+            principal_name  text        null,
+            source_address  inet        null,
+            agent           text        null,
+            constraint client_event_kind_not_blank check (length(btrim(kind)) > 0),
+            constraint client_event_message_not_blank check (length(btrim(message)) > 0),
+            constraint client_event_message_bounded check (length(message) <= 2000),
+            constraint client_event_page_bounded check (page is null or length(page) <= 2000),
+            constraint client_event_agent_bounded check (agent is null or length(agent) <= 512)
+        )
+        """,
+
+        "comment on table client_event is "
+        + "'Written from an unauthenticated endpoint. Every text column here is untrusted "
+        + "input and the length bounds are the last line of defence, not the first.'",
+
+        "create index client_event_time_idx on client_event (occurred_at desc)");
+
     private static Migration CoveragesV30 => Migration.Expand(
         new SchemaVersion(30),
         "Imagery is registered where it lives and described here, so a service document "

@@ -56,6 +56,16 @@ internal sealed record HostSettings(
     int DefaultRecordCount,
     int MaximumImageWidth,
     int MaximumImageHeight,
+
+    // <b>On by default, and the switch exists for two reasons that are both real.</b> An
+    // operator running a busy read-only deployment may not want a write per request at all,
+    // and ADR-045 condition 1 asks for the log's cost on the request path to be *measured*,
+    // which needs a way to turn it off and compare. A condition that can only be argued is
+    // not a condition.
+    //
+    // <b>It does not turn off the audit trail or the text log.</b> Those are not this, and an
+    // administrative action that cannot be recorded has not been authorised to happen.
+    bool RequestLog,
     int JpegQuality,
     IReadOnlyList<string>? LegacyKeys = null)
 {
@@ -98,6 +108,7 @@ internal sealed record HostSettings(
         // secure one, and turning it off is a deliberate act that warns at every
         // startup rather than once.
         bool requireHttps = keys.Value("RequireHttps", true);
+        bool requestLog = keys.Value("RequestLog", true);
 
         // <b>A budget with a default, because N6's finding was that there was
         // none at all.</b> 2 GB holds a useful seeded pyramid for a handful of
@@ -326,6 +337,7 @@ internal sealed record HostSettings(
             // client learns the limit rather than discovering it by refusal.
             Math.Clamp(keys.Value("MaximumImageWidth", 4096), 16, 16384),
             Math.Clamp(keys.Value("MaximumImageHeight", 4096), 16, 16384),
+            requestLog,
 
             // JPEG quality. 85 is where the artefacts stop being visible on a map's
             // hard edges, which is a harder case than a photograph: a one-pixel road

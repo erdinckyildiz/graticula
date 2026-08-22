@@ -1399,6 +1399,12 @@ const SURFACES = {
       ["roles", "Roles"],
 
       ["operations", "Operations"],
+
+      // <b>Beside Operations, because they answer the same shift.</b> Operations says what
+      // this process is doing now; Logs says what it has done. The owner asked for it here:
+      // *"hem server hem studio ile ilgili logların sorgulandığı bir ekran lazım. bu da
+      // server ekranında olmalı."* ADR-045.
+      ["logs", "Logs"],
     ],
   },
   studio: {
@@ -1452,6 +1458,11 @@ const SCREEN_SURFACE = {
   // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
   // page belongs to is `LAYER_PAGES`, and the router asks that instead.
   operations: "server",
+
+  // <b>Server's, because reading a log is an operational act.</b> It carries principals,
+  // source addresses and paths — most of what somebody probing a deployment wants — so it
+  // sits behind `admin:manageServer` with the rest of Server. ADR-045.
+  logs: "server",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/#/group/planning`
@@ -1746,6 +1757,7 @@ const SECTION_GLYPH = {
   sources: "▤",
   members: "◍",
   operations: "◎",
+  logs: "≡",
   content: "◈",
   anonymous: "◌",
 };
@@ -1809,6 +1821,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
+  if (screen === "logs") section("logs", loadLogs, "logRows");
 }
 
 // ---------------------------------------------------------------------- map
@@ -7362,6 +7375,47 @@ async function createImported(event) {
  * deliberate — D-46 is the register entry for fixing the instance and leaving the
  * class, and a new branch added later inherits this instead of remembering it.
  */
+/*
+  <b>A search box fires `input`, not `change`, and waiting for `change` means waiting for the
+  reader to leave the field.</b> Debounced, because a log query is a database scan and one per
+  keystroke would make a 60-row page cost sixty of them.
+*/
+let logTyping = null;
+
+/*
+  <b>A row that a keyboard can focus has to be a row a keyboard can open.</b> Space as well as
+  Enter, because the row announces itself as a button and that is what a button does.
+*/
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  const row = event.target.closest ? event.target.closest("tr.logrow") : null;
+
+  if (!row || !row.nextElementSibling
+      || !row.nextElementSibling.classList.contains("logdetail")) {
+    return;
+  }
+
+  // Space scrolls a page by default, which is not what a focused control should do.
+  event.preventDefault();
+
+  const shown = row.nextElementSibling.hidden;
+
+  row.nextElementSibling.hidden = !shown;
+  row.setAttribute("aria-expanded", String(shown));
+});
+
+document.addEventListener("input", event => {
+  if (event.target.id !== "logText" && event.target.id !== "logWho") {
+    return;
+  }
+
+  clearTimeout(logTyping);
+  logTyping = setTimeout(() => section("logs", loadLogs, "logRows"), 300);
+});
+
 document.addEventListener("click", async event => {
   try {
     await handleClick(event);
@@ -7373,6 +7427,55 @@ document.addEventListener("click", async event => {
 async function handleClick(event) {
   const t = event.target;
   const d = t.dataset || {};
+
+  /*
+    <b>The Logs screen, delegated like everything else on this page.</b> Its rows are drawn
+    and redrawn on every filter change and every page, so binding a listener per row would be
+    binding hundreds and rebinding them each time.
+
+    <b>Reading a log must not be able to change anything, and this is where that is
+    enforced on the client side too.</b> Every branch here either re-reads or reveals; there
+    is no action on this screen, which is why it has no row menu and no confirm dialogs.
+  */
+  if (d.logSource) {
+    if (d.logSource !== logSource) {
+      logSource = d.logSource;
+
+      // <b>Cleared, because it means something else now.</b> An action carried on to the
+      // request log is a filter no request can match, and the reader would be looking at an
+      // empty table wondering which of their four filters did it.
+      logOwn = "";
+      await section("logs", loadLogs, "logRows");
+    }
+
+    return;
+  }
+
+  if (t.id === "logRefresh") {
+    await section("logs", loadLogs, "logRows");
+    return;
+  }
+
+  if (t.id === "logMore") {
+    // <b>`true`, so the rows already read stay.</b> Paging that replaced the page would make
+    // *Older* a navigation, and a reader following a thread down a log wants the thread.
+    await section("logs", () => loadLogs(true), "logRows");
+    return;
+  }
+
+  // <b>The whole row, not a chevron.</b> A row that reveals something should be clickable
+  // where the eye already is; the detail row is the next sibling, which is what makes this
+  // one line rather than a lookup.
+  const row = t.closest ? t.closest("tr.logrow") : null;
+
+  if (row && row.nextElementSibling
+      && row.nextElementSibling.classList.contains("logdetail")) {
+    const shown = row.nextElementSibling.hidden;
+
+    row.nextElementSibling.hidden = !shown;
+    row.setAttribute("aria-expanded", String(shown));
+    return;
+  }
 
   // Navigation is links now — the tab strip, the editor's left column, the
   // breadcrumb and Cancel — so it needs no branch here. The browser follows the
@@ -8698,6 +8801,19 @@ async function handleClick(event) {
 }
 
 document.addEventListener("change", async event => {
+  // <b>Every filter on the Logs screen re-reads, and none of them has a Search button.</b>
+  // A search button on a form whose every control is a filter is a second thing to click
+  // for something the change already decided.
+  if (["logText", "logWho", "logSince", "logFailed", "logOwnValue"].includes(event.target.id)) {
+    // Kept in module state so that redrawing the control does not discard it.
+    if (event.target.id === "logOwnValue") {
+      logOwn = event.target.value;
+    }
+
+    await section("logs", loadLogs, "logRows");
+    return;
+  }
+
   const d = event.target.dataset || {};
 
   // <b>The lock writes immediately, and it is the one control on that tab that does.</b> A safety
@@ -9484,6 +9600,288 @@ async function loadAnonymous() {
  * The toast carries the server's message because it is the useful part; the
  * placeholder is there so the empty table is not read as "nothing published".
  */
+/* ------------------------------------------------------------------ logs */
+
+/**
+ * Which log is showing, and where its paging has got to.
+ *
+ * <b>Module state rather than the hash, and that is a compromise worth naming.</b> A source
+ * and a filter set are exactly the kind of thing that should be linkable — *here is the
+ * failing request I mean* is a sentence an operator wants to send somebody. `route()` splits
+ * the hash on `/` before decoding, so a filter containing a slash cannot survive it, which
+ * is the same limitation the service page's tab strip records. The addressable version waits
+ * for that fix; until then the screen opens on Administration and the reader filters.
+ */
+let logSource = "audit";
+let logCursor = null;
+let logActions = [];
+
+/**
+ * The source-specific filter's value, kept here rather than read off the element.
+ *
+ * <b>Because the element is rebuilt on every read, and rebuilding it was silently discarding
+ * what the reader had just chosen.</b> `drawLogControls` replaces `#logOwn`'s markup so the
+ * filter matches the source; it ran on every load, before the query was composed, so the
+ * value went into a control that no longer existed and the query read a fresh empty one.
+ * Every one of the three per-source filters did nothing at all, on every source, verified by
+ * a review that clicked them.
+ */
+let logOwn = "";
+
+/**
+ * Which read is the newest, so an older one cannot overwrite it.
+ *
+ * <b>The other half of the same bug, and it looked like a different one.</b> Typing in
+ * Contains starts a debounced read; clicking a source tab starts another. The first was still
+ * in flight, resolved second, and painted the previous source's rows under the newly
+ * highlighted tab — so switching source appeared to be exactly one click behind. A counter is
+ * the smallest fix that is actually correct: the response checks whether it is still the one
+ * being waited for, and drops itself if it is not.
+ */
+let logRead = 0;
+
+/**
+ * The three logs, and what each one calls its own dimension.
+ *
+ * <b>A table rather than three branches, because the screen differs in one field.</b> Every
+ * log answers when, who, from where and what; each has exactly one filter of its own, and
+ * writing that as a row here is what stops the shared surface growing a special case per
+ * source.
+ */
+const LOG_SOURCES = [
+  ["audit", "Administration", "action"],
+  ["requests", "Requests", "status"],
+
+  // <b>*Studio viewer*, not *Studio*.</b> This console's own surface switch says Server and
+  // Studio, so a source tab called Studio asked the reader to hold two meanings of the word
+  // on one screen. The log is not everything Studio does — it is what its map viewer reported
+  // from a browser — so the longer name is also the more accurate one.
+  ["studio", "Studio viewer", "kind"],
+];
+
+/**
+ * Draws the source selector and the filter that belongs to the chosen source.
+ *
+ * <b>Only when the source has changed, and it restores the value it holds.</b> Rebuilding
+ * this on every read is what made all three per-source filters inert — see `logOwn`.
+ *
+ * <b>`aria-selected` and `role="tab"`, because a row of buttons where one is a different
+ * colour is a segmented control to a sighted reader and three unrelated buttons to a screen
+ * reader.</b>
+ */
+function drawLogControls() {
+  const sources = $("logSources");
+
+  if (sources) {
+    sources.setAttribute("role", "tablist");
+    sources.setAttribute("aria-label", "Which log");
+
+    sources.innerHTML = LOG_SOURCES.map(([key, label]) =>
+      `<button role="tab" aria-selected="${key === logSource}"
+        class="tiny${key === logSource ? "" : " ghost"}" data-log-source="${key}"
+        >${h(label)}</button>`).join(" ");
+  }
+
+  const own = $("logOwn");
+  if (!own) return;
+
+  // <b>A real label, not a placeholder.</b> A placeholder disappears the moment somebody
+  // types, so the only thing telling them what the box means is gone exactly when they have
+  // committed to it — and a screen reader may never announce it at all.
+  const [, , dimension] = LOG_SOURCES.find(([key]) => key === logSource);
+
+  // <b>The audit trail's actions come from the server with counts, and that is why they are
+  // a select rather than a text box.</b> `service.style.clear` is not a string anybody
+  // guesses, and an empty result from a mistyped filter is indistinguishable from a quiet
+  // server.
+  if (logSource === "audit") {
+    own.innerHTML = `<label for="logOwnValue">Action</label>
+      <select id="logOwnValue"><option value="">Any</option>`
+      + logActions.map(a =>
+        `<option value="${h(a.action)}"${a.action === logOwn ? " selected" : ""}
+          >${h(a.action)} (${num(a.count)})</option>`).join("")
+      + `</select>`;
+    return;
+  }
+
+  own.innerHTML = `<label for="logOwnValue">${h(dimension === "status" ? "Status" : "Kind")}</label>
+    <input type="text" id="logOwnValue" value="${h(logOwn)}"
+      ${dimension === "status" ? 'inputmode="numeric" ' : ""}autocomplete="off">`;
+}
+
+/** The query string the current filters describe. */
+function logQuery() {
+  const parts = new URLSearchParams();
+  const text = ($("logText") || {}).value;
+  const who = ($("logWho") || {}).value;
+  const hours = ($("logSince") || {}).value;
+  // Read from module state, not from the element: the element is rebuilt when the source
+  // changes and would be empty at exactly the wrong moment.
+  const own = logOwn;
+
+  if (text) parts.set("q", text);
+  if (who) parts.set("principal", who);
+
+  // <b>Computed here rather than sent as a number of hours.</b> The server takes an instant,
+  // so a page left open overnight and then paged does not silently shift its own window.
+  if (hours) {
+    parts.set("from", new Date(Date.now() - Number(hours) * 3600000).toISOString());
+  }
+
+  if (own) parts.set(LOG_SOURCES.find(([key]) => key === logSource)[2], own);
+  if (($("logFailed") || {}).checked) parts.set("failed", "true");
+  if (logCursor) parts.set("before", logCursor);
+
+  parts.set("limit", "60");
+
+  return parts.toString();
+}
+
+/** One row, and its detail behind a click. */
+function logRow(row) {
+  const when = new Date(row.at);
+
+  // <b>`tabindex` and a role, because the row is the control.</b> Clicking anywhere on it
+  // reveals the detail, which is right for a mouse and was unreachable without one: the
+  // detail JSON — the only place a request's duration, query and face are shown — could not
+  // be opened by a keyboard at all.
+  return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
+      aria-label="Show the detail of this entry">
+    <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+      >${h(when.toLocaleString())}</span></td>
+    <td>${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
+    <td>${row.who ? h(row.who) : `<span class="faint">anonymous</span>`}</td>
+    <td class="nowrap"><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
+    <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+  </tr>
+  <!--
+    <b>The detail is a row, not a drawer.</b> Every column of every log is already on screen;
+    what is left is a JSON object whose keys differ per source, and a panel that reformatted
+    it per source would be three renderers for something a reader opens once in fifty rows.
+  -->
+  <tr class="logdetail" hidden><td colspan="5"><pre>${h(logPretty(row.detail))}</pre></td></tr>`;
+}
+
+/** The detail JSON, indented, or the raw string when it is not JSON. */
+function logPretty(detail) {
+  try {
+    return JSON.stringify(JSON.parse(detail || "{}"), null, 2);
+  } catch (ignored) {
+    // <b>Shown as it arrived rather than hidden.</b> A studio event's detail comes from a
+    // browser, so it is the one field here that a stranger wrote; if it is not JSON, that
+    // fact is itself worth seeing.
+    return String(detail || "");
+  }
+}
+
+/** Reads the chosen log and draws it. */
+async function loadLogs(more = false) {
+  const body = $("logRows");
+  if (!body) return;
+
+  // <b>Claim this read.</b> Two can be in flight — a debounced keystroke and a source click —
+  // and the older one resolving second is what made the tabs look one click behind. See
+  // `logRead`.
+  const mine = ++logRead;
+
+  if (!more) {
+    logCursor = null;
+
+    // <b>Read once, and only for the source that needs it.</b> The action list is a group-by
+    // over the whole audit table; fetching it on every page of every source would make the
+    // cheapest control on the screen the most expensive request.
+    if (logSource === "audit" && logActions.length === 0) {
+      const index = await api("/admin/logs");
+      if (mine !== logRead) return;
+
+      logActions = index.actions || [];
+      logWriterHealth = index.writer || null;
+    }
+
+    drawLogControls();
+    drawLogWriter();
+    body.innerHTML = `<tr><td colspan="5" class="empty">Reading&hellip;</td></tr>`;
+  }
+
+  const answer = await api(`/admin/logs/${logSource}?${logQuery()}`);
+
+  // <b>A newer read started while this one was out.</b> Painting now would put the previous
+  // source's rows under the newly chosen tab.
+  if (mine !== logRead) return;
+
+  const rows = answer.rows || [];
+
+  if (!more) {
+    body.innerHTML = "";
+  }
+
+  if (rows.length === 0 && !more) {
+    body.innerHTML = `<tr><td colspan="5" class="empty">${logEmpty()}</td></tr>`;
+  } else {
+    body.insertAdjacentHTML("beforeend", rows.map(logRow).join(""));
+  }
+
+  logCursor = answer.next;
+
+  const count = $("logCount");
+  if (count) count.textContent = `${num(body.querySelectorAll("tr.logrow").length)} shown`;
+
+  const older = $("logMore");
+  // <b>Offered only on a full page.</b> A short page is the end of the log, and a button
+  // that fetches nothing teaches a reader to distrust it.
+  if (older) older.hidden = rows.length < 60;
+}
+
+/** What the request log's writer reported, or null before it has been read. */
+let logWriterHealth = null;
+
+/**
+ * The dropped-entries notice, on the log it is about.
+ *
+ * <b>It was shown on all three tabs and it describes one of them.</b> Only the request log is
+ * lossy — the audit trail fails the request rather than dropping the row, and studio events
+ * are written straight through — so telling a reader of the audit trail that nothing has been
+ * dropped invited them to wonder what could be.
+ */
+function drawLogWriter() {
+  const writer = $("logWriter");
+  if (!writer) return;
+
+  if (logSource !== "requests" || !logWriterHealth) {
+    writer.hidden = true;
+    return;
+  }
+
+  writer.hidden = false;
+
+  // <b>ADR-045 condition 6.</b> The request log drops rather than blocks, so a screen that
+  // never mentioned the drop would be claiming a completeness it does not have.
+  writer.innerHTML = logWriterHealth.dropped > 0
+    ? `<b>${num(logWriterHealth.dropped)} entries were dropped</b> since this server started,
+       because the writer's queue was full — requests are never made to wait for the log. The
+       rows below are what it kept, so a gap here is not proof that nothing happened.`
+    : `Nothing has been dropped since this server started, so this is every request.`
+      + (logWriterHealth.waiting > 0
+        ? ` ${num(logWriterHealth.waiting)} are waiting to be written.` : "");
+}
+
+/**
+ * What an empty result says, which depends on why it is empty.
+ *
+ * <b>A near-empty studio log is the hardest case on this screen and the most likely.</b> A
+ * server whose viewer has reported nothing is a server whose viewer is working; without a
+ * sentence saying so, an empty table reads as a feature that is broken.
+ */
+function logEmpty() {
+  if (logSource === "studio") {
+    return `Nothing reported. The viewer sends a row only when something fails in a
+      browser — a script error, or a layer that would not draw — so an empty list here is
+      the good outcome.`;
+  }
+
+  return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;
+}
+
 async function section(what, load, placeholder) {
   try {
     await load();

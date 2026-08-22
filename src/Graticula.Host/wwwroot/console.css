@@ -1869,3 +1869,45 @@ tr.already .name { font-weight: 500; }
 .picker .row label { display: flex; align-items: center; gap: 6px; margin: 0; }
 .picker .row input[type=checkbox] { width: auto; }
 .picker .row > :last-child { margin-left: auto; }
+
+/*
+  <b>The Logs screen. ADR-045.</b> Three rules, and no new concepts: the rows are the table
+  every other screen uses, the states are this file's own pills, and the only things missing
+  were a column that must not wrap and the detail row behind a click.
+*/
+.nowrap { white-space: nowrap; }
+
+/* A log row is clickable, and it has to look it — a row that reveals something on click and
+   looks identical to one that does not is a control nobody finds. */
+tr.logrow { cursor: pointer; }
+tr.logrow:hover td { background: var(--surface-2); }
+
+/* The detail is monospace and scrolls in its own box rather than widening the table, which
+   is the same reasoning `widetable` carries: a long value must not push the page sideways. */
+tr.logdetail td { background: var(--surface-2); padding: 0; }
+tr.logdetail pre { margin: 0; padding: var(--gap-3) var(--gap-4);
+                   font: 12px/1.5 var(--mono); color: var(--muted);
+                   max-height: 22rem; overflow: auto; }
+
+/*
+  <b>The Logs screen's toolbars wrap, and the reason is that there are six controls in one.</b>
+  A `.toolbar` is `display: flex` with no `flex-wrap`, which is right for the two or three
+  controls every other screen puts in one — at 1024px this screen's filter row pushed *Only
+  failures* off the edge and dragged the whole page, sidebar included, sideways. Scoped to this
+  screen rather than changed globally: the other toolbars were measured and fit.
+*/
+#view-logs .toolbar { flex-wrap: wrap; row-gap: var(--gap-2); }
+#view-logs .toolbar input[type=search],
+#view-logs .toolbar input[type=text] { flex: 1 1 12rem; }
+
+/* A label beside its control, so the pair wraps as one thing rather than splitting. */
+#view-logs #logOwn { display: inline-flex; align-items: center; gap: var(--gap-2); }
+#view-logs #logOwn label { color: var(--muted); font-size: var(--t-small); }
+#view-logs .toolbar label { white-space: nowrap; }
+
+/*
+  <b>The table scrolls in its box below the width its columns need.</b> `widetable` already
+  does this; what it lacked was a minimum for these five columns, so the cells squeezed until
+  Resource clipped instead of the box scrolling.
+*/
+#view-logs .widetable table { min-width: 60rem; }
