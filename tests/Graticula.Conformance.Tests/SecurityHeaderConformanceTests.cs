@@ -212,6 +212,119 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// makes <c>script-src 'self'</c> worth anything — so "no inline script" is a
     /// property of every document served under that policy, and it is cheaper to
     /// assert than to remember.
+    /// <summary>
+    /// The console decides which screen to paint before its 454 KB of JavaScript arrives.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's report:</b> *"server'dan studio ya geçerken 1 sn liğine password ekranı
+    /// gelip kapanıyor."* Server is <c>/server/</c> and Studio is <c>/studio/</c>, so switching
+    /// surface is a whole-page navigation and every switch is a cold load. <c>#signin</c> had no
+    /// initial state, so the browser painted it as soon as the HTML arrived and only
+    /// <c>start()</c> — after <c>console.js</c> had loaded and compiled — hid it again.
+    /// <c>/rest/whoami</c> answers in 6 to 15 ms, so the network was never the cause.
+    /// </para>
+    /// <para>
+    /// <b>This is a structural assertion and that is deliberate.</b> The behaviour cannot be
+    /// tested here in a way that would fail: on any machine that serves <c>console.js</c> in
+    /// twenty milliseconds the flash is invisible whether the fix works or not, which is exactly
+    /// how the first attempt came to look cured while being refused by the browser on every
+    /// load. Reproducing it needs the script artificially delayed, which is a browser
+    /// instrument rather than a conformance one.
+    /// </para>
+    /// <para>
+    /// <b>So this guards the two ways it can regress.</b> Moving the decision back inline —
+    /// which the test below already refuses, for the same reason — or giving it <c>defer</c>,
+    /// which puts it after document parsing and is the whole problem restated. Measured with
+    /// <c>console.js</c> delayed 800 ms: before the fix the sign-in panel stayed for the full
+    /// delay, after it the panel was never visible in any of about 1,380 samples per run.
+    /// </para>
+    /// </remarks>
+    /// <param name="path">The console page.</param>
+    /// <returns>A task.</returns>
+    [Theory]
+    [InlineData("/server/")]
+    [InlineData("/studio/")]
+    public async Task The_console_reads_its_session_before_it_paints(string path)
+    {
+        using HttpResponseMessage page = await GetAsync(path, "text/html");
+        page.EnsureSuccessStatusCode();
+
+        string html = await page.Content.ReadAsStringAsync();
+
+        string withoutComments = System.Text.RegularExpressions.Regex.Replace(
+            html, "<!--.*?-->", string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        System.Text.RegularExpressions.Match tag =
+            System.Text.RegularExpressions.Regex.Match(
+                withoutComments, "<script[^>]*\\bsrc\\s*=\\s*[\"']session\\.js[\"'][^>]*>");
+
+        Assert.True(
+            tag.Success,
+            $"""
+             {path} does not load session.js, so nothing decides whether this page is the
+             console or the sign-in screen until console.js has arrived — 454 KB later. The
+             owner reported that as a password screen appearing for a second on every surface
+             switch.
+             """);
+
+        // <b>`defer` would restore the bug exactly.</b> It is the attribute that says *run this
+        // after the document is parsed*, and running after the document is parsed is what put
+        // the wrong screen on display in the first place.
+        Assert.False(
+            tag.Value.Contains("defer", StringComparison.OrdinalIgnoreCase)
+            || tag.Value.Contains("async", StringComparison.OrdinalIgnoreCase),
+            $"""
+             {path} loads session.js with defer or async, which puts it back after document
+             parsing. That is the original bug: the browser paints the sign-in screen and
+             corrects it later.
+             """);
+
+        // <b>And it is before the body, because after it is too late.</b>
+        int at = withoutComments.IndexOf(tag.Value, StringComparison.Ordinal);
+        int body = withoutComments.IndexOf("<body", StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(
+            body < 0 || at < body,
+            $"{path} loads session.js after the body starts, so the first paint has already "
+            + "happened by the time it runs.");
+    }
+
+    [Fact]
+    public async Task The_session_script_and_the_stylesheet_agree_on_one_attribute()
+    {
+        // <b>Three files hold one decision, and this is what stops them drifting.</b>
+        // `session.js` writes `data-session`, `console.css` paints from it, and `console.js`
+        // corrects it once `/rest/whoami` has answered. A rename in one of them would leave the
+        // other two describing a mechanism that no longer exists — and the failure mode is a
+        // page that looks right on a fast machine.
+        using HttpResponseMessage script = await GetAsync("/server/session.js", null);
+        script.EnsureSuccessStatusCode();
+
+        string js = await script.Content.ReadAsStringAsync();
+
+        Assert.Contains("dataset.session", js, StringComparison.Ordinal);
+        Assert.Contains("gis-token", js, StringComparison.Ordinal);
+
+        using HttpResponseMessage sheet = await GetAsync("/server/console.css", null);
+        sheet.EnsureSuccessStatusCode();
+
+        string css = await sheet.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-session=\"held\"", css, StringComparison.Ordinal);
+
+        using HttpResponseMessage app = await GetAsync("/server/console.js", null);
+        app.EnsureSuccessStatusCode();
+
+        string console = await app.Content.ReadAsStringAsync();
+
+        // <b>Both directions.</b> Writing only *held* would strand an expired session on a
+        // console it cannot use; writing only *none* would never turn the optimism on.
+        Assert.Contains("dataset.session = \"held\"", console, StringComparison.Ordinal);
+        Assert.Contains("dataset.session = \"none\"", console, StringComparison.Ordinal);
+    }
+
     /// </para>
     /// </remarks>
     [Theory]

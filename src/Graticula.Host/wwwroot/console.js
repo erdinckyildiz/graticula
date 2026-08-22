@@ -9313,6 +9313,12 @@ $("signout").addEventListener("click", async event => {
   token = null;
   sessionStorage.removeItem("gis-token");
 
+  // <b>And the attribute, so the page it navigates to paints the sign-in screen.</b> The
+  // navigation below is a fresh load and the head script reads storage again, which is now
+  // empty — so this line is belt and braces rather than load-bearing. It is here because the
+  // three places that decide this should be findable by searching for one name.
+  document.documentElement.dataset.session = "none";
+
   // <b>Replaced rather than reloaded.</b> A reload re-runs the same URL and may be
   // served from cache; `replace` also takes the signed-out state out of the back
   // button, so Back cannot return to a rendered console the caller can no longer
@@ -9362,6 +9368,19 @@ async function start() {
   const me = await whoami();
 
   if (!me.authenticated || !token) {
+    /*
+      <b>The attribute is cleared here, and forgetting to would strand an expired session on
+      a console it cannot use.</b> `index.html`'s head sets `data-session="held"` from
+      `sessionStorage` before the first paint, and the stylesheet hides the sign-in panel with
+      `!important` — which is what stops the wrong screen appearing during the second it takes
+      454 KB of JavaScript to load. So it has to be undone by whoever finds out the session is
+      not good, and that is here.
+
+      One source of truth: the attribute is the guess, `whoami` is the answer, and the answer
+      writes over the guess in both directions.
+    */
+    document.documentElement.dataset.session = "none";
+
     $("signin").style.display = "";
     $("app").style.display = "none";
     $("tabs").style.display = "none";
@@ -9384,6 +9403,9 @@ async function start() {
     }
     return;
   }
+
+  // Confirmed, so the guess the head made is now a fact.
+  document.documentElement.dataset.session = "held";
 
   $("signinCookie").hidden = true;
 

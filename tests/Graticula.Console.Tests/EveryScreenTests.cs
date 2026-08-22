@@ -107,7 +107,8 @@ public sealed class EveryScreenTests : ConsoleTest
                     $"/{surface}/#/layer/{Uri.EscapeDataString(layer)}/{page}", token);
 
                 await WaitForAsync(
-                    "getComputedStyle(document.getElementById('app')).display !== 'none'",
+                    "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
                     $"The layer editor did not open for {surface}/{page}.");
 
                 await WaitForAsync(
@@ -134,7 +135,8 @@ public sealed class EveryScreenTests : ConsoleTest
                 $"/{surface}/#/layer/{Uri.EscapeDataString(layer)}/sharing", token);
 
             await WaitForAsync(
-                "getComputedStyle(document.getElementById('app')).display !== 'none'",
+                "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
                 $"The console did not finish loading for {surface} on a stale sharing address.");
 
             bool present = await Browser.EvaluateAsync<bool>(
@@ -158,7 +160,8 @@ public sealed class EveryScreenTests : ConsoleTest
             await OpenAsync($"/{surface}/#/{screen}", token);
 
             await WaitForAsync(
-                "getComputedStyle(document.getElementById('app')).display !== 'none'",
+                "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
                 $"The console did not open at {surface}/#/{screen}.");
 
             await WaitForAsync(

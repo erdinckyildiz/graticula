@@ -6,6 +6,20 @@
 <title>Graticula console</title>
 
 <!--
+  <b>Which screen this page is, before anything is painted. See `session.js`.</b>
+
+  <b>Not inline, and the first attempt was.</b> The console's Content-Security-Policy has no
+  `'unsafe-inline'`, so the browser refused it on every load without saying anything on the
+  page — and `No_console_page_carries_an_inline_script`, a test this repository has had since
+  D-44, refused it too. Its failure message is the instruction: move the code to a file beside
+  the page.
+
+  <b>No `defer`, deliberately.</b> This has to run before the body is painted, which is the
+  one thing `defer` prevents. A few hundred bytes, same origin.
+-->
+<script src="session.js"></script>
+
+<!--
   ADR-020 §2. This console may use no capability the admin API does not expose:
   it is static files and fetch, it holds the same session token any client would,
   and it is refused by the same privilege checks. Every action here is

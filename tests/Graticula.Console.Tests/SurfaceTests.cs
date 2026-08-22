@@ -54,7 +54,14 @@ public sealed class SurfaceTests : ConsoleTest
             + "Studio with a sentence, not shown a screen where every request is refused.");
 
         await WaitForAsync(
-            "getComputedStyle(document.getElementById('app')).display !== 'none'",
+            // <b>The existence check is not defensive noise.</b> A wait whose expression
+            // throws while the element is still missing is a race, not a wait — and this one
+            // threw the day `session.js` was added, because a script that blocks in the head
+            // widens the window in which the document has a head and no body. Guarding with
+            // `&&` keeps the wait waiting; a fallback to `document.body` would have made it
+            // pass while the element did not exist, which is worse than the failure.
+                        "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
             "Studio did not open for a reader who is entitled to it.");
 
         await DrawnAsync();
@@ -87,7 +94,8 @@ public sealed class SurfaceTests : ConsoleTest
         await OpenAsync("/server/#/services", token);
 
         await WaitForAsync(
-            "getComputedStyle(document.getElementById('app')).display !== 'none'",
+            "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
             "The console did not open for an administrator.");
 
         await DrawnAsync();

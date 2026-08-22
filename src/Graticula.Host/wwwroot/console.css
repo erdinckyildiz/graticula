@@ -1911,3 +1911,22 @@ tr.logdetail pre { margin: 0; padding: var(--gap-3) var(--gap-4);
   Resource clipped instead of the box scrolling.
 */
 #view-logs .widetable table { min-width: 60rem; }
+
+/*
+  <b>Which screen a cold load paints, before `console.js` has run.</b> `session.js` — loaded
+  from the head without `defer`, in its own file because the console's CSP allows no inline
+  script — sets `data-session` from `sessionStorage`, and these two rules are what make that
+  decision visible on the first paint instead of after 454 KB of JavaScript.
+
+  <b>Measured with `console.js` delayed 800 ms and a valid token in storage:</b> the sign-in
+  panel was never visible, in any of about 1,380 samples per run across three runs. Before
+  this, the same test kept it on screen for the whole delay.
+
+  <b>`!important` on exactly these two, and it is load-bearing rather than lazy.</b>
+  `console.js` sets `style.display` inline on both elements once it knows the real answer, and
+  an inline style beats a class — so without this the first paint would ignore the attribute.
+  These rules are the *initial* state only: `start()` overrides them deliberately, in both
+  directions, the moment `whoami` has answered.
+*/
+html[data-session="held"] #signin { display: none !important; }
+html[data-session="held"] #app { display: block !important; }

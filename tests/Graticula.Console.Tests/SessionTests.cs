@@ -96,7 +96,8 @@ public sealed class SessionTests : ConsoleTest
         await OpenAsync("/server/#/services", token);
 
         await WaitForAsync(
-            "getComputedStyle(document.getElementById('app')).display !== 'none'",
+            "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
             "An administrator holding a bearer token was not shown the console.");
 
         Assert.Equal(
