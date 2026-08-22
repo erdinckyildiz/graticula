@@ -285,7 +285,7 @@ internal static class GeometryPage
         StringBuilder body = new();
 
         body.Append(CultureInfo.InvariantCulture,
-            $"<h2>{RestDirectory.Encode(operation.Name)}</h2>");
+            $"<h1>{RestDirectory.Encode(operation.Name)}</h1>");
 
         body.Append(CultureInfo.InvariantCulture,
             $"<p class=\"lede\">{operation.Summary}</p>");

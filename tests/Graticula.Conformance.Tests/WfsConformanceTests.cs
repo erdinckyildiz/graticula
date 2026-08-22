@@ -50,8 +50,15 @@ public sealed class WfsConformanceTests : ArcGisClient
     /// <summary>The WFS link a directory page offers, or null when it offers none.</summary>
     private static string? FormatLinkIn(string html)
     {
+        // <b>Matched on the class, not on the element.</b> This looked for
+        // `<div class="fmt">` and broke the day the format band became a `<span>` in a
+        // flex row — the WFS link was still on the page, still working, and this reported
+        // that the page offered none. Which element draws a band is a presentation
+        // decision; that the band exists and carries the link is the contract.
         Match line = Regex.Match(
-            html, "<div class=\"fmt\">(.*?)</div>", RegexOptions.Singleline);
+            html,
+            "<(?:div|span)[^>]*class=\"fmt\"[^>]*>(.*?)</(?:div|span)>",
+            RegexOptions.Singleline);
 
         if (!line.Success)
         {

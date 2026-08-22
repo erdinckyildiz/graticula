@@ -57,7 +57,7 @@ internal static class OgcHtml
 
         System.Text.StringBuilder body = new();
 
-        body.Append("<h2>Collections</h2>");
+        body.Append("<h1>Collections</h1>");
 
         if (collections.Count == 0)
         {

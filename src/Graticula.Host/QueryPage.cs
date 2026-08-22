@@ -174,7 +174,7 @@ internal static class QueryPage
 
             AppendPaging(tail, context, query, written);
 
-            tail.Append("</main>");
+            tail.Append("</main></body></html>");
 
             await context.Response.WriteAsync(tail.ToString(), cancellation).ConfigureAwait(false);
         }
@@ -470,8 +470,8 @@ internal static class QueryPage
         IQueryCollection q = context.Request.Query;
 
         body.Append(CultureInfo.InvariantCulture,
-            $"<h2>Query: {H(layer.ServiceName)} - {H(layer.Definition.Name)} "
-            + $"(ID: {layer.LayerIndex})</h2>");
+            $"<h1>Query: {H(layer.ServiceName)} - {H(layer.Definition.Name)} "
+            + $"(ID: {layer.LayerIndex})</h1>");
 
         body.Append(CultureInfo.InvariantCulture,
             $"<form action=\"{H(context.Request.Path)}\" method=\"get\"><table class=\"form\">");
@@ -699,7 +699,7 @@ internal static class QueryPage
     private static Task WritePageAsync(HttpContext context, string body, CancellationToken ct)
     {
         context.Response.ContentType = "text/html; charset=utf-8";
-        return context.Response.WriteAsync(Page(context, body) + "</main>", ct);
+        return context.Response.WriteAsync(Page(context, body) + "</main></body></html>", ct);
     }
 
     /// <summary>The shell, shared with the rest of the directory, left open.</summary>

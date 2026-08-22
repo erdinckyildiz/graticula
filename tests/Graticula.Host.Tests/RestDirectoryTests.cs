@@ -208,8 +208,13 @@ public sealed class RestDirectoryTests
                 ("Top (4)", "/x/4", 0),
             ]);
 
-        Assert.Equal(Count(page, "<ul>"), Count(page, "</ul>"));
-        Assert.Equal(Count(page, "<li>"), Count(page, "</li>"));
+        // <b>`"<li"` rather than `"<li>"`, because an opening tag may carry attributes.</b>
+        // This counted the literal `<li>` and so missed the breadcrumb's current item, which
+        // is `<li aria-current="page">` — it saw the close and not the open and reported an
+        // imbalance that was not there. Counting the tag name catches every spelling, and
+        // `</li>` cannot match it because of the slash.
+        Assert.Equal(Count(page, "<ul"), Count(page, "</ul>"));
+        Assert.Equal(Count(page, "<li"), Count(page, "</li>"));
     }
 
     [Fact]
