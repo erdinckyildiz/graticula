@@ -259,7 +259,11 @@ t+80 s and refused only when the fifteen-minute window genuinely expired, verifi
 of seven, and thirty seconds of fifteen minutes. [D-127](../architecture-debt.md) widened
 to record both.
 
-## F7. A client that hangs up was recorded nowhere — MEDIUM, half repaired
+## F7. A client that hangs up was recorded nowhere — MEDIUM, repaired 2026-08-23
+
+**Repaired**, and the cause was one step past what this finding described: an aborted request produced **no access line at all**, not a line claiming 200. `ResponseOutcome` marks the context before `Abort()` — before, because aborting cancels `RequestAborted` and a marker set after it is a marker nobody reads — and the line is written with 499 for a client that left and 500 for a server that broke. [D-132](../architecture-debt.md).
+
+**The finding as written follows.**
 
 `ErrorResponse.Classify` maps `OperationCanceledException` to 499 with the remark *"It
 exists so the access log distinguishes 'they left' from 'we broke'."*
@@ -328,7 +332,11 @@ There are three messages now: never seen, expired, and not-public-when-last-read
 **Not verified live** — the expired branch needs a fifteen-minute outage, and the
 repair was judged by reading rather than by measuring. Stated rather than implied.
 
-## F9. Two workers log a full stack trace every three seconds through an outage — LOW, not repaired
+## F9. Two workers log a full stack trace every three seconds through an outage — LOW, repaired 2026-08-23
+
+**Repaired.** `RepeatedFailure`: the exception in full the first time, then the sentence and a count, and a recovery line that closes the incident so a reader knows the silence means *back* rather than *still failing*. About 10 kB a minute instead of 100. [D-133](../architecture-debt.md).
+
+**The finding as written follows.**
 
 `GeodatabaseImporter` and `GeodatabaseInspector` each retry a job claim against the down
 store. Over one 17-minute outage: **338 warnings, 1.68 MB of log** — about 100 KB/min,

@@ -132,6 +132,26 @@ is unreachable. Counting the call sites:
 `WfsEndpoints` is the one worth stating carefully: it mentions `ServiceLookup` twice
 and calls it never, both times in a comment describing what every other surface does.
 
+**Repaired 2026-08-23, and the repair is the repayable form this finding named.**
+`CatalogFallback` remembers the last listing beside the last resolve; all four faces take
+it and so does the REST directory at `/rest/services`, which this sweep counted as covered
+because it is a FeatureServer route and which was in fact enumerating without a fallback
+like the rest. A blind listing is public-only — the faces filter by sharing and while
+blind the sharing value is itself remembered, so the rule lives in the fallback where five
+callers cannot each forget it — and nothing remembered is a 503 rather than an empty
+document. Measured at t+45 s into an outage, twenty concurrent per face: from **0 of 20**
+served instantly to 19–20 of 20 at 10–14 ms medians
+([the benchmark](../../benchmarks/catalogue-outage/RESULTS.md)).
+
+**One thing this finding could not have known**, and it is why the repair is in two parts:
+the listing was not the whole cost. A WMS 1.3.0 capabilities document needs
+`EX_GeographicBoundingBox` on every named layer, so it makes one projection call per
+distinct spatial reference — and with the listing served from memory those calls still
+waited out a connect nothing would answer, at 4.0 s each. `IProjector` is behind the same
+circuit breaker now.
+
+**The finding as written follows.**
+
 **Not repaired, and the reason is the finding.** `CatalogFallback` exposes
 `FindServiceAsync` and nothing else: it resolves one named service and cannot list. The
 four faces without it all begin by *enumerating* — WFS and WMS build a capabilities

@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>2df7241</code> · 2026-08-23 19:12</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c9b8e2d</code> · 2026-08-23 19:57</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
@@ -173,12 +173,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td>Correctness</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, and all five findings are repaired.</td></tr>
 <tr><td>Simplicity</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, narrowly, and not for the reason this row expected.</td></tr>
 <tr><td>Performance</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, on a finding about behaviour rather than speed.</td></tr>
-<tr><td>Failure</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, and six of ten findings repaired the same day.</td></tr>
+<tr><td>Failure</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, and all ten findings are now repaired — six on the day, the last four on 2026-08-23, each measured before and after.</td></tr>
 <tr><td>Operations</td><td><span class="pill muted">koşulmadı</span></td><td class="muted-t">Needs a deployment somebody operates.</td></tr>
 <tr><td>Security</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL on one finding, repaired the same day.</td></tr>
 <tr><td>Extensibility</td><td><span class="pill muted">koşulmadı</span></td><td class="muted-t">ADR-006 is REOPENED and no plugin code exists; the gate has nothing to examine</td></tr>
 <tr><td>Licensing</td><td><span class="pill good">PASS</span></td><td class="muted-t">PASS.</td></tr>
-<tr><td>Consistency</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, and three of four findings repaired the same day.</td></tr>
+<tr><td>Consistency</td><td><span class="pill bad">FAIL</span></td><td class="muted-t">FAIL, and all four findings are now answered — three on the day, the fourth on 2026-08-23.</td></tr>
 </tbody></table></div></section>
 <section><h2>Kararlar</h2>
 <p class="sub">Her mimari karar bir ADR. Durum ve güven seviyesi her dosyanın kendi başlığından okunuyor — yani bir karar orada değişmeden burada sessizce not değiştiremez.</p>
@@ -552,6 +552,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c9b8e2d</code><time>2026-08-23</time><span>the catalogue remembers its listing, and a document stops costing four seconds</span></li>
 <li><code>2df7241</code><time>2026-08-23</time><span>the warning in the console becomes a test that fails</span></li>
 <li><code>1fbd084</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>5b260ba</code><time>2026-08-23</time><span>the second coordinate engine is deleted, and one answer is left</span></li>
@@ -565,7 +566,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2864362</code><time>2026-08-23</time><span>a document survives an outage now, and it still costs four seconds to produce</span></li>
 <li><code>9f426d3</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>d1f9f72</code><time>2026-08-23</time><span>three of the failure gate&#x27;s four open findings, each measured before and after</span></li>
-<li><code>84b8cf3</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
