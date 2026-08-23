@@ -88,6 +88,47 @@ internal static class ErrorResponse
     /// </remarks>
     private const int RetrySeconds = 5;
 
+    /// <summary>
+    /// How long a refused caller is told to wait, or null when this server cannot say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The retry signal ADR-007 §4.9 asks admission control to send, and it was missing
+    /// for a day.</b> `ConnectionBudgetFullException`'s own remark said the refusal comes
+    /// *with a `Retry-After`*; nothing in this path ever set one, and the performance gate
+    /// read the live headers off a real 503 and found it absent — which is
+    /// [D-130](../../docs/architecture-debt.md)'s shape exactly, a sentence describing
+    /// behaviour the code did not have.
+    /// </para>
+    /// <para>
+    /// <b>A separate function so the rule can be asserted per refusal shape</b>, which is
+    /// the third of the three checks D-130 asks for. Testing it through the pipeline means
+    /// building a request, a response body and a JSON serialiser to look at one header; the
+    /// decision is the part with judgement in it, and this is it.
+    /// </para>
+    /// <para>
+    /// <b>Only where the server knows the answer.</b> A budget refusal frees a slot when
+    /// somebody's query finishes, and the breaker's refusal ends when its window closes —
+    /// both are times this server sets. An unreachable database and a geometry request
+    /// that ran out of memory produce the same outcome on retry, and a `Retry-After` on
+    /// those would be a promise this server cannot keep.
+    /// </para>
+    /// </remarks>
+    /// <param name="exception">Why the request was refused.</param>
+    /// <returns>Seconds to wait, or null.</returns>
+    internal static int? RetryAfterFor(Exception exception) => exception switch
+    {
+        ConnectionBudgetFullException => RetrySeconds,
+
+        // <b>The one 503 whose recovery time this server actually knows.</b> The breaker
+        // will try the source again when its window closes, so telling a client to come
+        // back then is a fact rather than an estimate — and a client that retries sooner
+        // is refused again in microseconds, which is the whole point of D-131's repair.
+        SourceUnreachableException => (int)Math.Ceiling(SourceBreaker.Cooling.TotalSeconds),
+
+        _ => null,
+    };
+
     /// <summary>Maps an exception to a status and a message for the caller.</summary>
     public static async Task WriteAsync(HttpContext context, Exception exception, ILogger logger)
     {
@@ -117,21 +158,10 @@ internal static class ErrorResponse
         context.Response.Clear();
         context.Response.StatusCode = status;
 
-        // <b>The retry signal ADR-007 §4.9 asks admission control to send, and it was
-        // missing for a day.</b> `ConnectionBudgetFullException`'s own remark said the
-        // refusal comes *with a `Retry-After`*; nothing in this path ever set one, and the
-        // performance gate read the live headers off a real 503 and found it absent. A
-        // budget refusal is the one 503 here that is genuinely transient — a slot frees
-        // when somebody's query finishes — so a client that backs off gets served, and a
-        // client that hammers makes it worse for everybody.
-        //
-        // <b>Deliberately not set on the other 503s.</b> An unreachable database and a
-        // geometry request that ran out of memory both produce the same outcome on retry,
-        // and `Retry-After` on those would be a promise this server cannot keep.
-        if (exception is ConnectionBudgetFullException)
+        if (RetryAfterFor(exception) is { } after)
         {
             context.Response.Headers.RetryAfter =
-                RetrySeconds.ToString(CultureInfo.InvariantCulture);
+                after.ToString(CultureInfo.InvariantCulture);
         }
 
         if (await TryProtocolEnvelopeAsync(context, status, message).ConfigureAwait(false))

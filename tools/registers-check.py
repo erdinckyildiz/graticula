@@ -221,6 +221,74 @@ def assumptions_only_an_adr_knows_about():
     ]
 
 
+# An ADR declaring what it changes, in either of the two shapes the ADRs use: a row in
+# the header table, or a blockquote under it.
+AMENDS = re.compile(
+    r"^\|\s*\*\*(Amends|Supersedes|Superseded by)\*\*\s*\|(?P<row>.*)$"
+    r"|^>\s*(Amends|Supersedes)\b(?P<quote>.*)$",
+    re.MULTILINE)
+
+NUMBER = re.compile(r"ADR-(\d+)")
+
+
+def amendments_the_other_adr_does_not_know_about():
+    """An ADR named as amended that never mentions the ADR that amended it.
+
+    **[D-126](../docs/architecture-debt.md), and [D-130](../docs/architecture-debt.md)
+    names it as one of three cheap checks that would each have caught the failure that
+    named it.** ADR-041 un-deferred ADR-004 and shipped the renderer; ADR-004's own file
+    still read `DEFERRED` with its §5 reading *Pending*, and eight further documents
+    restated the deferral as current fact. That was found by a person reading everything.
+
+    **The asymmetry is the whole defect.** An amending ADR names what it changes, because
+    the author is looking at it; the amended one says nothing, because nobody opens a file
+    to record that somebody else has just contradicted it. So the citation exists in one
+    direction and a reader arriving from the other finds a decision that reads as current.
+
+    **This check earned itself on the first run**, on ADR-046 amending ADR-007 §4.8 while
+    ADR-007 had never heard of it — written the same day as the check, by the same hand,
+    which is the argument for the check rather than against it.
+    """
+    complaints = []
+    text = {}
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        found = NUMBER.search(name)
+
+        if found:
+            text[found.group(1)] = (
+                name, io.open(os.path.join(conditions.ADRS, name), encoding="utf-8").read())
+
+    for number, (name, body) in text.items():
+        for match in AMENDS.finditer(body):
+            claim = match.group("row") or match.group("quote") or ""
+
+            # <b>Only the header, not every mention.</b> A `Supersedes | —` row says
+            # nothing, and an ADR discussing another one in its prose is not claiming to
+            # amend it -- the claim is the declaration, which is why this reads the two
+            # declaration shapes rather than searching for the word.
+            for other in sorted(set(NUMBER.findall(claim))):
+                if other == number or other not in text:
+                    continue
+
+                if "ADR-" + number in text[other][1]:
+                    continue
+
+                complaints.append(
+                    f"{name} declares that it amends ADR-{other}, and "
+                    f"{text[other][0]} never mentions ADR-{number}. A reader who opens "
+                    f"the amended decision finds it reading as current: that is exactly "
+                    f"how ADR-004 stayed DEFERRED after ADR-041 un-deferred it, and how "
+                    f"eight other documents came to restate the deferral. Add a note in "
+                    f"the amended ADR saying what changed and who changed it."
+                )
+
+    return complaints
+
+
 LINK = re.compile(r"\[[^\]\n]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 # Every document that cites another one. Not a walk of the whole repository: the
@@ -546,7 +614,8 @@ def main() -> int:
     # class of problem and discover the next one on the following run. Somebody
     # repairing registers deserves the whole list at once.
     problems = (duplicate_debt_ids() + ragged_register_rows()
-                + assumptions_only_an_adr_knows_about() + broken_links()
+                + assumptions_only_an_adr_knows_about()
+                + amendments_the_other_adr_does_not_know_about() + broken_links()
                 + remembered_numbers() + the_former_product_name()
                 + source_the_repository_would_not_receive())
 

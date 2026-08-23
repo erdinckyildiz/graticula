@@ -1659,4 +1659,16 @@ internal static class FeatureServerQueryParameters
     /// <remarks>Exposed so the endpoint can log it rather than leave it invisible.</remarks>
     public static bool IsIgnored(string name, out string reason) =>
         IgnoredParameters.TryGetValue(name, out reason!);
+
+    /// <summary>Every parameter this server knowingly ignores.</summary>
+    /// <remarks>
+    /// <b>Exposed so a test can walk the list rather than restate it, which is
+    /// [D-130](../../docs/architecture-debt.md)'s second check.</b> Three of these
+    /// sentences were false on 2026-08-20 because the code had grown past them, and each
+    /// is logged to the operator verbatim — so the server was reporting that it had
+    /// dropped a parameter it had honoured. A test with the names copied into it would
+    /// have the same rot in a second place; walking this collection means adding an entry
+    /// adds a case.
+    /// </remarks>
+    public static IReadOnlyCollection<string> Ignored => IgnoredParameters.Keys;
 }

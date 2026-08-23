@@ -369,9 +369,25 @@ policy, and it should be an idle timeout rather than aggressive closing.
   same number.
 - **A circuit breaker per data source** (N3), with backoff. Without one, an
   outage becomes a connection storm at exactly the moment recovery is being
-  attempted.
+  attempted. ***(Built 2026-08-23, and what it cost to be absent is
+  [D-131](../architecture-debt.md): every refusal during a database outage took 8.0
+  seconds, six measurements out of six, each holding a connection for the whole of a
+  blackholed connect — so the outage's cost grew with traffic rather than staying flat.
+  `SourceBreaker`, ten seconds, one prober at a time. After: 10–21 ms a refusal, and 19
+  of 20 concurrent requests instant. **The backoff this bullet asks for is not built** —
+  the window is one number rather than a growing one, which is enough while a failed
+  connect costs four seconds and would not be if it cost thirty.)***
 - **Quiesce** is an administrative operation on a data source: drain its
   connections, hold its requests, let the DBA work, resume.
+
+> **Amended by
+> [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md).** This
+> section's admission control was *a wait with a timeout*: a request waits five seconds
+> for a permit and is refused if the wait expires. Measured 2026-08-23, that fires almost
+> never — a refusal needs one caller to wait the whole window, which needs a queue deeper
+> than the window divided by the service time, and for any workload fast enough to matter
+> that is a queue thousands deep. **The bound stays and what decides a refusal changes:**
+> arrivals are refused when too many are already waiting. The wait remains as a backstop.
 
 The budget must be produced per provider — **which in v1 means one provider, and the
 per-provider shape is kept because the second one is scheduled rather than
