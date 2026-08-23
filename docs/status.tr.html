@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>804a512</code> · 2026-08-23 20:01</p>
+<p class="stamp">Şu commit’ten üretildi: <code>5833e01</code> · 2026-08-23 20:28</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">101/192</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">91 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">açık soru</div><div class="kpi-n">62 yanıtlandı · 3 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">74</div><div class="kpi-l">açık borç</div><div class="kpi-n">70 ödendi · 6 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">73</div><div class="kpi-l">açık borç</div><div class="kpi-n">71 ödendi · 6 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1788</div><div class="kpi-l">test</div><div class="kpi-n">233 kaynak dosya, 87,214 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1788</div><div class="kpi-l">test</div><div class="kpi-n">233 kaynak dosya, 87,254 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">169 madde</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>74 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">168 madde</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>73 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -336,7 +336,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-11</td><td>~~Authorization does not exist.~~ RESOLVED 2026-08-13, and the resolution was replaced on 2026-08-14 when the owner directed that we adopt ArcGIS Portal&#x27;s matrix.</td><td class="muted-t">Q-59, which now blocks rather than merely being open</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-12</td><td>The per-address rate limit uses the socket address, never X-Forwarded-For.</td><td class="muted-t">Before a documented deployment behind a proxy</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-13</td><td>The timing gap between a known and an unknown account name is narrowed, not closed.</td><td class="muted-t">If account enumeration is ever demonstrated against a deployment</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-13</td><td>The timing gap between a known and an unknown account name is narrowed, not closed.</td><td class="muted-t">If account enumeration is ever demonstrated against a deployment</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-14</td><td>A server that loses its last platform administrator cannot be recovered in band.</td><td class="muted-t">Before the first deployment that is not ours, or sooner if role revocation reaches the admin API</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-15</td><td>The user-type ceiling is enforced but unreachable from any endpoint.</td><td class="muted-t">The first admin endpoint</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-16</td><td>Portal&#x27;s privilege identifiers and default-role assignments are structural, not verified line by line.</td><td class="muted-t">Before any surface claims Portal compatibility</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -552,6 +552,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>5833e01</code><time>2026-08-23</time><span>a 404 during a walk becomes a question instead of a verdict</span></li>
 <li><code>804a512</code><time>2026-08-23</time><span>the reviews say which of their findings are repaired</span></li>
 <li><code>c9b8e2d</code><time>2026-08-23</time><span>the catalogue remembers its listing, and a document stops costing four seconds</span></li>
 <li><code>2df7241</code><time>2026-08-23</time><span>the warning in the console becomes a test that fails</span></li>
@@ -565,7 +566,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>effce38</code><time>2026-08-23</time><span>the three checks D-130 asks for, and two of them found something</span></li>
 <li><code>4e45836</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>2864362</code><time>2026-08-23</time><span>a document survives an outage now, and it still costs four seconds to produce</span></li>
-<li><code>9f426d3</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

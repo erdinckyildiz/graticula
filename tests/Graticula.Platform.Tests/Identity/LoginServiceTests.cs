@@ -41,6 +41,110 @@ public sealed class LoginServiceTests
     private Task<LoginResult> Login(string name, string password, IPAddress? address = null) =>
         Service().AuthenticateAsync(name, password, address ?? Address, CancellationToken.None);
 
+    /// <summary>
+    /// An unknown name does exactly the work a known one does, and no more.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-13](../../../docs/architecture-debt.md), asserted by counting rather than by
+    /// timing.</b> The row is about a timing gap and the gap was made of operations: a name that
+    /// exists cost one verification, and a name that does not cost one hash *and* one
+    /// verification, because the decoy work hashed the submitted password and then checked it
+    /// against itself. So an unknown name took roughly twice as long as a known one — an
+    /// enumeration oracle pointing the opposite way from the one that code was written to
+    /// prevent.
+    /// </para>
+    /// <para>
+    /// <b>A count is the right instrument here.</b> Timing the real hasher would make this test
+    /// slow and occasionally wrong, and would assert a threshold rather than the property. The
+    /// property is that the two paths perform the same calls.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_unknown_name_costs_the_same_work_as_a_known_one()
+    {
+        LoginService service = Service();
+
+        int hashes = _hasher.HashCalls;
+        int verifications = _hasher.VerifyCalls;
+
+        await service.AuthenticateAsync(
+            "alice", "wrong", Address, CancellationToken.None);
+
+        int knownHashes = _hasher.HashCalls - hashes;
+        int knownVerifications = _hasher.VerifyCalls - verifications;
+
+        hashes = _hasher.HashCalls;
+        verifications = _hasher.VerifyCalls;
+
+        await service.AuthenticateAsync(
+            "nobody-by-that-name", "wrong", OtherAddress, CancellationToken.None);
+
+        Assert.Equal(knownHashes, _hasher.HashCalls - hashes);
+        Assert.Equal(knownVerifications, _hasher.VerifyCalls - verifications);
+
+        // And it is one verification and no hash, not two of each: a decoy that costs more than
+        // the real path is as good an oracle as one that costs less.
+        Assert.Equal(0, knownHashes);
+        Assert.Equal(1, knownVerifications);
+    }
+
+    /// <summary>
+    /// A disabled account is verified like an enabled one.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same row, and a leak it did not record.</b> `LoginFailure.InvalidCredentials`
+    /// exists so that *wrong name*, *wrong password* and *disabled* are one answer — its own
+    /// remark says distinguishing them tells an attacker which names exist. The check read
+    /// `!IsDisabled && Verify(...)`, so a disabled account skipped the verification and answered
+    /// in a fraction of the time. The enum said one thing and the clock said another.
+    /// </remarks>
+    [Fact]
+    public async Task A_disabled_account_is_verified_like_an_enabled_one()
+    {
+        _store.Add(User("bob", disabled: true), _hasher.Hash("correct horse battery"));
+
+        LoginService service = Service();
+
+        int verifications = _hasher.VerifyCalls;
+
+        await service.AuthenticateAsync("alice", "wrong", Address, CancellationToken.None);
+
+        int enabled = _hasher.VerifyCalls - verifications;
+
+        verifications = _hasher.VerifyCalls;
+
+        await service.AuthenticateAsync("bob", "wrong", OtherAddress, CancellationToken.None);
+
+        Assert.Equal(enabled, _hasher.VerifyCalls - verifications);
+    }
+
+    /// <summary>
+    /// The decoy is one fixed hash, not one per attempt.
+    /// </summary>
+    /// <remarks>
+    /// <b>Built in the constructor, so a login never hashes.</b> Lazily building it would put a
+    /// lock on the unknown-name path, and lock contention is itself a timing signal. This asserts
+    /// the cost is where it was put: one hash when the service is made, none afterwards.
+    /// </remarks>
+    [Fact]
+    public async Task The_decoy_is_hashed_once_when_the_service_is_built()
+    {
+        int before = _hasher.HashCalls;
+
+        LoginService service = Service();
+
+        Assert.Equal(before + 1, _hasher.HashCalls);
+
+        for (int i = 0; i < 3; i++)
+        {
+            await service.AuthenticateAsync(
+                $"nobody-{i}", "wrong", OtherAddress, CancellationToken.None);
+        }
+
+        Assert.Equal(before + 1, _hasher.HashCalls);
+    }
+
     [Fact]
     public async Task A_correct_password_issues_a_session()
     {

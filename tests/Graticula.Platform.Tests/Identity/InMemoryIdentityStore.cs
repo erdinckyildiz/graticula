@@ -229,8 +229,22 @@ internal sealed class FakePasswordHasher : IPasswordHasher
     /// <summary>How many times <see cref="Verify"/> was called, for timing assertions.</summary>
     public int VerifyCalls { get; private set; }
 
-    public PasswordHash Hash(string password) =>
-        new("fake", CurrentParameters, System.Text.Encoding.UTF8.GetBytes(Reverse(password)));
+    /// <summary>How many hashes have been computed.</summary>
+    /// <remarks>
+    /// <b>Counted beside <see cref="VerifyCalls"/> because the pair is the measurement.</b>
+    /// [D-13](../../../docs/architecture-debt.md) is a timing gap, and with a real hasher timing
+    /// is the only way to see it — which makes for a test that is slow and sometimes wrong. What
+    /// actually differed was the *operations*: an unknown name hashed and then verified where a
+    /// known one only verified. That is countable, and a count does not flake.
+    /// </remarks>
+    public int HashCalls { get; private set; }
+
+    public PasswordHash Hash(string password)
+    {
+        HashCalls++;
+
+        return new("fake", CurrentParameters, System.Text.Encoding.UTF8.GetBytes(Reverse(password)));
+    }
 
     public bool Verify(string password, PasswordHash stored)
     {

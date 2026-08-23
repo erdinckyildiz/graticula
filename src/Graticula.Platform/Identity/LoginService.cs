@@ -60,6 +60,33 @@ public sealed class LoginService
     private readonly TimeSpan _sessionLifetime;
     private readonly TimeProvider _time;
 
+    /// <summary>A hash of a password nobody knows, to verify against when the name is unknown.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Built once, here, at the parameters this process hashes with.</b>
+    /// [D-13](../../../docs/architecture-debt.md) said closing the timing gap properly needed a
+    /// fixed decoy of the same parameters as the real ones, and called that impossible because
+    /// the parameters are stored per credential and are not known before the account is found.
+    /// The premise is true and the conclusion does not follow: a credential is rehashed at the
+    /// current cost on the way through every successful login, so *the current parameters* are
+    /// what an account in use has. A decoy built from the same hasher matches it.
+    /// </para>
+    /// <para>
+    /// <b>Perfect equality was never the target, because real accounts do not have it.</b> An
+    /// account that has not logged in since the cost was raised verifies at the old cost, and
+    /// that difference exists between two real accounts. What has to be true is that an unknown
+    /// name is indistinguishable from a known one at the current parameters, and that is what a
+    /// fixed decoy gives.
+    /// </para>
+    /// <para>
+    /// <b>Eager rather than lazy, and it costs one hash at construction.</b> Lazily building it
+    /// would put a lock on the unknown-name path, and lock contention is itself a timing signal
+    /// — the one this field exists to remove. This service is a singleton; the cost is paid once
+    /// per process, before it serves anything.
+    /// </para>
+    /// </remarks>
+    private readonly PasswordHash _decoy;
+
     /// <summary>Creates the service.</summary>
     /// <param name="store">Where identity lives.</param>
     /// <param name="hasher">The password hasher.</param>
@@ -84,6 +111,11 @@ public sealed class LoginService
         _throttle = throttle;
         _sessionLifetime = sessionLifetime;
         _time = time;
+
+        // <b>A password nobody has and nobody can guess</b>, so the decoy can never accidentally
+        // be the one somebody typed. Thirty-two random bytes; what matters is only that the
+        // hash exists and was made by this hasher.
+        _decoy = hasher.Hash(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
     }
 
     /// <summary>
@@ -155,9 +187,15 @@ public sealed class LoginService
             .FindForLoginAsync(name, cancellationToken)
             .ConfigureAwait(false);
 
-        bool verified = found is { Credential: { } credential }
-            && !found.Value.Principal.IsDisabled
+        // <b>Verified before disabled is consulted, and the order is the point.</b> Written the
+        // other way round, a disabled account skipped the verification entirely and answered in
+        // a fraction of the time an enabled one took — while `LoginFailure.InvalidCredentials`
+        // exists precisely so that *wrong name*, *wrong password* and *disabled* are one answer.
+        // The enum said so and the timing did not. [D-13](../../../docs/architecture-debt.md).
+        bool matches = found is { Credential: { } credential }
             && _hasher.Verify(password, credential);
+
+        bool verified = matches && !found!.Value.Principal.IsDisabled;
 
         if (!verified)
         {
@@ -207,18 +245,25 @@ public sealed class LoginService
     }
 
     /// <summary>
-    /// Burns roughly the cost of a verification, for names that do not exist.
+    /// Does what a real verification does, for names that do not exist.
     /// </summary>
     /// <remarks>
-    /// <b>This narrows the timing gap; it does not close it.</b> The work here is
-    /// not the same work, and a patient attacker measuring enough samples can
-    /// still separate the distributions. Closing it properly means verifying
-    /// against a fixed decoy hash of the same parameters as the real ones, which
-    /// requires knowing what those are before the account is found. Recorded as
-    /// what it is rather than described as constant-time.
+    /// <para>
+    /// <b>The same call the real path makes, against <see cref="_decoy"/>.</b> Until 2026-08-23
+    /// this hashed the password and then verified against what it had just made — one hash and
+    /// one verification where the real path does one verification, so an unknown name took
+    /// roughly twice as long as a known one and the endpoint was an enumeration oracle in the
+    /// opposite direction from the one the code was guarding against.
+    /// </para>
+    /// <para>
+    /// <b>Still not constant-time, and the remaining difference is stated rather than claimed
+    /// away.</b> Argon2 verification cost depends on the stored parameters, so an account that
+    /// has not logged in since the cost was last raised verifies at the old cost and differs
+    /// from this decoy. That difference is between two *real* accounts as much as between a real
+    /// one and an absent one, so it does not say which names exist.
+    /// </para>
     /// </remarks>
-    private void SpendComparableTime(string password) =>
-        _ = _hasher.Verify(password, _hasher.Hash(password));
+    private void SpendComparableTime(string password) => _ = _hasher.Verify(password, _decoy);
 
     /// <summary>Compares two token hashes without leaking length or position.</summary>
     /// <remarks>
