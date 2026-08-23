@@ -345,7 +345,9 @@
   </form>
 </div>
 
-<main class="wrap" id="app" style="display:none">
+<!-- tabindex="-1" so it can be given focus when a panel closes and the control that opened
+     it has gone with the redraw. Not reachable by Tab; reachable by script. D-93. -->
+<main class="wrap" id="app" tabindex="-1" style="display:none">
 
   <!-- ------------------------------------------------------------ services -->
   <!-- ------------------------------------------------- SERVER · services -->

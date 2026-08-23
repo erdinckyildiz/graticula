@@ -4772,6 +4772,18 @@ async function paintPreviews() {
  * is nested twice over. Creating is a short form you fill and dismiss, so it
  * stays here; editing a service is a place you navigate to, so it left.
  */
+/**
+ * Where focus was when the drawer opened, so closing it can put it back.
+ *
+ * <b>[D-93](../../docs/architecture-debt.md)'s remaining half.</b> Opening the drawer moves focus
+ * into it, which the row was written before and does not record. Closing it moved focus nowhere:
+ * the element that had focus was inside a subtree that had just been made `inert`, so the browser
+ * dropped focus to `<body>` and a keyboard operator restarted from the top of the page. The same
+ * defect, on the data-source edit form, is already recorded in this repository as measured — and
+ * this is the same fix.
+ */
+let drawerOpenedFrom = null;
+
 function closeDrawer() {
   $("drawer").classList.remove("on");
   $("drawer").setAttribute("aria-hidden", "true");
@@ -4784,6 +4796,27 @@ function closeDrawer() {
   // container is also a contradiction in its own right: the reader can reach something it has been
   // told is not there. `inert` removes it from the tab order and from hit testing together.
   $("drawer").inert = true;
+
+  /*
+    <b>Focus goes back where it came from</b>, which is what closing a panel owes whoever opened
+    it. Without this the browser has nowhere to put focus — the element holding it is inside
+    the subtree `inert` has just removed — so it lands on `<body>` and the next Tab starts at
+    the top of the page.
+
+    <b>Only if the trigger is still there and still reachable.</b> A submit that succeeded may have
+    redrawn the list the button was in; `isConnected` answers that, and `offsetParent` answers the
+    case this console has met before, where an element survives inside a hidden view. When neither
+    holds, focus goes to the main region rather than being left wherever the browser put it.
+  */
+  const back = drawerOpenedFrom;
+  drawerOpenedFrom = null;
+
+  if (back?.isConnected && back.offsetParent !== null) {
+    back.focus();
+    return;
+  }
+
+  $("app")?.focus();
 }
 
 /**
@@ -6513,6 +6546,11 @@ function openNewService() {
   $("gService").addEventListener("change", event => showServiceGroups(event.target.value));
 
   section("service names", fillServiceChoices);
+
+  // Remembered before focus moves, because moving it is the next thing that happens. D-93.
+  drawerOpenedFrom = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
 
   $("drawer").classList.add("on");
   $("drawer").setAttribute("aria-hidden", "false");
