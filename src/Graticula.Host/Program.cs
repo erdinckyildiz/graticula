@@ -124,7 +124,10 @@ public static class Program
         // Registered before `LayerConnections` because that is what consumes it: every read path
         // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.
         builder.Services.AddSingleton(new ConnectionBudget(
-            settings.ConnectionBudget, settings.PerSourceConcurrency));
+            settings.ConnectionBudget,
+            settings.PerSourceConcurrency,
+            wait: null,
+            waitersPerPermit: settings.QueueWaitersPerPermit));
 
         builder.Services.AddSingleton<LayerConnections>();
 

@@ -82,6 +82,132 @@ public sealed class ConnectionBudgetTests
     }
 
     /// <summary>
+    /// A caller who arrives behind too long a queue is refused now, not in five seconds.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md).</b>
+    /// The bound above measures how long one caller has waited, which stays small whenever
+    /// service is fast — so a query taking 25 ms keeps freeing a permit inside any window and
+    /// the control never fires. Measured before the change: 720 requests at concurrency 240,
+    /// none refused, median latency growing from 79 ms to 611 ms in step with the concurrency.
+    /// </para>
+    /// <para>
+    /// <b>A long wait here on purpose, which is the opposite of every other test in this
+    /// file.</b> The others pass a brief timeout so the refusal is quick; this one needs the
+    /// timeout to be irrelevant, because what is under test is that the refusal happens
+    /// without waiting at all.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_caller_behind_too_deep_a_queue_is_refused_without_waiting()
+    {
+        // One permit and four waiters per permit, so the sixth caller is one too many.
+        using ConnectionBudget budget = new(
+            worker: 0, perSource: 1, TimeSpan.FromMinutes(5));
+
+        Assert.Equal(ConnectionBudget.WaitersPerPermit, budget.QueueDepth);
+
+        // <b>Not `using`, because this one is released by hand further down.</b> A `using`
+        // beside an explicit `Dispose` releases the permit twice — and the first version of
+        // this test did exactly that. Worth knowing rather than only fixing: `Lease` is a
+        // struct, so its `Dispose` cannot make itself idempotent, and a double release throws
+        // `SemaphoreFullException` rather than quietly inflating the budget. Loud is the right
+        // behaviour; the trap is still there for the next caller who writes both.
+        ConnectionBudget.Lease held =
+            await budget.EnterAsync("one", CancellationToken.None);
+
+        // Four callers queue and stay queued: nothing releases the permit.
+        List<Task<ConnectionBudget.Lease>> queued = [];
+
+        for (int i = 0; i < ConnectionBudget.WaitersPerPermit; i++)
+        {
+            queued.Add(budget.EnterAsync("one", CancellationToken.None).AsTask());
+        }
+
+        // <b>Waited for rather than assumed.</b> `EnterAsync` is asynchronous, so the four
+        // above have been started and not necessarily reached the semaphore yet; asserting on
+        // the count before they have is a race that would fail on a fast machine and pass on a
+        // slow one.
+        for (int attempt = 0; attempt < 200 && budget.WaitingFor("one") < 4; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(4, budget.WaitingFor("one"));
+
+        // The fifth waiter is past the depth, and is told so at once.
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        ConnectionBudgetFullException refused =
+            await Assert.ThrowsAsync<ConnectionBudgetFullException>(
+                async () => await budget.EnterAsync("one", CancellationToken.None));
+
+        clock.Stop();
+
+        // <b>The point of the whole change: not in five minutes.</b> A generous ceiling, since
+        // a loaded build agent is slow, and still three orders of magnitude under the wait.
+        Assert.True(
+            clock.ElapsedMilliseconds < 2000,
+            $"The refusal took {clock.ElapsedMilliseconds} ms, so it waited for the timeout "
+            + "rather than reading the queue.");
+
+        // And it says what it counted, because *at capacity* sends an operator to the database.
+        Assert.Contains("waiting", refused.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("queue", refused.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Releasing lets the queue drain, so the count is not a leak.
+        held.Dispose();
+
+        foreach (Task<ConnectionBudget.Lease> waiter in queued)
+        {
+            (await waiter).Dispose();
+        }
+
+        Assert.Equal(0, budget.WaitingFor("one"));
+    }
+
+    /// <summary>
+    /// A cancelled caller does not leave the queue counted against the next one.
+    /// </summary>
+    /// <remarks>
+    /// <b>A leaked waiter is a permanent reduction in what a source will admit</b>, and it
+    /// would look exactly like the database getting slower — which is the wrong place to go
+    /// looking. The count is released in a `finally` for this reason and this asserts it.
+    /// </remarks>
+    [Fact]
+    public async Task A_cancelled_caller_leaves_the_queue_count_where_it_found_it()
+    {
+        using ConnectionBudget budget = new(
+            worker: 0, perSource: 1, TimeSpan.FromMinutes(5));
+
+        using ConnectionBudget.Lease held =
+            await budget.EnterAsync("one", CancellationToken.None);
+
+        using CancellationTokenSource giveUp = new();
+
+        Task<ConnectionBudget.Lease> waiting = budget.EnterAsync("one", giveUp.Token).AsTask();
+
+        for (int attempt = 0; attempt < 200 && budget.WaitingFor("one") < 1; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(1, budget.WaitingFor("one"));
+
+        await giveUp.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waiting);
+
+        for (int attempt = 0; attempt < 200 && budget.WaitingFor("one") > 0; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(0, budget.WaitingFor("one"));
+    }
+
+    /// <summary>
     /// A slot given back is a slot the next request gets.
     /// </summary>
     /// <remarks>

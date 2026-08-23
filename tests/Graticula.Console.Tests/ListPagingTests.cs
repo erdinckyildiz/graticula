@@ -215,9 +215,27 @@ public sealed class ListPagingTests : ConsoleTest
         KeyValuePair<string, int> biggest = perFolder.OrderByDescending(e => e.Value).First();
         string at = biggest.Key;
 
-        // <b>Eleven rather than ten.</b> The boundary is crossed rather than met, because at
-        // exactly ten there is nothing to page and the pager is right to be absent.
-        int wanted = Math.Max(0, 11 - biggest.Value);
+        /*
+          <b>Eleven rather than ten.</b> The boundary is crossed rather than met, because at
+          exactly ten there is nothing to page and the pager is right to be absent.
+
+          <b>And at least one, which is the fix for D-143.</b> This was `Math.Max(0, …)`, so a
+          folder that already held eleven services got no probe at all — and then
+          `Filtering_returns_to_the_first_page`, whose filter is this suite's own prefix and
+          nothing else, narrowed the list to nothing and reported that filtering had left the
+          table empty *while there were matches*. There were none. The table was right.
+
+          <b>It failed about one run in six because the count moved.</b> Measured 2026-08-23:
+          `hosted` held fourteen services, so `11 - 14` was negative and the floor of zero
+          applied; other suites in the run publish and remove services in the same folder, so
+          whether it sat above or below eleven depended on what else had run. The register row
+          guessed at `CatalogFallback` and was wrong — the listing was accurate throughout.
+
+          <b>The floor of one is what makes the filter meaningful rather than the count.</b>
+          Eleven is what the pager needs; one is what a filter for *this suite's services*
+          needs, and only the second was ever in doubt.
+        */
+        int wanted = Math.Max(1, 11 - biggest.Value);
 
         for (int i = 0; i < wanted; i++)
         {

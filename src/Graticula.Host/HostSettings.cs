@@ -52,6 +52,13 @@ internal sealed record HostSettings(
     TimeSpan RequestDeadline,
     int ConnectionBudget,
     int PerSourceConcurrency,
+
+    // <b>How many callers queue per permit before arrivals are refused.</b> ADR-046: the wait
+    // could not shed load from a workload faster than the wait itself, so the queue is what is
+    // bounded. Settable because condition 2 asks for the number to be chosen against a
+    // measurement rather than asserted, and because an operator who prefers a deep queue to a
+    // 503 is making a legitimate choice about their own deployment.
+    int QueueWaitersPerPermit,
     int MaximumRecordCount,
     int DefaultRecordCount,
     int MaximumImageWidth,
@@ -299,6 +306,12 @@ internal sealed record HostSettings(
             // unbounded and that is what Q-04 found.
             Math.Max(0, keys.Value("ConnectionBudget", 64)),
             Math.Max(0, keys.Value("PerSourceConcurrency", 24)),
+            // <b>Four, written here rather than read from `ConnectionBudget`.</b> The
+            // constant there is the type's own default for callers that construct one
+            // directly; a settings reader that referenced it would make the deployment's
+            // default and the type's default one thing, and they are two — this one an
+            // operator may change.
+            Math.Max(1, keys.Value("QueueWaitersPerPermit", 4)),
 
             // <b>The most rows one query may return, for the whole deployment.</b> Owner, 2026-08-19:
             // *"dönebilecek max recordlarla alakalı genel bir kural olması lazım… düşünsene 3 milyonluk

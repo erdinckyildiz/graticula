@@ -4109,6 +4109,7 @@ internal static class AdminEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         TileSingleFlight flight,
+        ConnectionBudget budget,
         CancellationToken cancellation)
     {
         string? storeError = null;
@@ -4236,6 +4237,28 @@ internal static class AdminEndpoints
         // "is this seeded" or "why is the disk full" has no other way to
         // find out, and a cache nobody can see is one nobody suspects when
         // the datastore starts working harder than it should.
+        /*
+          <b>What admission control is actually doing, which was unobservable.</b>
+          [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md):
+          the budget refuses when too many callers are already waiting, and until this was
+          reported there was no way to tell a server that is shedding load from one that is
+          quietly queueing. `SemaphoreSlim` exposes free permits and not waiters, so the count
+          is the budget's own.
+
+          <b>Operational detail, so it is behind the privilege like everything else here.</b>
+          How close a deployment is to its bound is a capacity fact about the server, which is
+          exactly the class of thing the §66 security gate took out of the anonymous answer.
+        */
+        health["admissionControl"] = new
+        {
+            perSource = budget.PerSource,
+            worker = budget.Worker,
+            queueDepth = budget.QueueDepth,
+            waitSeconds = budget.Wait.TotalSeconds,
+            waitingForWorker = budget.WaitingForWorker,
+            waitingForSource = budget.WaitingForSource,
+        };
+
         health["tileCache"] = new
         {
             entries = tiles.Report(null).Entries,
