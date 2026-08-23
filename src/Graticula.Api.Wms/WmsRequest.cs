@@ -25,6 +25,44 @@ public readonly record struct WmsLimits(
     public static WmsLimits Default => new(4096, 4096, 32, 100);
 }
 
+/// <summary>Who to ask about this server, if anybody has said.</summary>
+/// <remarks>
+/// <para>
+/// <b>Configuration rather than content, because it is a deployment's fact and not this
+/// product's.</b> WMS 1.3.0 recommends <c>ContactInformation</c> in the capabilities
+/// document, and the CITE suite's <c>service-contact-info</c> assertion checks for it.
+/// **The obvious way to pass that assertion is to write something plausible, and that
+/// would be worse than failing it** — a client that reads a contact address and finds
+/// nobody there has been actively misled, whereas a client that finds no address knows
+/// to look elsewhere.
+/// </para>
+/// <para>
+/// <b>So it is empty unless an operator fills it in</b>, and every part is optional:
+/// a deployment that wants to publish only an address publishes only an address. Set
+/// <c>Graticula:WmsContactPerson</c>, <c>…Organization</c>, <c>…Position</c>,
+/// <c>…Email</c> and <c>…Phone</c>.
+/// </para>
+/// </remarks>
+/// <param name="Person">A person's name, or null.</param>
+/// <param name="Organization">The organisation running this server, or null.</param>
+/// <param name="Position">That person's role, or null.</param>
+/// <param name="Email">An address to write to, or null.</param>
+/// <param name="Phone">A number to ring, or null.</param>
+public readonly record struct WmsContact(
+    string? Person, string? Organization, string? Position, string? Email, string? Phone)
+{
+    /// <summary>Nobody has said, which is the honest default.</summary>
+    public static WmsContact Unstated => default;
+
+    /// <summary>Whether there is anything to write.</summary>
+    public bool IsStated =>
+        !string.IsNullOrWhiteSpace(Person)
+        || !string.IsNullOrWhiteSpace(Organization)
+        || !string.IsNullOrWhiteSpace(Position)
+        || !string.IsNullOrWhiteSpace(Email)
+        || !string.IsNullOrWhiteSpace(Phone);
+}
+
 /// <summary>
 /// One WMS request, parsed out of its key-value pairs.
 /// </summary>

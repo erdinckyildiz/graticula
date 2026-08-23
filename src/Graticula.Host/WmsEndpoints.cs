@@ -136,7 +136,8 @@ internal static class WmsEndpoints
             {
                 case WmsOperation.GetCapabilities:
                     await CapabilitiesAsync(
-                        context, catalog, contexts, projector, request, limits, cancellation)
+                        context, catalog, contexts, projector, request, limits, settings,
+                        cancellation)
                         .ConfigureAwait(false);
                     return;
 
@@ -319,6 +320,7 @@ internal static class WmsEndpoints
         IProjector projector,
         WmsRequest request,
         WmsLimits limits,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedLayer> visible =
@@ -339,7 +341,8 @@ internal static class WmsEndpoints
             EndpointOf(context),
             "Graticula",
             published,
-            limits);
+            limits,
+            settings.WmsContact);
 
         context.Response.ContentType = request.Version == WmsVersion.V130
             ? WmsNames.CapabilitiesMediaType130

@@ -401,6 +401,57 @@ recorded, taken a third time, and recorded rather than absorbed.
    imported with `keytool -importcert -cacerts` or every test dies on a PKIX error
    while reporting *0 tests run, core conformance passed*.
 
+   **Re-run 2026-08-23 with the recommended profile as well, which the 2026-08-20 run
+   left out: 191 of 202, and five of the eleven failures were new information.**
+   `recommended=recommended` adds assertions the specification recommends rather than
+   requires — service keywords, contact information, a layer abstract, a layer keyword
+   list and a `MetadataURL` on every named layer — and this document carried none of
+   them. **Not running the recommended profile is how a document comes to be missing
+   five things nobody had noticed**, and it costs one query-string parameter.
+
+   **Three were free, because the server already knew the answer.** 191 became 194:
+
+   - **Service keywords.** `WMS`, `GetMap`, `GetFeatureInfo`, `vector`, `PostGIS`. The
+     temptation is *GIS, maps, spatial* — words true of every server of this kind and
+     therefore useless for telling one from another. These name operations a client can
+     call.
+   - **A layer abstract**, derived rather than typed: *Polygon features held in
+     EPSG:3857, drawn with this layer's own stored symbology. GetFeatureInfo answers for
+     this layer.* **The point is not the assertion, it is a layer picker**: a title of
+     `tr_il` tells a person nothing, and the geometry, the reference system and whether
+     it has a time dimension tell them whether it is the layer they want. Every clause is
+     read off the layer, so it cannot become false without the layer changing.
+   - **A layer keyword list**, from the same facts.
+
+   **Contact information is a deployment's, so it is configuration and it is absent by
+   default.** `Graticula:WmsContactPerson` and its four siblings. **The cheap way to pass
+   that assertion is to write something plausible, and that is worse than failing it** — a
+   client that reads an address and finds nobody there has been actively misled, while one
+   that finds no address knows to look elsewhere. **Measured both ways rather than argued:
+   with the settings supplied the same run reports 195 of 202**, so what fails by default
+   is a choice and not an omission.
+
+   **`MetadataURL` is not implemented and the reason is the same reason, stated once.**
+   The element carries a mandatory `type` of `ISO19115:2003` or `FGDC:1998`, and this
+   server has no document of either kind to point at. Pointing `DescribeFeatureType` or a
+   REST page at it and declaring a standard it does not follow would satisfy a suite and
+   lie to a harvester. **It stays failed until there is something true to put there.**
+
+   **The six dataset failures are unchanged and are now proven rather than read.** The
+   2026-08-20 note inferred the cause from the suite's `basic.xml`; the 2026-08-23 run's
+   own request records show it — `LaYeRs=` empty for `no-bgcolor`, `LaYeRs=,,,,,,,` for
+   `bbox-exponential`, eight empty names because the suite substituted its own eight layer
+   names and found none of them. This server answered with a `ServiceExceptionReport`,
+   correctly, and the suite's image parser reported *No image handlers available for the
+   data stream*. **So the failure is upstream of anything this server does**, and
+   `std-data-queryable` has no message at all because it depends on those.
+
+   **`WmsCapabilitiesRecommendationTests` asserts the three that were implemented**,
+   including that a layer's abstract names that layer's own reference system — the
+   assertion that stops an abstract from becoming one sentence repeated, which would pass
+   a presence check and help nobody. Evidence:
+   [cite-wms13-2026-08-23.rdf](../reviews/cite-wms13-2026-08-23.rdf).
+
 ## 8. Assumptions
 
 | ID | Assumption | Status |

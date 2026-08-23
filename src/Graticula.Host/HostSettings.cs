@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Graticula.Api.Wms;
 using Graticula.Platform.Postgres;
 using System.IO;
 using System.Net;
@@ -63,6 +64,14 @@ internal sealed record HostSettings(
     int DefaultRecordCount,
     int MaximumImageWidth,
     int MaximumImageHeight,
+
+    // <b>Who to ask about this server, and empty is the honest default.</b> WMS 1.3.0
+    // recommends ContactInformation in the capabilities document and the CITE suite checks
+    // for it. The cheap way to pass that check is to write something plausible, and that
+    // is worse than failing it: a client that reads an address and finds nobody there has
+    // been misled, while one that finds no address knows to look elsewhere. So this is a
+    // deployment's to fill in and nobody's to invent.
+    WmsContact WmsContact,
 
     // <b>On by default, and the switch exists for two reasons that are both real.</b> An
     // operator running a busy read-only deployment may not want a write per request at all,
@@ -350,6 +359,13 @@ internal sealed record HostSettings(
             // client learns the limit rather than discovering it by refusal.
             Math.Clamp(keys.Value("MaximumImageWidth", 4096), 16, 16384),
             Math.Clamp(keys.Value("MaximumImageHeight", 4096), 16, 16384),
+
+            new WmsContact(
+                keys.Text("WmsContactPerson"),
+                keys.Text("WmsContactOrganization"),
+                keys.Text("WmsContactPosition"),
+                keys.Text("WmsContactEmail"),
+                keys.Text("WmsContactPhone")),
             requestLog,
 
             // JPEG quality. 85 is where the artefacts stop being visible on a map's

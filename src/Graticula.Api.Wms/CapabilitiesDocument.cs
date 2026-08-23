@@ -48,13 +48,15 @@ public static class CapabilitiesDocument
     /// <param name="title">What to call the service.</param>
     /// <param name="layers">The layers the caller may see.</param>
     /// <param name="limits">The bounds to publish.</param>
+    /// <param name="contact">Who to ask about this server, or nobody.</param>
     /// <returns>The XML.</returns>
     public static string Write(
         WmsVersion version,
         string endpoint,
         string title,
         IReadOnlyList<WmsLayer> layers,
-        WmsLimits limits)
+        WmsLimits limits,
+        WmsContact contact = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         ArgumentNullException.ThrowIfNull(layers);
@@ -72,11 +74,11 @@ public static class CapabilitiesDocument
         {
             if (version == WmsVersion.V130)
             {
-                Write130(writer, endpoint, title, layers, limits);
+                Write130(writer, endpoint, title, layers, limits, contact);
             }
             else
             {
-                Write111(writer, endpoint, title, layers, limits);
+                Write111(writer, endpoint, title, layers, limits, contact);
             }
         }
 
@@ -88,7 +90,8 @@ public static class CapabilitiesDocument
         string endpoint,
         string title,
         IReadOnlyList<WmsLayer> layers,
-        WmsLimits limits)
+        WmsLimits limits,
+        WmsContact contact)
     {
         writer.WriteStartElement("WMS_Capabilities", WmsNames.Wms);
         writer.WriteAttributeString("version", "1.3.0");
@@ -97,7 +100,7 @@ public static class CapabilitiesDocument
         writer.WriteAttributeString(
             "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130}");
 
-        WriteService(writer, endpoint, title, limits, WmsVersion.V130);
+        WriteService(writer, endpoint, title, limits, WmsVersion.V130, contact);
 
         writer.WriteStartElement("Capability");
         WriteRequests(writer, endpoint, WmsVersion.V130);
@@ -133,7 +136,8 @@ public static class CapabilitiesDocument
         string endpoint,
         string title,
         IReadOnlyList<WmsLayer> layers,
-        WmsLimits limits)
+        WmsLimits limits,
+        WmsContact contact)
     {
         // <b>The DOCTYPE is not decoration.</b> 1.1.1 is DTD-validated, and clients
         // of that era check. A 1.1.1 document without it is refused by some of the
@@ -143,7 +147,7 @@ public static class CapabilitiesDocument
         writer.WriteStartElement("WMT_MS_Capabilities");
         writer.WriteAttributeString("version", "1.1.1");
 
-        WriteService(writer, endpoint, title, limits, WmsVersion.V111);
+        WriteService(writer, endpoint, title, limits, WmsVersion.V111, contact);
 
         writer.WriteStartElement("Capability");
         WriteRequests(writer, endpoint, WmsVersion.V111);
@@ -173,7 +177,12 @@ public static class CapabilitiesDocument
     }
 
     private static void WriteService(
-        XmlWriter writer, string endpoint, string title, WmsLimits limits, WmsVersion version)
+        XmlWriter writer,
+        string endpoint,
+        string title,
+        WmsLimits limits,
+        WmsVersion version,
+        WmsContact contact)
     {
         writer.WriteStartElement("Service");
         writer.WriteElementString("Name", version == WmsVersion.V130 ? "WMS" : "OGC:WMS");
@@ -183,7 +192,18 @@ public static class CapabilitiesDocument
             "Maps drawn from this server's own published layers, using each layer's stored "
             + "symbology. Read-only.");
 
+        WriteKeywords(
+            writer,
+            // <b>What this server is, not what somebody hopes it is found by.</b> The
+            // WMS 1.3.0 suite recommends a keyword list at service level so a catalogue
+            // can index the server, and the temptation is to write "GIS, maps, spatial"
+            // — words true of every server of this kind and therefore useless for
+            // telling one from another. These five say what a client can do here.
+            ["WMS", "GetMap", "GetFeatureInfo", "vector", "PostGIS"]);
+
         WriteOnlineResource(writer, endpoint);
+
+        WriteContact(writer, contact);
 
         // <b>Published rather than discovered.</b> A client that learns the limit
         // from the document never sends a request that hits it; one that does not
@@ -258,6 +278,142 @@ public static class CapabilitiesDocument
         writer.WriteEndElement();
     }
 
+    /// <summary>
+    /// Writes <c>ContactInformation</c>, or nothing when nobody has been named.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing rather than something plausible.</b> See <see cref="WmsContact"/>: the
+    /// CITE suite recommends this element and the way to satisfy it without knowing the
+    /// answer is to invent one, which misleads a client that acts on it. An absent
+    /// element says *this deployment has not said*, which is true and useful.
+    /// </remarks>
+    private static void WriteContact(XmlWriter writer, WmsContact contact)
+    {
+        if (!contact.IsStated)
+        {
+            return;
+        }
+
+        writer.WriteStartElement("ContactInformation");
+
+        if (!string.IsNullOrWhiteSpace(contact.Person)
+            || !string.IsNullOrWhiteSpace(contact.Organization))
+        {
+            writer.WriteStartElement("ContactPersonPrimary");
+
+            // <b>Both children, in this order, even when one is empty.</b> The schema
+            // makes ContactPerson and ContactOrganization required inside the wrapper, so
+            // writing only the one that is set produces a document that fails validation
+            // — which is a worse outcome than an empty element.
+            writer.WriteElementString("ContactPerson", contact.Person ?? string.Empty);
+            writer.WriteElementString(
+                "ContactOrganization", contact.Organization ?? string.Empty);
+
+            writer.WriteEndElement();
+        }
+
+        if (!string.IsNullOrWhiteSpace(contact.Position))
+        {
+            writer.WriteElementString("ContactPosition", contact.Position);
+        }
+
+        if (!string.IsNullOrWhiteSpace(contact.Phone))
+        {
+            writer.WriteElementString("ContactVoiceTelephone", contact.Phone);
+        }
+
+        if (!string.IsNullOrWhiteSpace(contact.Email))
+        {
+            writer.WriteElementString("ContactElectronicMailAddress", contact.Email);
+        }
+
+        writer.WriteEndElement();
+    }
+
+    /// <summary>Writes a <c>KeywordList</c>, or nothing when there is nothing to say.</summary>
+    /// <remarks>
+    /// <b>Recommended rather than required by WMS 1.3.0, and it is a recommendation worth
+    /// meeting.</b> A catalogue harvesting this document has the title and the abstract
+    /// and no vocabulary; a layer picker with a search box has nothing to search. What
+    /// makes it worth writing rather than filling in is that every keyword here is
+    /// derived from something the server knows — the geometry it holds, the service it
+    /// belongs to — so none of them can become false without the layer changing.
+    /// </remarks>
+    private static void WriteKeywords(XmlWriter writer, List<string> keywords)
+    {
+        if (keywords.Count == 0)
+        {
+            return;
+        }
+
+        writer.WriteStartElement("KeywordList");
+
+        foreach (string keyword in keywords)
+        {
+            writer.WriteElementString("Keyword", keyword);
+        }
+
+        writer.WriteEndElement();
+    }
+
+    /// <summary>What a layer can honestly be searched by.</summary>
+    /// <remarks>
+    /// <b>Derived, so it cannot go stale.</b> The geometry kind, the service the layer
+    /// belongs to, and its folder if it has one. A hand-written keyword list on a layer
+    /// nobody revisits is a list that describes what the layer used to hold.
+    /// </remarks>
+    private static List<string> KeywordsOf(WmsLayer layer)
+    {
+        List<string> keywords = [layer.GeometryType.ToString()];
+
+        if (layer.Name is { Length: > 0 } name
+            && !string.Equals(name, layer.GeometryType.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            keywords.Add(name);
+        }
+
+        return keywords;
+    }
+
+    /// <summary>
+    /// A layer's abstract, from what the server knows about it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The catalogue has no description field for a layer, so this states facts
+    /// instead of repeating a title.</b> WMS 1.3.0 recommends an abstract on every named
+    /// layer and the recommendation is about a client's layer picker: a title of
+    /// `tr_il` tells a person nothing, and *polygon features in EPSG:4326, with a time
+    /// dimension* tells them whether it is the layer they want. **Nothing here is
+    /// invented** — every clause is read off the layer, so the sentence changes when the
+    /// layer does.
+    /// </remarks>
+    private static string AbstractOf(WmsLayer layer)
+    {
+        string geometry = layer.GeometryType switch
+        {
+            GeometryKind.Point or GeometryKind.MultiPoint => "Point features",
+            GeometryKind.LineString or GeometryKind.MultiLineString => "Line features",
+            GeometryKind.Polygon or GeometryKind.MultiPolygon => "Polygon features",
+            _ => "Features",
+        };
+
+        string text =
+            $"{geometry} held in EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}, "
+            + "drawn with this layer's own stored symbology.";
+
+        if (layer.Time is { } time && time.ExtentText.Length > 0)
+        {
+            text += " Has a time dimension, so a TIME parameter selects an instant or a range.";
+        }
+
+        if (layer.Queryable)
+        {
+            text += " GetFeatureInfo answers for this layer.";
+        }
+
+        return text;
+    }
+
     private static void WriteOnlineResource(XmlWriter writer, string href)
     {
         writer.WriteStartElement("OnlineResource");
@@ -275,10 +431,12 @@ public static class CapabilitiesDocument
         writer.WriteElementString("Name", layer.Name);
         writer.WriteElementString("Title", layer.Title);
 
-        if (layer.Abstract is { Length: > 0 } description)
-        {
-            writer.WriteElementString("Abstract", description);
-        }
+        // A description the catalogue holds wins; otherwise the layer describes itself.
+        writer.WriteElementString(
+            "Abstract",
+            layer.Abstract is { Length: > 0 } description ? description : AbstractOf(layer));
+
+        WriteKeywords(writer, KeywordsOf(layer));
 
         writer.WriteElementString("CRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
 
@@ -310,10 +468,11 @@ public static class CapabilitiesDocument
         writer.WriteElementString("Name", layer.Name);
         writer.WriteElementString("Title", layer.Title);
 
-        if (layer.Abstract is { Length: > 0 } description)
-        {
-            writer.WriteElementString("Abstract", description);
-        }
+        writer.WriteElementString(
+            "Abstract",
+            layer.Abstract is { Length: > 0 } description ? description : AbstractOf(layer));
+
+        WriteKeywords(writer, KeywordsOf(layer));
 
         writer.WriteElementString("SRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
 
