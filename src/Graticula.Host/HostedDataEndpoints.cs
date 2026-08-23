@@ -108,6 +108,7 @@ internal static class HostedDataEndpoints
         IAdminCatalog catalog,
         IAuditLog audit,
         IJobStore jobs,
+        JobSignal signal,
         GeodatabaseReader reader,
         ImportScratch scratch,
         CancellationToken cancellation)
@@ -183,7 +184,8 @@ internal static class HostedDataEndpoints
         if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
         {
             (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
-                context, form, file, jobs, reader, scratch, cancellation).ConfigureAwait(false);
+                context, form, file, jobs, signal, reader, scratch, cancellation)
+                .ConfigureAwait(false);
 
             if (!ok)
             {
@@ -455,6 +457,7 @@ internal static class HostedDataEndpoints
         IFormCollection form,
         IFormFile file,
         IJobStore jobs,
+        JobSignal signal,
         GeodatabaseReader reader,
         ImportScratch scratch,
         CancellationToken cancellation)
@@ -482,7 +485,8 @@ internal static class HostedDataEndpoints
         // this is the first kind of work that uses it.
         if (foreign == ForeignArchive.Geodatabase && reader.Available)
         {
-            await OpenInspectAsync(context, jobs, scratch, file, cancellation).ConfigureAwait(false);
+            await OpenInspectAsync(context, jobs, signal, scratch, file, cancellation)
+                .ConfigureAwait(false);
             return (false, null!);
         }
 
@@ -1107,6 +1111,7 @@ internal static class HostedDataEndpoints
         HttpContext context,
         GeodatabasePublish asked,
         IJobStore jobs,
+        JobSignal signal,
         IAdminCatalog catalog,
         GeodatabaseReader reader,
         ImportScratch scratch,
@@ -1271,6 +1276,11 @@ internal static class HostedDataEndpoints
             }),
             cancellation).ConfigureAwait(false);
 
+        // <b>The worker is told rather than left to find it.</b> D-110: it polls at up to half
+        // a minute when idle so the connection pool can prune, and this is what keeps that from
+        // being half a minute of latency on work this node was just asked to do.
+        signal.Wake(job.Kind);
+
         context.Response.Headers.Location = $"/admin/jobs/{job.Id}";
 
         await Results.Json(
@@ -1357,6 +1367,7 @@ internal static class HostedDataEndpoints
     private static async Task OpenInspectAsync(
         HttpContext context,
         IJobStore jobs,
+        JobSignal signal,
         ImportScratch scratch,
         IFormFile file,
         CancellationToken cancellation)
@@ -1393,6 +1404,11 @@ internal static class HostedDataEndpoints
             await Fail(context, 507, full.Message).ConfigureAwait(false);
             return;
         }
+
+        // <b>The worker is told rather than left to find it.</b> D-110: it polls at up to half
+        // a minute when idle so the connection pool can prune, and this is what keeps that from
+        // being half a minute of latency on work this node was just asked to do.
+        signal.Wake(job.Kind);
 
         context.Response.Headers.Location = $"/admin/jobs/{job.Id}";
 

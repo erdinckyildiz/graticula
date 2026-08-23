@@ -75,6 +75,20 @@ public static class Program
         builder.Services.AddSingleton(_ => new SecretProtector(
             settings.SecretKeyVersion, Convert.FromBase64String(settings.SecretKeyBase64)));
 
+        /*
+          <b>Default pool settings, and a twenty-second `ConnectionIdleLifetime` was tried here
+          and taken out again.</b> [D-110](../../docs/architecture-debt.md): the background
+          workers now back off to thirty seconds when idle, and the thought was that a lifetime
+          under the poll would let the pool reach zero. Measured, it did not — two backends,
+          idle 13.4 s, in the same place as before. The poll returns the connection and takes it
+          again inside the window the pruner needs, so the floor moves from *held for ever* to
+          *churned*, which is not what the number was added for.
+
+          <b>So it is not here, because a setting that does not do what it was added for is
+          worse than the default.</b> What the measurement says is that the remaining floor is
+          the pollers sharing this pool at all, and the repayable form is their own — recorded
+          in the row rather than guessed at here.
+        */
         builder.Services.AddSingleton(_ =>
             new NpgsqlDataSourceBuilder(settings.PlatformStore).Build());
 
@@ -124,6 +138,12 @@ public static class Program
             services.GetRequiredService<ILogger<GeodatabaseReader>>()));
 
         builder.Services.AddSingleton<ImportScratch>();
+        // <b>One signal, shared by whoever enqueues and whoever waits.</b> D-110: the
+        // workers back off to half a minute when idle so the platform-store pool can
+        // finally prune, and this is what keeps that from costing latency for work this
+        // node was asked to do.
+        builder.Services.AddSingleton<JobSignal>();
+
         builder.Services.AddHostedService<GeodatabaseInspector>();
         builder.Services.AddHostedService<GeodatabaseImporter>();
 

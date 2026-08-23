@@ -48,9 +48,39 @@ internal sealed class GeodatabaseInspector : BackgroundService
     /// </remarks>
     public static readonly TimeSpan Deadline = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// How long to wait after a claim that found nothing, and how far that grows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-110](../../docs/architecture-debt.md): two workers polling every two seconds held
+    /// eight database sessions open for ever, on a server doing nothing.</b> Measured: after load
+    /// stopped the pools pruned correctly — 79 backends to zero in 184 seconds — and
+    /// then settled at sixteen and stayed, eight of which had last run the claim. The minimum
+    /// idle time across them was two seconds, which is the poll. A pool that prunes correctly
+    /// cannot prune one somebody keeps knocking on.
+    /// </para>
+    /// <para>
+    /// <b>Two seconds is still the first wait, because responsiveness is why it was two.</b> The
+    /// wait doubles only while the claims keep finding nothing, up to half a minute, and any
+    /// claim that finds work puts it back. So a busy server behaves exactly as before and an idle
+    /// one stops knocking.
+    /// </para>
+    /// <para>
+    /// <b>And the backoff costs no latency for work enqueued here</b>, because
+    /// <see cref="JobSignal"/> wakes the wait. Half a minute is the worst case for a job
+    /// enqueued by another node, which is the case this poll exists for.
+    /// </para>
+    /// </remarks>
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(2);
 
+    /// <summary>The longest this worker waits between claims. D-110.</summary>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    private TimeSpan _waiting = Idle;
+
     private readonly IJobStore _jobs;
+    private readonly JobSignal _signal;
 
     /// <summary>What this worker calls itself when it claims a job.</summary>
     /// <remarks>
@@ -79,15 +109,18 @@ internal sealed class GeodatabaseInspector : BackgroundService
 
     public GeodatabaseInspector(
         IJobStore jobs,
+        JobSignal signal,
         GeodatabaseReader reader,
         ImportScratch scratch,
         ILogger<GeodatabaseInspector> log)
     {
         ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(signal);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(scratch);
         ArgumentNullException.ThrowIfNull(log);
 
+        _signal = signal;
         _jobs = jobs;
         _reader = reader;
         _scratch = scratch;
@@ -187,7 +220,7 @@ internal sealed class GeodatabaseInspector : BackgroundService
                 // stack trace every three seconds is 100 kB a minute of the same sentence.
                 Report(unreachable);
 
-                await Wait(stopping).ConfigureAwait(false);
+                await Wait(JobKind.GeodatabaseInspect, stopping).ConfigureAwait(false);
                 continue;
             }
 
@@ -205,9 +238,11 @@ internal sealed class GeodatabaseInspector : BackgroundService
                 // timer means the sweep stops when the worker does.
                 Sweep();
 
-                await Wait(stopping).ConfigureAwait(false);
+                await Wait(JobKind.GeodatabaseInspect, stopping).ConfigureAwait(false);
                 continue;
             }
+
+            Busy();
 
             await RunAsync(job, stopping).ConfigureAwait(false);
         }
@@ -326,15 +361,22 @@ internal sealed class GeodatabaseInspector : BackgroundService
         _scratch.Sweep(ImportScratch.Patience);
     }
 
-    private static async Task Wait(CancellationToken stopping)
+    /// <summary>Waits for work, for as long as this worker's patience has grown to.</summary>
+    /// <remarks>
+    /// <b>Woken rather than only timed out.</b> A job enqueued in this process releases the
+    /// signal at once, so the backoff below never delays work this node was asked to do. D-110.
+    /// </remarks>
+    private async Task Wait(JobKind kind, CancellationToken stopping)
     {
-        try
-        {
-            await Task.Delay(Idle, stopping).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Stopping. The loop's own condition ends it.
-        }
+        bool woken = await _signal.WaitAsync(kind, _waiting, stopping).ConfigureAwait(false);
+
+        // <b>Doubling, and reset by anything that arrives.</b> Growing on a wake as well would
+        // punish a server that is being used.
+        _waiting = woken
+            ? Idle
+            : TimeSpan.FromTicks(Math.Min(_waiting.Ticks * 2, Patience.Ticks));
     }
+
+    /// <summary>Back to the short wait, because there was work.</summary>
+    private void Busy() => _waiting = Idle;
 }

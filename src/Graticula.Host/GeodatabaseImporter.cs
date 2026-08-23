@@ -51,7 +51,33 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// </remarks>
     public static readonly TimeSpan Deadline = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// How long to wait after a claim that found nothing, and how far that grows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-110](../../docs/architecture-debt.md): two workers polling every two seconds held
+    /// eight database sessions open for ever, on a server doing nothing.</b> The pools prune
+    /// correctly; a pool that prunes correctly cannot prune one somebody keeps knocking on, and
+    /// the minimum idle time across those sessions was the poll itself.
+    /// </para>
+    /// <para>
+    /// <b>Two seconds is still the first wait, because responsiveness is why it was two.</b> It
+    /// doubles only while the claims keep finding nothing, up to half a minute, and any work puts
+    /// it back. So a busy server behaves exactly as before and an idle one stops knocking.
+    /// </para>
+    /// <para>
+    /// <b>And the backoff costs no latency for work enqueued here</b>, because
+    /// <see cref="JobSignal"/> wakes the wait. Half a minute is the worst case for a job enqueued
+    /// by another node, which is the case this poll exists for.
+    /// </para>
+    /// </remarks>
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(2);
+
+    /// <summary>The longest this worker waits between claims. D-110.</summary>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    private TimeSpan _waiting = Idle;
 
     /// <summary>How a job's detail is read back.</summary>
     /// <remarks>
@@ -65,6 +91,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
     private static readonly JsonSerializerOptions AsWritten = new(JsonSerializerDefaults.Web);
 
     private readonly IJobStore _jobs;
+    private readonly JobSignal _signal;
 
     /// <summary>What this worker calls itself when it claims a job.</summary>
     /// <remarks>
@@ -95,6 +122,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
     public GeodatabaseImporter(
         IJobStore jobs,
+        JobSignal signal,
         GeodatabaseReader reader,
         ImportScratch scratch,
         PostGisImporter importer,
@@ -102,6 +130,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         ILogger<GeodatabaseImporter> log)
     {
         ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(signal);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(scratch);
         ArgumentNullException.ThrowIfNull(importer);
@@ -109,6 +138,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         ArgumentNullException.ThrowIfNull(log);
 
         _jobs = jobs;
+        _signal = signal;
         _reader = reader;
         _scratch = scratch;
         _importer = importer;
@@ -147,7 +177,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 // outage cannot find anything else that happened.
                 Report(unreachable);
 
-                await Wait(stopping).ConfigureAwait(false);
+                await Wait(JobKind.GeodatabaseImport, stopping).ConfigureAwait(false);
                 continue;
             }
 
@@ -159,9 +189,11 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
             if (job is null)
             {
-                await Wait(stopping).ConfigureAwait(false);
+                await Wait(JobKind.GeodatabaseImport, stopping).ConfigureAwait(false);
                 continue;
             }
+
+            Busy();
 
             await RunAsync(job, stopping).ConfigureAwait(false);
         }
@@ -636,17 +668,24 @@ internal sealed class GeodatabaseImporter : BackgroundService
             _ => null,
         };
 
-    private static async Task Wait(CancellationToken stopping)
+    /// <summary>Waits for work, for as long as this worker's patience has grown to.</summary>
+    /// <remarks>
+    /// <b>Woken rather than only timed out.</b> A job enqueued in this process releases the
+    /// signal at once, so the backoff below never delays work this node was asked to do. D-110.
+    /// </remarks>
+    private async Task Wait(JobKind kind, CancellationToken stopping)
     {
-        try
-        {
-            await Task.Delay(Idle, stopping).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Stopping.
-        }
+        bool woken = await _signal.WaitAsync(kind, _waiting, stopping).ConfigureAwait(false);
+
+        // <b>Doubling, and reset by anything that arrives.</b> Growing on a wake as well would
+        // punish a server that is being used.
+        _waiting = woken
+            ? Idle
+            : TimeSpan.FromTicks(Math.Min(_waiting.Ticks * 2, Patience.Ticks));
     }
+
+    /// <summary>Back to the short wait, because there was work.</summary>
+    private void Busy() => _waiting = Idle;
 
     /// <summary>What the endpoint put in the job, read back here.</summary>
     /// <remarks>
