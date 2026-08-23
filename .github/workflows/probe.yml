@@ -1,14 +1,24 @@
-# The smallest workflow GitHub will accept, and it exists to answer one question.
+# The smallest workflow GitHub will accept, and it answered one question.
 #
 # D-63: every run this repository has ever produced is a 0-second
-# `startup_failure`. The row records the likely cause as an account-level block,
-# on the grounds that the two real workflow files were checked locally and are
-# structurally sound. That reasoning cannot distinguish two very different
-# causes, and this file can: if a workflow with one step and no dependencies
-# starts, the fault is in `ci.yml` and `security.yml`; if it does not, the fault
-# is above this repository and nothing written here will fix it.
+# `startup_failure`. The row recorded the likely cause as an account-level block
+# and said so as an inference, because the two real workflow files were checked
+# locally and are structurally sound — reasoning that cannot tell a bad workflow
+# file from a blocked account.
 #
-# Delete this file once the answer is in the register.
+# **This file told them apart. One job, one step, no actions, no dependencies,
+# dispatched directly: 0 seconds, `startup_failure`.** So the fault is not in
+# `ci.yml` or `security.yml`, and no edit to either will fix it.
+#
+# It is kept rather than deleted because it is now the cheapest possible test of
+# whether Actions works here at all. Dispatch it after anything changes at the
+# account level, and read the answer in ten seconds instead of twelve minutes:
+#
+#   gh workflow run probe.yml --ref main
+#
+# If it prints a step's output, Actions works and the real workflows can be
+# trusted to run. If it fails in 0 seconds again, nothing in this repository has
+# changed the answer.
 
 name: probe
 
