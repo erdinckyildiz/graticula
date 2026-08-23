@@ -4277,9 +4277,21 @@ internal static class AdminEndpoints
         {
             count = contexts.Count,
             lifetimeSeconds = (int)ServiceContexts.Lifetime.TotalSeconds,
-            note = "Table shapes remembered from the data source (D-17). Sharing and "
-                 + "started/stopped are deliberately NOT cached and are read per request. "
-                 + "POST /admin/layers/{name}/refresh to forget one immediately.",
+
+            // <b>Two numbers, because they answer different questions during an
+            // outage.</b> D-127: `count` is how much is fresh and `servableWhileBlind` is
+            // how much can still be answered from memory. The gap between them used to be
+            // the whole of ADR-026's fifteen minutes turning into thirty seconds, and an
+            // administrator reading this during an outage is the person who needs to know
+            // which number they are looking at.
+            servableWhileBlind = contexts.KnownCount,
+            note = "Table shapes remembered from the data source (D-17). `count` expires "
+                 + "after lifetimeSeconds so an ALTER TABLE is noticed; "
+                 + "`servableWhileBlind` does not expire and is used only when the source "
+                 + "cannot be reached at all, so a document that needs a field list still "
+                 + "has one for as long as the catalogue memory lasts (ADR-026). Sharing "
+                 + "and started/stopped are deliberately NOT cached and are read per "
+                 + "request. POST /admin/layers/{name}/refresh forgets both immediately.",
         };
 
         // Said explicitly in the degraded case, because an administrator

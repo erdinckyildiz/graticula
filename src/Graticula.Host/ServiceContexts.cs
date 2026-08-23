@@ -85,6 +85,40 @@ internal sealed class ServiceContexts
     public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<Key, Entry> _entries = new();
+
+    /// <summary>
+    /// The last shape each layer was known to have, for when the database will not say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-127](../../docs/architecture-debt.md), the half that made the claim
+    /// misleading.</b> [ADR-026](../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md)
+    /// answers Q-95 with fifteen minutes of degraded serving, and the failure gate stopped
+    /// the database and measured **thirty seconds**. Two caches, one fallback:
+    /// `CatalogFallback` remembers *which service exists* for fifteen minutes, and this
+    /// class remembered *what shape it has* for thirty seconds with no fallback at all —
+    /// so every document that needs a field list died at thirty seconds however fresh the
+    /// catalogue memory was.
+    /// </para>
+    /// <para>
+    /// <b>Separate from <c>_entries</c> rather than a longer <see cref="Lifetime"/>.</b>
+    /// Those are different questions. <see cref="Lifetime"/> is *how long before I ask
+    /// again*, and its thirty seconds is bounded by how long a DBA's `ALTER TABLE` may go
+    /// unnoticed — lengthening it would serve a stale field list to a healthy server,
+    /// which is the failure that number exists to prevent. This is *what do I say when
+    /// asking is impossible*, and there the alternative is not a stale answer but no
+    /// answer.
+    /// </para>
+    /// <para>
+    /// <b>Only written from a success, and never expiring on its own.</b> A remembered
+    /// shape has no upper age here because the thing that bounds it is
+    /// `CatalogFallback`'s window: a service whose catalogue memory has gone stale is
+    /// refused before anything asks for its shape, so a second window would be a second
+    /// number to keep in step with the first.
+    /// </para>
+    /// </remarks>
+    private readonly ConcurrentDictionary<Key, LayerDescription> _known = new();
+
     private readonly IServiceSources _connections;
     private readonly TimeProvider _clock;
 
@@ -96,6 +130,14 @@ internal sealed class ServiceContexts
         _connections = connections;
         _clock = clock;
     }
+
+    /// <summary>How many shapes are remembered for a database that will not answer.</summary>
+    /// <remarks>
+    /// Reported by <c>/admin/health</c> beside <see cref="Count"/>, because the two answer
+    /// different questions during an outage: how much is fresh, and how much can still be
+    /// served.
+    /// </remarks>
+    public int KnownCount => _known.Count;
 
     /// <summary>How many shapes are currently remembered.</summary>
     /// <remarks>Reported by <c>/admin/health</c> so the cache is observable.</remarks>
@@ -141,7 +183,34 @@ internal sealed class ServiceContexts
 
         try
         {
-            return (source, await entry.Description.Value.ConfigureAwait(false));
+            LayerDescription described = await entry.Description.Value.ConfigureAwait(false);
+
+            _known[key] = described;
+
+            return (source, described);
+        }
+        catch (Exception failure) when (Unreachable(failure) && _known.ContainsKey(key))
+        {
+            /*
+              <b>The database will not say, so this says what it last said.</b> D-127: the
+              alternative here is not a stale field list, it is no document at all — every
+              face that needs a shape refuses, which is what made ADR-026's fifteen minutes
+              thirty seconds in practice.
+
+              <b>The entry is still forgotten</b>, by the same reasoning as the catch below:
+              a failed describe must not be remembered as the *current* answer, or one
+              refused connection becomes a whole lifetime of refusals for a database that
+              recovered immediately. What is kept is the older successful answer, which is
+              a different thing.
+
+              <b>Only for a source that could not be reached.</b> A database that answered
+              and said the table is gone is telling the truth, and serving a remembered
+              field list over it would present a dropped column as present — the failure
+              `Lifetime` exists to bound, arriving through the door marked resilience.
+            */
+            _entries.TryRemove(new KeyValuePair<Key, Entry>(key, entry));
+
+            return (source, _known[key]);
         }
         catch
         {
@@ -184,6 +253,17 @@ internal sealed class ServiceContexts
     private static Entry NewEntry(IFeatureSource source, DateTimeOffset now) =>
         new(Describe(source), now + Lifetime);
 
+    /// <summary>Whether a failure means the source could not be reached.</summary>
+    /// <remarks>
+    /// <b>The same discriminator <see cref="SourceBreaker.Unreachable"/> uses, called
+    /// rather than repeated.</b> Two copies of *what counts as an outage* is two places
+    /// for a `PostgresException` to start being treated as one, and the consequence here
+    /// is worse than there: this one would serve a remembered field list over a table that
+    /// really had changed.
+    /// </remarks>
+    private static bool Unreachable(Exception failure) =>
+        failure is not OperationCanceledException && SourceBreaker.Unreachable(failure);
+
     /// <summary>
     /// Forgets a layer's shape.
     /// </summary>
@@ -199,10 +279,19 @@ internal sealed class ServiceContexts
         if (layer is null)
         {
             _entries.Clear();
+            _known.Clear();
             return;
         }
 
-        _entries.TryRemove(Key.Of(layer), out _);
+        Key key = Key.Of(layer);
+
+        _entries.TryRemove(key, out _);
+
+        // <b>Both, and the second one is the point.</b> An operator who has just altered a
+        // table and asked the server to forget it must not have the old shape served back
+        // to them the next time the database hiccups. Forgetting one of two memories is
+        // not forgetting.
+        _known.TryRemove(key, out _);
     }
 
     /// <summary>What makes two layers the same table.</summary>

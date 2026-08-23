@@ -126,16 +126,26 @@ internal sealed class SourceBreaker : Graticula.Platform.Catalog.IStoreHealth
             return true;
         }
 
-        // <b>Half-open by removal, and there is no second state.</b> A three-state
-        // breaker needs a *probing* flag and a rule for what the other callers do while
-        // one probe is in flight, and gets that rule wrong under concurrency. Removing
-        // the entry lets everybody through, the first failure puts it straight back, and
-        // the worst case is one cooling window's worth of slow requests instead of one.
-        // That is a real cost and it buys not having a state machine nobody can reason
-        // about during an incident.
-        _tripped.TryRemove(source, out _);
+        /*
+          <b>One caller probes and the rest stay refused, and the first version of this
+          let everybody through.</b> It removed the entry when the window expired, with a
+          comment arguing that *the worst case is one cooling window's worth of slow
+          requests instead of one* — and that comment was wrong about the case that
+          matters. Measured: 60 requests at 20 concurrent, 45 seconds into an outage, all
+          60 served and **not one of them under a second**, median 4.0 s. Twenty callers
+          arrived together, all found the entry gone, and all paid a four-second blackholed
+          connect at the same time. **That is the queue collapse
+          [D-131](../../docs/architecture-debt.md) is about, arriving once every ten
+          seconds instead of continuously**, which is better and is not the fix.
 
-        return false;
+          <b>Single-flight without a second state, using the dictionary's own compare.</b>
+          `TryUpdate` succeeds for exactly one caller — the one whose read of `until` was
+          the current value — and that caller becomes the prober while every other read
+          sees the pushed-forward window and stays refused. No probing flag, no rule about
+          what happens if the prober never returns: the window it wrote expires on its own
+          and the next caller takes the role.
+        */
+        return !_tripped.TryUpdate(source, _now().Add(Cooling).UtcTicks, until);
     }
 
     /// <summary>Records that a source could not be reached.</summary>
@@ -239,6 +249,25 @@ internal sealed class SourceBreaker : Graticula.Platform.Catalog.IStoreHealth
 
         for (Exception? at = failure; at is not null; at = at.InnerException)
         {
+            /*
+              <b>This breaker's own refusal counts, and leaving it out made the breaker
+              fight the thing it exists to make cheap.</b> Measured: 45 seconds into an
+              outage, the first request served a document from the remembered shape in 8 s
+              and the next seven answered 503 in 12 ms. The fallback in
+              `ServiceContexts` asks *was the source unreachable* before serving what it
+              remembers, and a `SourceUnreachableException` is exactly that answer arriving
+              instantly instead of after four seconds — so not saying so turned fast
+              refusals into fast wrong refusals.
+
+              <b>Two resilience mechanisms met and one silenced the other</b>, which is the
+              failure mode worth naming: each was correct alone. D-131 made refusals cheap
+              and D-127 made documents survive, and the second reads the first's signal.
+            */
+            if (at is SourceUnreachableException)
+            {
+                return true;
+            }
+
             // A database that answered is a database that is up, however unwelcome the
             // answer. This is the discriminator `ErrorResponse.Classify` already relies
             // on, stated once more here because it is load-bearing in both places.
