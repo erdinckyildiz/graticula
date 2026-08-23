@@ -18,6 +18,187 @@ namespace Graticula.Console.Tests;
 public sealed class MemberRemovalPageTests : ConsoleTest
 {
     /// <summary>
+    /// Removing yourself is refused before the question is put.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the one an operator actually meets, and [D-101](../../docs/architecture-debt.md)
+    /// did not separate it out.</b> A server with one administrator is the ordinary state of a
+    /// fresh install, and the only person who can reach the Remove button on that administrator
+    /// is that administrator. The server refuses it first, before the disposition is even read —
+    /// so nothing was ever destroyed on this path — but the console still opened a panel offering
+    /// to transfer or delete an estate, and every answer to it was already *no*.
+    /// </para>
+    /// <para>
+    /// <b>The signed-in name comes from the page.</b> `whoami` sets it and the removal handler
+    /// compares against it, so reading it here asks the page the same question the guard does.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Removing_yourself_is_refused_before_the_panel_opens()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/members", token);
+
+        await WaitForAsync(
+            "document.querySelector('#members tr button[data-member-remove]')",
+            "The Members screen offered no Remove button, so there is nothing to click.");
+
+        string me = await Browser.EvaluateAsync<string>("signedInAs") ?? string.Empty;
+
+        Assert.False(me.Length == 0, "the page does not know who is signed in");
+
+        await WaitForAsync(
+            $"document.querySelector('#members tr button[data-member-remove=\"{me}\"]')",
+            $"'{me}' is signed in and has no row on the members screen, so this cannot be tested "
+            + "the way an operator would meet it.");
+
+        await ClickAsync($"#members tr button[data-member-remove=\"{me}\"]");
+
+        await WaitForAsync(
+            "document.getElementById('toast')?.textContent.includes('cannot remove yourself')",
+            "Clicking Remove on your own account said nothing, so the panel asked which "
+            + "disposition to use for a removal the server refuses on sight.");
+
+        Assert.Equal(
+            "none",
+            await Browser.EvaluateAsync<string>(
+                "getComputedStyle(document.getElementById('removeMember')).display"));
+    }
+
+    /// <summary>
+    /// The only administrator is refused before the question is put.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-101](../../docs/architecture-debt.md): an irreversible side effect on the way to a
+    /// refusal.</b> The server refuses removing the last administrator, and the refusal is real —
+    /// but the console opened the disposition panel first, and answering *delete what they own*
+    /// unpublishes every layer and removes every service they own before the removal is even
+    /// attempted. The listing already carries the roles, so the console knew the answer before
+    /// it asked the question.
+    /// </para>
+    /// <para>
+    /// <b>The membership is set from the test rather than read from the server</b>, so this
+    /// holds whether the deployment has one administrator or five. `administrators` is a
+    /// top-level binding filled by the listing; writing it is the same move this file already
+    /// makes with `fetch`, and it means the test states its own premise instead of inheriting
+    /// one from whoever last edited the members screen.
+    /// </para>
+    /// <para>
+    /// <b>Nothing destructive can leave the page either way.</b> `fetch` is trapped for the whole
+    /// test, so even a missing guard cannot reach the server.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_only_administrator_is_refused_before_the_panel_opens()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/members", token);
+
+        await WaitForAsync(
+            "document.querySelector('#members tr button[data-member-remove]')",
+            "The Members screen offered no Remove button, so there is nothing to click.");
+
+        // Every request from the page is answered here, and every one is recorded. A removal
+        // that got past the guard would show up as a DELETE that this test can name.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          window.__asked = [];
+          const real = window.fetch.bind(window);
+          window.fetch = async (input, init) => {
+            const url = typeof input === "string" ? input : input.url;
+            window.__asked.push(((init && init.method) || "GET") + " " + url);
+            if (url.includes("/holdings")) {
+              return new Response(JSON.stringify({
+                name: "somebody", owns: true, services: ["hosted/theirs"],
+                folders: [], groups: 0, note: "owns things",
+              }), { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            return real(input, init);
+          };
+          return true;
+        })();
+        """);
+
+        string who = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#members tr button[data-member-remove]')"
+            + ".dataset.memberRemove") ?? string.Empty;
+
+        Assert.False(who.Length == 0, "the Remove button names no member");
+
+        // <b>This member, and nobody else, can administer.</b>
+        await Browser.EvaluateAsync<bool>($"(() => {{ administrators = ['{who}']; return true; }})()");
+
+        await ClickAsync("#members tr button[data-member-remove]");
+
+        await WaitForAsync(
+            "document.getElementById('toast')?.textContent.includes('only administrator')",
+            "Removing the only administrator said nothing. The server refuses it, so the operator "
+            + "learns only after choosing a disposition — and one of the two dispositions has "
+            + "already deleted their services by then.");
+
+        Assert.Equal(
+            "none",
+            await Browser.EvaluateAsync<string>(
+                "getComputedStyle(document.getElementById('removeMember')).display"));
+
+        string asked = await Browser.EvaluateAsync<string>(
+            "JSON.stringify(window.__asked)") ?? "[]";
+
+        Assert.DoesNotContain("/holdings", asked, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With somebody else to administer, the question is put as before.
+    /// </summary>
+    /// <remarks>
+    /// <b>The other half, and it is the one a guard gets wrong.</b> A check that refuses too
+    /// often is as broken as one that never fires, and it fails quietly: the operator simply
+    /// cannot remove anybody. This asserts the panel still opens when the server would allow the
+    /// removal.
+    /// </remarks>
+    [Fact]
+    public async Task With_a_second_administrator_the_panel_opens_as_before()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/members", token);
+
+        await WaitForAsync(
+            "document.querySelector('#members tr button[data-member-remove]')",
+            "The Members screen offered no Remove button, so there is nothing to click.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch.bind(window);
+          window.fetch = async (input, init) => {
+            const url = typeof input === "string" ? input : input.url;
+            if (!url.includes("/holdings")) { return real(input, init); }
+            return new Response(JSON.stringify({
+              name: "somebody", owns: true, services: ["hosted/theirs"],
+              folders: [], groups: 0, note: "owns things",
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+          };
+          return true;
+        })();
+        """);
+
+        string who = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#members tr button[data-member-remove]')"
+            + ".dataset.memberRemove") ?? string.Empty;
+
+        await Browser.EvaluateAsync<bool>(
+            $"(() => {{ administrators = ['{who}', 'somebody-else']; return true; }})()");
+
+        await ClickAsync("#members tr button[data-member-remove]");
+
+        await WaitForAsync(
+            "getComputedStyle(document.getElementById('removeMember')).display !== 'none'",
+            "The removal panel did not open for a member the server would let go, so the guard "
+            + "refuses more than the server does.");
+    }
+
+    /// <summary>
     /// A member who owns something gets the panel, with what they own named on it.
     /// </summary>
     /// <remarks>

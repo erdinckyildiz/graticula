@@ -1232,6 +1232,12 @@ async function loadRoles() {
   // <b>Grouped by the prefix the privilege already carries.</b> `content:`, `sharing:`, `groups:`
   // and so on are categories the names state; inventing a second grouping here would be a mapping
   // to maintain, and the reference groups the same way.
+  //
+  // <b>And each one says what it does, D-100.</b> The structure of this screen was credited by the
+  // design review and the gap it found was meaning: eighteen bare identifiers under a role that
+  // gets a sentence. The sentence comes from the server, beside the enum, for the same reason the
+  // catalogue does — a console that carried its own copy would be a second list to keep in
+  // step with the one being enforced.
   const section = administrative => {
     const mine = catalogue.filter(c => !!c.administrative === administrative);
     const groups = new Map();
@@ -1259,11 +1265,15 @@ async function loadRoles() {
               <input type="checkbox" data-privilege="${h(c.name)}"
                 ${held.has(c.name) ? "checked" : ""}
                 ${chosen.editable ? "" : "disabled"}>
-              <span class="mono">${h(c.name)}</span>
-              ${c.requires.length
-                ? `<span class="val">needs ${c.requires.map(h).join(", ")}</span>` : ""}
-              ${c.includes.length
-                ? `<span class="val">includes ${c.includes.map(h).join(", ")}</span>` : ""}
+              <span class="privilegetext">
+                <span class="mono">${h(c.name)}</span>
+                ${c.requires.length
+                  ? `<span class="val">needs ${c.requires.map(h).join(", ")}</span>` : ""}
+                ${c.includes.length
+                  ? `<span class="val">includes ${c.includes.map(h).join(", ")}</span>` : ""}
+                ${c.description
+                  ? `<span class="privilegewhat">${h(c.description)}</span>` : ""}
+              </span>
             </label>`).join("")}
         </div>`).join("")}
     </div>`;
@@ -3993,6 +4003,17 @@ function showRemoveMember(name, held) {
 let memberNames = [];
 
 /**
+ * Who can still sign in and administer, from the last listing.
+ *
+ * <b>D-101: the console knew this and asked anyway.</b> Removing the only administrator is
+ * refused by the server, and the panel that opens first asks whether to transfer what they own
+ * or delete it — so an operator could answer *delete*, watch every layer they own be
+ * unpublished and every service removed, and only then be told the removal was never possible.
+ * The listing carries the roles; there is no reason to find out from the failure.
+ */
+let administrators = [];
+
+/**
  * The services that hold nothing, listed before anything is removed.
  *
  * <b>The Remove button is disabled until this has run and found something</b>, which is
@@ -4175,6 +4196,12 @@ async function loadMembers() {
   // names already are. Only the ones who can sign in, because the server refuses a disabled
   // target and a control that exists to be told no is worse than no control.
   memberNames = rows.filter(m => !m.disabled).map(m => m.name);
+
+  // Only the ones who can sign in, which is the server's own test: a disabled administrator
+  // cannot recover a server, so they do not count towards there being one.
+  administrators = rows
+    .filter(m => !m.disabled && (m.roles || []).includes("administrator"))
+    .map(m => m.name);
 
   const fill = (id, values, chosen) => {
     $(id).innerHTML = values.map(v =>
@@ -7806,6 +7833,29 @@ async function handleClick(event) {
   }
 
   if (d.memberRemove) {
+    /*
+      <b>Answered before it is asked, D-101.</b> Both of these are refused by the server, and
+      both were refused only after the operator had chosen a disposition from a panel that
+      could not lead anywhere. The listing carries the roles and `whoami` carries the name, so
+      the console can say which of the two it is instead of opening a dialog whose every answer
+      is *no*.
+
+      <b>The self case is the one an operator actually meets.</b> A server with one
+      administrator is the ordinary state of a fresh install, and the only person who can reach
+      the Remove button on that administrator is that administrator.
+    */
+    if (d.memberRemove === signedInAs) {
+      toast(`You cannot remove yourself: the session doing the work would be revoked halfway `
+        + `through it. Ask another administrator.`);
+      return;
+    }
+
+    if (administrators.length === 1 && administrators[0] === d.memberRemove) {
+      toast(`${d.memberRemove} is the only administrator who can still sign in, so they cannot `
+        + `be removed. Make another administrator first.`);
+      return;
+    }
+
     t.disabled = true;
 
     try {

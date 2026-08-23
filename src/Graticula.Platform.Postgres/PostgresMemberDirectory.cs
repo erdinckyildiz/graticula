@@ -449,10 +449,19 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         await using NpgsqlCommand command = connection.CreateCommand();
         command.Transaction = transaction;
 
+        // <b>`p.disabled_at is null` on the first column, added 2026-08-23.</b> The count below
+        // is of administrators who can still sign in — a disabled one cannot recover a
+        // server, so it does not count them. Without the same condition on the left, removing a
+        // *disabled* administrator was refused whenever one enabled administrator remained: the
+        // member being removed was not in the count, so taking them away could not reduce it,
+        // and the refusal fired anyway. A fresh install has exactly one enabled administrator,
+        // which made this the ordinary case rather than a corner.
+        // [D-101](../../../docs/architecture-debt.md).
         command.CommandText = """
             select p.id,
-                   exists (select 1 from principal_role r
-                            where r.principal_id = p.id and r.role_name = 'administrator'),
+                   p.disabled_at is null
+                   and exists (select 1 from principal_role r
+                                where r.principal_id = p.id and r.role_name = 'administrator'),
                    (select count(*) from principal a
                      join principal_role ar on ar.principal_id = a.id
                     where ar.role_name = 'administrator' and a.disabled_at is null)

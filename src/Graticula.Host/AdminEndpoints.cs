@@ -2992,6 +2992,12 @@ internal static class AdminEndpoints
             catalogue = Roles.AllPrivileges.Select(p => new
             {
                 name = Roles.NameOf(p),
+
+                // <b>What it lets somebody do, D-100.</b> The screen an administrator reads to
+                // decide who can do what carried eighteen bare identifiers and no meaning. The
+                // sentence lives beside the enum, so a privilege cannot be added without one.
+                description = Roles.DescriptionOf(p),
+
                 administrative = Roles.IsAdministrative(p),
                 requires = Roles.Prerequisites.TryGetValue(p, out var needs)
                     ? needs.Select(Roles.NameOf)
@@ -5420,6 +5426,21 @@ internal static class AdminEndpoints
             .Any(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)
                 && m.Roles.Contains(Roles.Administrator, StringComparer.Ordinal));
 
+    /// <summary>Why the last administrator cannot be removed.</summary>
+    /// <remarks>
+    /// <b>One sentence, two callers.</b> [D-101](../../docs/architecture-debt.md) added a check
+    /// before the dispositions run, and the transactional one after them stayed; two spellings of
+    /// the same refusal is the recurring debt D-46 names, and here it would mean the same request
+    /// explaining itself differently depending on which of the two caught it.
+    /// </remarks>
+    /// <param name="name">The member.</param>
+    /// <returns>The refusal.</returns>
+    private static string OnlyAdministrator(string name) =>
+        $"'{name}' is the only administrator who can still sign in. A server with no "
+        + "administrator cannot be recovered without editing the database by hand, so "
+        + "this is refused whichever disposition was asked for. Make another "
+        + "administrator first.";
+
     private static async Task<bool> SomebodyElseAdministersAsync(
         IMemberDirectory directory, string name, CancellationToken cancellation) =>
         (await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
@@ -5660,11 +5681,14 @@ internal static class AdminEndpoints
             return;
         }
 
+        bool administers = await HoldsAdministratorAsync(members, name, cancellation)
+            .ConfigureAwait(false);
+
         // <b>ADR-035 §4g: removing an administrator is the administrator's act.</b> Before the
         // last-administrator refusal, because that one is about the *server's* recoverability and
         // this one is about who may reach the role at all — a role granted `admin:manageMembers`
         // could otherwise delete every administrator but one and then take the role for itself.
-        if (await HoldsAdministratorAsync(members, name, cancellation).ConfigureAwait(false)
+        if (administers
             && !await AdministratorOnlyAsync(context, "Removing an administrator")
                 .ConfigureAwait(false))
         {
@@ -5675,6 +5699,33 @@ internal static class AdminEndpoints
             is not { } holdings)
         {
             await Refuse(context, 404, $"No member '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        /*
+          <b>Asked here, before anything is destroyed, and that is the whole of
+          [D-101](../../docs/architecture-debt.md).</b> The refusal below is real and
+          transactional — `PostgresMemberDirectory.CheckAsync` runs inside the removal's own
+          transaction, so a *transfer* that meets it rolls back and moves nothing. The
+          `deleteOwned` branch is not transactional and could not be: it unpublishes layers,
+          purges tiles and deletes services and folders through the paths that own those side
+          effects, each committing as it goes, and only then asks to remove the member. Refused
+          at that point, the layers are already gone and the answer is *this was refused
+          whichever disposition was asked for*.
+
+          <b>So the same question is asked first, from what the member listing already knows.</b>
+          It costs one read of a list this handler has read anyway, and it means no disposition
+          runs on a removal that cannot succeed.
+
+          <b>The check below stays, and is not redundant.</b> This one races: another
+          administrator can be disabled between here and there. That is what a transaction and a
+          row lock are for, and what this is not.
+        */
+        if (administers
+            && !await SomebodyElseAdministersAsync(members, name, cancellation)
+                .ConfigureAwait(false))
+        {
+            await Refuse(context, 409, OnlyAdministrator(name)).ConfigureAwait(false);
             return;
         }
 
@@ -5757,12 +5808,7 @@ internal static class AdminEndpoints
             {
                 MemberRemoval.Absent => (404, $"No member '{name}'."),
 
-                MemberRemoval.LastAdministrator => (
-                    409,
-                    $"'{name}' is the only administrator who can still sign in. A server with no "
-                    + "administrator cannot be recovered without editing the database by hand, so "
-                    + "this is refused whichever disposition was asked for. Make another "
-                    + "administrator first."),
+                MemberRemoval.LastAdministrator => (409, OnlyAdministrator(name)),
 
                 MemberRemoval.TargetAbsent => (
                     404, $"There is no member '{transferTo}' to transfer to. Nothing was changed."),
