@@ -27,7 +27,7 @@ marked where that matters.
    serving runs on. **The outage would remove its own mitigation.**
 2. **F5** — one malformed query parameter produced HTTP 200 and a well-formed WFS
    document asserting a thousand features it did not contain.
-3. **F2 and F3 together** — ADR-026 answers Q-95 as a property of the server. Measured,
+3. **F2 and F3 together, both repaired 2026-08-23** — ADR-026 answers Q-95 as a property of the server. Measured,
    it is a property of three faces of seven, for metadata and cached tiles only, for
    about thirty seconds of an advertised fifteen minutes.
 
@@ -198,7 +198,11 @@ alone, because rewriting the message per protocol would be seven places for it t
 /rest  → 503 application/json         {"error":{"code":503, …
 ```
 
-## F2. D-127 is observable from outside, exactly as it predicted — HIGH, not repaired
+## F2. D-127 is observable from outside, exactly as it predicted — HIGH, repaired 2026-08-23
+
+**Repaired.** `CatalogFallback` remembers the last listing beside the last resolve, and the four faces that only enumerate take it — as does a fifth this finding's own transcript shows and neither it nor [D-127](../architecture-debt.md) named: the REST directory at `/rest/services`. A blind listing is public-only, which is Q-95's rule applied where five callers cannot each forget it, and nothing remembered is a 503 rather than an empty document. Re-measured the same way: every face above serves during the outage at an 11–14 ms median, twenty concurrent, each response carrying `X-Catalog-Age`. See [the benchmark](../../benchmarks/catalogue-outage/RESULTS.md) for the numbers and for the half of the repair that the listing alone did not deliver.
+
+**The finding as written follows.**
 
 The open question was whether the difference is visible in behaviour or only in call
 counts. Same service, same instant, catalogue memory fresh:
@@ -223,7 +227,11 @@ expected here, since the datastore is the same instance. But `VT-warmtile` answe
 *is* clean evidence, because a cached tile needs no datastore: it shows the fallback
 reaching the disk cache, which is gate 1's N2, previously recorded as not built.
 
-## F3. Degraded serving lasts about thirty seconds, not the advertised fifteen minutes — HIGH, not repaired
+## F3. Degraded serving lasts about thirty seconds, not the advertised fifteen minutes — HIGH, repaired 2026-08-23
+
+**Repaired.** `ServiceContexts` keeps the last shape each layer was *known* to have, separate from its thirty-second freshness memory, and serves it when the source cannot be reached at all. Before: the layer document answered 200 for thirty seconds and refused after. After: 200 at 45 and at 100 seconds into an outage, carrying the real field list and the real name. The two memories stay separate rather than becoming one longer window because they answer different questions — *how long before I ask again* is bounded by how long a DBA's `ALTER TABLE` may go unnoticed, and lengthening that would serve a stale field list to a healthy server. `/admin/health` reports both counts. [D-127](../architecture-debt.md) carries the detail, including the build where the breaker silenced this fallback and the first request of an outage served in 8 s while the next seven refused in 12 ms.
+
+**The finding as written follows.**
 
 `CatalogFallback.DefaultWindow` is fifteen minutes and its remark explains the choice at
 length. Measured across two independent outages, the degraded window is roughly **thirty

@@ -176,6 +176,31 @@ reached at all.**
 - **Every blind response carries `X-Catalog-Age`**, in seconds, so this state is
   visible on tiles and query results and not only on the two documents with room
   for a field.
+- **The catalogue also remembers its last *listing*, added 2026-08-23.** This
+  decision as first written said *resolves services*, and that is all
+  `CatalogFallback` could do: it answered one named service and could not
+  enumerate. So the four protocol faces that begin by enumerating — WFS and WMS
+  build capabilities over every published layer, OGC API Features answers
+  `/collections`, the portal searches — and the REST directory at
+  `/rest/services` had no degraded path at all, which is not what this ADR reads
+  as promising. [D-127](../architecture-debt.md) is the row that found it, and
+  its first axis is why this bullet exists.
+  - **A blind listing is public-only, by the same rule and in one place.** The
+    faces filter by sharing, but while blind the sharing value is itself
+    remembered, so the filter is applied in the fallback where five callers
+    cannot each forget it.
+  - **Nothing remembered is null rather than an empty list**, and every face
+    refuses 503. An empty capabilities document is the claim *this server
+    publishes nothing*, and a client that believes it stops asking. A server
+    that genuinely publishes nothing keeps saying so; one whose services are all
+    private refuses, because it has something to publish and cannot say what.
+  - **And a capabilities document needs more than the catalogue.**
+    `EX_GeographicBoundingBox` is mandatory on a WMS 1.3.0 named layer, so the
+    document makes one projection call per distinct spatial reference; with the
+    listing remembered and the projector not, WMS still cost 4.0 s per request
+    and OGC Features never finished. `IProjector` is behind the same circuit
+    breaker now. Measured both ways:
+    [benchmarks/catalogue-outage](../../benchmarks/catalogue-outage/RESULTS.md).
 
 **ADR-007 §4.3 is amended, not implemented.** Its rule — freeze rather than stop
 — survives for public services. Its *fails closed* guarantee is restored for

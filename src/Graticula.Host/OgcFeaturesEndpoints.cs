@@ -164,14 +164,21 @@ internal static class OgcFeaturesEndpoints
 
     private static async Task CollectionsAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         CancellationToken cancellation)
     {
-        List<CollectionMetadata> collections =
+        List<CollectionMetadata>? collections =
             await DescribeAllAsync(context, catalog, contexts, projector, cancellation)
                 .ConfigureAwait(false);
+
+        // Null means the refusal is already written. An empty collections document would
+        // say this server publishes nothing, which is a different answer.
+        if (collections is null)
+        {
+            return;
+        }
 
         string document = OgcDocuments.Collections(Origin(context), collections);
 
@@ -191,14 +198,21 @@ internal static class OgcFeaturesEndpoints
     private static async Task CollectionAsync(
         HttpContext context,
         string collectionId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         CancellationToken cancellation)
     {
-        (PublishedLayer? layer, CollectionMetadata? collection) =
+        (PublishedLayer? layer, CollectionMetadata? collection, bool refused) =
             await FindAsync(context, catalog, contexts, projector, collectionId, cancellation)
                 .ConfigureAwait(false);
+
+        // Refused, not missing: the catalogue could not be listed, and *no such collection*
+        // would be a claim about one that probably exists.
+        if (refused)
+        {
+            return;
+        }
 
         if (layer is null || collection is null)
         {
@@ -226,15 +240,22 @@ internal static class OgcFeaturesEndpoints
     private static async Task ItemsAsync(
         HttpContext context,
         string collectionId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
-        (PublishedLayer? layer, CollectionMetadata? collection) =
+        (PublishedLayer? layer, CollectionMetadata? collection, bool refused) =
             await FindAsync(context, catalog, contexts, projector, collectionId, cancellation)
                 .ConfigureAwait(false);
+
+        // Refused, not missing: the catalogue could not be listed, and *no such collection*
+        // would be a claim about one that probably exists.
+        if (refused)
+        {
+            return;
+        }
 
         if (layer is null || collection is null)
         {
@@ -362,14 +383,21 @@ internal static class OgcFeaturesEndpoints
         HttpContext context,
         string collectionId,
         string featureId,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         CancellationToken cancellation)
     {
-        (PublishedLayer? layer, CollectionMetadata? collection) =
+        (PublishedLayer? layer, CollectionMetadata? collection, bool refused) =
             await FindAsync(context, catalog, contexts, projector, collectionId, cancellation)
                 .ConfigureAwait(false);
+
+        // Refused, not missing: the catalogue could not be listed, and *no such collection*
+        // would be a claim about one that probably exists.
+        if (refused)
+        {
+            return;
+        }
 
         if (layer is null || collection is null)
         {
@@ -474,15 +502,36 @@ internal static class OgcFeaturesEndpoints
         OgcProblem.NotFound(
             $"`{collectionId}` is not a collection this server publishes to you.");
 
-    private static async Task<IReadOnlyList<PublishedLayer>> VisibleAsync(
-        HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation)
+    private static async Task<IReadOnlyList<PublishedLayer>?> VisibleAsync(
+        HttpContext context, CatalogFallback catalog, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        IReadOnlyList<PublishedService> services =
+        CatalogListing listing =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        // <b>Null is not empty.</b> A collections document with no collections says this
+        // server publishes none, and a 404 about one says it never had it. Neither is true
+        // during an outage. [D-127](../../docs/architecture-debt.md).
+        if (listing.Services is not { } services)
+        {
+            await RefuseAsync(
+                    context,
+                    OgcProblem.Unavailable(
+                        "The catalogue is not reachable and this server has no remembered "
+                        + "listing to answer from, so it cannot say which collections it "
+                        + "publishes. Retry shortly; see /healthz/ready."))
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        if (listing.Blind)
+        {
+            ServiceLookup.SayAge(context, listing.Age);
+        }
 
         List<PublishedLayer> layers = [];
 
@@ -518,16 +567,29 @@ internal static class OgcFeaturesEndpoints
         return layers;
     }
 
-    private static async Task<(PublishedLayer? Layer, CollectionMetadata? Collection)> FindAsync(
-        HttpContext context,
-        PostgresLayerCatalog catalog,
-        ServiceContexts contexts,
-        IProjector projector,
-        string collectionId,
-        CancellationToken cancellation)
+    /// <summary>The collection at this id, or why there is none.</summary>
+    /// <remarks>
+    /// <b><c>Refused</c> is a third answer and it is not the same as not found.</b> Without it
+    /// an unreadable catalogue would arrive at the caller as <c>(null, null)</c> and be reported
+    /// as *no such collection*, which is a claim this server is in no position to make.
+    /// [D-127](../../docs/architecture-debt.md).
+    /// </remarks>
+    private static async Task<(PublishedLayer? Layer, CollectionMetadata? Collection, bool Refused)>
+        FindAsync(
+            HttpContext context,
+            CatalogFallback catalog,
+            ServiceContexts contexts,
+            IProjector projector,
+            string collectionId,
+            CancellationToken cancellation)
     {
-        foreach (PublishedLayer layer in
-            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false))
+        if (await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false)
+            is not { } visible)
+        {
+            return (null, null, true);
+        }
+
+        foreach (PublishedLayer layer in visible)
         {
             if (!string.Equals(layer.Definition.Name, collectionId, StringComparison.OrdinalIgnoreCase))
             {
@@ -536,23 +598,30 @@ internal static class OgcFeaturesEndpoints
 
             return (
                 layer,
-                await DescribeAsync(contexts, projector, layer, cancellation).ConfigureAwait(false));
+                await DescribeAsync(contexts, projector, layer, cancellation).ConfigureAwait(false),
+                false);
         }
 
-        return (null, null);
+        return (null, null, false);
     }
 
-    private static async Task<List<CollectionMetadata>> DescribeAllAsync(
+    /// <summary>Every collection, or null when the catalogue could not be listed.</summary>
+    private static async Task<List<CollectionMetadata>?> DescribeAllAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         CancellationToken cancellation)
     {
+        if (await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false)
+            is not { } visible)
+        {
+            return null;
+        }
+
         List<CollectionMetadata> collections = [];
 
-        foreach (PublishedLayer layer in
-            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false))
+        foreach (PublishedLayer layer in visible)
         {
             collections.Add(
                 await DescribeAsync(contexts, projector, layer, cancellation).ConfigureAwait(false));

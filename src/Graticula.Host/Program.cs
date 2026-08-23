@@ -228,8 +228,15 @@ public static class Program
         builder.Services.AddSingleton<ICoverageCatalog>(services =>
             new PostgresCoverageCatalog(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
+        // per distinct spatial reference and cannot be written without them; during an outage
+        // each of those waited out a connect nothing answered, which is what a WFS document
+        // costing 6.0 s and a WMS one costing 8.0 s were made of. See BreakingProjector.
         builder.Services.AddSingleton<IProjector>(services =>
-            new PostGisProjector(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
+            new BreakingProjector(
+                new PostGisProjector(
+                    services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)),
+                services.GetRequiredService<SourceBreaker>()));
 
         // <b>Overlay runs in its own process, and the pool is what kills it.</b>
         // Q-97, answered by the owner: no property of the input predicts overlay
@@ -996,7 +1003,7 @@ public static class Program
         // The root: registered services, the folders, and the system services.
         app.MapGet("/rest/services", (
             HttpContext context,
-            PostgresLayerCatalog catalog,
+            CatalogFallback catalog,
             PostgresSystemServices system,
             ICoverageCatalog coverages,
             CancellationToken cancellation) =>
@@ -1009,7 +1016,7 @@ public static class Program
         // capitalised "Hosted" reaches the same place.
         app.MapGet($"/rest/services/{FeatureServerMetadataWriter.HostedFolder}", (
             HttpContext context,
-            PostgresLayerCatalog catalog,
+            CatalogFallback catalog,
             PostgresSystemServices system,
             ICoverageCatalog coverages,
             CancellationToken cancellation) =>
@@ -1025,7 +1032,7 @@ public static class Program
         // beats a parameter in routing and both carry their own comment.
         app.MapGet("/rest/services/{folder}", (
             HttpContext context,
-            PostgresLayerCatalog catalog,
+            CatalogFallback catalog,
             PostgresSystemServices system,
             string folder,
             ICoverageCatalog coverages,
@@ -1037,7 +1044,7 @@ public static class Program
         // Utilities folder and every client that looks for one looks there.
         app.MapGet("/rest/services/Utilities", (
             HttpContext context,
-            PostgresLayerCatalog catalog,
+            CatalogFallback catalog,
             PostgresSystemServices system,
             ICoverageCatalog coverages,
             CancellationToken cancellation) =>
@@ -1242,10 +1249,23 @@ public static class Program
         }
     }
 
+    /// <summary>Every folder the directory should advertise.</summary>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="system">The system services.</param>
+    /// <param name="services">What the listing already gave.</param>
+    /// <param name="blind">
+    /// True when the listing came from memory. <b>Then nothing else is asked, and that is the
+    /// repair rather than an optimisation</b>: each further read costs one blackholed connect —
+    /// about four seconds — and answers what this method already catches and ignores.
+    /// [D-127](../../docs/architecture-debt.md).
+    /// </param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The folder names.</returns>
     private static async Task<string[]> FoldersAsync(
         PostgresLayerCatalog catalog,
         PostgresSystemServices system,
         IReadOnlyList<PublishedService> services,
+        bool blind,
         CancellationToken cancellation)
     {
         SortedSet<string> names = new(StringComparer.OrdinalIgnoreCase)
@@ -1260,6 +1280,15 @@ public static class Program
             {
                 names.Add(named);
             }
+        }
+
+        if (blind)
+        {
+            // The two reads below would each wait out a connect that is not going to be
+            // answered, and the catch under the second one already says what the answer is:
+            // the folders named by the services in hand are still the truth about where those
+            // services are. Waiting eight seconds to be told that is the cost this removes.
+            return [.. names];
         }
 
         foreach (SystemService service in await system.ListAsync(cancellation).ConfigureAwait(false))
@@ -1289,7 +1318,7 @@ public static class Program
 
     private static async Task<IResult> CatalogueAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         PostgresSystemServices system,
         ICoverageCatalog coverages,
         string? folder,
@@ -1297,8 +1326,46 @@ public static class Program
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        IReadOnlyList<PublishedService> services = await catalog.ListServicesAsync(cancellation)
+        /*
+          <b>Through the fallback since 2026-08-23, and this directory is where
+          [D-127](../../docs/architecture-debt.md)'s first axis was measured.</b> ADR-026's
+          degraded serving could resolve one named service and could not list, so every face
+          that enumerates went down with the store — and this one went down slowly: the reads
+          below are five separate connects, each waiting out about four seconds of a socket
+          nothing answers. Concurrently, 45 seconds into an outage, it served 0 of 20 requests
+          instantly while the authentication path served 19 of 20 in 13 ms.
+
+          <b>So when the answer is remembered, nothing else is asked.</b> Each read skipped
+          below has an answer this method can already give from what it holds, and every one of
+          them costs a connect that will not be answered.
+        */
+        CatalogListing listing = await catalog.ListServicesAsync(cancellation)
             .ConfigureAwait(false);
+
+        if (listing.Services is not { } services)
+        {
+            return Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 503,
+                        message =
+                            "The catalogue is not reachable and this server has no remembered "
+                            + "listing to answer from, so it cannot say what it publishes. "
+                            + "Retry shortly; see /healthz/ready.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        bool blind = listing.Blind;
+
+        if (blind)
+        {
+            ServiceLookup.SayAge(context, listing.Age);
+        }
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
@@ -1342,14 +1409,23 @@ public static class Program
         // folders the visible services name are still the truth about where
         // those services are.
         string[] folders = folder is null
-            ? await FoldersAsync(catalog, system, services, cancellation).ConfigureAwait(false)
+            ? await FoldersAsync(catalog.Catalog!, system, services, blind, cancellation)
+                .ConfigureAwait(false)
             : [];
 
         // <b>System services are services.</b> Owner correction 2026-08-15: the
         // geometry service belongs in the directory beside the layers, governed
         // by the same sharing, or an administrator browsing the server cannot
         // see half of what it offers.
-        List<(string Name, string Type)> systemServices =
+        // <b>Empty while blind, and it is the same argument the folder register makes.</b> The
+        // system services live in their own table with no memory in front of it, so asking for
+        // them during an outage buys a four-second wait and an exception. A directory missing
+        // Utilities is smaller than the truth; one that takes four seconds to say so is worse
+        // for every client that browses it. [D-127](../../docs/architecture-debt.md).
+        List<(string Name, string Type)> systemServices = blind
+        ?
+        []
+        :
         [
             .. (await system.ListAsync(cancellation).ConfigureAwait(false))
                 .Where(s => string.Equals(s.Folder, folder, StringComparison.OrdinalIgnoreCase)
@@ -1381,8 +1457,13 @@ public static class Program
         // <b>Not privilege-dependent, deliberately.</b> A registered folder lists for
         // everybody and its contents are already filtered by sharing above. Making a
         // folder's existence depend on who asks is what the comment below warns against.
-        if (folder is not null && visible.Count == 0 && systemServices.Count == 0
-            && !await FolderExistsAsync(catalog, folder, cancellation).ConfigureAwait(false))
+        // <b>Not asked while blind, and the answer would have been the same.</b>
+        // `FolderExistsAsync` already answers *yes* when it cannot read — a 404 about a folder
+        // this server cannot look up would be a claim it is in no position to make — so the
+        // read buys four seconds and no information.
+        if (folder is not null && visible.Count == 0 && systemServices.Count == 0 && !blind
+            && !await FolderExistsAsync(catalog.Catalog!, folder, cancellation)
+                .ConfigureAwait(false))
         {
             return Results.Json(
                 new
@@ -1424,7 +1505,12 @@ public static class Program
           somebody who may manage the server — so a service an operator switched off
           does not vanish from their own directory.
         */
-        List<PublishedCoverage> imagery =
+        // Empty while blind, for the reason the system services are: its catalogue has no
+        // memory in front of it, and the wait is the whole of what asking would buy.
+        List<PublishedCoverage> imagery = blind
+        ?
+        []
+        :
         [
             .. (await coverages.ListAsync(cancellation).ConfigureAwait(false))
                 .Where(c => string.Equals(

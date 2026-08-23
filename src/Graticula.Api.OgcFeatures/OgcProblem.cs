@@ -42,6 +42,19 @@ public sealed record OgcProblem(int Status, string Title, string Detail)
     /// <returns>The problem.</returns>
     public static OgcProblem NotFound(string detail) => new(404, "Not Found", detail);
 
+    /// <summary>The catalogue cannot be read and nothing is remembered.</summary>
+    /// <remarks>
+    /// <b>503 rather than 404, and the difference is the whole of
+    /// [D-127](../../docs/architecture-debt.md).</b> A server that cannot list its collections
+    /// has not learnt that they are gone; answering 404 — or an empty `/collections` — tells a
+    /// client something false, and a client that believes it stops asking. 503 is the one status
+    /// that means *ask again*, and a proxy and a monitor both act on it.
+    /// </remarks>
+    /// <param name="detail">What could not be read.</param>
+    /// <returns>The problem.</returns>
+    public static OgcProblem Unavailable(string detail) =>
+        new(503, "Service Unavailable", detail);
+
     /// <summary>The requested representation is not one this server writes.</summary>
     /// <param name="detail">What was asked for.</param>
     /// <returns>The problem.</returns>

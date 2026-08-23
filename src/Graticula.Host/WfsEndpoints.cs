@@ -89,7 +89,7 @@ internal static class WfsEndpoints
 
     private static async Task GetAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         HostSettings settings,
         CancellationToken cancellation)
@@ -108,7 +108,7 @@ internal static class WfsEndpoints
 
     private static async Task PostAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         HostSettings settings,
         CancellationToken cancellation)
@@ -188,7 +188,7 @@ internal static class WfsEndpoints
 
     private static async Task DispatchAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         HostSettings settings,
         IReadOnlyDictionary<string, string> parameters,
@@ -200,8 +200,15 @@ internal static class WfsEndpoints
             return;
         }
 
-        IReadOnlyList<PublishedLayer> visible =
+        IReadOnlyList<PublishedLayer>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        // Null means the refusal is already written: the catalogue is unreachable and nothing
+        // is remembered, so there is no list to filter and no honest empty one to send.
+        if (visible is null)
+        {
+            return;
+        }
 
         switch (request!.Operation)
         {
@@ -252,15 +259,43 @@ internal static class WfsEndpoints
     /// [Q-57](../../docs/open-questions.md) recorded and this surface is the first
     /// to benefit from.
     /// </remarks>
-    private static async Task<IReadOnlyList<PublishedLayer>> VisibleAsync(
-        HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation)
+    private static async Task<IReadOnlyList<PublishedLayer>?> VisibleAsync(
+        HttpContext context, CatalogFallback catalog, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        IReadOnlyList<PublishedService> services =
+        CatalogListing listing =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        // <b>Null and empty are different answers, and answering an empty capabilities
+        // document here would be the worse of the two.</b> A client that reads
+        // `<FeatureTypeList/>` learns this server publishes nothing and has no reason to ask
+        // again; 503 says ask later. [D-127](../../docs/architecture-debt.md).
+        if (listing.Services is not { } services)
+        {
+            await RefuseAsync(
+                    context,
+                    new WfsFault(
+                        WfsFaultCode.OperationProcessingFailed,
+                        null,
+                        "The catalogue is not reachable and this server has no remembered "
+                        + "listing to answer from, so it cannot say which feature types it "
+                        + "publishes. Retry shortly; see /healthz/ready."),
+                    cancellation,
+                    StatusCodes.Status503ServiceUnavailable)
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        // Built from a remembered listing, and every response says so in one place rather
+        // than each document finding room for it. See ServiceLookup.SayAge.
+        if (listing.Blind)
+        {
+            ServiceLookup.SayAge(context, listing.Age);
+        }
 
         List<PublishedLayer> layers = [];
 

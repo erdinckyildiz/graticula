@@ -523,7 +523,7 @@ internal static class PortalEndpoints
     /// </remarks>
     private static async Task<IResult> UserContentAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         string username,
         CancellationToken cancellation)
     {
@@ -535,8 +535,13 @@ internal static class PortalEndpoints
             return Unknown("User");
         }
 
-        IReadOnlyList<PublishedService> visible =
+        IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return Unavailable();
+        }
 
         List<object> items = [.. visible.Select(service => Item(context, service))];
 
@@ -553,6 +558,30 @@ internal static class PortalEndpoints
         });
     }
 
+    /// <summary>The catalogue cannot be read and nothing is remembered.</summary>
+    /// <remarks>
+    /// <b>Not <see cref="Unknown"/>, which is what this would otherwise have become.</b> Every
+    /// answer on this face is a filtered listing, so an unreadable catalogue used to arrive as
+    /// an empty one — a search with no results, an item that *does not exist or is
+    /// inaccessible*. Both are claims, and during an outage both are false. 503 is the only
+    /// answer that says *ask again*. [D-127](../../docs/architecture-debt.md).
+    /// </remarks>
+    /// <returns>The refusal.</returns>
+    private static IResult Unavailable() => Results.Json(
+        new
+        {
+            error = new
+            {
+                code = 503,
+                message =
+                    "The catalogue is not reachable and this server has no remembered listing "
+                    + "to answer from, so it cannot say what it publishes. Retry shortly; see "
+                    + "/healthz/ready.",
+                details = Array.Empty<string>(),
+            },
+        },
+        statusCode: StatusCodes.Status503ServiceUnavailable);
+
     private static IResult Unknown(string what) => Results.Json(
         new
         {
@@ -568,11 +597,16 @@ internal static class PortalEndpoints
     /// <summary>Published services, as portal items.</summary>
     private static async Task<IResult> SearchAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedService> visible =
+        IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return Unavailable();
+        }
 
         string query = context.Request.Query["q"].ToString();
 
@@ -613,12 +647,17 @@ internal static class PortalEndpoints
 
     private static async Task<IResult> ItemAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         string id,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedService> visible =
+        IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return Unavailable();
+        }
 
         foreach (PublishedService service in visible)
         {
@@ -654,12 +693,17 @@ internal static class PortalEndpoints
     /// </remarks>
     private static async Task<IResult> ItemDataAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         string id,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedService> visible =
+        IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return Unavailable();
+        }
 
         foreach (PublishedService service in visible)
         {
@@ -673,15 +717,31 @@ internal static class PortalEndpoints
     }
 
     /// <summary>Every service this caller may see, running.</summary>
-    private static async Task<IReadOnlyList<PublishedService>> VisibleAsync(
-        HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation)
+    /// <summary>Every service this caller may see, or null when the catalogue is unreadable.</summary>
+    /// <remarks>
+    /// <b>Null rather than empty, because on this face they read the same and mean the
+    /// opposite.</b> [D-127](../../docs/architecture-debt.md): the caller answers
+    /// <see cref="Unavailable"/> rather than an empty search.
+    /// </remarks>
+    private static async Task<IReadOnlyList<PublishedService>?> VisibleAsync(
+        HttpContext context, CatalogFallback catalog, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        IReadOnlyList<PublishedService> services =
+        CatalogListing listing =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        if (listing.Services is not { } services)
+        {
+            return null;
+        }
+
+        if (listing.Blind)
+        {
+            ServiceLookup.SayAge(context, listing.Age);
+        }
 
         return
         [

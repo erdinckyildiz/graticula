@@ -40,6 +40,23 @@ internal static class ServiceLookup
 {
     private const string BlindKey = "gis-catalog-blind";
 
+    /// <summary>The header that says a response was built from a remembered catalogue.</summary>
+    /// <remarks>
+    /// <b>Named once because two paths write it.</b> The resolve below writes it for a document
+    /// about one service, and the four enumerating faces write it for a document about all of
+    /// them ([D-127](../../docs/architecture-debt.md)). Two spellings of one header is the
+    /// recurring debt D-46 names, and a monitor watching for the misspelt one sees a healthy
+    /// server through an outage.
+    /// </remarks>
+    public const string AgeHeader = "X-Catalog-Age";
+
+    /// <summary>Says on the response how old the catalogue behind it is.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="age">How long ago the catalogue last answered.</param>
+    public static void SayAge(HttpContext context, TimeSpan age) =>
+        context.Response.Headers[AgeHeader] =
+            ((int)age.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     /// <summary>
     /// The stale-catalogue answer behind this request, if it was one.
     /// </summary>
@@ -124,8 +141,7 @@ internal static class ServiceLookup
             // documents, and an operator watching a dashboard needs one signal
             // that covers all of them rather than a field on the two that have
             // room for it. Cheap, ignorable, and impossible to miss in a log.
-            context.Response.Headers["X-Catalog-Age"] =
-                ((int)answer.Age.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            SayAge(context, answer.Age);
         }
 
         if (answer.Service is not { } service

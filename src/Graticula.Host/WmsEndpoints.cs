@@ -105,7 +105,7 @@ internal static class WmsEndpoints
 
     private static async Task GetAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         IProjector projector,
@@ -222,13 +222,23 @@ internal static class WmsEndpoints
     }
 
     private static async Task RefuseAsync(
-        HttpContext context, WmsVersion version, WmsFault fault, CancellationToken cancellation)
+        HttpContext context,
+        WmsVersion version,
+        WmsFault fault,
+        CancellationToken cancellation,
+        int status = 200)
     {
         // <b>200, and it is inherited rather than chosen.</b> A WMS service
         // exception is a successful response carrying an application refusal, and
         // several clients treat a 4xx as a transport failure and never read the body
         // — discarding the one sentence that says what was wrong.
-        context.Response.StatusCode = 200;
+        //
+        // <b>The override exists for one case and it is the opposite one.</b> When the
+        // catalogue is unreachable there is no sentence worth reading — the answer is
+        // *retry* — and the status is the whole message: a proxy, a load balancer and a
+        // monitor all act on 503 and none of them parse a ServiceExceptionReport.
+        // [D-127](../../docs/architecture-debt.md).
+        context.Response.StatusCode = status;
         context.Response.ContentType = WmsFault.MediaType(version);
 
         await context.Response.WriteAsync(fault.ToXml(version), cancellation).ConfigureAwait(false);
@@ -245,15 +255,42 @@ internal static class WmsEndpoints
     /// switched off here too. WFS learned that last one a day late by being caught;
     /// this surface has it from the first commit.
     /// </remarks>
-    private static async Task<IReadOnlyList<PublishedLayer>> VisibleAsync(
-        HttpContext context, PostgresLayerCatalog catalog, CancellationToken cancellation)
+    private static async Task<IReadOnlyList<PublishedLayer>?> VisibleAsync(
+        HttpContext context, CatalogFallback catalog, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
 
-        IReadOnlyList<PublishedService> services =
+        CatalogListing listing =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        // <b>An empty layer tree is a claim, and this one would be false.</b> A client
+        // that reads a capabilities document with no layers stops asking; 503 says ask
+        // later. [D-127](../../docs/architecture-debt.md).
+        if (listing.Services is not { } services)
+        {
+            await RefuseAsync(
+                    context,
+                    VersionOf(context),
+                    new WmsFault(
+                        null,
+                        "The catalogue is not reachable and this server has no remembered "
+                        + "listing to answer from, so it cannot say which layers it publishes. "
+                        + "Retry shortly; see /healthz/ready."),
+                    cancellation,
+                    StatusCodes.Status503ServiceUnavailable)
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        // Built from a remembered listing, said in one place for every document rather
+        // than in each document's own vocabulary. See ServiceLookup.SayAge.
+        if (listing.Blind)
+        {
+            ServiceLookup.SayAge(context, listing.Age);
+        }
 
         List<PublishedLayer> layers = [];
 
@@ -315,7 +352,7 @@ internal static class WmsEndpoints
 
     private static async Task CapabilitiesAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
         WmsRequest request,
@@ -323,8 +360,14 @@ internal static class WmsEndpoints
         HostSettings settings,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedLayer> visible =
+        IReadOnlyList<PublishedLayer>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        // Null means the refusal is already written: no listing, so nothing to filter.
+        if (visible is null)
+        {
+            return;
+        }
 
         List<WmsLayer> published = [];
 
@@ -630,15 +673,21 @@ internal static class WmsEndpoints
 
     private static async Task MapImageAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         WmsRequest request,
         HostSettings settings,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedLayer> visible =
+        IReadOnlyList<PublishedLayer>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        // Null means the refusal is already written: no listing, so nothing to filter.
+        if (visible is null)
+        {
+            return;
+        }
 
         List<PublishedLayer> wanted = [];
 
@@ -850,7 +899,7 @@ internal static class WmsEndpoints
 
     private static async Task FeatureInfoAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         WmsRequest request,
         HostSettings settings,
@@ -872,8 +921,14 @@ internal static class WmsEndpoints
             return;
         }
 
-        IReadOnlyList<PublishedLayer> visible =
+        IReadOnlyList<PublishedLayer>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        // Null means the refusal is already written: no listing, so nothing to filter.
+        if (visible is null)
+        {
+            return;
+        }
 
         PixelTransform transform = new(request.Extent, request.Width, request.Height);
         Envelope around = FeatureInfoWriter.Around(transform, request.PixelX, request.PixelY);
@@ -935,14 +990,20 @@ internal static class WmsEndpoints
 
     private static async Task LegendAsync(
         HttpContext context,
-        PostgresLayerCatalog catalog,
+        CatalogFallback catalog,
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         WmsRequest request,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedLayer> visible =
+        IReadOnlyList<PublishedLayer>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        // Null means the refusal is already written: no listing, so nothing to filter.
+        if (visible is null)
+        {
+            return;
+        }
 
         if (Find(visible, request.Layers[0]) is not { } layer)
         {

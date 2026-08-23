@@ -203,6 +203,36 @@ public abstract class ArcGisClient : IDisposable
     /// *for every layer this server serves*.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A service published by a test fixture, which may be gone by the next request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every test that walks the whole server races the corpus fixture, and two of them
+    /// lost.</b> `ShapefileCorpusTests` imports each archive of the shapefile corpus under a
+    /// `corpus_` name and deletes it again; xUnit runs classes in parallel, so a service listed
+    /// at the top of a walk can answer 404 three requests later. It did, twice, in different
+    /// classes: `One_box_in_two_reference_systems_selects_the_same_features` on
+    /// `corpus_holed_…` and `A_polygon_ring_is_closed_and_wound_the_way_ArcGIS_requires` on
+    /// `corpus_twoparts_…`.
+    /// </para>
+    /// <para>
+    /// <b>Skipped by name rather than by swallowing 404s.</b> Treating any 404 during a walk as
+    /// *gone* would hide the defect these tests exist to find — a service the catalogue lists
+    /// and will not serve is exactly what a conformance walk must fail on. The name belongs to a
+    /// fixture rather than to a deployment, and if the corpus is renamed this stops matching and
+    /// the race returns visibly instead of silently.
+    /// </para>
+    /// <para>
+    /// <b>Here rather than in each walker</b>, because the next walk somebody writes would race
+    /// it too and would find out the way these did.
+    /// </para>
+    /// </remarks>
+    /// <param name="name">The service or collection name, qualified or not.</param>
+    /// <returns>Whether it belongs to a fixture that is publishing and deleting as we read.</returns>
+    protected static bool Transient(string name) =>
+        name.Contains("corpus_", StringComparison.Ordinal);
+
     protected async Task<IReadOnlyList<string>> EveryServiceNameAsync()
     {
         List<string> found = [];
@@ -241,6 +271,7 @@ public abstract class ArcGisClient : IDisposable
                     && string.Equals(type.GetString(), "FeatureServer", StringComparison.Ordinal)
                     && service.TryGetProperty("name", out JsonElement name)
                     && name.GetString() is { Length: > 0 } qualified
+                    && !Transient(qualified)
                     && !into.Contains(qualified))
                 {
                     into.Add(qualified);

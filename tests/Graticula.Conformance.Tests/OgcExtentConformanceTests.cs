@@ -59,6 +59,11 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
         {
             string id = collection.GetProperty("id").GetString()!;
 
+            if (Transient(id))
+            {
+                continue;
+            }
+
             JsonElement bbox = collection
                 .GetProperty("extent").GetProperty("spatial").GetProperty("bbox")[0];
 

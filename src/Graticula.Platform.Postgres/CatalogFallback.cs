@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Catalog;
+using Graticula.Platform.Identity;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
@@ -17,6 +19,21 @@ namespace Graticula.Platform.Postgres;
 /// this answer came from the last one it gave.</param>
 /// <param name="Age">How old that memory is. Zero when not blind.</param>
 public readonly record struct CatalogAnswer(PublishedService? Service, bool Blind, TimeSpan Age);
+
+/// <summary>
+/// What the catalogue listed, and whether the store was there to list it.
+/// </summary>
+/// <param name="Services">
+/// Every service, or null when the store could not be reached and nothing is remembered.
+/// <b>Null and empty are different answers and a caller must not merge them.</b> Empty means
+/// this server publishes nothing, which is a claim; null means it cannot say, which is a
+/// refusal. A capabilities document built from an empty list would tell a client the server
+/// has no layers, and a client that believes it stops asking.
+/// </param>
+/// <param name="Blind">True when this came from the last listing the store gave.</param>
+/// <param name="Age">How old that listing is. Zero when not blind.</param>
+public readonly record struct CatalogListing(
+    IReadOnlyList<PublishedService>? Services, bool Blind, TimeSpan Age);
 
 /// <summary>
 /// The catalogue, plus the last answer it gave, for when it cannot answer.
@@ -98,6 +115,25 @@ public sealed class CatalogFallback
     private readonly ConcurrentDictionary<(string Folder, string Name),
         (PublishedService Service, long Stamp)> _last = new();
 
+    private readonly Func<CancellationToken, Task<IReadOnlyList<PublishedService>>>? _list;
+
+    /// <summary>The last listing the store gave, and when.</summary>
+    /// <remarks>
+    /// <b>One slot, not a dictionary, because there is one listing.</b>
+    /// <see cref="PostgresLayerCatalog.ListServicesAsync"/> takes no arguments: every face that
+    /// enumerates asks for the same thing and then filters it by who is asking. Filtering stays
+    /// where it is — in each face's own visibility rule — so what is remembered here is the
+    /// catalogue's answer and not anybody's view of it.
+    /// <para>
+    /// <b>A class rather than a tuple, so that reading it is one load.</b> A nullable tuple field
+    /// is written field by field and a reader can see half of one; a reference is published or
+    /// it is not.
+    /// </para>
+    /// </remarks>
+    private sealed record Listing(IReadOnlyList<PublishedService> Services, long Stamp);
+
+    private volatile Listing? _listing;
+
     /// <summary>Wraps the real catalogue.</summary>
     /// <param name="catalog">The catalogue.</param>
     /// <param name="time">The clock.</param>
@@ -117,7 +153,10 @@ public sealed class CatalogFallback
                     .FindServiceAsync(folder, name, token),
             time,
             window,
-            health)
+            health,
+            token =>
+                (catalog ?? throw new ArgumentNullException(nameof(catalog)))
+                    .ListServicesAsync(token))
     {
         Catalog = catalog;
     }
@@ -130,16 +169,23 @@ public sealed class CatalogFallback
     /// Whether the store is worth asking. Optional, so that a test of the remembering
     /// policy does not have to construct a breaker to exercise it.
     /// </param>
+    /// <param name="list">
+    /// The listing read, when the test exercises one. Optional: most tests of the remembering
+    /// policy are about one service, and a listing they never call is a listing they would have
+    /// to write.
+    /// </param>
     public CatalogFallback(
         Func<string?, string, CancellationToken, Task<PublishedService?>> read,
         TimeProvider time,
         TimeSpan? window = null,
-        Graticula.Platform.Catalog.IStoreHealth? health = null)
+        Graticula.Platform.Catalog.IStoreHealth? health = null,
+        Func<CancellationToken, Task<IReadOnlyList<PublishedService>>>? list = null)
     {
         _read = read ?? throw new ArgumentNullException(nameof(read));
         _time = time ?? throw new ArgumentNullException(nameof(time));
         _window = window ?? DefaultWindow;
         _health = health;
+        _list = list;
     }
 
     private readonly Graticula.Platform.Catalog.IStoreHealth? _health;
@@ -200,6 +246,121 @@ public sealed class CatalogFallback
 
             return Remembered(key);
         }
+    }
+
+    /// <summary>Every service, and whether the store was there to say so.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The listing, and how old it is.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-127](../../../docs/architecture-debt.md)'s first axis, and the row is why this
+    /// exists.</b> ADR-026 answers Q-95 with a fallback, and the fallback could resolve one named
+    /// service and nothing else — so the four faces that begin by *enumerating* had no degraded
+    /// path at all. WFS and WMS build capabilities over every published layer, OGC Features
+    /// answers `/collections`, and the portal searches. Adding the resolve-one path to them would
+    /// have made `GetCapabilities` fail while `GetMap` succeeded, which the row calls a worse
+    /// answer than failing consistently. This is the other half.
+    /// </para>
+    /// <para>
+    /// <b>Measured, not assumed.</b> The failure gate found the listing serving 0 of 20
+    /// concurrent requests instantly 45 seconds into an outage, each paying about one
+    /// four-second blackholed connect, while the authentication path — which has a memory —
+    /// served 19 of 20 in 13 ms.
+    /// </para>
+    /// <para>
+    /// <b>The healthy path is unchanged, exactly as for the resolve.</b> While the store answers,
+    /// every listing reads it; the memory is refreshed as a side effect and consulted only when
+    /// the store cannot be reached.
+    /// </para>
+    /// <para>
+    /// <b>A blind listing is public-only</b>, which is Q-95's answer applied to the enumerating
+    /// faces. See <see cref="RememberedListing"/> for why the filter is here and not in the five
+    /// callers.
+    /// </para>
+    /// <para>
+    /// <b>A successful listing does not refresh the per-service memory, and that is deliberate.</b>
+    /// It would be one dictionary write per service on every `/rest/services`, which at the
+    /// scale target is a thousand writes on a request that already runs on every console
+    /// refresh, to make an outage slightly better at remembering services nobody asked for by
+    /// name. The two memories answer two questions and are kept apart.
+    /// </para>
+    /// </remarks>
+    public async Task<CatalogListing> ListServicesAsync(CancellationToken cancellationToken)
+    {
+        if (_list is null)
+        {
+            throw new InvalidOperationException(
+                "This fallback was built over a single read and cannot list. The constructor "
+                + "that takes a PostgresLayerCatalog supplies both.");
+        }
+
+        // Not asked when it failed moments ago — the same reasoning as the resolve above, and
+        // the same answer, four thousand times faster.
+        if (_health is { IsOpen: true })
+        {
+            return RememberedListing();
+        }
+
+        try
+        {
+            IReadOnlyList<PublishedService> services =
+                await _list(cancellationToken).ConfigureAwait(false);
+
+            _listing = new Listing(services, _time.GetTimestamp());
+
+            _health?.Succeeded();
+
+            return new CatalogListing(services, Blind: false, Age: TimeSpan.Zero);
+        }
+        catch (Exception e) when (IsUnreachable(e))
+        {
+            _health?.Failed(e);
+
+            return RememberedListing();
+        }
+    }
+
+    /// <summary>The last listing, public-only, if it is still young enough to serve.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Public-only, and this is the same rule the resolve enforces rather than a second
+    /// one.</b> Q-95's answer is *serve public-only while blind*, and
+    /// <c>ServiceLookup.VisibleAsync</c> applies it to one named service by refusing any other
+    /// scope. A listing that returned every remembered service would walk straight past it: the
+    /// faces filter by sharing, but sharing is a remembered value here and a group membership
+    /// that cannot be re-read is not evidence. So the filter is applied where it cannot be
+    /// forgotten, once, for all five faces.
+    /// </para>
+    /// <para>
+    /// <b>Nothing public is a refusal rather than an empty document</b> — unless the listing was
+    /// empty to begin with. A server whose services are all private has something to publish and
+    /// cannot say what while blind, and telling a client it publishes nothing is the claim this
+    /// whole class exists to avoid making. A server that really publishes nothing keeps saying
+    /// so.
+    /// </para>
+    /// </remarks>
+    private CatalogListing RememberedListing()
+    {
+        if (_listing is not { } remembered)
+        {
+            return new CatalogListing(null, Blind: true, Age: TimeSpan.Zero);
+        }
+
+        TimeSpan age = _time.GetElapsedTime(remembered.Stamp);
+
+        if (age > _window)
+        {
+            return new CatalogListing(null, Blind: true, Age: age);
+        }
+
+        IReadOnlyList<PublishedService> published =
+        [
+            .. remembered.Services.Where(service => service.Sharing == SharingScope.Public),
+        ];
+
+        return published.Count == 0 && remembered.Services.Count > 0
+            ? new CatalogListing(null, Blind: true, Age: age)
+            : new CatalogListing(published, Blind: true, Age: age);
     }
 
     /// <summary>What is remembered about a service, and how stale it is.</summary>
