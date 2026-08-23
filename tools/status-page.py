@@ -332,16 +332,67 @@ def field(head, label):
 
 # ---------------------------------------------------------------- tables
 
+# A column break is a pipe that is not escaped. Markdown says an escaped one is
+# content, and this repository's registers use that: D-82 quotes the strings
+# `owner \| manager \| member` inside a cell, and D-43 quotes a grep pattern with
+# a pipe in it.
+#
+# <b>Splitting on every pipe read four rows wrong, and it read the wrong end of
+# them.</b> `status` is taken as the last cell, so a row split one column too
+# many reported its own tail as its status: D-43's said `Failed)!"`, which
+# discards them...` and D-75's reported a recurrence it had just closed. The
+# registers were right and the page was wrong, which is [D-30](#)'s family and
+# the reason this comment is longer than the fix.
+COLUMN = re.compile(r"(?<!\\)\|")
+
+
+def cells_of(line):
+    """One table row's cells, honouring \| as content rather than a break."""
+    return [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+
 def rows(markdown, pattern):
     """Pipe-table rows whose first cell matches, as lists of cells."""
     out = []
     for line in markdown.split("\n"):
         if not line.startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = cells_of(line)
         if cells and re.match(pattern, cells[0]):
             out.append(cells)
     return out
+
+
+def well_formed(markdown, pattern, columns, what):
+    """
+    Every matching row has the column count its header promises.
+
+    <b>Checked rather than assumed, because a row with one column too many is
+    invisible.</b> It renders as a table with a ragged edge that nobody scrolls
+    to, and every tool that reads a named column past the break reads the wrong
+    thing. Four rows were like that for days. Returns the complaints; the caller
+    decides whether they are fatal.
+    """
+    wrong = []
+    for line in markdown.split("\n"):
+        if not line.startswith("|"):
+            continue
+        cells = cells_of(line)
+        if not cells or not re.match(pattern, cells[0]):
+            continue
+        if len(cells) != columns:
+            wrong.append(
+                f"{what} {cells[0]} has {len(cells)} columns and the table has "
+                f"{columns}. An unescaped pipe in prose or in inline code splits "
+                f"a row, and the cell after the break is read as the row's "
+                f"status. Escape it as \\| or remove it."
+            )
+        elif not line.rstrip().endswith("|"):
+            wrong.append(
+                f"{what} {cells[0]} does not end with a pipe, so its last cell "
+                f"is open-ended."
+            )
+    return wrong
 
 
 def first_sentence(text, limit=260):

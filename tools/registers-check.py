@@ -78,6 +78,149 @@ def duplicate_debt_ids():
     return repeated
 
 
+# A column break is a pipe that is not escaped. Markdown says so, and this
+# repository's registers rely on it: D-82 quotes `owner \| manager \| member`
+# and D-43 quotes a grep pattern with a pipe in it.
+COLUMN = re.compile(r"(?<!\\)\|")
+
+# Every register whose rows are read by column. Each of these files holds more
+# than one table and they are not the same width -- open-questions.md alone has
+# three -- so the width is taken from each table's own header rather than named
+# here. Naming it here was the first version of this check and it reported 77
+# problems, every one of them the check's own.
+TABLES = (
+    ("docs/architecture-debt.md", "debt register"),
+    ("docs/open-questions.md", "open questions"),
+    ("docs/architecture-assumptions.md", "assumptions"),
+)
+
+SEPARATOR = re.compile(r"^\|[\s:-]*\|[\s:|-]*$")
+
+
+def ragged_register_rows():
+    """Register rows with more or fewer columns than their own table's header.
+
+    **Four debt rows were like this and it had gone unnoticed for days.** A row
+    with one column too many renders as a table with a ragged edge that nobody
+    scrolls far enough right to see -- and every tool that reads a named column
+    reads past the break. status-page.py takes a debt row's status as its *last*
+    cell, so D-43's status on the published page was the fragment
+    `Failed)!"`, which discards them...` and D-75's was a recurrence the row had
+    already closed. **The registers were right and the dashboard was wrong**,
+    which is the failure D-30 is a debt about.
+
+    Two causes, both mechanical: an unescaped pipe inside prose or inline code,
+    and a row whose final pipe is missing. Both are found here, and the message
+    names the repair rather than the rule.
+    """
+    complaints = []
+
+    for path, what in TABLES:
+        try:
+            text = io.open(path, encoding="utf-8").read()
+        except OSError as problem:
+            complaints.append(path + " could not be read: " + str(problem))
+            continue
+
+        width = None
+        previous = None
+
+        for number, line in enumerate(text.splitlines(), 1):
+            if not line.startswith("|"):
+                # A table ends where the pipes stop, and the next one brings its
+                # own header. Without this the second table in a file is measured
+                # against the first one's width.
+                width = None
+                previous = None
+                continue
+
+            cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+            if SEPARATOR.match(line):
+                width = len(previous) if previous else None
+                continue
+
+            if width is None:
+                previous = cells
+                continue
+
+            # <b>Only rows with an identifier.</b> These registers carry
+            # continuation rows and single-cell notes inside their tables, and a
+            # complaint about one of those is noise that would get the whole
+            # check switched off.
+            if not re.match(r"^~*\s*[A-Z]+-\d+\s*~*$", cells[0]):
+                continue
+
+            if len(cells) != width:
+                complaints.append(
+                    f"{path}: {what} row {cells[0]} on line {number} has {len(cells)} "
+                    f"columns and its table's header has {width}. An unescaped pipe in "
+                    f"prose or inline code splits a row, and every tool that reads a "
+                    f"named column then reads the wrong one -- the status page takes a "
+                    f"debt row's last cell as its status. Escape it as \\| or rewrite "
+                    f"the sentence."
+                )
+            elif not line.rstrip().endswith("|"):
+                complaints.append(
+                    f"{path}: {what} row {cells[0]} on line {number} does not end with a "
+                    f"pipe, so its last cell has no closing edge."
+                )
+
+    return complaints
+
+
+def assumptions_only_an_adr_knows_about():
+    """Assumptions an ADR declares that never reached the register.
+
+    [CLAUDE.md](../CLAUDE.md) §2: *assumptions go in architecture-assumptions.md
+    with a status*, and §11 turns on that being true -- invalidating an
+    assumption is supposed to trigger a review of every ADR depending on it, and
+    an assumption the register has never heard of cannot trigger anything.
+
+    **Seven had not, found 2026-08-23.** A-052 to A-056, A-062 and A-063 lived
+    only in ADR-018, ADR-019, ADR-020 and ADR-024. The reason is visible in the
+    shape of the rows: an ADR's assumption table has three columns and the
+    register's has five, so copying one across is an edit rather than a paste,
+    and an edit is a thing that gets postponed. This check does not care why.
+    """
+    register_ids = set()
+
+    try:
+        register = io.open("docs/architecture-assumptions.md", encoding="utf-8").read()
+    except OSError as problem:
+        return ["docs/architecture-assumptions.md could not be read: " + str(problem)]
+
+    for line in register.splitlines():
+        match = re.match(r"^\|\s*~*\s*(A-\d+)\s*~*\s*\|", line)
+        if match:
+            register_ids.add(match.group(1))
+
+    missing = {}
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        text = io.open(os.path.join(conditions.ADRS, name), encoding="utf-8").read()
+
+        for line in text.splitlines():
+            match = re.match(r"^\|\s*~*\s*(A-\d+)\s*~*\s*\|\s*(.{0,60})", line)
+
+            if not match or match.group(1) in register_ids:
+                continue
+
+            missing.setdefault(match.group(1), (name, match.group(2).strip()))
+
+    return [
+        f"{ident} is declared in {where} and is not in docs/architecture-assumptions.md: "
+        f"\"{opening}...\". An ADR's assumption table has three columns and the register's has "
+        f"five, so it is a copy plus two cells -- how it gets validated, and what depends on it. "
+        f"CLAUDE.md §11 reviews every ADR that depends on an assumption when it is invalidated, "
+        f"and it cannot review one the register has never heard of."
+        for ident, (where, opening) in sorted(missing.items())
+    ]
+
+
 LINK = re.compile(r"\[[^\]\n]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 # Every document that cites another one. Not a walk of the whole repository: the
@@ -402,8 +545,10 @@ def main() -> int:
     # because both calls found the same thing -- and it meant a run could fix one
     # class of problem and discover the next one on the following run. Somebody
     # repairing registers deserves the whole list at once.
-    problems = (duplicate_debt_ids() + broken_links() + remembered_numbers()
-                + the_former_product_name() + source_the_repository_would_not_receive())
+    problems = (duplicate_debt_ids() + ragged_register_rows()
+                + assumptions_only_an_adr_knows_about() + broken_links()
+                + remembered_numbers() + the_former_product_name()
+                + source_the_repository_would_not_receive())
 
     if problems:
         for line in problems:
