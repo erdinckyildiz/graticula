@@ -14,12 +14,19 @@ namespace Graticula.Platform.Postgres.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The hard part of MGRS is UTM, and UTM has an oracle.</b> PostGIS can
-/// transform a point to EPSG:326nn or 327nn, which is the same projection with
-/// the same ellipsoid, so the series expansion in
-/// <see cref="GeoCoordinateString"/> can be checked against PROJ to the
-/// millimetre on real coordinates. The lettering on top of it is a lookup, and
-/// what remains for it is a round trip and two published references.
+/// <b>The projection is PROJ's now, so these tests stopped checking it.</b> Until
+/// 2026-08-23 <see cref="GeoCoordinateString"/> carried a transverse Mercator series and this
+/// file pinned it against `ST_Transform` to the millimetre — a real check on a real risk, and
+/// the risk was that there were two coordinate engines at all.
+/// [D-114](../../docs/architecture-debt.md) deleted the series;
+/// [ADR-022](../../docs/adr/ADR-022-geometry-server.md) §4 refuses a second engine by name.
+/// </para>
+/// <para>
+/// <b>What is left to test is what is still ours</b>, and it is the part a converter written
+/// from the definition alone gets wrong: the zone rule with its Norway and Svalbard exceptions,
+/// the hundred-kilometre lettering, the band letters, the packing and the angular notations.
+/// The projection is supplied here the way the endpoint supplies it, so a round trip runs the
+/// whole path rather than half of it.
 /// </para>
 /// <para>
 /// <b>These operations were not on the refusal list either.</b> Until
@@ -85,42 +92,86 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
         return (reader.GetDouble(0), reader.GetDouble(1));
     }
 
+    /// <summary>Where a coordinate falls on the grid, projected the way the endpoint does.</summary>
+    /// <remarks>
+    /// <b>Our zone, PROJ's metres.</b> The zone is asked of `GeoCoordinateString` on purpose:
+    /// if the zone rule is wrong for Bergen then PostGIS is asked for the wrong EPSG code and
+    /// the easting comes back thousands of metres out, which is a failure that names the zone.
+    /// </remarks>
+    private async Task<GeoCoordinateString.GridPosition> GridAsync(
+        double longitude, double latitude)
+    {
+        Assert.True(
+            GeoCoordinateString.TryZone(longitude, latitude, out int zone, out bool north,
+                out string? error),
+            error);
+
+        (double x, double y) = await ProjectAsync(longitude, latitude, EpsgFor(zone, north));
+
+        return new GeoCoordinateString.GridPosition(zone, north, x, y);
+    }
+
+    /// <summary>The geographic position a grid position names.</summary>
+    private async Task<(double Longitude, double Latitude)> UnprojectAsync(
+        GeoCoordinateString.GridPosition grid)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            $"""
+             select ST_X(p), ST_Y(p) from (
+               select ST_Transform(
+                        ST_SetSRID(ST_MakePoint(@x, @y),
+                                   {EpsgFor(grid.Zone, grid.North).ToString(CultureInfo.InvariantCulture)}),
+                        4326) as p) t
+             """);
+
+        command.Parameters.AddWithValue("x", grid.Easting);
+        command.Parameters.AddWithValue("y", grid.Northing);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(CancellationToken.None);
+
+        Assert.True(await reader.ReadAsync(CancellationToken.None));
+
+        return (reader.GetDouble(0), reader.GetDouble(1));
+    }
+
     // ---------- UTM ----------
 
     /// <summary>
-    /// Our UTM easting and northing match PROJ's to the millimetre.
+    /// The zone rule is ours, and its exceptions are what a definition alone gets wrong.
     /// </summary>
     /// <remarks>
-    /// <b>One millimetre, which is three orders below anything the output can
-    /// express.</b> MGRS's finest form names a one-metre square. A tolerance
-    /// this tight is not perfectionism — it is the only tolerance that
-    /// distinguishes "the series is right" from "the series is nearly right",
-    /// and a nearly-right series fails at the edge of a zone rather than in the
-    /// middle where every hand-written test puts its points.
+    /// <b>This replaces a test that pinned our transverse Mercator against PROJ to the
+    /// millimetre.</b> That test was worth having while there were two engines, and it retired
+    /// with the one it was watching ([D-114](../../docs/architecture-debt.md)). What did not
+    /// retire is the zone: six-degree columns, except that zone 32 widens over southern Norway
+    /// so Bergen is not split, and four zones are rearranged over Svalbard. **Those four rows
+    /// are the reason this is a test rather than an assertion about arithmetic.**
     /// </remarks>
     [Theory]
-    [MemberData(nameof(Places))]
-    public async Task Utm_matches_PROJ_to_the_millimetre(
-        double longitude, double latitude, string place)
+    [InlineData(32.8597, 39.9334, 36, true, "Ankara")]
+    [InlineData(-77.0365, 38.8977, 18, true, "Washington")]
+    [InlineData(151.2093, -33.8688, 56, false, "Sydney")]
+    [InlineData(3.0, 0.0, 31, true, "equator on a central meridian")]
+    [InlineData(5.3221, 60.3913, 32, true, "Bergen — the widened zone")]
+    [InlineData(15.6469, 78.2232, 33, true, "Longyearbyen — the rearranged Svalbard zones")]
+    [InlineData(-0.1276, 51.5072, 30, true, "London — on the 30/31 boundary")]
+    public void The_zone_rule_places_a_coordinate(
+        double longitude, double latitude, int expected, bool north, string place)
     {
-        // <b>The unrounded numbers, not the string.</b> The string is whole
-        // metres, so comparing it against PROJ can only ever establish that we
-        // are within half a metre — which is not a check on a series expansion.
         Assert.True(
-            GeoCoordinateString.TryToUtm(
-                longitude, latitude,
-                out int zone, out double easting, out double northing, out string? error),
+            GeoCoordinateString.TryZone(longitude, latitude, out int zone, out bool inNorth,
+                out string? error),
             error);
 
-        (double x, double y) = await ProjectAsync(longitude, latitude, EpsgFor(zone, latitude >= 0));
+        Assert.Equal(expected, zone);
+        Assert.Equal(north, inNorth);
 
-        // PostGIS's southern-hemisphere EPSG codes already carry the ten million
-        // metre false northing, so both sides are in the same frame.
-        Assert.True(
-            Math.Abs(easting - x) < 0.001 && Math.Abs(northing - y) < 0.001,
-            $"{place}: we say zone {zone} {easting:F4} {northing:F4}, PROJ says "
-            + $"{x:F4} {y:F4} — {Math.Abs(easting - x):F5} m east and "
-            + $"{Math.Abs(northing - y):F5} m north apart.");
+        // And the EPSG code the zone names is the one PostGIS knows, which is the whole
+        // reason the zone matters: it is an argument to ST_Transform.
+        Assert.Equal((north ? 32_600 : 32_700) + expected, GeoCoordinateString.EpsgFor(zone, north));
+
+        Assert.NotEmpty(place);
     }
 
     /// <summary>
@@ -134,20 +185,26 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     /// </remarks>
     [Theory]
     [MemberData(nameof(Places))]
-    public void A_UTM_string_reads_back_to_where_it_came_from(
+    public async Task A_UTM_string_reads_back_to_where_it_came_from(
         double longitude, double latitude, string place)
     {
+        GeoCoordinateString.GridPosition grid = await GridAsync(longitude, latitude);
+
         Assert.True(
             GeoCoordinateString.TryWrite(
                 longitude, latitude, GeoCoordinateNotation.Utm, 0, spaces: true,
-                out string text, out string? error),
+                out string text, out string? error, grid),
             error);
 
         Assert.True(
             GeoCoordinateString.TryRead(
                 text, GeoCoordinateNotation.Utm,
-                out double back, out double backLatitude, out error),
+                out _, out _, out GeoCoordinateString.GridPosition? read, out error),
             error);
+
+        Assert.NotNull(read);
+
+        (double back, double backLatitude) = await UnprojectAsync(read!.Value);
 
         // The string is whole metres, so a metre of tolerance is the string's
         // own precision rather than slack in the arithmetic.
@@ -171,20 +228,26 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     /// </remarks>
     [Theory]
     [MemberData(nameof(Places))]
-    public void An_MGRS_reference_reads_back_to_the_same_place(
+    public async Task An_MGRS_reference_reads_back_to_the_same_place(
         double longitude, double latitude, string place)
     {
+        GeoCoordinateString.GridPosition grid = await GridAsync(longitude, latitude);
+
         Assert.True(
             GeoCoordinateString.TryWrite(
                 longitude, latitude, GeoCoordinateNotation.Mgrs, 5, spaces: false,
-                out string text, out string? error),
+                out string text, out string? error, grid),
             error);
 
         Assert.True(
             GeoCoordinateString.TryRead(
                 text, GeoCoordinateNotation.Mgrs,
-                out double back, out double backLatitude, out error),
+                out _, out _, out GeoCoordinateString.GridPosition? read, out error),
             error);
+
+        Assert.NotNull(read);
+
+        (double back, double backLatitude) = await UnprojectAsync(read!.Value);
 
         Assert.True(
             Distance(longitude, latitude, back, backLatitude) < 1.5,
@@ -203,15 +266,17 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     /// case, and it is the reason to have it even though it is a single point.
     /// </remarks>
     [Fact]
-    public void The_Washington_Monument_is_where_the_USNG_says_it_is()
+    public async Task The_Washington_Monument_is_where_the_USNG_says_it_is()
     {
         const double Longitude = -77.0353;
         const double Latitude = 38.8895;
 
+        GeoCoordinateString.GridPosition grid = await GridAsync(Longitude, Latitude);
+
         Assert.True(
             GeoCoordinateString.TryWrite(
                 Longitude, Latitude, GeoCoordinateNotation.Usng, 5, spaces: true,
-                out string text, out string? error),
+                out string text, out string? error, grid),
             error);
 
         // 18S UJ 23xxx 06xxx — zone 18, band S, square UJ. The last digits move
@@ -237,12 +302,21 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     public void The_polar_regions_are_refused_rather_than_approximated(
         double longitude, double latitude)
     {
+        // <b>Refused before anything is projected</b>, which is why no grid position is
+        // supplied here: the latitude band is checked first, so a polar coordinate never
+        // reaches the datastore at all.
         Assert.False(
             GeoCoordinateString.TryWrite(
                 longitude, latitude, GeoCoordinateNotation.Mgrs, 5, spaces: false,
                 out _, out string? error));
 
         Assert.Contains("Polar Stereographic", error!, StringComparison.Ordinal);
+
+        // And the zone check refuses it for the same reason, in the words the endpoint uses.
+        Assert.False(
+            GeoCoordinateString.TryZone(longitude, latitude, out _, out _, out string? why));
+
+        Assert.Contains("outside the UTM grid", why!, StringComparison.Ordinal);
     }
 
     // ---------- the angular notations ----------
@@ -363,24 +437,40 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     [InlineData(GeoCoordinateNotation.Mgrs, false)]
     [InlineData(GeoCoordinateNotation.Usng, true)]
     [InlineData(GeoCoordinateNotation.Usng, false)]
-    public void Every_notation_reads_back_what_it_wrote(
+    public async Task Every_notation_reads_back_what_it_wrote(
         GeoCoordinateNotation notation, bool spaces)
     {
+        bool onGrid = notation is GeoCoordinateNotation.Utm or GeoCoordinateNotation.Mgrs
+            or GeoCoordinateNotation.Usng;
+
         foreach (object[] row in Places)
         {
             double longitude = (double)row[0];
             double latitude = (double)row[1];
             string place = (string)row[2];
 
+            // <b>Projected for the grid notations, and not for the angular ones.</b> That is
+            // the split D-114 introduced: this class holds a notation and the datastore holds
+            // the projection, so a test of the round trip has to walk both.
+            GeoCoordinateString.GridPosition? grid =
+                onGrid ? await GridAsync(longitude, latitude) : null;
+
             Assert.True(
                 GeoCoordinateString.TryWrite(
-                    longitude, latitude, notation, 5, spaces, out string text, out string? error),
+                    longitude, latitude, notation, 5, spaces, out string text, out string? error,
+                    grid),
                 error);
 
             Assert.True(
                 GeoCoordinateString.TryRead(
-                    text, notation, out double back, out double backLatitude, out error),
+                    text, notation, out double back, out double backLatitude,
+                    out GeoCoordinateString.GridPosition? read, out error),
                 $"{place}: wrote '{text}' and could not read it back — {error}");
+
+            if (read is { } position)
+            {
+                (back, backLatitude) = await UnprojectAsync(position);
+            }
 
             Assert.True(
                 Distance(longitude, latitude, back, backLatitude) < 1.5,
@@ -398,12 +488,14 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
     /// recovers the easting from the northing.
     /// </remarks>
     [Fact]
-    public void A_packed_UTM_string_near_the_equator_is_still_splittable()
+    public async Task A_packed_UTM_string_near_the_equator_is_still_splittable()
     {
+        GeoCoordinateString.GridPosition grid = await GridAsync(3.0, 0.0004);
+
         Assert.True(
             GeoCoordinateString.TryWrite(
                 3.0, 0.0004, GeoCoordinateNotation.Utm, 0, spaces: false,
-                out string text, out string? error),
+                out string text, out string? error, grid),
             error);
 
         // Two for the zone, one for the hemisphere, six and seven for the axes.
@@ -411,9 +503,13 @@ public sealed class GeoCoordinateStringAgainstPostgisTests : PostgresFixture
 
         Assert.True(
             GeoCoordinateString.TryRead(
-                text, GeoCoordinateNotation.Utm, out double back, out double backLatitude,
-                out error),
+                text, GeoCoordinateNotation.Utm, out _, out _,
+                out GeoCoordinateString.GridPosition? read, out error),
             $"wrote '{text}' and could not read it back — {error}");
+
+        Assert.NotNull(read);
+
+        (double back, double backLatitude) = await UnprojectAsync(read!.Value);
 
         Assert.True(Distance(3.0, 0.0004, back, backLatitude) < 1.5);
     }

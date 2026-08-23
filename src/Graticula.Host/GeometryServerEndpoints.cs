@@ -567,6 +567,133 @@ internal static class GeometryServerEndpoints
     /// otherwise cost a database call to change nothing.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Where each coordinate falls on the UTM grid, or nulls for an angular notation.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Grouped by zone, because a zone is an EPSG code and a projection is per code.</b>
+    /// Points in one place share a zone and cost one round trip; a batch spread across Europe
+    /// costs one per zone it touches, which is the least a single engine can do.
+    /// </para>
+    /// <para>
+    /// <b>A coordinate off the grid gets a null and the writer refuses it by name.</b> The
+    /// polar regions are outside UTM entirely, and answering with a nearby zone would be
+    /// silently wrong in the way ADR-022 §4 is about.
+    /// </para>
+    /// </remarks>
+    private static async Task<IReadOnlyList<GeoCoordinateString.GridPosition?>> GridAsync(
+        IProjector projector,
+        IReadOnlyList<Geometry> geographic,
+        GeoCoordinateNotation notation,
+        CancellationToken cancellation)
+    {
+        GeoCoordinateString.GridPosition?[] grid =
+            new GeoCoordinateString.GridPosition?[geographic.Count];
+
+        if (notation is not (GeoCoordinateNotation.Utm or GeoCoordinateNotation.Mgrs
+            or GeoCoordinateNotation.Usng))
+        {
+            return grid;
+        }
+
+        Dictionary<int, List<int>> byCode = [];
+
+        for (int i = 0; i < geographic.Count; i++)
+        {
+            Point point = (Point)geographic[i];
+
+            if (!GeoCoordinateString.TryZone(point.X, point.Y, out int zone, out bool north, out _))
+            {
+                continue;
+            }
+
+            int code = GeoCoordinateString.EpsgFor(zone, north);
+
+            if (!byCode.TryGetValue(code, out List<int>? which))
+            {
+                which = [];
+                byCode[code] = which;
+            }
+
+            which.Add(i);
+        }
+
+        foreach ((int code, List<int> which) in byCode)
+        {
+            List<Geometry> batch = [.. which.Select(i => geographic[i])];
+
+            (IReadOnlyList<Geometry> projected, _) = await projector
+                .ProjectAsync(batch, 4326, code, cancellation)
+                .ConfigureAwait(false);
+
+            for (int j = 0; j < which.Count; j++)
+            {
+                Point placed = (Point)projected[j];
+
+                grid[which[j]] = new GeoCoordinateString.GridPosition(
+                    code % 100, code < 32_700, placed.X, placed.Y);
+            }
+        }
+
+        return grid;
+    }
+
+    /// <summary>
+    /// Turns grid positions back into geographic points, or null when the datastore will not.
+    /// </summary>
+    /// <remarks>
+    /// <b>Grouped by zone for the same reason as <see cref="GridAsync"/></b>, and it returns
+    /// null rather than throwing because the caller has a sentence to write about why this
+    /// operation needs the datastore where <c>areasAndLengths</c> does not — A-060, and the
+    /// consequence ADR-022 §4 accepted when it chose one engine.
+    /// </remarks>
+    private static async Task<IReadOnlyList<Geometry>?> UnprojectAsync(
+        IProjector projector,
+        List<GeoCoordinateString.GridPosition> grid,
+        CancellationToken cancellation)
+    {
+        Geometry[] answer = new Geometry[grid.Count];
+        Dictionary<int, List<int>> byCode = [];
+
+        for (int i = 0; i < grid.Count; i++)
+        {
+            int code = GeoCoordinateString.EpsgFor(grid[i].Zone, grid[i].North);
+
+            if (!byCode.TryGetValue(code, out List<int>? which))
+            {
+                which = [];
+                byCode[code] = which;
+            }
+
+            which.Add(i);
+        }
+
+        try
+        {
+            foreach ((int code, List<int> which) in byCode)
+            {
+                List<Geometry> batch =
+                    [.. which.Select(i => (Geometry)new Point(grid[i].Easting, grid[i].Northing))];
+
+                (IReadOnlyList<Geometry> projected, _) = await projector
+                    .ProjectAsync(batch, code, 4326, cancellation)
+                    .ConfigureAwait(false);
+
+                for (int j = 0; j < which.Count; j++)
+                {
+                    answer[which[j]] = projected[j];
+                }
+            }
+        }
+        catch (Npgsql.NpgsqlException)
+        {
+            return null;
+        }
+
+        return answer;
+    }
+
     private static async Task ToGeoCoordinateStringAsync(
         HttpContext context, IProjector projector, CancellationToken cancellation)
     {
@@ -609,6 +736,21 @@ internal static class GeometryServerEndpoints
         bool spaces = !string.Equals(Field(form, "addSpaces"), "false",
             StringComparison.OrdinalIgnoreCase);
 
+        /*
+          <b>The grid positions come from PROJ, which is [D-114](../../docs/architecture-debt.md).</b>
+          `GeoCoordinateString` used to project these itself with a transverse Mercator series —
+          the second coordinate engine ADR-022 §4 refuses by name, on the grounds that two
+          engines differ by metres on exactly the survey work where metres are legally
+          significant, and differ silently because both answer. There is one engine now.
+
+          <b>One round trip per zone, not one per point.</b> A batch of coordinates in one place
+          shares a zone, and a batch spread across several is grouped rather than projected
+          point by point — the alternative is a database call per coordinate, which is what
+          `MaximumStrings` exists to bound in the other direction.
+        */
+        IReadOnlyList<GeoCoordinateString.GridPosition?> grid =
+            await GridAsync(projector, geographic, notation, cancellation).ConfigureAwait(false);
+
         List<string> strings = [];
 
         for (int i = 0; i < geographic.Count; i++)
@@ -616,7 +758,8 @@ internal static class GeometryServerEndpoints
             Point point = (Point)geographic[i];
 
             if (!GeoCoordinateString.TryWrite(
-                    point.X, point.Y, notation, digits, spaces, out string text, out error))
+                    point.X, point.Y, notation, digits, spaces, out string text, out error,
+                    grid[i]))
             {
                 // <b>Named by index.</b> A caller sending two hundred coordinates
                 // and getting "outside the UTM grid" back has no way to find
@@ -708,17 +851,52 @@ internal static class GeometryServerEndpoints
         }
 
         List<Geometry> points = [];
+        List<GeoCoordinateString.GridPosition> onGrid = [];
+        List<int> gridAt = [];
 
         for (int i = 0; i < inputs.Count; i++)
         {
             if (!GeoCoordinateString.TryRead(
-                    inputs[i], notation, out double longitude, out double latitude, out error))
+                    inputs[i], notation, out double longitude, out double latitude,
+                    out GeoCoordinateString.GridPosition? position, out error))
             {
                 await Fail(context, $"String {i}: {error}").ConfigureAwait(false);
                 return;
             }
 
-            points.Add(new Point(longitude, latitude));
+            if (position is { } where)
+            {
+                // <b>Placed, then filled in.</b> The answer has to come back in the order the
+                // caller sent, and the grid strings are unprojected in one batch.
+                gridAt.Add(points.Count);
+                onGrid.Add(where);
+                points.Add(new Point(0, 0));
+            }
+            else
+            {
+                points.Add(new Point(longitude, latitude));
+            }
+        }
+
+        if (onGrid.Count > 0
+            && await UnprojectAsync(projector, onGrid, cancellation).ConfigureAwait(false)
+                is { } geographicGrid)
+        {
+            for (int i = 0; i < gridAt.Count; i++)
+            {
+                points[gridAt[i]] = geographicGrid[i];
+            }
+        }
+        else if (onGrid.Count > 0)
+        {
+            await Fail(
+                context,
+                "These strings name positions on the UTM grid, and this server could not ask "
+                + "the datastore to place them. The projection is PROJ's (ADR-022 §4), so this "
+                + "operation needs the datastore reachable.")
+                .ConfigureAwait(false);
+
+            return;
         }
 
         IReadOnlyList<Geometry> result = points;

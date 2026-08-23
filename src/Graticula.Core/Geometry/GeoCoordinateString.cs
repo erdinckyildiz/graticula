@@ -66,11 +66,38 @@ public enum GeoCoordinateNotation
 public static class GeoCoordinateString
 {
     // WGS84.
-    private const double A = 6_378_137.0;
-    private const double F = 1.0 / 298.257223563;
-    private const double K0 = 0.9996;
+    /// <summary>A position on the UTM grid, which is what the grid notations name.</summary>
+    /// <param name="Zone">The UTM zone, 1 to 60.</param>
+    /// <param name="North">Whether it is in the northern hemisphere.</param>
+    /// <param name="Easting">Metres east of the zone's false origin.</param>
+    /// <param name="Northing">Metres north of the equator, or of the false southern origin.</param>
+    /// <remarks>
+    /// <b>Given to this class rather than computed by it, which is
+    /// [D-114](../../../docs/architecture-debt.md).</b> This file used to carry a hand-written
+    /// transverse Mercator forward and inverse — a second coordinate engine in Tier 1, which
+    /// [ADR-022](../../../docs/adr/ADR-022-geometry-server.md) §4 refuses by name and in terms
+    /// that could not be plainer: *two coordinate engines with two EPSG datasets and two sets of
+    /// grids, differing by metres on exactly the cadastral and survey work where metres are
+    /// legally significant — and differing silently, because both would answer*. §2c shipped one
+    /// anyway, reclassified as *a closed-form series* so that §4 appeared not to apply.
+    /// </remarks>
+    public readonly record struct GridPosition(
+        int Zone, bool North, double Easting, double Northing);
 
-    private const double FalseEasting = 500_000.0;
+    /// <summary>
+    /// A radius, not an ellipsoid, and the distinction is the point.
+    /// </summary>
+    /// <remarks>
+    /// <b>All that is left of the numbers this file used to project with.</b> It appears in
+    /// exactly one place — <see cref="ApproximateNorthing"/>, which picks which two-million-metre
+    /// repetition of the MGRS row cycle a latitude falls in and only has to be right to within a
+    /// million metres. A spherical arc length is comfortably inside that. **If a second use of
+    /// this ever appears, the engine is growing back**, and [D-114](../../../docs/architecture-debt.md)
+    /// is the row that explains why that matters.
+    /// </remarks>
+    private const double A = 6_378_137.0;
+
+    /// <summary>The grid's own southern origin, which is a convention rather than a projection.</summary>
     private const double FalseNorthing = 10_000_000.0;
 
     /// <summary>The northernmost latitude UTM covers.</summary>
@@ -93,37 +120,38 @@ public static class GeoCoordinateString
     private const string ColumnLetters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
     private const string RowLetters = "ABCDEFGHJKLMNPQRSTUV";
 
-    /// <summary>The UTM zone, easting and northing for a coordinate.</summary>
+    /// <summary>
+    /// The UTM zone a coordinate falls in, and whether it is on the grid at all.
+    /// </summary>
     /// <param name="longitude">Longitude in degrees.</param>
     /// <param name="latitude">Latitude in degrees.</param>
     /// <param name="zone">The UTM zone, 1 to 60.</param>
-    /// <param name="easting">Metres east, including the 500,000 false easting.</param>
-    /// <param name="northing">
-    /// Metres north, including the ten million metre false northing in the
-    /// southern hemisphere — the same frame EPSG:327nn uses.
-    /// </param>
+    /// <param name="north">Whether the northern-hemisphere EPSG code applies.</param>
     /// <param name="error">Why not, when it is outside the grid.</param>
     /// <returns>Whether the coordinate is on the UTM grid at all.</returns>
     /// <remarks>
-    /// <b>Public because the numbers are worth having unrounded.</b> The UTM
-    /// string is whole metres, which is what ArcGIS emits — and a test that can
-    /// only see the string cannot tell a correct series from one that is
-    /// forty centimetres out, because the rounding hides exactly that much. The
-    /// first version of this file's test compared formatted strings against
-    /// PROJ and reported half-metre disagreements that were entirely its own
-    /// rounding.
+    /// <para>
+    /// <b>The zone and nothing else, which is what is left after
+    /// [D-114](../../../docs/architecture-debt.md).</b> This used to return the easting and
+    /// northing too, computed by a transverse Mercator series written here. The zone is
+    /// arithmetic on the longitude — six-degree columns with the four Norwegian and Svalbard
+    /// exceptions — and the projection is PROJ's, reached through
+    /// <see cref="IProjector"/> into EPSG:326nn or 327nn.
+    /// </para>
+    /// <para>
+    /// <b>The caller projects, and that is the point rather than an inconvenience.</b> A second
+    /// engine differs from the first silently, because both answer; there is one now.
+    /// </para>
     /// </remarks>
-    public static bool TryToUtm(
+    public static bool TryZone(
         double longitude,
         double latitude,
         out int zone,
-        out double easting,
-        out double northing,
+        out bool north,
         out string? error)
     {
         zone = 0;
-        easting = 0;
-        northing = 0;
+        north = latitude >= 0;
         error = null;
 
         if (double.IsNaN(longitude) || double.IsNaN(latitude)
@@ -141,10 +169,22 @@ public static class GeoCoordinateString
             return false;
         }
 
-        (zone, easting, northing) = ToUtm(Wrap(longitude), latitude);
+        zone = ZoneOf(Wrap(longitude), latitude);
 
         return true;
     }
+
+    /// <summary>The EPSG code for a UTM zone.</summary>
+    /// <param name="zone">The zone, 1 to 60.</param>
+    /// <param name="north">Whether the northern hemisphere.</param>
+    /// <returns>326nn or 327nn.</returns>
+    /// <remarks>
+    /// <b>Here rather than at the caller, because two callers would be two chances to write
+    /// 327 where 326 belongs</b> — an error of ten million metres that both sides would report
+    /// without complaint. The southern codes carry the false northing already, so a position in
+    /// one is in the same frame the grid notations expect.
+    /// </remarks>
+    public static int EpsgFor(int zone, bool north) => (north ? 32_600 : 32_700) + zone;
 
     /// <summary>Writes a coordinate as text.</summary>
     /// <param name="longitude">Longitude in degrees.</param>
@@ -157,7 +197,12 @@ public static class GeoCoordinateString
     /// <param name="spaces">Whether to separate the parts with spaces.</param>
     /// <param name="text">The string.</param>
     /// <param name="error">Why not, when it could not be written.</param>
-    /// <returns>Whether it was written.</returns>
+    /// <param name="grid">
+    /// Where the coordinate falls on the UTM grid, for a grid notation. <b>Required for UTM,
+    /// MGRS and USNG and ignored for the angular notations</b> — the projection is PROJ's
+    /// ([D-114](../../../docs/architecture-debt.md)), so the caller projects into the code
+    /// <see cref="EpsgFor"/> names and passes the result.
+    /// </param>
     public static bool TryWrite(
         double longitude,
         double latitude,
@@ -165,7 +210,8 @@ public static class GeoCoordinateString
         int digits,
         bool spaces,
         out string text,
-        out string? error)
+        out string? error,
+        GridPosition? grid = null)
     {
         text = string.Empty;
         error = null;
@@ -229,7 +275,28 @@ public static class GeoCoordinateString
             return false;
         }
 
-        (int zone, double easting, double northing) = ToUtm(longitude, latitude);
+        /*
+          <b>Projected by PROJ and handed in, which is D-114.</b> This line used to call a
+          transverse Mercator series written in this file — the second coordinate engine
+          ADR-022 §4 refuses by name. The caller has an `IProjector`; this has a notation.
+
+          <b>Refused rather than defaulted when it is missing.</b> A grid notation with no
+          grid position is a caller that has not projected, and inventing a position here
+          would put the engine back one line at a time.
+        */
+        if (grid is not { } position)
+        {
+            error =
+                "This notation names a position on the UTM grid, and none was supplied. The "
+                + "projection is the datastore's (ADR-022 §4), so the caller projects into "
+                + "EPSG:326nn or 327nn and passes the result.";
+
+            return false;
+        }
+
+        int zone = position.Zone;
+        double easting = position.Easting;
+        double northing = position.Northing;
 
         if (notation == GeoCoordinateNotation.Utm)
         {
@@ -268,10 +335,38 @@ public static class GeoCoordinateString
         GeoCoordinateNotation notation,
         out double longitude,
         out double latitude,
+        out string? error) =>
+        TryRead(text, notation, out longitude, out latitude, out _, out error);
+
+    /// <summary>Reads a coordinate from text, in degrees or on the grid.</summary>
+    /// <param name="text">The string.</param>
+    /// <param name="notation">Which notation it is in.</param>
+    /// <param name="longitude">Longitude in degrees, for an angular notation.</param>
+    /// <param name="latitude">Latitude in degrees, for an angular notation.</param>
+    /// <param name="grid">
+    /// Where on the UTM grid, for a grid notation, and null for an angular one. <b>The caller
+    /// unprojects it</b> — [D-114](../../../docs/architecture-debt.md): the inverse used to be a
+    /// transverse Mercator series in this file, which is the second coordinate engine
+    /// [ADR-022](../../../docs/adr/ADR-022-geometry-server.md) §4 refuses.
+    /// </param>
+    /// <param name="error">Why not, when it could not be read.</param>
+    /// <returns>Whether it was read.</returns>
+    /// <remarks>
+    /// <b>Exactly one of the two is filled, and which one is decided by the notation the
+    /// caller named.</b> A grid notation cannot yield degrees here because degrees are PROJ's
+    /// answer, and an angular notation has no grid position because it never touches the grid.
+    /// </remarks>
+    public static bool TryRead(
+        string text,
+        GeoCoordinateNotation notation,
+        out double longitude,
+        out double latitude,
+        out GridPosition? grid,
         out string? error)
     {
         longitude = 0;
         latitude = 0;
+        grid = null;
         error = null;
 
         if (string.IsNullOrWhiteSpace(text))
@@ -283,9 +378,9 @@ public static class GeoCoordinateString
         return notation switch
         {
             GeoCoordinateNotation.Mgrs or GeoCoordinateNotation.Usng =>
-                TryReadMgrs(text.Trim(), out longitude, out latitude, out error),
+                TryReadMgrs(text.Trim(), out grid, out error),
             GeoCoordinateNotation.Utm =>
-                TryReadUtm(text.Trim(), out longitude, out latitude, out error),
+                TryReadUtm(text.Trim(), out grid, out error),
             _ => TryReadAngles(text.Trim(), out longitude, out latitude, out error),
         };
     }
@@ -539,103 +634,10 @@ public static class GeoCoordinateString
         return zone;
     }
 
-    /// <summary>Transverse Mercator forward, to the sixth order.</summary>
-    /// <remarks>
-    /// <b>The series, not an iteration.</b> Truncated at the sixth power of the
-    /// eccentricity, the error is under a millimetre anywhere inside a UTM zone
-    /// — which is two orders below the one-metre precision MGRS's five-digit
-    /// form can express, so nothing downstream can see it.
-    /// </remarks>
-    private static (int Zone, double Easting, double Northing) ToUtm(
-        double longitude, double latitude)
-    {
-        int zone = ZoneOf(longitude, latitude);
-
-        double centralMeridian = ((zone - 1) * 6) - 180 + 3;
-
-        double phi = latitude * Math.PI / 180;
-        double lambda = (longitude - centralMeridian) * Math.PI / 180;
-
-        double e2 = F * (2 - F);
-        double ep2 = e2 / (1 - e2);
-
-        double n = A / Math.Sqrt(1 - (e2 * Math.Sin(phi) * Math.Sin(phi)));
-        double t = Math.Tan(phi) * Math.Tan(phi);
-        double c = ep2 * Math.Cos(phi) * Math.Cos(phi);
-        double a1 = Math.Cos(phi) * lambda;
-
-        double m = A * (
-            ((1 - (e2 / 4) - (3 * e2 * e2 / 64) - (5 * e2 * e2 * e2 / 256)) * phi)
-            - (((3 * e2 / 8) + (3 * e2 * e2 / 32) + (45 * e2 * e2 * e2 / 1024)) * Math.Sin(2 * phi))
-            + (((15 * e2 * e2 / 256) + (45 * e2 * e2 * e2 / 1024)) * Math.Sin(4 * phi))
-            - ((35 * e2 * e2 * e2 / 3072) * Math.Sin(6 * phi)));
-
-        double easting = (K0 * n * (
-            a1
-            + ((1 - t + c) * a1 * a1 * a1 / 6)
-            + ((5 - (18 * t) + (t * t) + (72 * c) - (58 * ep2)) * Math.Pow(a1, 5) / 120)))
-            + FalseEasting;
-
-        double northing = K0 * (m + (n * Math.Tan(phi) * (
-            (a1 * a1 / 2)
-            + ((5 - t + (9 * c) + (4 * c * c)) * Math.Pow(a1, 4) / 24)
-            + ((61 - (58 * t) + (t * t) + (600 * c) - (330 * ep2)) * Math.Pow(a1, 6) / 720))));
-
-        if (latitude < 0)
-        {
-            northing += FalseNorthing;
-        }
-
-        return (zone, easting, northing);
-    }
-
-    /// <summary>Transverse Mercator inverse.</summary>
-    private static (double Longitude, double Latitude) FromUtm(
-        int zone, double easting, double northing, bool north)
-    {
-        double centralMeridian = ((zone - 1) * 6) - 180 + 3;
-
-        double x = easting - FalseEasting;
-        double y = north ? northing : northing - FalseNorthing;
-
-        double e2 = F * (2 - F);
-        double ep2 = e2 / (1 - e2);
-        double e1 = (1 - Math.Sqrt(1 - e2)) / (1 + Math.Sqrt(1 - e2));
-
-        double m = y / K0;
-        double mu = m / (A * (1 - (e2 / 4) - (3 * e2 * e2 / 64) - (5 * e2 * e2 * e2 / 256)));
-
-        double phi1 = mu
-            + (((3 * e1 / 2) - (27 * e1 * e1 * e1 / 32)) * Math.Sin(2 * mu))
-            + (((21 * e1 * e1 / 16) - (55 * Math.Pow(e1, 4) / 32)) * Math.Sin(4 * mu))
-            + ((151 * e1 * e1 * e1 / 96) * Math.Sin(6 * mu))
-            + ((1097 * Math.Pow(e1, 4) / 512) * Math.Sin(8 * mu));
-
-        double c1 = ep2 * Math.Cos(phi1) * Math.Cos(phi1);
-        double t1 = Math.Tan(phi1) * Math.Tan(phi1);
-        double n1 = A / Math.Sqrt(1 - (e2 * Math.Sin(phi1) * Math.Sin(phi1)));
-        double r1 = A * (1 - e2) / Math.Pow(1 - (e2 * Math.Sin(phi1) * Math.Sin(phi1)), 1.5);
-        double d = x / (n1 * K0);
-
-        double latitude = phi1 - (n1 * Math.Tan(phi1) / r1 * (
-            (d * d / 2)
-            - ((5 + (3 * t1) + (10 * c1) - (4 * c1 * c1) - (9 * ep2)) * Math.Pow(d, 4) / 24)
-            + ((61 + (90 * t1) + (298 * c1) + (45 * t1 * t1) - (252 * ep2) - (3 * c1 * c1))
-               * Math.Pow(d, 6) / 720)));
-
-        double longitude = (d
-            - ((1 + (2 * t1) + c1) * d * d * d / 6)
-            + ((5 - (2 * c1) + (28 * t1) - (3 * c1 * c1) + (8 * ep2) + (24 * t1 * t1))
-               * Math.Pow(d, 5) / 120)) / Math.Cos(phi1);
-
-        return (centralMeridian + (longitude * 180 / Math.PI), latitude * 180 / Math.PI);
-    }
-
     private static bool TryReadUtm(
-        string text, out double longitude, out double latitude, out string? error)
+        string text, out GridPosition? grid, out string? error)
     {
-        longitude = 0;
-        latitude = 0;
+        grid = null;
 
         string[] parts = text.Split(
             [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -712,7 +714,7 @@ public static class GeoCoordinateString
 
         error = null;
 
-        (longitude, latitude) = FromUtm(zone, easting, northing, hemisphere == 'N');
+        grid = new GridPosition(zone, hemisphere == 'N', easting, northing);
 
         return true;
     }
@@ -808,10 +810,9 @@ public static class GeoCoordinateString
     }
 
     private static bool TryReadMgrs(
-        string text, out double longitude, out double latitude, out string? error)
+        string text, out GridPosition? grid, out string? error)
     {
-        longitude = 0;
-        latitude = 0;
+        grid = null;
         error = null;
 
         string compact = text.Replace(" ", string.Empty, StringComparison.Ordinal)
@@ -941,9 +942,11 @@ public static class GeoCoordinateString
             northing += 2_000_000;
         }
 
-        bool north = band >= 'N';
-
-        (longitude, latitude) = FromUtm(zone, easting, northing, north);
+        // <b>The band letter decides the hemisphere, and the northing is already in the
+        // frame EPSG:327nn uses.</b> `ApproximateNorthing` above added the ten million metre
+        // false northing for a southern band, which is what that code expects — so the
+        // position can be unprojected without a second convention to remember.
+        grid = new GridPosition(zone, band >= 'N', easting, northing);
 
         return true;
     }

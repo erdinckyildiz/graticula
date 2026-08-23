@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>5066f41</code> · 2026-08-23 18:28</p>
+<p class="stamp">Generated from commit <code>249a4d5</code> · 2026-08-23 18:28</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">101/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">91 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">76</div><div class="kpi-l">open debts</div><div class="kpi-n">68 repaid · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">75</div><div class="kpi-l">open debts</div><div class="kpi-n">69 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1755</div><div class="kpi-l">tests</div><div class="kpi-n">232 source files, 86,369 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1761</div><div class="kpi-l">tests</div><div class="kpi-n">232 source files, 86,550 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">171 items</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>76 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">170 items</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>75 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -413,7 +413,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-111</td><td>The conformance suite fails on its own fixtures, because xUnit runs test classes in parallel.</td><td class="muted-t">The next class that publishes into the catalogue</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-112</td><td>~~The closed drawer kept a focusable button off screen.~~ FIXED 2026-08-19.</td><td class="muted-t">The next off-canvas panel</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-113</td><td>Our own shapefile parser runs in the serving process, and the reason it had to stopped existing on 2026-08-18.</td><td class="muted-t">Before the next format is added to either path</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class=""><td class="id">D-114</td><td>GeoCoordinateString.cs is a second coordinate engine in Tier 1, and ADR-022 §4 refuses one by name.</td><td class="muted-t">Before anything else in the repository computes a projection</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-114</td><td>GeoCoordinateString.cs is a second coordinate engine in Tier 1, and ADR-022 §4 refuses one by name.</td><td class="muted-t">Before anything else in the repository computes a projection</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-116</td><td>The repository holds more prose than code, and the same fact is restated in three registers.</td><td class="muted-t">The next time two documents disagree about the same number</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-117</td><td>~~The where parser has no expression tree, and its own remark says it does.~~ WhereClause&#x27;s class note describes &quot;an expression tree and the emitter rebuilds the statement from it&quot;; Parser appends SQL into a StringBuilder as it descends, so parsing and…</td><td class="muted-t">ADR-039 §5, and it has already fired.</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -540,7 +540,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">341</div></div>
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:92.7%"></div></div><div class="bar-n">316</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:87.1%"></div></div><div class="bar-n">297</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.9%"></div></div><div class="bar-n">303</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:80.6%"></div></div><div class="bar-n">275</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:42.5%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:34.3%"></div></div><div class="bar-n">117</div></div>
@@ -552,6 +552,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>249a4d5</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>5066f41</code><time>2026-08-23</time><span>the statement timeout is bounding something other than what its row says</span></li>
 <li><code>336eca2</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>2007e53</code><time>2026-08-23</time><span>the shapefile parser leaves the process that serves public requests</span></li>
@@ -565,7 +566,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>c1e33c2</code><time>2026-08-23</time><span>the WMS capabilities document was missing five things nobody had run the check for</span></li>
 <li><code>aade159</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>c028a2b</code><time>2026-08-23</time><span>WFS 2.0 CITE is 420 of 420, and the last four failures were an argument</span></li>
-<li><code>4d835c5</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

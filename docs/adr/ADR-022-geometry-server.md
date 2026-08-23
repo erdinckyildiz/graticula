@@ -318,6 +318,26 @@ somebody had thought about.
 
 ### The two string operations ship, computed in process
 
+> **Amended 2026-08-23 by [D-114](../architecture-debt.md), and the amendment is this
+> section admitting §4 against itself.** *UTM is a closed-form series* is how a second
+> coordinate engine came to sit in Tier 1 — 92 lines of transverse Mercator forward and
+> inverse — under a reclassification that made §4 appear not to apply. The independent
+> §66 simplicity gate named it as its disqualifying finding, in §4's own words: *two
+> coordinate engines with two EPSG datasets and two sets of grids, differing by metres on
+> exactly the cadastral and survey work where metres are legally significant — and
+> differing silently, because both would answer.*
+>
+> **The series is deleted.** The UTM leg goes to the datastore's PROJ, into the EPSG:326nn
+> and 327nn codes this section already compared against, and what stays in process is the
+> notation: which zone a coordinate falls in, the hundred-kilometre lettering, the band
+> letters, the packing and the angular formats. PostGIS has no function for any of those.
+>
+> **So the paragraph below is now half true and the half that changed is the important
+> one.** A round trip to the datastore does not cost more than the entire conversion; it
+> *is* the conversion, for the three grid notations. A caller already in 4326 no longer
+> pays nothing — it pays one projection per UTM zone the batch touches, which is the price
+> of there being one engine. Verified end to end in both directions to sub-metre.
+
 They write and read **DD, DDM, DMS, UTM, MGRS and USNG**. This is §4b's rule
 applied without exception: the input is a coordinate pair in the request, UTM is
 a closed-form series and MGRS is a lettering scheme over it, so a round trip to
@@ -328,13 +348,17 @@ has to. A caller already in 4326 pays no round trip; anything else is projected
 by the datastore's PROJ first, and the response names the engine — the same
 provenance rule `project` follows, for the same reason.
 
-**Verified against PROJ to the millimetre**, on ten places chosen to be cases
+~~**Verified against PROJ to the millimetre**, on ten places chosen to be cases
 rather than samples: both hemispheres, the equator on a central meridian, the
 widened zone 32 over Bergen, the rearranged Svalbard zones, and a point on a zone
 boundary. The transverse Mercator series agrees with PostGIS's own transform to
 EPSG:326nn and 327nn within a millimetre everywhere, which is three orders below
-the one metre MGRS's finest form can express. DMS is checked against
-`ST_AsLatLonText`.
+the one metre MGRS's finest form can express.~~ **That test retired with the series it
+watched, 2026-08-23 — PROJ is the answer now, so pinning our answer against it would be
+pinning it against itself.** What replaced it tests the part that stayed ours: the zone
+rule, whose Norway and Svalbard exceptions are what a converter written from the
+definition alone gets wrong, and the round trips, which now walk the projection too. DMS
+is still checked against `ST_AsLatLonText`.
 
 **The polar regions are refused rather than approximated.** Above 84°N and
 below 80°S, MGRS is Universal Polar Stereographic — a different projection
