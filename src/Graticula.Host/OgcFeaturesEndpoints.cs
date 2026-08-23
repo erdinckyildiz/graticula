@@ -612,7 +612,7 @@ internal static class OgcFeaturesEndpoints
 
         if (srid == Graticula.Geometries.AxisOrder.Wgs84)
         {
-            return box;
+            return Rounded(box);
         }
 
         try
@@ -635,7 +635,7 @@ internal static class OgcFeaturesEndpoints
                 whole = whole.IsEmpty ? corner.Envelope : whole.Union(corner.Envelope);
             }
 
-            return whole.IsEmpty ? null : whole;
+            return whole.IsEmpty ? null : Rounded(whole);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -740,7 +740,7 @@ internal static class OgcFeaturesEndpoints
                 if (Clamped(box, request.BboxSrid, collection) is { } usable)
                 {
                     boxes.Add(Rectangle(
-                        Widened(usable, request.BboxSrid, layer.Definition.Srid)));
+                        Padded(usable, request.BboxSrid)));
                 }
             }
 
@@ -899,43 +899,103 @@ internal static class OgcFeaturesEndpoints
         return true;
     }
 
+    /// <summary>An extent rounded outward to a millionth of a degree.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A published extent has to contain its own data, and this one did not.</b>
+    /// For a layer stored in a projected reference system the extent is the hull of
+    /// its corners transformed into CRS84, and a client that sends that box straight
+    /// back gets it transformed the other way. The two disagree in the last few
+    /// digits, so every feature lands exactly on an edge — and three of five layers
+    /// answered a client's own extent with an empty collection. Found by the CITE
+    /// suite, which asks precisely that.
+    /// </para>
+    /// <para>
+    /// <b>Six decimals is about a tenth of a metre.</b> Far below anything this
+    /// server stores, and orders of magnitude above a projection's round-trip error,
+    /// so the rounded box strictly contains the measured one. Part 1 §7.13 asks for
+    /// the extent and does not ask for it to be tight: an extent is an upper bound,
+    /// and a slightly generous one costs a client nothing while an exact one that
+    /// excludes its own features costs it everything.
+    /// </para>
+    /// <para>
+    /// <b>Here rather than where the document is written, and that distinction was
+    /// measured rather than reasoned.</b> Rounding at the point of printing left
+    /// <c>Clamped</c> intersecting the request with the *un*rounded extent, which
+    /// erased the rounding before the transformation and put back the exact defect
+    /// this repairs — the six-feature layer answered its own extent with four. **The
+    /// invariant is that the extent a client is given is the extent the server clamps
+    /// to**, and one number satisfies it where two do not.
+    /// </para>
+    /// <para>
+    /// <b>Applied to a CRS84 layer as well, where it changes nothing.</b> That box
+    /// needs no transformation and is already exact; one rule that is harmlessly
+    /// generous beats two rules that have to be told apart.
+    /// </para>
+    /// <para>
+    /// <b>Q-133 chose this over widening the filter</b>
+    /// ([ADR-042](../../docs/adr/ADR-042-ogc-api-features.md) §7). See
+    /// <see cref="Padded"/> for what the filter no longer does and why.
+    /// </para>
+    /// </remarks>
+    private static Envelope Rounded(Envelope box)
+    {
+        const double Scale = 1_000_000;
+
+        return new Envelope(
+            Math.Floor(box.MinX * Scale) / Scale,
+            Math.Floor(box.MinY * Scale) / Scale,
+            Math.Ceiling(box.MaxX * Scale) / Scale,
+            Math.Ceiling(box.MaxY * Scale) / Scale);
+    }
+
     /// <summary>
-    /// A bounding box widened by the error a coordinate transformation carries.
+    /// A bounding box with a degenerate axis given something to intersect.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>An exact edge is not a test a transformed coordinate can pass.</b> A client
-    /// that sends a collection's own published extent as its <c>bbox</c> is asking
-    /// the one query guaranteed to match everything — and against a layer stored in
-    /// another reference system it matched **nothing**, because the extent was
-    /// produced by projecting the data one way and the filter is projected back the
-    /// other, and the two disagree in the last few digits. Every feature sits exactly
-    /// on an edge, and every edge test fails.
+    /// <b>A zero-area box is an equality test on a coordinate, and no stored
+    /// coordinate survives one.</b> A client asking for a point, or for a line of
+    /// longitude, means *what is here*, and an exact comparison against a stored
+    /// double answers *nothing* however close the data is. So an axis with no width
+    /// is given a micro-degree, or a centimetre in a projected system — far below
+    /// anything this server stores and far above a projection's round-trip error.
     /// </para>
     /// <para>
-    /// <b>Found by the CITE suite</b>, which asks precisely that question, and it is
-    /// the third defect this dataset's shape has produced today: the WMS face had to
-    /// pad degenerate extents for a related reason.
+    /// <b>What this used to do as well, and no longer does: widen every box that had
+    /// to be transformed.</b> That was the repair for a real defect — a client sending
+    /// a collection's own published extent back as its <c>bbox</c> got **nothing**
+    /// from a layer stored in another reference system, because the extent was made by
+    /// projecting the data one way and the filter is projected back the other, so
+    /// every feature sat exactly on an edge and every edge test failed. It worked, and
+    /// it made the same box mean two different things depending on which reference
+    /// system it was written in: the CITE suite's <c>verifyBboxCrsParameter</c> sends
+    /// both spellings and requires the same features, and a feature within ten
+    /// centimetres of the edge came back for one and not the other.
     /// </para>
     /// <para>
-    /// <b>A micro-degree, or a centimetre — and only where a transformation
-    /// happens.</b> Ten centimetres is far below anything this server stores and far
-    /// above a projection's round-trip error, which is the whole range the epsilon
-    /// has to sit in. A box already in the layer's own reference system is compared
-    /// exactly, because nothing has moved. A degenerate axis is widened either way:
-    /// a zero-area box is an equality test on a coordinate, and no stored coordinate
-    /// survives one.
+    /// <b>Q-133 chose the other repair, and it is
+    /// [ADR-042](../../docs/adr/ADR-042-ogc-api-features.md) §7.</b> The defect was
+    /// never really in the filter: it was that the *published extent* did not contain
+    /// its own data once round-tripped. So the extent is published rounded outward
+    /// (<see cref="Rounded"/>) and the filter is compared exactly in every
+    /// reference system. A client sending the extent back is answered from a box that
+    /// provably contains every feature; a client sending any other box gets an exact
+    /// comparison, which is the only kind that means the same thing twice.
+    /// </para>
+    /// <para>
+    /// <b>The alternative was to widen both spellings.</b> It also makes them agree,
+    /// and it does it by making every filter in the product ten centimetres wrong —
+    /// a false positive on a feature outside the box the client asked for, in the one
+    /// operation a client uses to decide what is inside something.
     /// </para>
     /// </remarks>
-    private static Envelope Widened(Envelope box, int bboxSrid, int layerSrid)
+    private static Envelope Padded(Envelope box, int bboxSrid)
     {
-        bool geographic = Graticula.Geometries.AxisOrder.IsGeographic(bboxSrid);
-        bool transforming = bboxSrid != layerSrid;
+        double epsilon = Graticula.Geometries.AxisOrder.IsGeographic(bboxSrid) ? 0.000001 : 0.01;
 
-        double epsilon = geographic ? 0.000001 : 0.01;
-
-        double x = transforming || box.Width <= 0 ? epsilon : 0;
-        double y = transforming || box.Height <= 0 ? epsilon : 0;
+        double x = box.Width <= 0 ? epsilon : 0;
+        double y = box.Height <= 0 ? epsilon : 0;
 
         return x == 0 && y == 0
             ? box

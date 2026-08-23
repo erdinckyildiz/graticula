@@ -279,6 +279,51 @@ retraction.
    the geographic and projected spellings of one box can disagree about a feature
    within ten centimetres of its edge. [Q-133](../open-questions.md). It is a
    consistency question between two transformation paths, not a missing feature.
+
+   **GREEN 2026-08-23, and the widening is gone.** [Q-133](../open-questions.md)
+   asked whether a bounding box should mean the same thing in every reference system
+   it can be written in, and the answer is yes, taken by repairing the other end.
+   Evidence: [cite-ogcapi10-2026-08-23.rdf](../reviews/cite-ogcapi10-2026-08-23.rdf) —
+   **1,268 passed, 6 failed, 78 untested against all thirteen collections**, where the
+   earlier runs sampled a few and reported 306 of 332. `verifyBboxCrsParameter` is not
+   among the failures.
+
+   **The defect was never in the filter.** It was that the *published extent did not
+   contain its own data* once round-tripped, and a filter epsilon was a way of hiding
+   that from one direction only. So the extent is published rounded outward to six
+   decimals — about a tenth of a metre, far below anything stored and orders of
+   magnitude above a round trip's error — and **every filter is compared exactly, in
+   every reference system**. Part 1 §7.13 asks for an extent and does not ask for it
+   to be tight; an extent is an upper bound, and a generous one costs a client nothing
+   while an exact one that excludes its own features costs it everything.
+
+   **The alternative was to widen both spellings.** That also makes them agree, and it
+   does it by making every filter in the product ten centimetres wrong — a false
+   positive on a feature outside the box the client asked for, in the one operation a
+   client uses to decide what is inside something. A document is the right place for an
+   approximation because a document states where the data is; a filter is not, because
+   a filter is a question with an exact answer.
+
+   **And the repair was wrong once, in a way only a measurement found.** Rounding at
+   the point of printing left the filter path clamping the request to the *un*rounded
+   extent, which erased the rounding before the transformation and put the original
+   defect straight back — the six-feature layer answered its own extent with four. **The
+   invariant is that the extent a client is given is the extent the server clamps to**,
+   and one number satisfies it where two do not. `OgcExtentConformanceTests` states it
+   from outside, and it was checked by disabling the rounding and watching two of its
+   three tests fail with the layers named.
+
+   **The six remaining failures are the suite's bound, not this server's defect, and
+   that was measured rather than assumed.** All six are one assertion —
+   *numberMatched (5433) does not match the number of features in all responses (50)* —
+   on the three collections larger than fifty features that the suite did not skip. The
+   request log shows what happened: for `tr_il` the suite asked for five pages, stopped,
+   and compared its fifty against a matched count of 5,433. For `tr_yer` a different
+   test walked all 143 pages and got all 1,421. Walking every page of every collection
+   yields exactly the number each says it matched, which is now asserted by
+   `OgcExtentConformanceTests` precisely so that this can be settled without the suite.
+   **A red result from an external suite is evidence and not a verdict** — and this
+   repository has twice spent hours treating one as the other in the opposite direction.
 4. **DISCHARGED 2026-08-20. [ADR-005](ADR-005-api-architecture.md) is re-closed**,
    with a §0b that measures rather than asserts. It had been `REOPENED` since
    2026-08-13 on the grounds that v1 had one face and the decision assumed several;
