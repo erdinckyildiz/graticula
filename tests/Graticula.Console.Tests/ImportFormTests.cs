@@ -175,7 +175,7 @@ public sealed class ImportFormTests : ConsoleTest
     /// <para>
     /// <b>The bytes are arbitrary and the request never reaches the server.</b> The harness stubs
     /// every write, so this asserts the form's contract rather than the reader's — which
-    /// `ShapefileReader`'s own corpus already covers, against files this project did not write.
+    /// `ShapefileCorpusTests` already covers, against files this project did not write.
     /// </para>
     /// </remarks>
     [Theory]

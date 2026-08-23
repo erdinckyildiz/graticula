@@ -569,28 +569,68 @@ internal static class HostedDataEndpoints
             }
         }
 
-        if (!ShapefileReader.TryRead(
-                bundle.Shp,
-                bundle.Dbf,
-                srid,
-                encoding,
-                ImportLimits.Default,
-                out ImportedDataset? read,
-                out string? readError))
-        {
-            await Fail(context, 400, readError!).ConfigureAwait(false);
-            return (false, null!);
-        }
+        /*
+          <b>Parsed in the child process, which is [D-113](../../docs/architecture-debt.md).</b>
+          1,094 lines of our own shapefile parser used to run here — inside the process that
+          serves public requests — under a decision taken three days before ADR-037 §5a moved
+          GDAL out for the stated reason that it *"removes an untrusted-file parser from the
+          process that serves public requests"*. Two archive formats from the same untrusted
+          upload were parsed on opposite sides of a boundary drawn on purpose, and the
+          independent §66 simplicity gate named it as its disqualifying finding.
 
-        if (ShapefileReader.DropsZOrM(bundle.Shp))
-        {
-            context.Items[WarningKey] =
-                "This shapefile carries z or m values and they were not stored. The geometry "
-                + "model here is two-dimensional and the layer document reports hasZ false, so "
-                + "there is no surface that could serve them — keep the original file.";
-        }
+          <b>What stays here is the archive's bounds.</b> `BoundedArchive` and
+          `ShapefileBundle` above have already refused a bomb, a nested archive, a folder and
+          a bundle with two shapefiles in it, and `TryEncoding` has already refused a
+          character set this server cannot name. Those are limits on an upload rather than a
+          parse of its contents.
 
-        return (true, read!);
+          <b>The upload is written to scratch, because a child process reads a file.</b>
+          `ResolveSridAsync` above already does this for the `.prj`, and doing it twice would
+          be two copies of a file an operator uploaded once — so it is kept here and reused.
+        */
+        Guid kept = Guid.NewGuid();
+        string? path = null;
+
+        try
+        {
+            path = await scratch.KeepAsync(file, kept, cancellation).ConfigureAwait(false);
+
+            (ImportedDataset? read, bool dropped, string? readError) =
+                await ShapefileViaReader.ReadAsync(
+                    reader,
+                    path,
+                    srid,
+                    encoding.WebName,
+                    ImportLimits.Default,
+                    cancellation).ConfigureAwait(false);
+
+            if (read is null)
+            {
+                await Fail(context, 400, readError!).ConfigureAwait(false);
+                return (false, null!);
+            }
+
+            if (dropped)
+            {
+                context.Items[WarningKey] =
+                    "This shapefile carries z or m values and they were not stored. The geometry "
+                    + "model here is two-dimensional and the layer document reports hasZ false, so "
+                    + "there is no surface that could serve them — keep the original file.";
+            }
+
+            return (true, read);
+        }
+        finally
+        {
+            // <b>Removed whichever way this went.</b> The scratch budget is shared, and an
+            // archive left behind by a refused import is a budget somebody else's upload
+            // runs into — which reads as *the disk is full* rather than as *a file was not
+            // cleaned up*.
+            if (path is not null)
+            {
+                scratch.Release(path);
+            }
+        }
     }
 
     /// <summary>A .prj's first line, which is the part a person recognises.</summary>

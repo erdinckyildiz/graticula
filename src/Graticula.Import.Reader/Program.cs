@@ -10,6 +10,7 @@ using OSGeo.OGR;
 using OSGeo.OSR;
 using Dataset = OSGeo.GDAL.Dataset;
 using Gdal = OSGeo.GDAL.Gdal;
+using GdalConst = OSGeo.GDAL.GdalConst;
 using GdalVectorTranslateOptions = OSGeo.GDAL.GDALVectorTranslateOptions;
 
 namespace Graticula.Import.Reader;
@@ -124,7 +125,7 @@ internal static class Program
                 },
             },
 
-            "layers" => Layers(Text(request, "archive")),
+            "layers" => Layers(Text(request, "archive"), Encoding(request)),
 
             "convert" => Convert(
                 Text(request, "archive"), Text(request, "layer"), Text(request, "out")),
@@ -133,7 +134,8 @@ internal static class Program
             // rather than through `Answer`.</b> ADR-038 §5: the features cross as newline-delimited
             // JSON on the pipe these two processes already have, because both ends are .NET now and
             // GeoParquet was chosen for a Python endpoint that no longer exists.
-            "features" => Features(Text(request, "archive"), Text(request, "layer")),
+            "features" => Features(
+                Text(request, "archive"), Text(request, "layer"), Encoding(request)),
 
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', 'convert' "
@@ -206,13 +208,13 @@ internal static class Program
     /// silently reprojected would be making a storage decision from inside a parser.
     /// </para>
     /// </remarks>
-    private static object? Features(string archive, string layerName)
+    private static object? Features(string archive, string layerName, string? encoding)
     {
         List<string> said = [];
 
         _messages = said;
 
-        using DataSource source = Open(archive);
+        using Dataset source = Open(archive, encoding);
         using Layer layer = source.GetLayerByName(layerName)
             ?? throw new ArgumentException(
                 $"'{layerName}' is not a layer in this archive. Ask 'layers' for the ones that are.");
@@ -301,15 +303,15 @@ internal static class Program
     /// to say *why* something is not offered rather than quietly shortening its list, so the geometry
     /// type is reported and the caller chooses.
     /// </remarks>
-    private static object Layers(string archive)
+    private static object Layers(string archive, string? encoding)
     {
-        using DataSource source = Open(archive);
+        using Dataset source = Open(archive, encoding);
 
         List<object> layers = [];
 
         for (int i = 0; i < source.GetLayerCount(); i++)
         {
-            using Layer layer = source.GetLayerByIndex(i);
+            using Layer layer = source.GetLayer(i);
             using FeatureDefn definition = layer.GetLayerDefn();
 
             List<object> fields = [];
@@ -486,13 +488,59 @@ internal static class Program
             string.Create(CultureInfo.InvariantCulture, $"gdal[{kind}/{code}] {message}"));
     }
 
+    /// <summary>
+    /// The character set an operator says a shapefile's attribute table is in, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>Optional and unused for a geodatabase, which stores its own encoding.</b> A
+    /// shapefile's DBF does not have to: a `.cpg` file beside it declares one and often is
+    /// not there. Measured on this repository's own corpus — GDAL reads
+    /// `turkish_cp1254.zip` correctly because it has a `.cpg`, and reads
+    /// `turkish_undeclared.zip` as mojibake because it does not. **Our own parser gets that
+    /// second case wrong too**, and its own tests assert as much, which is why
+    /// [ADR-024](../../docs/adr/ADR-024-shapefile-import.md) makes it the operator's to
+    /// say. This is the channel that answer travels down.
+    /// </remarks>
+    private static string? Encoding(JsonElement request) =>
+        request.TryGetProperty("encoding", out JsonElement said) ? Nothing(said.GetString()) : null;
+
     /// <summary>Opens an archive, or says which one it could not open.</summary>
-    private static DataSource Open(string archive) =>
-        Ogr.Open(Vsi(archive), 0)
-        ?? throw new InvalidOperationException(
-            $"GDAL could not open '{archive}'. A File Geodatabase is a directory, so it arrives zipped "
-            + "and is read through /vsizip/ — an archive that is not one, or one holding no "
-            + "geodatabase, fails here.");
+    /// <remarks>
+    /// <b>The encoding is a GDAL config option rather than an open option, which is not a
+    /// preference.</b> `SHAPE_ENCODING` is what the OGR Shapefile driver reads, and it is
+    /// read when the DBF is opened — so it has to be set before this call and cleared
+    /// after, or one request's answer changes the next request's. That is a real hazard
+    /// here: this process is long-lived and serves many requests.
+    /// </remarks>
+    private static Dataset Open(string archive, string? encoding = null)
+    {
+        /*
+          <b>`OpenEx` with an open option, and the two channels that do not work were
+          measured rather than assumed.</b> The Shapefile driver takes the DBF's character
+          set three ways and only one of them is per-request:
+
+          - `Gdal.SetConfigOption("SHAPE_ENCODING", …)` before the open: **no effect.**
+            Read `turkish_undeclared.zip` — CP1254 bytes, no `.cpg` — and it came back as
+            `\uFFFDi\uFFFDli \uFFFDay\uFFFDr\uFFFD` with the option set and without it.
+          - `SHAPE_ENCODING` in the process environment at start: **works**, and is useless
+            here. This process is long-lived and shared, so an encoding fixed at start is
+            one encoding for every import. Setting the variable from inside does not work
+            either — CPL reads the environment before any of this runs.
+          - `-oo ENCODING=` as an open option: per open, which is the only shape that
+            matches a per-request protocol.
+
+          <b>So the type changes from `OGR.DataSource` to `GDAL.Dataset`</b>, because
+          `Ogr.Open` has no open options and `Gdal.OpenEx` does. The layers are the same
+          `OGR.Layer` objects either way, which is why the rest of this file is unchanged.
+        */
+        string[]? options = encoding is null ? null : ["ENCODING=" + encoding];
+
+        return Gdal.OpenEx(Vsi(archive), (uint)GdalConst.OF_VECTOR, null, options, null)
+            ?? throw new InvalidOperationException(
+                $"GDAL could not open '{archive}'. A File Geodatabase is a directory, so it "
+                + "arrives zipped and is read through /vsizip/ — an archive that is not one, "
+                + "or one holding nothing GDAL recognises, fails here.");
+    }
 
     /// <summary>
     /// Turns a path into something GDAL reads without unpacking it.

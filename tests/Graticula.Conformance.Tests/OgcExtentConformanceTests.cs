@@ -98,9 +98,26 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
 
             int selected = page.GetProperty("numberMatched").GetInt32();
 
-            if (selected != matched)
+            /*
+              <b>Against the features that have a location, not against every row — and this
+              test was wrong about that until a corpus fixture with a null shape arrived.</b>
+              A feature with no geometry cannot intersect any bounding box, so a collection
+              holding one can never have its extent select all of it. The old assertion read
+              *its own extent selects 1 of 2* and blamed the filter for the one thing a
+              filter is right about.
+
+              <b>The second count is asked for only when the first falls short</b>, so the
+              healthy case — every collection here but one — still costs one request.
+            */
+            int located = ShortOfItself(matched, selected)
+                ? await LocatedAsync(id)
+                : matched;
+
+            if (selected != located)
             {
-                wrong.Add($"{id}: its own extent [{extent}] selects {selected} of {matched}");
+                wrong.Add(
+                    $"{id}: its own extent [{extent}] selects {selected} of {located} located "
+                    + $"features, out of {matched} rows");
             }
         }
 
@@ -109,6 +126,29 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
             "A collection's published extent must contain its own features. It is the query a "
             + "client makes first and the one that cannot legitimately be empty:\n  "
             + string.Join("\n  ", wrong));
+    }
+
+    /// <summary>
+    /// Whether a shortfall could be explained by rows with no geometry.
+    /// </summary>
+    /// <remarks>
+    /// <b>Asked before the extra request, so the healthy case costs nothing.</b> Almost
+    /// every collection selects all of itself; only one that does not is worth a second
+    /// query.
+    /// </remarks>
+    private static bool ShortOfItself(int matched, int selected) => selected < matched;
+
+    /// <summary>How many of a collection's features have a location at all.</summary>
+    /// <remarks>
+    /// <b>The whole world as a bounding box.</b> Every located feature is inside it and no
+    /// unlocated one is, which makes this the count the extent assertion is really about.
+    /// </remarks>
+    private async Task<int> LocatedAsync(string id)
+    {
+        JsonElement everywhere = await GetJsonAsync(
+            $"{Root}/collections/{id}/items?bbox=-180,-90,180,90&limit=1");
+
+        return everywhere.GetProperty("numberMatched").GetInt32();
     }
 
     /// <summary>
@@ -208,11 +248,31 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
 
         List<string> wrong = [];
 
+        string? edited = Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE");
+
         foreach ((string id, _, int matched) in await CollectionsAsync())
         {
             if (matched > 2000)
             {
                 // Paging 2,000 features proves what 200 proves, at a hundred times the cost.
+                continue;
+            }
+
+            /*
+              <b>Not the layer other suites write to, and this was found by a failing run
+              rather than foreseen.</b> *walked 3 distinct features over 1 pages,
+              numberMatched says 4*: the edit suite inserted a feature between this test's
+              count and its walk. Nothing is wrong with either number — they were taken a
+              moment apart from a layer that was changing.
+
+              <b>A test that reads a moving count twice cannot be made reliable by
+              retrying</b>, which is why this excludes the layer by the same name the
+              editing suite is given rather than tolerating a mismatch. Tolerating one would
+              also tolerate the defect this test exists to catch.
+            */
+            if (edited is { Length: > 0 }
+                && edited.EndsWith(id, StringComparison.OrdinalIgnoreCase))
+            {
                 continue;
             }
 
