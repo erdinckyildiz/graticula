@@ -38,7 +38,14 @@ public sealed class PublishOwnershipTests : ArcGisClient
 {
     private const string Publisher = "zz_d104_publisher";
 
-    private const string Password = "zz-d104-Probe-Password-1";
+    /// <summary>The password this run gives its probe publisher.</summary>
+    /// <remarks>
+    /// <b>Made per run rather than written down.</b> A literal here is a known password for an
+    /// account that exists on whatever server the suite is pointed at — briefly, and still known.
+    /// The account is created and removed inside one test; the password does not need to outlive
+    /// the process, so it does not.
+    /// </remarks>
+    private static readonly string Password = $"Zz-{Guid.NewGuid():N}-1";
 
     /// <summary>A publisher cannot add a layer to a service somebody else owns.</summary>
     [Fact]
