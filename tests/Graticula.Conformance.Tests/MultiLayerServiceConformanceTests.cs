@@ -304,6 +304,27 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
                 .ToArray());
     }
 
+    /// <summary>Whether the catalogue still holds a layer by this name.</summary>
+    /// <remarks>
+    /// <b>Asked only when a layer looks missing.</b> [D-89](../../docs/architecture-debt.md):
+    /// the two lists this test compares are read seconds apart, and another suite is deleting
+    /// layers throughout. Re-reading one of them turns *it was there when I started* into *it
+    /// is there now*, which is the claim the failure would be making.
+    /// </remarks>
+    private async Task<bool> StillCataloguedAsync(string layer)
+    {
+        foreach (JsonElement held in
+            (await GetJsonAsync("/admin/layers")).GetProperty("layers").EnumerateArray())
+        {
+            if (string.Equals(held.GetProperty("name").GetString(), layer, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Every layer the catalogue lists is addressable through the services
     /// directory.
@@ -369,7 +390,14 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
                 }
 
                 string name = service.GetProperty("name").GetString()!;
-                JsonElement document = await GetJsonAsync($"/rest/services/{name}/FeatureServer");
+
+                // D-89: a fixture deleted between this folder's listing and this request is
+                // skipped; a service the catalogue still lists and will not serve fails.
+                if (await AboutServiceAsync(name, $"/rest/services/{name}/FeatureServer")
+                    is not { } document)
+                {
+                    continue;
+                }
 
                 if (!document.TryGetProperty("layers", out JsonElement held))
                 {
@@ -404,12 +432,26 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
 
             if (!placed.TryGetValue(name, out (string Service, int Id) place))
             {
-                missing.Add($"{name}: in the catalogue, absent from the directory");
+                // <b>Asked again before it is reported.</b> D-89: `/admin/layers` was read
+                // before the directory, so a layer another suite deleted in between is in the
+                // first list and not the second — which is not the server failing to advertise
+                // a layer it has. A layer that is still catalogued now really is missing from
+                // the directory.
+                if (await StillCataloguedAsync(name))
+                {
+                    missing.Add($"{name}: in the catalogue, absent from the directory");
+                }
+
                 continue;
             }
 
-            JsonElement document =
-                await GetJsonAsync($"/rest/services/{place.Service}/FeatureServer/{place.Id}");
+            if (await AboutServiceAsync(
+                    place.Service,
+                    $"/rest/services/{place.Service}/FeatureServer/{place.Id}")
+                is not { } document)
+            {
+                continue;
+            }
 
             string served = document.GetProperty("name").GetString()!;
 

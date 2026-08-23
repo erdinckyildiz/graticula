@@ -157,12 +157,23 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // coverage problem that let D-21's paging defect live for four days.
         foreach (string name in await EveryServiceNameAsync())
         {
-            JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
+            // A service deleted between the listing and this request is skipped; one that 404s
+            // while still catalogued fails inside AboutServiceAsync, named. D-89.
+            if (await AboutServiceAsync(name, $"/rest/services/{name}/FeatureServer/0")
+                is not { } layer)
+            {
+                continue;
+            }
+
             int advertised = layer.GetProperty("maxRecordCount").GetInt32();
 
-            JsonElement query = await GetJsonAsync(
-                $"/rest/services/{name}/FeatureServer/0/query"
-                + $"?resultRecordCount={advertised + 1000}");
+            if (await AboutServiceAsync(
+                    name,
+                    $"/rest/services/{name}/FeatureServer/0/query"
+                    + $"?resultRecordCount={advertised + 1000}") is not { } query)
+            {
+                continue;
+            }
 
             int returned = query.GetProperty("features").GetArrayLength();
 
@@ -295,11 +306,21 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
         foreach (string name in await EveryServiceNameAsync())
         {
-            JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
+            // D-89: skipped only if the catalogue agrees it has gone.
+            if (await AboutServiceAsync(name, $"/rest/services/{name}/FeatureServer/0")
+                is not { } layer)
+            {
+                continue;
+            }
 
-            JsonElement query = await GetJsonAsync(
-                $"/rest/services/{name}/FeatureServer/0/query"
-                + "?where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=1");
+            if (await AboutServiceAsync(
+                    name,
+                    $"/rest/services/{name}/FeatureServer/0/query"
+                    + "?where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=1")
+                is not { } query)
+            {
+                continue;
+            }
 
             if (query.GetProperty("features").GetArrayLength() > 0)
             {

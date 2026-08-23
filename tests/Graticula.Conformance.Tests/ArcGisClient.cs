@@ -204,34 +204,62 @@ public abstract class ArcGisClient : IDisposable
     /// </para>
     /// </remarks>
     /// <summary>
-    /// A service published by a test fixture, which may be gone by the next request.
+    /// The name prefixes that belong to a test fixture rather than to a deployment.
     /// </summary>
     /// <remarks>
+    /// <b>`zz_` belongs to the sharing, archive-refusal, lifecycle and delete suites;
+    /// `corpus_` to `ShapefileCorpusTests`.</b> Both are published and deleted while other
+    /// classes walk the server, which is [D-89](../../docs/architecture-debt.md).
+    /// </remarks>
+    private static readonly string[] FixturePrefixes = ["zz_", "corpus_"];
+
+    /// <summary>
+    /// Whether a name belongs to a fixture this suite creates and deletes as it runs.
+    /// </summary>
+    /// <param name="name">The service or collection name, qualified or not.</param>
+    /// <returns>True when it is a fixture rather than something the deployment publishes.</returns>
+    /// <remarks>
     /// <para>
-    /// <b>Every test that walks the whole server races the corpus fixture, and two of them
-    /// lost.</b> `ShapefileCorpusTests` imports each archive of the shapefile corpus under a
-    /// `corpus_` name and deletes it again; xUnit runs classes in parallel, so a service listed
-    /// at the top of a walk can answer 404 three requests later. It did, twice, in different
-    /// classes: `One_box_in_two_reference_systems_selects_the_same_features` on
-    /// `corpus_holed_…` and `A_polygon_ring_is_closed_and_wound_the_way_ArcGIS_requires` on
-    /// `corpus_twoparts_…`.
+    /// <b>[D-89](../../docs/architecture-debt.md), and the row said neither of its two repairs
+    /// was obvious.</b> Skipping fixture names, it argued, hides a class of service from the only
+    /// tests that check all of them; the alternative was to stop the suites sharing a server,
+    /// which changes how every integration test runs.
     /// </para>
     /// <para>
-    /// <b>Skipped by name rather than by swallowing 404s.</b> Treating any 404 during a walk as
-    /// *gone* would hide the defect these tests exist to find — a service the catalogue lists
-    /// and will not serve is exactly what a conformance walk must fail on. The name belongs to a
-    /// fixture rather than to a deployment, and if the corpus is renamed this stops matching and
-    /// the race returns visibly instead of silently.
+    /// <b>The objection does not hold for these names, and the reason is worth being exact
+    /// about.</b> A `zz_` or `corpus_` service is not a class of service this walk would
+    /// otherwise cover: it is created by a test that then asserts on it directly, with knowledge
+    /// of exactly what it should contain, and deleted seconds later. Walking it adds no coverage
+    /// and subtracts a stable suite. What the row is right about is that a *skip* must not be the
+    /// only mechanism, because a skip cannot tell a deleted service from a broken one — and that
+    /// is what <see cref="StillListedAsync"/> is for. The two together are the repair: fixtures
+    /// are not the walk's subject, and everything else that 404s is a defect until the catalogue
+    /// says otherwise.
     /// </para>
     /// <para>
-    /// <b>Here rather than in each walker</b>, because the next walk somebody writes would race
-    /// it too and would find out the way these did.
+    /// <b>And removing the skip was tried first, which is how the second reason was found.</b>
+    /// With the fixtures walked, the suite put 24 requests in flight against one data source with
+    /// 96 more queued and the server shed load exactly as
+    /// [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md) says
+    /// it should: `ConnectionBudgetFullException`, 503, two tests failing on a healthy server.
+    /// The fixtures roughly double how many services a full run walks, and every walk is
+    /// multiplied by every walking test.
     /// </para>
     /// </remarks>
-    /// <param name="name">The service or collection name, qualified or not.</param>
-    /// <returns>Whether it belongs to a fixture that is publishing and deleting as we read.</returns>
-    protected static bool Transient(string name) =>
-        name.Contains("corpus_", StringComparison.Ordinal);
+    protected static bool Fixture(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        foreach (string prefix in FixturePrefixes)
+        {
+            if (name.Contains(prefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     protected async Task<IReadOnlyList<string>> EveryServiceNameAsync()
     {
@@ -271,7 +299,7 @@ public abstract class ArcGisClient : IDisposable
                     && string.Equals(type.GetString(), "FeatureServer", StringComparison.Ordinal)
                     && service.TryGetProperty("name", out JsonElement name)
                     && name.GetString() is { Length: > 0 } qualified
-                    && !Transient(qualified)
+                    && !Fixture(qualified)
                     && !into.Contains(qualified))
                 {
                     into.Add(qualified);
@@ -407,6 +435,119 @@ public abstract class ArcGisClient : IDisposable
         using HttpResponseMessage response = await _http.SendAsync(request);
 
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Fetches a document, or answers null when the server says there is no such thing.
+    /// </summary>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <returns>The document, or null on 404.</returns>
+    /// <remarks>
+    /// <b>Only 404, and only for a caller that then asks whether it was really absent.</b>
+    /// Anything else still fails the test. See <see cref="StillListedAsync"/> for what a walk
+    /// does with the null, and why swallowing the 404 on its own would be the wrong repair.
+    /// </remarks>
+    protected async Task<JsonElement?> TryGetJsonAsync(string path)
+    {
+        string root = await RequireServerAsync();
+
+        string separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        Uri uri = new($"{root}{path}{separator}f=json");
+
+        using HttpRequestMessage request = new(HttpMethod.Get, uri);
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await _http.SendAsync(request);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        Assert.True(
+            response.IsSuccessStatusCode,
+            $"GET {uri} returned {(int)response.StatusCode}. An ArcGIS client stops here.");
+
+        string body = await response.Content.ReadAsStringAsync();
+
+        try
+        {
+            return JsonDocument.Parse(body).RootElement.Clone();
+        }
+        catch (JsonException e)
+        {
+            Assert.Fail(
+                $"GET {uri} did not return parseable JSON: {e.Message}"
+                + $"\n{body[..Math.Min(400, body.Length)]}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Whether the catalogue still lists this service, asked after it answered 404.
+    /// </summary>
+    /// <param name="qualifiedName">The name as the directory gave it, folder and all.</param>
+    /// <returns>True when the directory still names it, which makes the 404 a real defect.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-89](../../docs/architecture-debt.md), and this is the repair the row said was not
+    /// obvious.</b> These suites walk the whole server while three others create and delete
+    /// fixtures beside them, so a service listed at the top of a walk can answer 404 three
+    /// requests later — a false failure naming a real endpoint and a real 404. The row's two
+    /// candidate repairs were to skip fixture names, which hides a class of service from the
+    /// only tests that check all of them, or to stop the suites sharing a server, which changes
+    /// how every integration test runs.
+    /// </para>
+    /// <para>
+    /// <b>This is a third one, and it hides nothing.</b> A 404 is not treated as *gone*; it is
+    /// treated as a question, and the question is asked of the catalogue. If the service is
+    /// still listed, the server is advertising something it will not serve and the walk fails —
+    /// which is exactly the defect a conformance walk exists to find. If it is no longer listed,
+    /// it was deleted between the listing and the request and there is nothing to report.
+    /// </para>
+    /// <para>
+    /// <b>Costs one directory read per 404</b>, which is twice a run, and nothing at all on a
+    /// run where nothing vanishes.
+    /// </para>
+    /// </remarks>
+    protected async Task<bool> StillListedAsync(string qualifiedName)
+    {
+        foreach (string name in await EveryServiceNameAsync())
+        {
+            if (string.Equals(name, qualifiedName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Fetches a document about one service, or null when that service has gone.
+    /// </summary>
+    /// <param name="service">The service, qualified as the directory named it.</param>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <returns>The document, or null when the service is no longer catalogued.</returns>
+    /// <remarks>
+    /// <b>The walk's half of <see cref="StillListedAsync"/>.</b> A null here means *skip this
+    /// one*; a service that 404s and is still catalogued fails inside this method, with the
+    /// service named, rather than being skipped quietly.
+    /// </remarks>
+    protected async Task<JsonElement?> AboutServiceAsync(string service, string path)
+    {
+        if (await TryGetJsonAsync(path) is { } document)
+        {
+            return document;
+        }
+
+        Assert.False(
+            await StillListedAsync(service),
+            $"GET {path} returned 404 and '{service}' is still in the services directory. The "
+            + "catalogue is advertising a service the server will not serve, which is a defect "
+            + "rather than the fixture race D-89 records.");
+
+        return null;
     }
 
     /// <summary>Fetches a document, asserting it came back as JSON.</summary>

@@ -47,6 +47,44 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
         string.Join(",", bbox.EnumerateArray().Select(
             v => v.GetDouble().ToString("R", CultureInfo.InvariantCulture)));
 
+    /// <summary>
+    /// Fetches a document about one collection, or null when that collection has gone.
+    /// </summary>
+    /// <param name="id">The collection, as `/collections` named it.</param>
+    /// <param name="path">Path and query, relative to the root.</param>
+    /// <returns>The document, or null when the server no longer lists the collection.</returns>
+    /// <remarks>
+    /// <b>[D-89](../../docs/architecture-debt.md) in this face's own vocabulary.</b> These tests
+    /// walk every collection on a live server while three other suites publish and delete
+    /// fixtures beside them, so a collection listed at the top of a walk can answer 404 three
+    /// requests later. A 404 is not taken as *gone*: `/collections` is read again, and a
+    /// collection that is still listed and will not serve fails the walk, which is the defect
+    /// the walk exists to find.
+    /// </remarks>
+    private async Task<JsonElement?> AboutCollectionAsync(string id, string path)
+    {
+        if (await TryGetJsonAsync(path) is { } document)
+        {
+            return document;
+        }
+
+        bool listed = Require(
+                await GetJsonAsync($"{Root}/collections"),
+                "collections",
+                "the collections document lists them")
+            .EnumerateArray()
+            .Any(collection => string.Equals(
+                collection.GetProperty("id").GetString(), id, StringComparison.Ordinal));
+
+        Assert.False(
+            listed,
+            $"GET {path} returned 404 and '{id}' is still in the collections document. The "
+            + "server is advertising a collection it will not serve, which is a defect rather "
+            + "than the fixture race D-89 records.");
+
+        return null;
+    }
+
     /// <summary>Every collection, with its published extent and its feature count.</summary>
     private async Task<IReadOnlyList<(string Id, string Extent, int Matched)>> CollectionsAsync()
     {
@@ -59,7 +97,9 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
         {
             string id = collection.GetProperty("id").GetString()!;
 
-            if (Transient(id))
+            // Not this walk's subject: a fixture is asserted on by the test that made it, and
+            // walking them all put the server past its queue bound. See ArcGisClient.Fixture.
+            if (Fixture(id))
             {
                 continue;
             }
@@ -70,7 +110,11 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
             // <b>The count comes from the server rather than from this test.</b> numberMatched is
             // separately verified below by walking every page, so using it here is not circular:
             // if it were wrong, the walk would say so.
-            JsonElement all = await GetJsonAsync($"{Root}/collections/{id}/items?limit=1");
+            if (await AboutCollectionAsync(id, $"{Root}/collections/{id}/items?limit=1")
+                is not { } all)
+            {
+                continue;
+            }
 
             found.Add((id, Box(bbox), all.GetProperty("numberMatched").GetInt32()));
         }
@@ -98,8 +142,11 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
             // own arithmetic. numberMatched is a count of the filter's result and says nothing
             // about the page, which is exactly the claim being made here; that it is truthful is
             // asserted separately by walking every page.
-            JsonElement page = await GetJsonAsync(
-                $"{Root}/collections/{id}/items?bbox={extent}&limit=1");
+            if (await AboutCollectionAsync(
+                    id, $"{Root}/collections/{id}/items?bbox={extent}&limit=1") is not { } page)
+            {
+                continue;
+            }
 
             int selected = page.GetProperty("numberMatched").GetInt32();
 
@@ -175,7 +222,11 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
 
         foreach ((string id, string extent, int matched) in await CollectionsAsync())
         {
-            JsonElement collection = await GetJsonAsync($"{Root}/collections/{id}");
+            if (await AboutCollectionAsync(id, $"{Root}/collections/{id}") is not { } collection)
+            {
+                continue;
+            }
+
             string storage = collection.GetProperty("storageCrs").GetString()!;
 
             if (storage == Crs84 || matched > 200)
@@ -184,9 +235,13 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
                 continue;
             }
 
-            JsonElement native = await GetJsonAsync(
-                $"{Root}/collections/{id}/items?limit={matched + 1}"
-                + $"&crs={Uri.EscapeDataString(storage)}");
+            if (await AboutCollectionAsync(
+                    id,
+                    $"{Root}/collections/{id}/items?limit={matched + 1}"
+                    + $"&crs={Uri.EscapeDataString(storage)}") is not { } native)
+            {
+                continue;
+            }
 
             double minX = double.MaxValue, minY = double.MaxValue;
             double maxX = double.MinValue, maxY = double.MinValue;
@@ -208,13 +263,26 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
             string box = string.Join(",", new[] { minX, minY, maxX, maxY }
                 .Select(v => v.ToString("R", CultureInfo.InvariantCulture)));
 
-            string[] geographic = Ids(await GetJsonAsync(
-                $"{Root}/collections/{id}/items?bbox={extent}"
-                + $"&bbox-crs={Uri.EscapeDataString(Crs84)}&limit={matched + 1}"));
+            if (await AboutCollectionAsync(
+                    id,
+                    $"{Root}/collections/{id}/items?bbox={extent}"
+                    + $"&bbox-crs={Uri.EscapeDataString(Crs84)}&limit={matched + 1}")
+                is not { } inCrs84)
+            {
+                continue;
+            }
 
-            string[] projected = Ids(await GetJsonAsync(
-                $"{Root}/collections/{id}/items?bbox={box}"
-                + $"&bbox-crs={Uri.EscapeDataString(storage)}&limit={matched + 1}"));
+            if (await AboutCollectionAsync(
+                    id,
+                    $"{Root}/collections/{id}/items?bbox={box}"
+                    + $"&bbox-crs={Uri.EscapeDataString(storage)}&limit={matched + 1}")
+                is not { } inStorage)
+            {
+                continue;
+            }
+
+            string[] geographic = Ids(inCrs84);
+            string[] projected = Ids(inStorage);
 
             compared++;
 
@@ -285,9 +353,16 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
             string? next = $"{Root}/collections/{id}/items?limit=10";
             int pages = 0;
 
+            bool vanished = false;
+
             while (next is not null && pages < 500)
             {
-                JsonElement page = await GetJsonAsync(next);
+                if (await AboutCollectionAsync(id, next) is not { } page)
+                {
+                    vanished = true;
+                    break;
+                }
+
                 pages++;
 
                 foreach (string identifier in Ids(page))
@@ -311,6 +386,13 @@ public sealed class OgcExtentConformanceTests : ArcGisClient
                     next = cut < 0 ? href : href[cut..];
                     break;
                 }
+            }
+
+            // Deleted while we were paging it. The count it would be compared against is
+            // from before the deletion, so there is nothing to say. D-89.
+            if (vanished)
+            {
+                continue;
             }
 
             if (seen.Count != matched)
