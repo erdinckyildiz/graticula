@@ -55,6 +55,13 @@ internal static class ImageServerEndpoints
     /// face images and identifies, and it does not catalogue, download or compute
     /// histograms.
     /// </remarks>
+    /// <summary>The methods every read operation on this face answers.</summary>
+    /// <remarks>
+    /// <b>`GET` and `POST`, and nothing else.</b> The REST specification documents both for
+    /// every operation; `PUT` and `DELETE` are not read operations and this face has none.
+    /// </remarks>
+    private static readonly string[] Read = ["GET", "POST"];
+
     private const string Capabilities = "Image,Tilemap";
 
     /// <summary>The most tiles one <c>tilemap</c> call answers about.</summary>
@@ -73,24 +80,39 @@ internal static class ImageServerEndpoints
 
         foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
-            app.MapGet($"{prefix}/{{serviceName}}/ImageServer", ServiceAsync)
+            /*
+              <b>`MapMethods` rather than `MapGet`, because the REST specification documents
+              both and this face answered a bare 405 to one of them.</b>
+              [D-139](../../docs/architecture-debt.md): a client whose request does not fit in
+              a URL — a long `where`, a drawing geometry, a rendering rule — had no way to send
+              it at all, and the refusal had no body to explain itself.
+
+              <b>Accepting a posted parameter does not make a cookie work for POST.</b>
+              `Authentication.CookieToken` refuses anything but GET and HEAD, deliberately and
+              at length: a forged cross-site request can only ever read. That property is
+              untouched here — see `ArcGisParameters` for why a token still has to travel in
+              the header or the query rather than the body.
+            */
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer", Read, ServiceAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/ImageServer/exportImage", ExportAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/exportImage", Read, ExportAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/ImageServer/identify", IdentifyAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/identify", Read, IdentifyAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet(
+            app.MapMethods(
                     $"{prefix}/{{serviceName}}/ImageServer/tile/{{level:int}}/{{row:int}}"
                         + "/{column:int}",
+                    Read,
                     TileAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet(
+            app.MapMethods(
                     $"{prefix}/{{serviceName}}/ImageServer/tilemap/{{level:int}}/{{row:int}}"
                         + "/{column:int}/{across:int}/{down:int}",
+                    Read,
                     TilemapAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -112,11 +134,14 @@ internal static class ImageServerEndpoints
               prefers a literal to a constrained parameter and a constrained parameter to a
               catch-all, so `tile/0/0/0` reaches TileAsync and `tile/0/0` reaches this.
             */
-            app.MapGet($"{prefix}/{{serviceName}}/ImageServer/{{operation}}", UnknownAsync)
+            app.MapMethods(
+                    $"{prefix}/{{serviceName}}/ImageServer/{{operation}}", Read, UnknownAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet(
-                    $"{prefix}/{{serviceName}}/ImageServer/{{operation}}/{{**rest}}", UnknownAsync)
+            app.MapMethods(
+                    $"{prefix}/{{serviceName}}/ImageServer/{{operation}}/{{**rest}}",
+                    Read,
+                    UnknownAsync)
                 .Governed(SharingGovernedExtensions.ByService);
         }
     }
@@ -456,7 +481,8 @@ internal static class ImageServerEndpoints
         }
 
         if (!ImageServerExportParameters.TryParse(
-                Parameter(context),
+                await ArcGisParameters.LookupAsync(context, cancellation)
+                    .ConfigureAwait(false),
                 coverage.Info,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out ImageServerExportParameters? asked,
@@ -1123,7 +1149,8 @@ internal static class ImageServerEndpoints
             return;
         }
 
-        Func<string, string?> parameter = Parameter(context);
+        Func<string, string?> parameter =
+            await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
 
         if (!ImageServerExportParameters.TryPoint(
                 parameter, coverage.Info, out double x, out double y, out string? error))
@@ -1289,19 +1316,10 @@ internal static class ImageServerEndpoints
                 ? (text, serviceName)
                 : (null, serviceName);
 
-    private static Func<string, string?> Parameter(HttpContext context) =>
-        name =>
-        {
-            foreach (var pair in context.Request.Query)
-            {
-                if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return pair.Value.ToString();
-                }
-            }
-
-            return null;
-        };
+    // <b>The case-insensitive parameter lookup this face used to carry is
+    // `ArcGisParameters` now.</b> `MapServerEndpoints` had its own copy of the same loop, and
+    // two copies of a lookup is how the two faces came to disagree about where a parameter
+    // may live: neither read a form, so neither answered a POST.
 
     /// <summary>An ArcGIS error document, which is a 200 carrying a refusal.</summary>
     /// <remarks>
@@ -1328,6 +1346,7 @@ internal static class ImageServerEndpoints
         ymax = extent.MaxY,
         spatialReference = new { wkid = srid, latestWkid = srid },
     };
+
 
     private static string Extent(Envelope extent) =>
         string.Create(

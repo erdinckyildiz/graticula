@@ -2789,8 +2789,23 @@ public static class Program
         // Q-113: the service's own cost ceilings, carried on the layer.
         ServiceCostCeilings cost = layer.Cost;
 
+        /*
+          <b>The merged view, because this route has always accepted POST and always ignored
+          what was posted.</b> [D-139](../../docs/architecture-debt.md) was written as *POST is
+          refused*, which is true of `exportImage` and `identify` and is not true here: `query`
+          is mapped for both methods, and read `context.Request.Query` either way.
+
+          <b>So a posted query answered a different question in silence.</b> Measured
+          2026-08-23: `POST .../query` with `where=1=1&returnCountOnly=true&f=json` in the body
+          returned the full attribute set rather than the count — every parameter absent, so
+          every default applied. A 405 would have been better: it says it did not work.
+
+          `query` is also the operation that needs a body most. A `where` clause, an input
+          geometry and an `outFields` list are exactly what does not fit in a URL, which is
+          why the POST route was mapped in the first place.
+        */
         if (!FeatureServerQueryParameters.TryParse(
-                context.Request.Query,
+                await ArcGisParameters.ReadAsync(context, cancellation).ConfigureAwait(false),
                 layer.Definition.ObjectIdColumn!,
                 layer.Definition.Srid,
                 described.Fields,

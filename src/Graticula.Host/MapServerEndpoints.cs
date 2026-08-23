@@ -56,6 +56,20 @@ internal static class MapServerEndpoints
     /// <summary>How many features one identify may return per layer.</summary>
     private const int MaximumIdentifyResults = 20;
 
+    /// <summary>The methods every read operation on this face answers.</summary>
+    /// <remarks>
+    /// <b>`GET` and `POST`, because the REST specification documents both and this face
+    /// answered a bare 405 to one of them.</b>
+    /// [D-139](../../docs/architecture-debt.md). `export` is the operation that needs it
+    /// most: a client sending a dynamic layer definition or a long list of layer visibilities
+    /// runs out of URL long before it runs out of things to say.
+    ///
+    /// <b>Accepting a posted parameter does not make a cookie work for POST</b> —
+    /// `Authentication.CookieToken` refuses anything but GET and HEAD, deliberately. See
+    /// `ArcGisParameters`.
+    /// </remarks>
+    private static readonly string[] Read = ["GET", "POST"];
+
     /// <summary>Maps the surface under both service-path shapes.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -70,19 +84,19 @@ internal static class MapServerEndpoints
             // asking for `/MapServer/export` would be answered with a 404 about
             // layer "export", which reads as a missing layer rather than a missing
             // route.
-            app.MapGet($"{prefix}/{{serviceName}}/MapServer", ServiceAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer", Read, ServiceAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/MapServer/export", ExportAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/export", Read, ExportAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/MapServer/identify", IdentifyAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/identify", Read, IdentifyAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/MapServer/legend", LegendAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/legend", Read, LegendAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/MapServer/{{layerId:int}}", LayerAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/{{layerId:int}}", Read, LayerAsync)
                 .Governed(SharingGovernedExtensions.ByService);
         }
     }
@@ -303,7 +317,7 @@ internal static class MapServerEndpoints
         }
 
         if (!MapServerExportParameters.TryParse(
-                Parameter(context),
+                await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false),
                 service.Layers,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out MapServerExportParameters? asked,
@@ -398,7 +412,7 @@ internal static class MapServerEndpoints
         }
 
         if (!MapServerIdentifyParameters.TryParse(
-                Parameter(context),
+                await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false),
                 service.Layers,
                 out MapServerIdentifyParameters? asked,
                 out string? error))
@@ -621,20 +635,11 @@ internal static class MapServerEndpoints
                     .Select(MapServerMetadataWriter.Number));
     }
 
-    private static Func<string, string?> Parameter(HttpContext context) =>
-        name =>
-        {
-            foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> pair
-                in context.Request.Query)
-            {
-                if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return pair.Value.ToString();
-                }
-            }
+    // <b>The case-insensitive parameter lookup this face used to carry is
+    // `ArcGisParameters` now.</b> `ImageServerEndpoints` had its own copy of the same
+    // loop, and two copies of a lookup is how the two faces came to disagree about
+    // where a parameter may live: neither read a form, so neither answered a POST.
 
-            return null;
-        };
 
     private static Polygon Rectangle(Envelope extent) =>
         new(new LinearRing(XySequence.Wrap(
