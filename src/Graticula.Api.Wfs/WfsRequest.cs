@@ -124,8 +124,20 @@ public sealed record WfsRequest(
             return false;
         }
 
-        if (Value("service") is { } service
-            && !string.Equals(service, WfsNames.Service, StringComparison.OrdinalIgnoreCase))
+        // <b>Mandatory, and it was optional here for four days.</b> OWS Common makes
+        // `service` a required parameter of every KVP request and WFS 2.0 repeats it;
+        // this accepted its absence and answered anyway, which the CITE suite catches
+        // as `getCapabilities_missingServiceParam` — expected 400, received 200.
+        // Being generous about it is not harmless: a request with no `service` reaching
+        // a shared endpoint is ambiguous by construction, and answering it teaches a
+        // client to send requests no other server will accept.
+        if (Value("service") is not { } service)
+        {
+            fault = WfsFault.Missing("service");
+            return false;
+        }
+
+        if (!string.Equals(service, WfsNames.Service, StringComparison.OrdinalIgnoreCase))
         {
             fault = WfsFault.Invalid(
                 "service", $"This endpoint serves {WfsNames.Service}, and the request says '{service}'.");
@@ -212,7 +224,17 @@ public sealed record WfsRequest(
             ParseNamespaces(Value("namespaces")),
             hits,
             Value("storedquery_id"),
-            Value("valuereference"));
+
+            // <b>The raw value, empty string included, and the difference is a
+            // different exception code.</b> `Value` folds a blank into null, which made
+            // `valueReference=""` indistinguishable from no `valueReference` at all —
+            // so an empty one was reported as `MissingParameterValue` when the caller
+            // had plainly supplied it. CITE's `getProperty_emptyValueRef` asks for
+            // `InvalidParameterValue`, and it is right: *you did not give me this* and
+            // *what you gave me is not usable* are different things to fix.
+            kvp.TryGetValue("valuereference", out string? valueReference)
+                ? valueReference
+                : null);
 
         return true;
     }

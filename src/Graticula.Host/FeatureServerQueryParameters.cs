@@ -1102,12 +1102,25 @@ internal static class FeatureServerQueryParameters
             return true;
         }
 
+        // <b>The types as well as the names, so a date literal binds as a date.</b>
+        // Q-124: the grammar has no date literal and does not need one, but without
+        // knowing which columns hold timestamps the parser bound a quoted date as text
+        // and PostgreSQL refused the comparison. The last field wins on a duplicate
+        // name, which cannot happen on a real layer and would otherwise throw here.
+        Dictionary<string, FieldType> types = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (FieldDescription field in allFields)
+        {
+            types[field.Name] = field.Type;
+        }
+
         if (!WhereClause.TryParse(
                 raw,
                 [.. allFields.Select(f => f.Name)],
                 LayerDefinition.Quote,
                 out ParsedWhere parsed,
-                out error))
+                out error,
+                types))
         {
             error = $"'where' could not be parsed. {error}";
             return false;

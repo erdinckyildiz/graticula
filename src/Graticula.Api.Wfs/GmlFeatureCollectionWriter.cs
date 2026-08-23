@@ -58,14 +58,26 @@ public sealed class GmlFeatureCollectionWriter
     /// <param name="numberReturned">How many this page holds.</param>
     /// <param name="timestamp">When the response was produced.</param>
     /// <param name="cancellation">Cancellation.</param>
-    /// <returns>A task.</returns>
+    /// <param name="next">Where the following page is, or null if this is the last.</param>
+    /// <param name="previous">Where the preceding page is, or null if this is the first.</param>
+    /// <remarks>
+    /// <b><c>next</c> and <c>previous</c> are how a WFS client pages, and they were
+    /// absent.</b> §7.7.4.4.1 requires them on a response that is part of a larger
+    /// result set — CITE's <c>traverseResultSetInBothDirections</c> and
+    /// <c>getFeatureWithHitsOnly</c> both fail without them. <c>numberMatched</c> alone
+    /// is not a substitute: it tells a client how much there is and not how to ask for
+    /// the rest, and a client that has to construct <c>startIndex</c> itself is
+    /// guessing at a page size the server chose.
+    /// </remarks>
     public async Task WriteAsync(
         Stream stream,
         IAsyncEnumerable<Feature> features,
         long? numberMatched,
         long numberReturned,
         DateTimeOffset timestamp,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? next = null,
+        string? previous = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(features);
@@ -93,13 +105,7 @@ public sealed class GmlFeatureCollectionWriter
             // and nowhere to learn what they are. Added after validating against
             // schemas.opengis.net, which is exactly what ADR-039 condition 5 is
             // for.
-            await xml.WriteAttributeStringAsync(
-                    "xsi",
-                    "schemaLocation",
-                    WfsNames.Xsi,
-                    $"{WfsNames.Wfs} http://schemas.opengis.net/wfs/2.0/wfs.xsd "
-                    + $"{WfsNames.Namespace} {_endpoint}?service=WFS&version={WfsNames.Version}"
-                    + $"&request=DescribeFeatureType&typeNames={_type.QualifiedName}")
+            await xml.WriteAttributeStringAsync("xsi", "schemaLocation", WfsNames.Xsi, Hint())
                 .ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync(
@@ -123,6 +129,18 @@ public sealed class GmlFeatureCollectionWriter
                     numberReturned.ToString(CultureInfo.InvariantCulture))
                 .ConfigureAwait(false);
 
+            if (next is { Length: > 0 })
+            {
+                await xml.WriteAttributeStringAsync(null, "next", null, next)
+                    .ConfigureAwait(false);
+            }
+
+            if (previous is { Length: > 0 })
+            {
+                await xml.WriteAttributeStringAsync(null, "previous", null, previous)
+                    .ConfigureAwait(false);
+            }
+
             await foreach (Feature feature in features.WithCancellation(cancellation)
                 .ConfigureAwait(false))
             {
@@ -134,14 +152,87 @@ public sealed class GmlFeatureCollectionWriter
         }
     }
 
+    /// <summary>Writes one feature as the whole document.</summary>
+    /// <param name="stream">Where to write it.</param>
+    /// <param name="feature">The feature.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The <c>GetFeatureById</c> stored query answers with the feature, not with a
+    /// collection containing it</b> — WFS 2.0 §7.9.3.6. This surface wrapped it, so a
+    /// client looking for the requested <c>gml:id</c> on the root element found nothing:
+    /// CITE's <c>invokeGetFeatureById</c> reports *expected [look_buildings.1] but found
+    /// []*, which is a document that is well formed, contains the right feature, and
+    /// cannot be read by the operation that asked for it.
+    /// </para>
+    /// <para>
+    /// <b>The namespaces and the schema hint move to the feature element</b>, because
+    /// the element that was carrying them is gone and a feature document nobody can
+    /// resolve is no better than a collection nobody expected.
+    /// </para>
+    /// </remarks>
+    public async Task WriteFeatureAsync(
+        Stream stream, Feature feature, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(feature);
+
+        XmlWriter xml = XmlWriter.Create(stream, SafeXml.WriterSettings);
+
+        await using (xml.ConfigureAwait(false))
+        {
+            await xml.WriteStartElementAsync(WfsNames.Prefix, _type.Name, WfsNames.Namespace)
+                .ConfigureAwait(false);
+
+            await xml.WriteAttributeStringAsync("xmlns", "gml", null, WfsNames.Gml)
+                .ConfigureAwait(false);
+
+            await xml.WriteAttributeStringAsync("xmlns", "xsi", null, WfsNames.Xsi)
+                .ConfigureAwait(false);
+
+            await xml.WriteAttributeStringAsync("xsi", "schemaLocation", WfsNames.Xsi, Hint())
+                .ConfigureAwait(false);
+
+            await BodyAsync(xml, feature).ConfigureAwait(false);
+
+            await xml.WriteEndElementAsync().ConfigureAwait(false);
+            await xml.FlushAsync().ConfigureAwait(false);
+        }
+
+        cancellation.ThrowIfCancellationRequested();
+    }
+
+    private string Hint() =>
+        $"{WfsNames.Wfs} http://schemas.opengis.net/wfs/2.0/wfs.xsd "
+        + $"{WfsNames.Namespace} {_endpoint}?service=WFS&version={WfsNames.Version}"
+        + $"&request=DescribeFeatureType&typeNames={_type.QualifiedName}";
+
     private async Task MemberAsync(XmlWriter xml, Feature feature)
     {
-        string gmlId = _type.GmlIdOf(feature.Id);
-
         await xml.WriteStartElementAsync("wfs", "member", WfsNames.Wfs).ConfigureAwait(false);
 
         await xml.WriteStartElementAsync(WfsNames.Prefix, _type.Name, WfsNames.Namespace)
             .ConfigureAwait(false);
+
+        await BodyAsync(xml, feature).ConfigureAwait(false);
+
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One feature's identifier, properties and geometry, inside an element already open.
+    /// </summary>
+    /// <remarks>
+    /// <b>Shared between the collection and the single-feature document</b>, because two
+    /// writers for one feature is two places for `xsi:nil` and the geometry identifier to
+    /// drift, and the second would only be exercised by the one operation nobody tests
+    /// by hand.
+    /// </remarks>
+    private async Task BodyAsync(XmlWriter xml, Feature feature)
+    {
+        string gmlId = _type.GmlIdOf(feature.Id);
 
         await xml.WriteAttributeStringAsync("gml", "id", WfsNames.Gml, gmlId).ConfigureAwait(false);
 
@@ -178,9 +269,6 @@ public sealed class GmlFeatureCollectionWriter
                 .ConfigureAwait(false);
         }
 
-        await xml.WriteEndElementAsync().ConfigureAwait(false);
-
-        await xml.WriteEndElementAsync().ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);
     }
 

@@ -287,6 +287,58 @@ was four small changes. The failures were never evidence that this surface was f
 conforming; they were evidence that nobody had read the report. A count from a
 conformance suite is not a measurement until somebody groups it.
 
+## 6c. The suite re-run, 2026-08-23: 420 of 420
+
+**Every assertion the WFS 2.0 CITE suite makes about this surface passes.** Evidence:
+[cite-wfs20-2026-08-23.rdf](../reviews/cite-wfs20-2026-08-23.rdf) — 420 passed, 0 failed,
+390 untested. The untested are the conformance classes this decision declares FALSE:
+Transaction, LockFeature and standard joins.
+
+**§6b said the remaining fifteen were singles rather than families and that was almost
+right.** Nine distinct defects, and one of them accounted for four of the fifteen. In the
+order they were repaired:
+
+| Was | Defect | Repair |
+|---|---|---|
+| 1 | A `GetCapabilities` with no `service` was answered | OWS Common makes it required; a missing one is `MissingParameterValue` |
+| 2 | `gml:boundedBy` in a comparison answered `InvalidParameterValue` | It is a property every GML feature has, so the refusal is `OperationProcessingFailed` — *understood, and no* |
+| 2 | `valueReference=""` answered `MissingParameterValue` | Present-and-blank is `InvalidParameterValue`; the binder keeps the empty string so the two can be told apart |
+| 2 | `GetFeatureById` answered with a `wfs:FeatureCollection` | §7.9.3.6: the feature is the document |
+| 2 | An identifier naming nothing answered 400, or 200 with an empty collection | 404, for all three shapes of *not there* |
+| 1 | No `next` or `previous` on a partial result set | §7.7.4.4.1, built from the request's own query string |
+| 1 | No `next` on a hits-only response | A hits response is page zero — and the link states `resultType=results`, or a client loops on it |
+| 4 | A date literal reached PostgreSQL as text | [Q-124](../open-questions.md), answered — see below |
+
+**The date literals are the finding, because §6b defended keeping them broken.** Its own
+words: *the limitation itself is unchanged and deliberate — neither front end converts a
+date literal, so both give the same answer to the same question*. The symmetry argument
+was sound and the conclusion was wrong, for a reason visible from outside this decision:
+**the OGC API Features face had been converting dates correctly since it was written.**
+There were three front ends, not two, and the one nobody compared against had already
+answered the question — `DateTimeOffset.TryParse` with `AssumeUniversal |
+AdjustToUniversal`, and Npgsql maps a `DateTimeOffset` to `timestamptz`, which PostgreSQL
+compares with a `timestamp` column as well.
+
+So both remaining front ends convert now, and the symmetry §6b wanted is a symmetry of
+working rather than of failing. The ArcGIS `where` clause needed one more thing than the
+WFS filter did: `WhereClause.TryParse` knew column *names* and not types, so it takes an
+optional map of them. Optional, because a caller that does not know the types gets exactly
+the behaviour it had.
+
+**What this cost and what it bought.** Seven changes, none large, and the surface went
+from 96% to 100%. **What it did not buy is a standing number** — this ran by hand in a
+container, [D-63](../architecture-debt.md) means nothing runs it again, and a number
+earned that way decays. `WfsCiteRepairTests` asserts all nine repairs against the running
+server through the suite that does run, so a regression is caught by something other than
+somebody remembering to start Docker.
+
+**And two of the nine repairs were wrong on the first attempt, both caught by measuring
+rather than by reading.** The paging link preserved every parameter, so a hits response
+linked to itself — same document, same link, for ever — and the first version of the
+`next` guard then removed the hits link entirely, which is what the suite had asked for.
+Both are asserted now, in the same test, because *the attribute is present* and *the
+attribute is useful* are different claims and only the first is what a schema checks.
+
 ## 7. Conditions
 
 1. **A real QGIS connects to `/wfs` and draws a layer, and a real GDAL `ogr2ogr` reads one.** This

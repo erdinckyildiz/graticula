@@ -78,14 +78,38 @@ public abstract record AttributePredicate
     /// <param name="Column">A column of the layer, matched rather than pattern-checked.</param>
     /// <param name="Operator">One of six, from a fixed table.</param>
     /// <param name="Value">Bound as a parameter, never written into the statement.</param>
-    public sealed record Comparison(string Column, ComparisonOperator Operator, object? Value)
+    /// <param name="IgnoreCase">
+    /// Whether letter case is disregarded, which only means anything for text.
+    /// </param>
+    /// <remarks>
+    /// <b><c>IgnoreCase</c> exists because Filter Encoding 2.0 has <c>matchCase</c> and
+    /// this model had no way to express it.</b> The WFS face refused
+    /// <c>matchCase="false"</c> outright — the honest thing to do while the capability was
+    /// missing, since answering a case-sensitive comparison to a caller who asked for a
+    /// case-insensitive one is a wrong answer rather than a smaller one, and CITE's
+    /// <c>propertyIsEqualTo_caseSensitive</c> reported it as a 400 where 200 was due.
+    /// </remarks>
+    public sealed record Comparison(
+        string Column,
+        ComparisonOperator Operator,
+        object? Value,
+        bool IgnoreCase = false)
         : AttributePredicate;
 
     /// <summary>A field is null, or is not.</summary>
     public sealed record IsNull(string Column, bool Negated) : AttributePredicate;
 
     /// <summary>A field matches a SQL <c>like</c> pattern, or does not.</summary>
-    public sealed record Matches(string Column, string Pattern, bool Negated) : AttributePredicate;
+    /// <param name="Column">A column of the layer.</param>
+    /// <param name="Pattern">A SQL <c>like</c> pattern, already escaped.</param>
+    /// <param name="Negated">Whether the match is inverted.</param>
+    /// <param name="IgnoreCase">Whether letter case is disregarded.</param>
+    public sealed record Matches(
+        string Column,
+        string Pattern,
+        bool Negated,
+        bool IgnoreCase = false)
+        : AttributePredicate;
 
     /// <summary>A field falls between two values inclusive, or does not.</summary>
     public sealed record Between(string Column, object? Low, object? High, bool Negated)

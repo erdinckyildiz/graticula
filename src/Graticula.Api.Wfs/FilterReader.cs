@@ -419,7 +419,7 @@ public static class FilterReader
     {
         part = Part.Empty;
 
-        if (!MatchCaseIsHonoured(element, out fault)
+        if (!TryMatchCase(element, out bool ignoreCase, out fault)
             || !TryProperty(element, fields, out FieldDescription field, out fault)
             || !TryLiteral(element, field, Literal(element, 0), out object? value, out fault))
         {
@@ -427,7 +427,10 @@ public static class FilterReader
         }
 
         part = new Part(
-            new AttributePredicate.Comparison(field.Name, op, value), null, null, []);
+            new AttributePredicate.Comparison(field.Name, op, value, ignoreCase),
+            null,
+            null,
+            []);
 
         return true;
     }
@@ -644,7 +647,7 @@ public static class FilterReader
     {
         part = Part.Empty;
 
-        if (!MatchCaseIsHonoured(element, out fault)
+        if (!TryMatchCase(element, out bool ignoreCase, out fault)
             || !TryProperty(element, fields, out FieldDescription field, out fault))
         {
             return false;
@@ -664,7 +667,8 @@ public static class FilterReader
             new AttributePredicate.Matches(
                 field.Name,
                 SqlPattern(literal.Value, wildCard, singleChar, escapeChar),
-                Negated: false),
+                Negated: false,
+                IgnoreCase: ignoreCase),
             null,
             null,
             []);
@@ -834,26 +838,47 @@ public static class FilterReader
         return true;
     }
 
-    private static bool MatchCaseIsHonoured(XElement element, out WfsFault? fault)
+    /// <summary>Reads <c>matchCase</c>, which is true unless it says otherwise.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This used to refuse <c>matchCase="false"</c>, and refusing was right at the
+    /// time.</b> The query model had no case-insensitive comparison, and answering a
+    /// case-sensitive comparison to a caller who asked for a case-insensitive one is a
+    /// wrong answer rather than a smaller one — so an `OperationNotSupported` was the
+    /// truthful reply. CITE's `propertyIsEqualTo_caseSensitive` and
+    /// `propertyIsNotEqualTo_caseSensitive` reported it as 400 where 200 was due, which
+    /// is not the refusal being wrong but the capability being absent.
+    /// </para>
+    /// <para>
+    /// <b>The capability is there now</b> —
+    /// <see cref="AttributePredicate.Comparison.IgnoreCase"/> — so the attribute is read
+    /// rather than resisted. Filter Encoding 2.0 §7.7.3.2 defaults it to true; anything
+    /// that is not parseable as a boolean is a bad value rather than a false one, because
+    /// `matchCase="yes"` silently meaning *case-insensitive* is the kind of leniency
+    /// nobody can debug.
+    /// </para>
+    /// </remarks>
+    private static bool TryMatchCase(XElement element, out bool ignoreCase, out WfsFault? fault)
     {
         fault = null;
+        ignoreCase = false;
 
-        string? matchCase = (string?)element.Attribute("matchCase");
-
-        if (matchCase is null
-            || bool.TryParse(matchCase, out bool value) && value)
+        if ((string?)element.Attribute("matchCase") is not { } matchCase)
         {
             return true;
         }
 
-        fault = new WfsFault(
-            WfsFaultCode.OperationNotSupported,
-            "filter",
-            "matchCase=\"false\" is not supported: the query model has no case-insensitive "
-            + "comparison, and answering a case-sensitive comparison to a caller who asked for a "
-            + "case-insensitive one is a wrong answer rather than a smaller one.");
+        if (!bool.TryParse(matchCase, out bool value))
+        {
+            fault = WfsFault.Invalid(
+                "filter",
+                $"matchCase=\"{matchCase}\" is neither 'true' nor 'false'.");
 
-        return false;
+            return false;
+        }
+
+        ignoreCase = !value;
+        return true;
     }
 
     private static XElement? Literal(XElement element, int skip) => element
@@ -899,6 +924,27 @@ public static class FilterReader
             }
         }
 
+        // <b>A GML feature has properties no column corresponds to, and refusing them
+        // as unknown is the wrong refusal.</b> Every `gml:AbstractFeature` carries
+        // `boundedBy`, so a filter naming it is not naming something that does not
+        // exist — it is asking for a comparison against an envelope, which this server
+        // understands and cannot carry out. OWS Common has a code for exactly that
+        // distinction and CITE's `invalidOperand_boundedBy` asserts it:
+        // `OperationProcessingFailed` means *understood, and no*, while
+        // `InvalidParameterValue` means *that is not a thing*, and sending the second
+        // tells a client to look for a typo it will not find.
+        if (Gml.Contains(local))
+        {
+            fault = new WfsFault(
+                WfsFaultCode.OperationProcessingFailed,
+                "filter",
+                $"'gml:{local}' is a property every GML feature has and not one this server "
+                + "can compare. Use a spatial operator against the geometry property, which "
+                + "DescribeFeatureType names.");
+
+            return false;
+        }
+
         fault = WfsFault.Invalid(
             "filter",
             $"'{local}' is not a property of this feature type. A filter may only mention "
@@ -906,6 +952,20 @@ public static class FilterReader
 
         return false;
     }
+
+    /// <summary>
+    /// The properties GML gives every feature, which no column of ours corresponds to.
+    /// </summary>
+    /// <remarks>
+    /// <b>Consulted only after the layer's own columns, so a real column of the same
+    /// name always wins.</b> `name` and `description` are ordinary column names, and a
+    /// layer that has one must be filterable on it; this list exists to make the
+    /// *refusal* accurate for the case where it does not.
+    /// </remarks>
+    private static readonly HashSet<string> Gml = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "boundedBy", "name", "description", "identifier", "location",
+    };
 
     private static bool TryLiteral(
         XElement owner,
@@ -964,15 +1024,47 @@ public static class FilterReader
                 value = flag;
                 return true;
 
+            case FieldType.Date:
+                /*
+                  <b>Bound as a moment rather than as the text it arrived as, which is
+                  [Q-124](../../../docs/open-questions.md).</b> This used to fall through
+                  to the default and bind a string, so `observed_at = '2026-08-02'`
+                  reached PostgreSQL as `timestamp with time zone = text` and came back
+                  as `42883: operator does not exist` — a 400 saying nothing useful, on
+                  the filter an incident layer or an alert feed most wants. CITE's
+                  `propertyIsEqualTo_caseSensitive` is what finally named it, having
+                  compared a feature against a value this server had just published.
+
+                  <b>The old comment said the two front ends were kept equally unable on
+                  purpose, and that reasoning was sound and is now spent.</b> The
+                  divergence it feared was WFS converting while the ArcGIS `where` did
+                  not; both convert now, and the OGC API Features face has converted this
+                  way since it was written — Q-124's recommendation was to teach the
+                  provider, and the answer turned out to be sitting in the third surface
+                  all along.
+
+                  <b>UTC when the literal does not say, which is a choice and not a
+                  default.</b> `AssumeUniversal | AdjustToUniversal` is what the OGC face
+                  uses, so a bare `2026-08-02` means midnight UTC on all three surfaces
+                  rather than midnight wherever the server happens to be — a server whose
+                  answers move when its time zone is reconfigured is worse than one that
+                  is arguably an hour off.
+                */
+                if (!DateTimeOffset.TryParse(
+                        text,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out DateTimeOffset moment))
+                {
+                    fault = Mismatch(field, text, "a date or a date and time");
+                    return false;
+                }
+
+                value = moment;
+                return true;
+
             default:
-                // <b>Text, uuid, binary and date all bind as text, and the last of
-                // those is a known limit rather than an accident.</b> The SQL-92
-                // front end has the same one — its grammar has no date literal —
-                // so a comparison against a timestamp column is refused by the
-                // database in both surfaces rather than in one. Making WFS convert
-                // dates while ArcGIS does not would give the two front ends
-                // different answers to the same question, which is the divergence
-                // the shared emitter exists to prevent. Q-124.
+                // Text, uuid and binary bind as text, which is what they are.
                 value = text;
                 return true;
         }

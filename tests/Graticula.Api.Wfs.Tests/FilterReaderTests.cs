@@ -268,15 +268,98 @@ public sealed class FilterReaderTests
         Assert.Equal("a*b", Assert.IsType<AttributePredicate.Matches>(parsed.Predicate).Pattern);
     }
 
+    /// <summary>
+    /// <c>matchCase="false"</c> is carried into the query rather than refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>This test used to assert the refusal, and the refusal was right at the time.</b>
+    /// The query model had no case-insensitive comparison, and answering a case-sensitive
+    /// comparison to a caller who asked for a case-insensitive one is a wrong answer
+    /// rather than a smaller one — so `OperationNotSupported` was truthful. CITE's
+    /// `propertyIsEqualTo_caseSensitive` reported it as 400 where 200 was due, which is
+    /// the capability being absent rather than the refusal being wrong. It is present
+    /// now, and what this asserts is that the flag reaches the predicate: a reader that
+    /// parsed the attribute and dropped it would answer case-sensitively and look
+    /// identical from here.
+    /// </remarks>
     [Fact]
-    public void A_case_insensitive_comparison_is_refused_rather_than_answered_case_sensitively()
+    public void A_case_insensitive_comparison_reaches_the_predicate()
+    {
+        AttributePredicate.Comparison folded =
+            Assert.IsType<AttributePredicate.Comparison>(Ok(Wrap(
+                "<fes:PropertyIsEqualTo matchCase=\"false\">"
+                + "<fes:ValueReference>name</fes:ValueReference>"
+                + "<fes:Literal>ankara</fes:Literal></fes:PropertyIsEqualTo>")).Predicate);
+
+        Assert.True(folded.IgnoreCase);
+
+        // The default, and it is the specification's: Filter Encoding 2.0 §7.7.3.2 says
+        // matchCase is true when absent.
+        AttributePredicate.Comparison exact =
+            Assert.IsType<AttributePredicate.Comparison>(Ok(Wrap(
+                "<fes:PropertyIsEqualTo>"
+                + "<fes:ValueReference>name</fes:ValueReference>"
+                + "<fes:Literal>ankara</fes:Literal></fes:PropertyIsEqualTo>")).Predicate);
+
+        Assert.False(exact.IgnoreCase);
+
+        AttributePredicate.Matches like =
+            Assert.IsType<AttributePredicate.Matches>(Ok(Wrap(
+                "<fes:PropertyIsLike matchCase=\"false\" wildCard=\"*\" singleChar=\"?\" "
+                + "escapeChar=\"\\\\\">"
+                + "<fes:ValueReference>name</fes:ValueReference>"
+                + "<fes:Literal>ank*</fes:Literal></fes:PropertyIsLike>")).Predicate);
+
+        Assert.True(like.IgnoreCase);
+    }
+
+    /// <summary>
+    /// A <c>matchCase</c> that is neither boolean is a bad value, not a false one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because <c>matchCase="yes"</c> quietly meaning case-insensitive is a defect
+    /// nobody can debug.</b> `bool.TryParse` accepts only `true` and `false`, and this
+    /// asserts that everything else is refused rather than falling through to the
+    /// default in either direction.
+    /// </remarks>
+    [Fact]
+    public void A_matchCase_that_is_not_a_boolean_is_refused()
     {
         WfsFault fault = Refused(Wrap(
-            "<fes:PropertyIsEqualTo matchCase=\"false\">"
+            "<fes:PropertyIsEqualTo matchCase=\"maybe\">"
             + "<fes:ValueReference>name</fes:ValueReference>"
             + "<fes:Literal>ankara</fes:Literal></fes:PropertyIsEqualTo>"));
 
-        Assert.Equal(WfsFaultCode.OperationNotSupported, fault.Code);
+        Assert.Equal(WfsFaultCode.InvalidParameterValue, fault.Code);
+    }
+
+    /// <summary>
+    /// A GML property no column corresponds to is impossible rather than unknown.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two different refusals, and sending the wrong one wastes the caller's time.</b>
+    /// `InvalidParameterValue` means *that is not a thing*, so a client comparing against
+    /// `gml:boundedBy` goes looking for a typo in a property name every GML feature has.
+    /// `OperationProcessingFailed` means *understood, and no*. CITE's
+    /// `invalidOperand_boundedBy` asserts the second.
+    /// </remarks>
+    [Fact]
+    public void A_gml_property_is_refused_as_impossible_rather_than_as_unknown()
+    {
+        Assert.Equal(
+            WfsFaultCode.OperationProcessingFailed,
+            Refused(Wrap(
+                "<fes:PropertyIsEqualTo>"
+                + "<fes:ValueReference>gml:boundedBy</fes:ValueReference>"
+                + "<fes:Literal>x</fes:Literal></fes:PropertyIsEqualTo>")).Code);
+
+        // And anything genuinely absent keeps the refusal that names it absent.
+        Assert.Equal(
+            WfsFaultCode.InvalidParameterValue,
+            Refused(Wrap(
+                "<fes:PropertyIsEqualTo>"
+                + "<fes:ValueReference>no_such_column</fes:ValueReference>"
+                + "<fes:Literal>x</fes:Literal></fes:PropertyIsEqualTo>")).Code);
     }
 
     [Fact]

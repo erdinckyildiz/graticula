@@ -136,8 +136,45 @@ public static class PredicateSql
                     return false;
                 }
 
-                sql.Append(comparand).Append(' ').Append(Spelling(compare.Operator)).Append(' ')
-                   .Append(Bind(parameters, compare.Value));
+                /*
+                  <b>Case is folded on both sides, or on neither.</b> Filter Encoding's
+                  `matchCase="false"` asks for a comparison that disregards letter case,
+                  and `lower(col) = lower(@p)` is the portable way to say it — one that
+                  works for every comparison operator rather than only equality, because
+                  ordering text case-insensitively is a legitimate thing to ask.
+
+                  <b>And only for text, because only text has case.</b> `lower()` on an
+                  integer column is a type error in PostgreSQL, so a caller who sets
+                  matchCase on a numeric comparison gets the comparison they would have
+                  got anyway rather than a 500. Filter Encoding says matchCase applies to
+                  string comparison; a number silently ignoring it is the specification
+                  rather than a shortcut.
+
+                  <b>It defeats an index on that column</b>, which is the cost and is the
+                  caller's to choose. A functional index on `lower(col)` is a
+                  deployment's answer if it matters.
+                */
+                bool folded = compare.IgnoreCase && compare.Value is string;
+
+                if (folded)
+                {
+                    sql.Append("lower(").Append(comparand).Append(')');
+                }
+                else
+                {
+                    sql.Append(comparand);
+                }
+
+                sql.Append(' ').Append(Spelling(compare.Operator)).Append(' ');
+
+                if (folded)
+                {
+                    sql.Append("lower(").Append(Bind(parameters, compare.Value)).Append(')');
+                }
+                else
+                {
+                    sql.Append(Bind(parameters, compare.Value));
+                }
 
                 return true;
 
@@ -156,7 +193,14 @@ public static class PredicateSql
                     return false;
                 }
 
-                sql.Append(matched).Append(like.Negated ? " not like " : " like ")
+                // <b>`ilike` rather than `lower(col) like lower(@p)`.</b> PostgreSQL has
+                // the operator, it is what a reader of the statement expects, and it
+                // keeps the pattern's escape character meaning what it meant — folding a
+                // pattern through `lower()` is safe today and is one more thing to get
+                // right if the escaping ever changes.
+                sql.Append(matched).Append(like.Negated
+                        ? (like.IgnoreCase ? " not ilike " : " not like ")
+                        : (like.IgnoreCase ? " ilike " : " like "))
                    .Append(Bind(parameters, like.Pattern));
 
                 return true;

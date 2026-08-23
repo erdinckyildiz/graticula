@@ -85,13 +85,29 @@ public static class WhereClause
     /// <param name="quote">How to quote a column name for the target dialect.</param>
     /// <param name="parsed">The rebuilt SQL and its parameters.</param>
     /// <param name="error">Why it was refused, with a position.</param>
+    /// <param name="types">
+    /// What each column holds, where the caller knows. Optional, and only dates need it.
+    /// </param>
     /// <returns>Whether it parsed.</returns>
+    /// <remarks>
+    /// <b><c>types</c> exists so that a date literal can be bound as a date, which is
+    /// [Q-124](../../../docs/open-questions.md).</b> The grammar has no date literal and
+    /// does not need one: a quoted string is how every SQL-92 dialect writes a timestamp.
+    /// What was missing was the knowledge that the column on the other side of the
+    /// comparison holds one, so <c>observed_at = '2026-08-02'</c> reached PostgreSQL as
+    /// <c>timestamp with time zone = text</c> and came back as *operator does not exist* —
+    /// a 400 telling an operator nothing, on the filter a time series most wants.
+    /// <b>Optional rather than required, because a caller that does not know the types
+    /// gets exactly the behaviour it had</b>, and every caller that does know them is
+    /// holding a <c>LayerDescription</c> already.
+    /// </remarks>
     public static bool TryParse(
         string? text,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
         out ParsedWhere parsed,
-        out string? error)
+        out string? error,
+        IReadOnlyDictionary<string, FieldType>? types = null)
     {
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(quote);
@@ -116,7 +132,7 @@ public static class WhereClause
             return false;
         }
 
-        Parser parser = new(clause, columns);
+        Parser parser = new(clause, columns, types);
 
         if (!parser.TryParse(out AttributePredicate? predicate, out error))
         {
@@ -127,8 +143,59 @@ public static class WhereClause
     }
 
     /// <summary>Recursive descent over the grammar above.</summary>
-    private sealed class Parser(string text, IReadOnlyCollection<string> columns)
+    private sealed class Parser(
+        string text,
+        IReadOnlyCollection<string> columns,
+        IReadOnlyDictionary<string, FieldType>? types = null)
     {
+        /// <summary>
+        /// A literal, given the type of the column it is being compared with.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Only dates, and only when the caller said which columns are dates.</b> A
+        /// number is already a number by the time it gets here and text is already text;
+        /// a date arrives as a quoted string that PostgreSQL will not compare with a
+        /// timestamp, and nothing else in the grammar has that problem.
+        /// </para>
+        /// <para>
+        /// <b>UTC when the literal does not say, matching the other two surfaces.</b>
+        /// `AssumeUniversal | AdjustToUniversal` is what OGC API Features and the WFS
+        /// filter reader use, so `'2026-08-02'` means the same moment on all three. A
+        /// server whose answers move when its time zone is reconfigured is worse than one
+        /// that is arguably an hour off.
+        /// </para>
+        /// </remarks>
+        private bool Typed(string column, object? value, out object? bound, out string? error)
+        {
+            bound = value;
+            error = null;
+
+            if (value is not string text
+                || types is null
+                || !types.TryGetValue(column, out FieldType type)
+                || type != FieldType.Date)
+            {
+                return true;
+            }
+
+            if (!DateTimeOffset.TryParse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out DateTimeOffset moment))
+            {
+                error =
+                    $"'{column}' holds a date and '{text}' is not one. Write it as "
+                    + "'2026-08-02' or '2026-08-02T14:30:00Z'.";
+
+                return false;
+            }
+
+            bound = moment;
+            return true;
+        }
+
         /// <summary>The fixed table the grammar's operators come from.</summary>
         private static readonly (string Spelling, ComparisonOperator Meaning)[] Operators =
         [
@@ -333,7 +400,13 @@ public static class WhereClause
                     return false;
                 }
 
-                node = new AttributePredicate.Between(column!, low, high, not);
+                if (!Typed(column!, low, out object? lowBound, out error)
+                    || !Typed(column!, high, out object? highBound, out error))
+                {
+                    return false;
+                }
+
+                node = new AttributePredicate.Between(column!, lowBound, highBound, not);
                 return true;
             }
 
@@ -353,7 +426,12 @@ public static class WhereClause
                 return false;
             }
 
-            node = new AttributePredicate.Comparison(column!, op, value);
+            if (!Typed(column!, value, out object? bound, out error))
+            {
+                return false;
+            }
+
+            node = new AttributePredicate.Comparison(column!, op, bound);
             return true;
         }
 
@@ -375,12 +453,13 @@ public static class WhereClause
 
             while (true)
             {
-                if (!Literal(out object? value, out error))
+                if (!Literal(out object? value, out error)
+                    || !Typed(column, value, out object? bound, out error))
                 {
                     return false;
                 }
 
-                values.Add(value);
+                values.Add(bound);
 
                 SkipSpace();
 

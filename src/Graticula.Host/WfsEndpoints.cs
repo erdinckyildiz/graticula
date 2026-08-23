@@ -464,6 +464,10 @@ internal static class WfsEndpoints
         // <b>The stored query, which is the whole of Simple WFS's query surface.</b>
         // GetFeatureById takes one identifier of the form the writer produced, so
         // the type it names is the type to read and the rest is the identity.
+        // <b>Whether this is the addressed-resource operation, which changes two things:
+        // the status code for *not there*, and the shape of the answer.</b>
+        bool byId = request.StoredQueryId is { Length: > 0 };
+
         if (request.StoredQueryId is { Length: > 0 } storedQuery)
         {
             if (!string.Equals(
@@ -485,13 +489,21 @@ internal static class WfsEndpoints
                 || !WfsFeatureType.TrySplitResourceId(
                     resourceIds[0], out string storedType, out string storedId))
             {
+                // <b>404, because an identifier that does not name a feature of this
+                // server names no resource</b> — and an unparseable one names no
+                // resource just as certainly as a well-formed one that is absent.
+                // Splitting the two into a 400 and a 404 would make a client's
+                // retry logic depend on how wrong its identifier was.
                 await RefuseAsync(
                         context,
-                        WfsFault.Invalid(
+                        new WfsFault(
+                            WfsFaultCode.InvalidParameterValue,
                             "id",
-                            "GetFeatureById takes one 'id' of the form <typeName>.<identity> — "
-                            + "the same string this server writes as gml:id."),
-                        cancellation)
+                            "There is no feature with that identifier. GetFeatureById takes one "
+                            + "'id' of the form <typeName>.<identity> — the same string this "
+                            + "server writes as gml:id."),
+                        cancellation,
+                        StatusCodes.Status404NotFound)
                     .ConfigureAwait(false);
 
                 return;
@@ -522,7 +534,15 @@ internal static class WfsEndpoints
                 visible, typeNames[0], request.Namespaces,
                 out PublishedLayer? layer, out WfsFault? notFound))
         {
-            await RefuseAsync(context, notFound!, cancellation).ConfigureAwait(false);
+            // Under GetFeatureById the type came out of the identifier, so an unknown
+            // type is an unknown resource rather than a bad parameter.
+            await RefuseAsync(
+                    context,
+                    notFound!,
+                    cancellation,
+                    byId ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest)
+                .ConfigureAwait(false);
+
             return;
         }
 
@@ -582,6 +602,27 @@ internal static class WfsEndpoints
 
         long matched = await source.CountAsync(query!, cancellation).ConfigureAwait(false);
 
+        // <b>An identifier that matches nothing is a 404 and not an empty collection.</b>
+        // Every other operation here answers *no features* with a collection of none,
+        // which is the right answer to a question about a set. GetFeatureById is not a
+        // question about a set: it addresses one resource, and returning 200 with an
+        // empty document tells a client its identifier was fine and the feature is
+        // simply absent — which is exactly the case a 404 exists to name.
+        if (byId && matched == 0)
+        {
+            await RefuseAsync(
+                    context,
+                    new WfsFault(
+                        WfsFaultCode.InvalidParameterValue,
+                        "id",
+                        "There is no feature with that identifier on this server."),
+                    cancellation,
+                    StatusCodes.Status404NotFound)
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         // <b>`count=0` asks for none, and it is not the same as omitting count.</b>
         // WFS lets a client ask for the metadata in the results shape rather than
         // the hits shape, and `FeatureQuery` cannot express a limit of zero — its
@@ -635,11 +676,153 @@ internal static class WfsEndpoints
 
         context.Response.ContentType = WfsNames.GmlMediaType + "; charset=utf-8";
 
+        GmlFeatureCollectionWriter writer = new(type, outputSrid, Endpoint(context));
+
+        if (byId)
+        {
+            // <b>The feature itself, because that is what the operation returns.</b>
+            // §7.9.3.6, and the reason is in WriteFeatureAsync's own remark: a client
+            // that asked for one identifier reads the answer's root element, and this
+            // surface was handing it a collection. The 404 above guarantees there is
+            // one to write.
+            await StreamAsync(context, "wfs", async () =>
+                {
+                    await foreach (Feature only in features.WithCancellation(cancellation)
+                        .ConfigureAwait(false))
+                    {
+                        await writer
+                            .WriteFeatureAsync(context.Response.Body, only, cancellation)
+                            .ConfigureAwait(false);
+
+                        return;
+                    }
+                })
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        (string? next, string? previous) = Pages(context, request, query!, matched, returned);
+
         await StreamAsync(context, "wfs", () =>
-                new GmlFeatureCollectionWriter(type, outputSrid, Endpoint(context))
-                    .WriteAsync(
-                        context.Response.Body, features, matched, returned, now, cancellation))
+                writer.WriteAsync(
+                    context.Response.Body, features, matched, returned, now, cancellation,
+                    next, previous))
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Where the next and previous pages are, as absolute URLs, or null for neither.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>§7.7.4.4.1 requires these on any response that is part of a larger result
+    /// set, and this surface had neither.</b> Two CITE assertions fail without them and
+    /// the reason they matter is not conformance: <c>numberMatched</c> tells a client how
+    /// much there is, and nothing told it how to ask for the rest. A client left to build
+    /// <c>startIndex</c> itself is guessing at a page size the server chose, which is the
+    /// same class of problem as an extent a client cannot send back.
+    /// </para>
+    /// <para>
+    /// <b>Built from this request's own query string, with <c>startIndex</c> and
+    /// <c>count</c> replaced.</b> That keeps every other parameter — the filter, the
+    /// sort, the output format — exactly as the caller wrote it, which is what makes the
+    /// next page the same query rather than a similar one. <c>count</c> is written
+    /// explicitly even when the caller omitted it, because the page size that produced
+    /// this response is the server's and the following page has to match it or the pages
+    /// overlap.
+    /// </para>
+    /// <para>
+    /// <b>Omitted for an XML request, and that is a limitation rather than a
+    /// decision.</b> A POST body has no query string to amend, and re-encoding a
+    /// Filter Encoding document as KVP is not generally possible — a filter that needed
+    /// POST is a filter that does not fit a URL. A client that posts is a client
+    /// constructing requests programmatically, which is the one that can page for itself.
+    /// </para>
+    /// </remarks>
+    private static (string? Next, string? Previous) Pages(
+        HttpContext context, WfsRequest request, FeatureQuery query, long matched, long returned)
+    {
+        if (context.Request.Query.Count == 0)
+        {
+            return (null, null);
+        }
+
+        int size = query.Limit;
+        int start = request.StartIndex;
+
+        string At(int index, bool forceResults = false)
+        {
+            List<string> parts = [];
+
+            foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> pair
+                in context.Request.Query)
+            {
+                if (string.Equals(pair.Key, "startindex", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(pair.Key, "count", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(pair.Key, "maxfeatures", StringComparison.OrdinalIgnoreCase)
+                    || (forceResults
+                        && string.Equals(
+                            pair.Key, "resulttype", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                foreach (string? value in pair.Value)
+                {
+                    parts.Add(
+                        Uri.EscapeDataString(pair.Key)
+                        + "=" + Uri.EscapeDataString(value ?? string.Empty));
+                }
+            }
+
+            parts.Add("startIndex=" + index.ToString(CultureInfo.InvariantCulture));
+            parts.Add("count=" + size.ToString(CultureInfo.InvariantCulture));
+
+            if (forceResults)
+            {
+                parts.Add("resultType=results");
+            }
+
+            return Endpoint(context) + "?" + string.Join('&', parts);
+        }
+
+        /*
+          <b>A hits response is page zero, and that is the suite's reading rather than
+          mine.</b> `resultType=hits` returns a count and no features, so *the next page*
+          is arguable — but CITE's `getFeatureWithHitsOnly` asserts `next` present and
+          `previous` absent, which only makes sense if a client is expected to go from
+          the count straight to the first page of features.
+
+          <b>And it must not carry `resultType=hits` forward.</b> The first version of
+          this preserved every parameter, so `next` reproduced the request that had just
+          been answered — same document, same `next`, for ever. Measured against tr_il
+          before it shipped. So this one link drops `resultType` and states `results`,
+          which is the only place in this method that rewrites rather than preserves.
+        */
+        if (request.HitsOnly)
+        {
+            return (matched > 0 ? At(0, forceResults: true) : null, null);
+        }
+
+        // <b>`next` on the strength of `numberMatched`, not on a full page.</b> A page
+        // that happens to end exactly on the last feature is still the last page, and
+        // saying otherwise sends a client to an empty document.
+        //
+        // <b>And not at all when this page carried nothing, which is a loop rather than
+        // a page.</b> `resultType=hits` and `count=0` both answer with metadata and no
+        // features; `start + 0 < matched` is true for both, so the first version of this
+        // wrote a `next` pointing at the request that had just been answered — and
+        // because the URL preserves every other parameter, including `resultType`, a
+        // client following it would have received the same document with the same `next`
+        // for ever. Measured on `resultType=hits` against tr_il before it shipped.
+        string? next = returned > 0 && start + returned < matched
+            ? At((int)(start + returned))
+            : null;
+
+        string? previous = start > 0 ? At(Math.Max(0, start - size)) : null;
+
+        return (next, previous);
     }
 
     /// <summary>
@@ -1019,9 +1202,26 @@ internal static class WfsEndpoints
         isGeometry = false;
         isIdentifier = false;
 
-        if (string.IsNullOrWhiteSpace(request.PropertyValueReference))
+        // <b>Absent and blank are different refusals.</b> `MissingParameterValue` tells
+        // a caller to add the parameter; a caller who wrote `valueReference=""` has
+        // added it and needs to be told the value is unusable instead. CITE's
+        // `getProperty_emptyValueRef` asserts the second, and the request binder keeps
+        // the empty string rather than folding it to null so that this can tell them
+        // apart at all.
+        if (request.PropertyValueReference is null)
         {
             fault = WfsFault.Missing("valueReference");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.PropertyValueReference))
+        {
+            fault = WfsFault.Invalid(
+                "valueReference",
+                "The 'valueReference' parameter was supplied with no value. It names the "
+                + "property to return — DescribeFeatureType lists the ones this feature type "
+                + "has.");
+
             return false;
         }
 
@@ -1238,10 +1438,25 @@ internal static class WfsEndpoints
         yield break;
     }
 
+    /// <summary>Writes a refusal.</summary>
+    /// <remarks>
+    /// <b>400 for everything except a resource that is not there.</b>
+    /// <see cref="WfsFault"/>'s own remark explains why every refusal on this surface is
+    /// a 4xx carrying an <c>ows:ExceptionReport</c> rather than a bare status code, and
+    /// why 400 is the right one for a request the server will not carry out. **The
+    /// exception is <c>GetFeatureById</c>**, which is addressed like a resource and is
+    /// required to answer 404 when the identifier names nothing — CITE's
+    /// <c>invokeGetFeatureByIdWithUnknownID</c> accepts 404 or 403 and this surface sent
+    /// 400. The distinction is worth keeping: 400 says *fix your request* and a client
+    /// looking for a typo in an identifier it was given by this server will not find one.
+    /// </remarks>
     private static async Task RefuseAsync(
-        HttpContext context, WfsFault fault, CancellationToken cancellation)
+        HttpContext context,
+        WfsFault fault,
+        CancellationToken cancellation,
+        int status = StatusCodes.Status400BadRequest)
     {
-        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        context.Response.StatusCode = status;
         context.Response.ContentType = "text/xml; charset=utf-8";
 
         await fault.WriteAsync(context.Response.Body, cancellation).ConfigureAwait(false);
