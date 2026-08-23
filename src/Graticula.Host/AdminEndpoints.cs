@@ -4821,6 +4821,7 @@ internal static class AdminEndpoints
         HttpContext context,
         PublishRequest request,
         IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -4858,6 +4859,44 @@ internal static class AdminEndpoints
         }
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        /*
+          <b>Whose service is this, [D-104](../../docs/architecture-debt.md).</b>
+          `PublishLayerAsync` puts a layer into the existing service when the name and folder
+          match, which is the mechanism that lets three layers share one service and is working
+          as designed. It never asked whose service that was, so `serviceName` set to a
+          stranger's service added a layer to it and the caller needed only
+          `content:publishFeatures`.
+
+          <b>The hole is narrow and it is still a hole.</b> The layer arrives with its own
+          sharing scope and its own owner and the container's scope is explicitly not reset, so
+          this was never a way to read anything. It was a way to put a layer inside a container
+          somebody else is answerable for — and the person who has to explain what is in
+          their service is its owner.
+
+          <b>`admin:manageAllContent` passes, because that privilege is exactly this.</b> An
+          administrator reorganising somebody's services is the case it exists for, and refusing
+          them here would mean the only way to do it is to change the owner first.
+
+          <b>A service with no owner is nobody's and is left alone.</b> The seeded ones predate
+          ownership; refusing over a null would break publishing into them for everybody
+          including the person who made them.
+        */
+        if (publication.ServiceName is { Length: > 0 } wanted
+            && await layers.FindServiceAsync(publication.Folder, wanted, cancellation)
+                .ConfigureAwait(false) is { Owner: { } owner } existing
+            && owner != current.Principal.Id
+            && !current.Authorization.Allows(Privilege.AdminManageAllContent))
+        {
+            await Refuse(
+                context, 403,
+                $"'{existing.QualifiedName}' belongs to somebody else, so this layer was not "
+                + "added to it. Publishing into a service puts your layer inside a container "
+                + "another member is answerable for. Publish under a service name of your own, "
+                + "or ask its owner.").ConfigureAwait(false);
+
+            return;
+        }
 
         // <b>D-53: ask PostGIS what it makes of the source before recording it.</b> Publish
         // recorded a table it never looked at, so `hosted.tr_ilce_511f6767` was serving 18
@@ -4982,6 +5021,21 @@ internal static class AdminEndpoints
                 .ConfigureAwait(false);
 
             await Refuse(context, 409, Conflict(e, publication)).ConfigureAwait(false);
+        }
+        catch (UnknownDataSourceException e)
+        {
+            // <b>D-147: this used to be a 201.</b> The publish statement reads the data source
+            // first and every insert selects from that read, so an id nothing matches wrote no
+            // folder, no service and no layer — and the response said where the layer was.
+            await AuditAsync(
+                context, audit, "layer.publish", publication.Name,
+                Detail(new { dataSource = e.DataSourceId }), succeeded: false, cancellation)
+                .ConfigureAwait(false);
+
+            await Refuse(
+                context, 404,
+                $"There is no data source with id {e.DataSourceId}. Nothing was published. "
+                + "GET /admin/datasources lists the ones this server has.").ConfigureAwait(false);
         }
     }
 

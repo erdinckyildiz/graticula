@@ -316,15 +316,39 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         int at = 0;
         string? landed = null;
+        bool published = false;
 
         await using (NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                published = true;
                 at = reader.GetInt32(0);
                 landed = reader.IsDBNull(1) ? null : reader.GetString(1);
             }
+        }
+
+        /*
+          <b>No row means nothing was written, and until 2026-08-23 this said nothing.</b>
+          [D-147](../../../docs/architecture-debt.md): `chosen` reads the data source, and every
+          insert below selects from it, so an id that matches no row makes the entire statement a
+          no-op. `at` stayed 0, `landed` stayed null, and the address returned below was the one
+          computed in memory before the statement ran — so `POST /admin/layers` with a data
+          source that does not exist answered **201 Created** with an id, a service name and a
+          URL, and the store had fourteen layers before and after.
+
+          <b>The comment on `slot` above records the same class of defect from June</b> — a
+          service created with no layers and a 201 saying it worked — which is the argument for
+          checking the row count rather than for reading the CTE more carefully next time.
+
+          <b>The unknown source is the only way to get here, which is why the message names
+          it.</b> Every other failure in this statement raises: a duplicate name is 23505, a
+          missing service is 23503, a bad enum is 23514. Zero rows has exactly one cause.
+        */
+        if (!published)
+        {
+            throw new UnknownDataSourceException(publication.DataSourceId);
         }
 
         return new PublishedLayerAddress(

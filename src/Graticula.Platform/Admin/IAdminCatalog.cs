@@ -79,6 +79,33 @@ public sealed record LayerPublication(
     int? CacheSeconds = null,
     string? Folder = null);
 
+/// <summary>
+/// A publish named a data source this server does not have.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>[D-147](../../../docs/architecture-debt.md): the publish answered 201 and created
+/// nothing.</b> The statement that publishes a layer begins by reading the data source, and every
+/// insert in it selects from that read. A source id that matches no row makes the whole statement
+/// a no-op — no folder, no service, no layer — and the method returned the address it had
+/// computed in memory before asking. The caller was told where its layer was; there was no layer.
+/// </para>
+/// <para>
+/// <b>An exception rather than a nullable return, because five call sites assume success.</b>
+/// Four of them publish into a source they have just created or just validated and will never see
+/// this; the fifth is the admin endpoint, which turns it into a 404 naming the id. A nullable
+/// return would have been four places to forget a null check, which is the shape of the defect
+/// being repaired.
+/// </para>
+/// </remarks>
+/// <param name="dataSourceId">The id nothing matched.</param>
+public sealed class UnknownDataSourceException(Guid dataSourceId)
+    : Exception($"There is no data source with id {dataSourceId}, so nothing was published.")
+{
+    /// <summary>The id nothing matched.</summary>
+    public Guid DataSourceId { get; } = dataSourceId;
+}
+
 /// <summary>Where a freshly created group layer lives.</summary>
 /// <param name="Id">Its catalogue identity.</param>
 /// <param name="LayerIndex">Its number within the service — the URL segment.</param>

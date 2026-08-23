@@ -73,6 +73,141 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// A probe of a database with many tables pages like every other list here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-103](../../docs/architecture-debt.md): this table had no cap, where every other list
+    /// in this console pages at ten.</b> The measured case was a source with 77 publishable
+    /// tables rendering all 77 inline and taking the page past five thousand pixels; the dev
+    /// server's own datastore answers with 78, so the case is not hypothetical and needs no
+    /// staging.
+    /// </para>
+    /// <para>
+    /// <b>The count above the table is asserted with the page below it.</b> Paging a list without
+    /// saying how long it is replaces one problem with a worse one — a reader who cannot see
+    /// the end of a list and is not told where it is.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_probe_of_a_large_database_pages_its_tables()
+    {
+        await OpenSourcesAsync();
+
+        await ClickAsync("#sources [data-probe]");
+
+        await WaitForAsync(
+            "document.getElementById('probeRows')?.querySelectorAll('tr').length > 0",
+            "The probe never rendered a table of what it found.");
+
+        int all = await Browser.EvaluateAsync<int>(
+            "Number((document.getElementById('probeCount')?.textContent || '0')"
+            + ".match(/[0-9]+/)?.[0] || 0)");
+
+        if (all <= 10)
+        {
+            // A short list is not this row's case, and a pager on one would be exactly the
+            // furniture this console deliberately does not draw.
+            Assert.Equal(
+                0,
+                await Browser.EvaluateAsync<int>(
+                    "document.getElementById('probePager')"
+                    + "?.querySelectorAll('[data-page]').length ?? 0"));
+
+            return;
+        }
+
+        int rows = await Browser.EvaluateAsync<int>(
+            "document.getElementById('probeRows').querySelectorAll('tr').length");
+
+        Assert.True(
+            rows <= 10,
+            $"The probe found {all} tables and rendered {rows} of them at once. Every other list "
+            + "on this console pages at ten, and this one grew the page without bound.");
+
+        // The strip says which rows, not only which page — the same claim `pagerFor` makes
+        // for every list that uses it.
+        string strip = await Browser.EvaluateAsync<string>(
+            "document.getElementById('probePager').textContent") ?? string.Empty;
+
+        Assert.Contains(
+            all.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            strip,
+            StringComparison.Ordinal);
+
+        string first = await Browser.EvaluateAsync<string>(
+            "document.getElementById('probeRows').textContent") ?? string.Empty;
+
+        await ClickAsync("#probePager [data-page-to='1']");
+
+        await WaitForAsync(
+            "document.getElementById('probeRows').textContent !== "
+            + System.Text.Json.JsonSerializer.Serialize(first),
+            "Turning to the second page of the probe left the first page on the screen. A pager "
+            + "whose arrows do nothing is a defect this console has already recorded once, on a "
+            + "group's members.");
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
+    /// Filtering the probe narrows it, and the box is not replaced under the cursor.
+    /// </summary>
+    /// <remarks>
+    /// <b>Paging seventy-eight tables without a filter is eight page turns to find one.</b> So
+    /// the cap comes with a way to reach past it, built the way every other filtered list here is
+    /// built: the box lives outside the part that is redrawn. The one place this console got that
+    /// wrong — the share dialog's search — is recorded in `console.js` as a defect
+    /// twice over, and the symptom is a box that loses what was typed on every keystroke.
+    /// </remarks>
+    [Fact]
+    public async Task The_probe_filter_narrows_the_table_without_replacing_itself()
+    {
+        await OpenSourcesAsync();
+
+        await ClickAsync("#sources [data-probe]");
+
+        await WaitForAsync(
+            "document.getElementById('probeFilter') !== null",
+            "The probe rendered no filter, so a reader with seventy-eight tables has only "
+            + "arrows.");
+
+        // <b>Marked, so the assertion is about this element and not about an element with the
+        // same id.</b> A redraw replaces the node; the mark does not survive it.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { document.getElementById('probeFilter').dataset.mark = 'kept'; "
+            + "return true; })()");
+
+        // A table the probe actually found, so the filter is asked for something that exists
+        // rather than for a string this test invented.
+        string one = await Browser.EvaluateAsync<string>(
+            "document.getElementById('probeRows').querySelector('tr td.name')?.textContent || ''")
+            ?? string.Empty;
+
+        Assert.False(one.Length == 0, "the probe's first row names no table");
+
+        await FilterAsync("probeFilter", one);
+
+        await WaitForAsync(
+            "document.getElementById('probeCount').textContent.includes('match')",
+            "Typing in the probe's filter did not narrow anything.");
+
+        Assert.Equal(
+            "kept",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('probeFilter')?.dataset.mark || ''"));
+
+        Assert.Equal(
+            one,
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('probeFilter').value"));
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
+    /// <summary>
     /// Refusing to remove a source that has layers is announced, not only coloured.
     /// </summary>
     /// <remarks>

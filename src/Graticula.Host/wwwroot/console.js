@@ -5830,10 +5830,35 @@ function focusSources() {
   }
 }
 
+/**
+ * The last probe, held so its table can be paged and filtered without probing again.
+ *
+ * <b>D-103: this table had no cap, where every other list in this console pages at ten.</b> A
+ * source with 77 publishable tables rendered all 77 and took the page past five thousand pixels
+ * — on a database that is ordinary at the 100–1,000 services this product targets.
+ */
+let probeShown = null;
+
+/**
+ * Shows what a probe found: the shell, once.
+ *
+ * <b>The filter and the header are written here and the rows are written by
+ * {@link drawProbeRows}</b>, so typing in the box does not replace the box. Every other filtered
+ * list in this file is built the same way, and the one that was not — the share dialog's search —
+ * is recorded in this file as a defect twice over.
+ *
+ * <b>*Probed just now* is gone from the heading.</b> It was true when the only way to see this
+ * table was to probe; with a result held across page turns it would go on saying so on page
+ * eight.
+ */
 function renderProbe(name, r) {
-  const tables = r.tables || [];
+  probeShown = { name, result: r || {} };
+  resetPage("probeRows");
+
+  const all = probeShown.result.tables || [];
+
   $("probe").innerHTML = `
-    <h2>${h(name)} — probed just now</h2>
+    <h2>${h(name)} — probed</h2>
     <div class="panel pad">
       <div class="row" style="margin-bottom:10px">
         ${pill(r.outcome)}
@@ -5843,23 +5868,62 @@ function renderProbe(name, r) {
         <dt>PostgreSQL</dt><dd>${h(r.serverVersion || "—")}</dd>
         <dt>PostGIS</dt><dd>${h(r.postgisVersion || "—")}</dd>
         <dt>Can publish</dt><dd>${r.canPublish ? "yes" : "no"}</dd>
-        <dt>Tables visible</dt><dd>${num(tables.length)}</dd>
+        <dt>Tables visible</dt><dd>${num(all.length)}</dd>
       </dl>
     </div>
-    ${tables.length ? `<div class="panel" style="margin-top:14px">
+    ${all.length ? `<div class="panel" style="margin-top:14px">
+      <div class="row" style="margin:0 0 10px">
+        <input type="search" id="probeFilter" placeholder="Filter tables…"
+          ${all.length <= PAGE_SIZE ? "hidden" : ""}>
+        <span class="val" id="probeCount"></span>
+      </div>
       <table>
         <thead><tr><th>Schema</th><th>Table</th><th>Geometry</th><th class="num">SRID</th>
           <th>Object id</th><th>Writable</th></tr></thead>
-        <tbody>${tables.map(t => `<tr>
-          <td class="val">${h(t.schemaName)}</td>
-          <td class="name">${h(t.tableName)}</td>
-          <td class="val">${h(t.geometryType)} · ${h(t.geometryColumn)}</td>
-          <td class="num">${h(t.srid)}</td>
-          <td class="val">${h(t.objectIdColumn || "—")}</td>
-          <td>${t.writable ? "yes" : "read only"}</td>
-        </tr>`).join("")}</tbody>
+        <tbody id="probeRows"></tbody>
       </table>
+      <div id="probePager"></div>
     </div>` : ""}`;
+
+  drawProbeRows();
+}
+
+/**
+ * Draws the held probe's rows, at whatever page and filter they are on.
+ *
+ * <b>Sliced rather than re-read, which is the opposite of what the pager usually does.</b> Every
+ * other paged list re-runs its loader on a page turn, so the page you turn to is as fresh as the
+ * page you refresh onto. A probe is not that kind of read: it opens a connection to somebody
+ * else's database on the operator's explicit instruction, and turning a page is not that
+ * instruction.
+ */
+function drawProbeRows() {
+  if (!probeShown || !$("probeRows")) return;
+
+  const all = probeShown.result.tables || [];
+  const needle = ($("probeFilter")?.value || "").trim().toLowerCase();
+
+  const shown = needle
+    ? all.filter(t => [t.schemaName, t.tableName, t.geometryColumn, t.geometryType]
+        .some(v => (v || "").toLowerCase().includes(needle)))
+    : all;
+
+  $("probeCount").textContent = needle
+    ? `${shown.length} of ${all.length} match`
+    : `${all.length} table${all.length === 1 ? "" : "s"}`;
+
+  $("probeRows").innerHTML = shown.length === 0
+    ? `<tr><td colspan="6" class="empty">No table matches what you typed.</td></tr>`
+    : pageOf("probeRows", shown).map(t => `<tr>
+        <td class="val">${h(t.schemaName)}</td>
+        <td class="name">${h(t.tableName)}</td>
+        <td class="val">${h(t.geometryType)} · ${h(t.geometryColumn)}</td>
+        <td class="num">${h(t.srid)}</td>
+        <td class="val">${h(t.objectIdColumn || "—")}</td>
+        <td>${t.writable ? "yes" : "read only"}</td>
+      </tr>`).join("");
+
+  $("probePager").innerHTML = pagerFor("probeRows", shown.length);
 }
 
 // ----------------------------------------------------------------- operations
@@ -9125,6 +9189,11 @@ document.addEventListener("click", event => {
   else if (id === "addRows") {
     if (groupNow) drawGroupAdd(groupNow).then(paintPreviews);
   }
+
+  // <b>The one list that is sliced rather than re-read.</b> Turning a page here would otherwise
+  // open a connection to somebody else's database, which is a thing the operator asks for by
+  // pressing Probe. See drawProbeRows. D-103.
+  else if (id === "probeRows") drawProbeRows();
 });
 
 document.addEventListener("input", async event => {
@@ -9176,6 +9245,12 @@ document.addEventListener("input", async event => {
     resetPage("addRows");
     if (groupNow) await drawGroupAdd(groupNow);
     paintPreviews();
+    return;
+  }
+
+  if (event.target.id === "probeFilter") {
+    resetPage("probeRows");
+    drawProbeRows();
     return;
   }
 
