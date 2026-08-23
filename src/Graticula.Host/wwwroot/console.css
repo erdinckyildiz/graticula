@@ -1696,7 +1696,14 @@ pre.doc {
                  font-weight: 600; font-size: var(--t-small); margin-bottom: 6px; }
 .roleprivilege { display: flex; align-items: baseline; gap: var(--gap-3); padding: 3px 0; }
 .roleprivilege .mono { min-width: 22em; }
-.roleprivilege input[disabled] + .mono { color: var(--muted); }
+.roleprivilege input[disabled] + .privilegetext .mono { color: var(--muted); }
+
+/* <b>The name and its notes on one line, the sentence under them.</b> D-100: what a privilege
+   does is a sentence, and a sentence in a row of chips is a chip nobody reads. The wrapper
+   exists so the checkbox stays aligned with the name rather than with the middle of a
+   two-line block. */
+.privilegetext { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--gap-3); }
+.privilegewhat { flex-basis: 100%; color: var(--muted); font-size: 0.92em; max-width: 62em; }
 
 /* ---------------------------------------------------------------- the selected row
 

@@ -207,6 +207,96 @@ public sealed class RolePrivilegeCatalogueTests
     }
 
     /// <summary>
+    /// Every privilege says what it does, in a sentence somebody could act on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-100](../../../docs/architecture-debt.md): the screen an administrator reads to decide
+    /// who can do what did not say what anything does.</b> The row's defence was that the
+    /// identifiers are unusually self-describing, and its own trigger was the next privilege whose
+    /// name is not — it named `admin:manageSecurity` as arguably already that one. This is
+    /// what makes that arrive as a build failure instead of as a support question.
+    /// </para>
+    /// <para>
+    /// <b>Length and shape are asserted, not just presence.</b> A description that repeats the
+    /// identifier passes any test that only checks for a non-empty string, and it is exactly what
+    /// somebody adding a privilege in a hurry would write. So: a real sentence, ending in a full
+    /// stop, and not merely the name again.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_privilege_says_what_it_does()
+    {
+        List<string> wrong = [];
+
+        foreach (Privilege privilege in Roles.AllPrivileges)
+        {
+            string name = Roles.NameOf(privilege);
+            string said = Roles.DescriptionOf(privilege);
+
+            if (said.Length < 30)
+            {
+                wrong.Add($"{name}: \"{said}\" is not a sentence somebody could act on");
+                continue;
+            }
+
+            if (!said.EndsWith('.'))
+            {
+                wrong.Add($"{name}: \"{said}\" does not end in a full stop");
+            }
+
+            // <b>The identifier is not an explanation of itself.</b> `content:publishFeatures`
+            // described as *publish features* leaves the reader exactly where they started, and
+            // it is what this test exists to refuse.
+            string bare = name[(name.IndexOf(':', StringComparison.Ordinal) + 1)..];
+
+            if (said.Contains(name, StringComparison.OrdinalIgnoreCase)
+                && said.Length < bare.Length + 40)
+            {
+                wrong.Add($"{name}: the description is mostly the identifier again");
+            }
+        }
+
+        Assert.True(
+            wrong.Count == 0,
+            "A privilege whose description does not explain it is a privilege granted by "
+            + "guesswork:\n  " + string.Join("\n  ", wrong));
+    }
+
+    /// <summary>No two privileges are described with the same sentence.</summary>
+    /// <remarks>
+    /// <b>The pairs this catches are the ones that matter.</b> `features:edit` and
+    /// `features:fullEdit`, `sharing:shareToOrganization` and `sharing:shareToPublic`,
+    /// `admin:viewAllContent` and `admin:manageAllContent` — each pair differs in exactly
+    /// the way an administrator granting them needs to understand, and a copied sentence is how
+    /// that difference disappears.
+    /// </remarks>
+    [Fact]
+    public void No_two_privileges_are_described_the_same_way()
+    {
+        Dictionary<string, string> seen = new(StringComparer.OrdinalIgnoreCase);
+        List<string> shared = [];
+
+        foreach (Privilege privilege in Roles.AllPrivileges)
+        {
+            string said = Roles.DescriptionOf(privilege);
+
+            if (seen.TryGetValue(said, out string? first))
+            {
+                shared.Add($"{first} and {Roles.NameOf(privilege)}");
+                continue;
+            }
+
+            seen[said] = Roles.NameOf(privilege);
+        }
+
+        Assert.True(
+            shared.Count == 0,
+            "These privileges are described identically, so the screen says they do the same "
+            + "thing:\n  " + string.Join("\n  ", shared));
+    }
+
+    /// <summary>
     /// The compiled grants — which seed the store — are what they were before ADR-035.
     /// </summary>
     /// <remarks>

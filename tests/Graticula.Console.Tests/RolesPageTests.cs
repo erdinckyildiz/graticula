@@ -212,6 +212,52 @@ public sealed class RolesPageTests : ConsoleTest
         }
     }
 
+    /// <summary>Every privilege on the screen says what it does.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-100](../../docs/architecture-debt.md): the design review credited this screen's
+    /// structure and found the gap is meaning.</b> A role gets a sentence; the eighteen
+    /// privileges under it were bare identifiers with dependency notes. An administrator deciding
+    /// who may do what was reading a list of names.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on the screen and not only on the endpoint.</b> The sentence reaching
+    /// `/admin/roles` and never being rendered is the same gap with an extra field in it, and it
+    /// is the more likely of the two failures: the endpoint's half is covered by a unit test that
+    /// cannot see a template.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Every_privilege_on_the_screen_says_what_it_does()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/roles", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#rolePrivileges input[data-privilege]').length >= 18",
+            "The roles screen offered fewer than eighteen privileges, so there is nothing to read.");
+
+        // Each row's own sentence, read beside its own identifier, so a failure names the
+        // privilege rather than reporting a count.
+        string bare = await Browser.EvaluateAsync<string>(
+            """
+            [...document.querySelectorAll('#rolePrivileges .roleprivilege')]
+              .filter(l => (l.querySelector('.privilegewhat')?.textContent || '').trim().length < 30)
+              .map(l => l.querySelector('[data-privilege]')?.dataset.privilege || '?')
+              .join(', ')
+            """) ?? string.Empty;
+
+        Assert.True(
+            bare.Length == 0,
+            $"These privileges are offered with no explanation of what they do: {bare}. The "
+            + "screen an administrator reads to decide who can do what has to say what anything "
+            + "does.");
+
+        string[] errors = await PageErrorsAsync();
+        Assert.Empty(errors);
+    }
+
     /// <summary>The screen lists the roles and both privilege sections.</summary>
     [Fact]
     public async Task The_roles_screen_shows_both_sections_and_the_privilege_catalogue()

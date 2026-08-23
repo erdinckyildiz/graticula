@@ -245,6 +245,110 @@ public static class Roles
             nameof(privilege), privilege, "Not a privilege in ADR-018 §3a or ADR-035 §4c."),
     };
 
+    /// <summary>What each privilege lets somebody do, in one sentence.</summary>
+    /// <param name="privilege">The privilege.</param>
+    /// <returns>The sentence, addressed to whoever is deciding who gets it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-100](../../../docs/architecture-debt.md): the screen an administrator reads to
+    /// decide who can do what did not say what anything does.</b> A role carries a sentence and
+    /// the eighteen privileges under it were bare identifiers. The row's own defence was that the
+    /// identifiers are unusually self-describing and that this stops being true at the first one
+    /// that is not — naming `admin:manageSecurity` as arguably already that one.
+    /// </para>
+    /// <para>
+    /// <b>Written for the person granting it, not for the person who wrote it.</b> Each says what
+    /// the holder can reach, and where that is wider than the name suggests it says so: the
+    /// difference between editing what is shared with you and editing regardless of who made it,
+    /// between sharing to a group and sharing to the internet, between reading private content
+    /// and changing it.
+    /// </para>
+    /// <para>
+    /// <b>A switch rather than a dictionary, for the reason <see cref="NameOf"/> is one:</b> the
+    /// compiler names any privilege that has been added and not described, and
+    /// `RolePrivilegeCatalogueTests` asserts every one of them answers. The row's trigger was
+    /// *the next privilege added*; this is what makes that arrive as a build failure rather than
+    /// as a support question.
+    /// </para>
+    /// </remarks>
+    public static string DescriptionOf(Privilege privilege) => privilege switch
+    {
+        Privilege.ContentCreate =>
+            "Create items and own them. Everything else about content starts here.",
+
+        Privilege.ContentPublishFeatures =>
+            "Publish a hosted feature layer — upload data and turn it into a service this "
+            + "server stores and serves.",
+
+        Privilege.ContentPublishTiles =>
+            "Publish a hosted tile layer, which is the same upload served as pre-cut tiles "
+            + "instead of features.",
+
+        Privilege.ContentRegisterDataStore =>
+            "Register a database this server does not own. The credential is stored here and "
+            + "every layer published over it reaches whatever that credential reaches.",
+
+        Privilege.FeaturesEdit =>
+            "Edit features in layers shared with you, subject to whatever the layer itself "
+            + "allows.",
+
+        Privilege.FeaturesFullEdit =>
+            "Edit and delete any feature in those layers, including ones somebody else created. "
+            + "Wider than it sounds: it is the difference between correcting your own work and "
+            + "correcting everybody's.",
+
+        Privilege.SharingShareToOrganization =>
+            "Share an item with everybody signed in to this server.",
+
+        Privilege.SharingShareToPublic =>
+            "Share an item with anybody at all. This is the one that puts data on the internet, "
+            + "and it is deliberately separate from sharing to the organisation.",
+
+        Privilege.GroupsCreate =>
+            "Create a group. Whoever creates one owns it.",
+
+        Privilege.GroupsDeleteOwn =>
+            "Delete a group you own. Owning one is not the same as being allowed to remove it, "
+            + "which is why this is its own privilege.",
+
+        Privilege.GroupsManageMembers =>
+            "Add and remove a group's members — for groups you own or manage, not for every "
+            + "group on the server.",
+
+        Privilege.GroupsShareTo =>
+            "Share an item you own with a group you belong to, making it readable by that group "
+            + "and by nobody else.",
+
+        Privilege.AdminManageMembers =>
+            "Create members, disable them, and reassign what they own. Not enough on its own to "
+            + "change what anybody is allowed to do.",
+
+        Privilege.AdminManageRoles =>
+            "Grant and revoke roles and user types, and change what a role confers. Somebody with "
+            + "this decides what everybody else may do.",
+
+        Privilege.AdminViewAllContent =>
+            "Read every item regardless of who it is shared with. Using it is recorded in the "
+            + "audit log, because an administrator reading private content is legitimate and has "
+            + "to leave a trace.",
+
+        Privilege.AdminManageAllContent =>
+            "Update, delete and reassign any item on the server, including ones shared with "
+            + "nobody.",
+
+        Privilege.AdminManageSecurity =>
+            "Change how people sign in and stay signed in: certificates, session lifetime, "
+            + "password rules and the authentication settings. It does not read content, and it "
+            + "can decide who reaches it.",
+
+        Privilege.AdminManageServer =>
+            "Operate the server itself — migrations, connection pools, background workers, "
+            + "cache pinning and the operational screens that show what it is doing.",
+
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(privilege), privilege, "Not a privilege in ADR-018 §3a or ADR-035 §4c."),
+    };
+
     /// <summary>Every privilege, in the order the enum declares them.</summary>
     public static ImmutableArray<Privilege> AllPrivileges { get; } =
         [.. Enum.GetValues<Privilege>()];
