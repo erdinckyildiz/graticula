@@ -71,6 +71,8 @@ internal sealed class GeodatabaseImporter : BackgroundService
     private readonly IAdminCatalog _catalog;
     private readonly ILogger<GeodatabaseImporter> _log;
 
+    private readonly RepeatedFailure _claims = new();
+
     public GeodatabaseImporter(
         IJobStore jobs,
         GeodatabaseReader reader,
@@ -115,10 +117,23 @@ internal sealed class GeodatabaseImporter : BackgroundService
             }
             catch (Exception unreachable)
             {
-                Log.InspectorClaimFailed(_log, unreachable);
+                // <b>D-133: the first one in full, then a count.</b> This logged the whole
+                // Npgsql stack on every retry, and at one attempt every three seconds a
+                // seventeen-minute outage produced 338 warnings and 1.68 MB of identical
+                // text. A log that grows fastest when the server is least well is a log
+                // that fails at its own job, because the operator reading it during the
+                // outage cannot find anything else that happened.
+                Report(unreachable);
+
                 await Wait(stopping).ConfigureAwait(false);
                 continue;
             }
+
+            // <b>The claim worked, so if it had been failing say so.</b> Emitted here
+            // rather than inside Report because a recovery is a different event: an
+            // operator reads *it is back, after 338 failures over 17 minutes* as the line
+            // that closes an incident, and a summary line cannot say it.
+            Claimed();
 
             if (job is null)
             {
@@ -247,6 +262,53 @@ internal sealed class GeodatabaseImporter : BackgroundService
             // operator can choose from what it found; this is the other end of that, and without it a
             // decision nobody made would hold a file for ever.
             _scratch.Release(archive);
+        }
+    }
+
+
+    /// <summary>
+    /// Reports a failed claim: in full the first time, as a count thereafter.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="RepeatedFailure"/> for why. The recovery line is emitted from the
+    /// success path rather than here, because a recovery is a different event and an
+    /// operator reads it as one.
+    /// </remarks>
+    private void Report(Exception unreachable)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        switch (_claims.Failed(unreachable.Message, now))
+        {
+            case RepeatedFailure.Action.InFull:
+                Log.InspectorClaimFailed(_log, unreachable);
+                break;
+
+            case RepeatedFailure.Action.Summarise:
+                Log.ClaimStillFailing(
+                    _log,
+                    _claims.Times,
+                    _claims.For(now).TotalMinutes,
+                    unreachable.Message);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Notes that a claim worked, and says so if it had been failing.
+    /// </summary>
+    private void Claimed()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        int failures = _claims.Recovered(now, out TimeSpan over);
+
+        if (failures > 0)
+        {
+            Log.ClaimRecovered(_log, failures, over.TotalMinutes);
         }
     }
 

@@ -102,14 +102,22 @@ public sealed class CatalogFallback
     /// <param name="catalog">The catalogue.</param>
     /// <param name="time">The clock.</param>
     /// <param name="window">How long a remembered entry may be served.</param>
+    /// <param name="health">
+    /// Whether the store is worth asking, so an outage costs one wait rather than one per
+    /// request. Optional; D-131 is why it exists.
+    /// </param>
     public CatalogFallback(
-        PostgresLayerCatalog catalog, TimeProvider time, TimeSpan? window = null)
+        PostgresLayerCatalog catalog,
+        TimeProvider time,
+        TimeSpan? window = null,
+        Graticula.Platform.Catalog.IStoreHealth? health = null)
         : this(
             (folder, name, token) =>
                 (catalog ?? throw new ArgumentNullException(nameof(catalog)))
                     .FindServiceAsync(folder, name, token),
             time,
-            window)
+            window,
+            health)
     {
         Catalog = catalog;
     }
@@ -118,15 +126,23 @@ public sealed class CatalogFallback
     /// <param name="read">The read.</param>
     /// <param name="time">The clock.</param>
     /// <param name="window">How long a remembered entry may be served.</param>
+    /// <param name="health">
+    /// Whether the store is worth asking. Optional, so that a test of the remembering
+    /// policy does not have to construct a breaker to exercise it.
+    /// </param>
     public CatalogFallback(
         Func<string?, string, CancellationToken, Task<PublishedService?>> read,
         TimeProvider time,
-        TimeSpan? window = null)
+        TimeSpan? window = null,
+        Graticula.Platform.Catalog.IStoreHealth? health = null)
     {
         _read = read ?? throw new ArgumentNullException(nameof(read));
         _time = time ?? throw new ArgumentNullException(nameof(time));
         _window = window ?? DefaultWindow;
+        _health = health;
     }
+
+    private readonly Graticula.Platform.Catalog.IStoreHealth? _health;
 
     /// <summary>The service, and whether the store was reachable.</summary>
     /// <param name="folder">The folder, or null for the root.</param>
@@ -139,6 +155,23 @@ public sealed class CatalogFallback
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         (string, string) key = (folder ?? string.Empty, name.ToLowerInvariant());
+
+        /*
+          <b>Not asked at all when it failed moments ago, which is the second half of
+          [D-131](../../../docs/architecture-debt.md).</b> A blackholed connect costs four
+          seconds and this read is one of two a data request makes, so skipping it is half
+          the outage's per-request cost. The answer does not change: the catch below
+          already serves the remembered service, and this reaches the same line without
+          waiting to be told what is already known.
+
+          <b>Reported as blind, exactly as the catch does.</b> A caller told the store was
+          reachable when it was not would present stale data as fresh, which is the one
+          thing this class exists to prevent.
+        */
+        if (_health is { IsOpen: true })
+        {
+            return Remembered(key);
+        }
 
         try
         {
@@ -157,21 +190,36 @@ public sealed class CatalogFallback
                 Remember(key, service);
             }
 
+            _health?.Succeeded();
+
             return new CatalogAnswer(service, Blind: false, Age: TimeSpan.Zero);
         }
         catch (Exception e) when (IsUnreachable(e))
         {
-            if (!_last.TryGetValue(key, out (PublishedService Service, long Stamp) remembered))
-            {
-                return new CatalogAnswer(null, Blind: true, Age: TimeSpan.Zero);
-            }
+            _health?.Failed(e);
 
-            TimeSpan age = _time.GetElapsedTime(remembered.Stamp);
-
-            return age > _window
-                ? new CatalogAnswer(null, Blind: true, Age: age)
-                : new CatalogAnswer(remembered.Service, Blind: true, Age: age);
+            return Remembered(key);
         }
+    }
+
+    /// <summary>What is remembered about a service, and how stale it is.</summary>
+    /// <remarks>
+    /// <b>Shared between the two ways of arriving here</b> — the store failing, and the
+    /// store being known to have failed — because they produce the same answer and two
+    /// copies of it is two places for the window check to drift.
+    /// </remarks>
+    private CatalogAnswer Remembered((string, string) key)
+    {
+        if (!_last.TryGetValue(key, out (PublishedService Service, long Stamp) remembered))
+        {
+            return new CatalogAnswer(null, Blind: true, Age: TimeSpan.Zero);
+        }
+
+        TimeSpan age = _time.GetElapsedTime(remembered.Stamp);
+
+        return age > _window
+            ? new CatalogAnswer(null, Blind: true, Age: age)
+            : new CatalogAnswer(remembered.Service, Blind: true, Age: age);
     }
 
     private void Remember((string, string) key, PublishedService service)

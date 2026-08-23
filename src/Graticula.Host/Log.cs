@@ -73,6 +73,35 @@ internal static partial class Log
     public static partial void InspectorClaimFailed(ILogger logger, System.Exception? exception);
 
     [LoggerMessage(
+        EventId = 1046,
+        Level = LogLevel.Warning,
+        Message = "A worker has failed to claim work {Times} times over {Minutes:0.#} minutes, "
+                + "with the same reason each time: {Reason}. The first one carries the stack "
+                + "trace; this line exists so that a reader can tell *still away* from *the "
+                + "worker died* without the log growing by a stack trace every three seconds "
+                + "(D-133).")]
+    public static partial void ClaimStillFailing(
+        ILogger logger, int times, double minutes, string reason);
+
+    [LoggerMessage(
+        EventId = 1047,
+        Level = LogLevel.Information,
+        Message = "A worker is claiming work again after {Times} failures over {Minutes:0.#} "
+                + "minutes. This is the line that closes an incident: whatever it was asking "
+                + "for is back.")]
+    public static partial void ClaimRecovered(ILogger logger, int times, double minutes);
+
+    [LoggerMessage(
+        EventId = 1048,
+        Level = LogLevel.Warning,
+        Message = "A data source failed to answer and is not being asked again for "
+                + "{Seconds:0.#} s: {Source}. ADR-007 §4.8's N3 — without this, an outage "
+                + "becomes a connection storm at exactly the moment recovery is being "
+                + "attempted, and every refusal holds a connection for the whole of a "
+                + "blackholed connect (D-131).")]
+    public static partial void SourceTripped(ILogger logger, double seconds, string source);
+
+    [LoggerMessage(
         EventId = 1026,
         Level = LogLevel.Information,
         Message = "Job {Job} read a geodatabase and recorded what is in it. Its layers are in the "

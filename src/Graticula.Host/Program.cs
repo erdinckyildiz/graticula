@@ -88,10 +88,19 @@ public static class Program
         // serving instead of stopping the server. While the store answers,
         // every request still reads it and nothing about the healthy path
         // changes — see CatalogFallback.
+        // <b>ADR-007 §4.8's N3, the last of that section's four requirements to land.</b>
+        // One per worker, because the state it holds is *which source failed a moment ago*
+        // and that is a fact about this process's view of the world. Registered here
+        // rather than beside the connection pools because its first two consumers are the
+        // two that read the platform store — D-131's eight seconds were four of each.
+        builder.Services.AddSingleton(services => new SourceBreaker(
+            services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
+
         builder.Services.AddSingleton(services => new CatalogFallback(
             services.GetRequiredService<PostgresLayerCatalog>(),
             services.GetRequiredService<TimeProvider>(),
-            settings.CatalogFallbackWindow));
+            settings.CatalogFallbackWindow,
+            services.GetRequiredService<SourceBreaker>()));
 
         // <b>Read once at startup.</b> The directory listing is the set of font
         // stacks and it cannot change while the process runs, so scanning it per
@@ -301,7 +310,8 @@ public static class Program
         builder.Services.AddSingleton(services => new Authentication(
             services.GetRequiredService<IIdentityStore>(),
             services.GetRequiredService<TimeProvider>(),
-            services.GetRequiredService<IRoleGrants>()));
+            services.GetRequiredService<IRoleGrants>(),
+            services.GetRequiredService<SourceBreaker>()));
 
         builder.Services.AddSingleton(services => new LoginService(
             services.GetRequiredService<IIdentityStore>(),
@@ -414,8 +424,44 @@ public static class Program
         {
             long started = Stopwatch.GetTimestamp();
 
-            await next().ConfigureAwait(false);
+            /*
+              <b>In a finally, because an aborted request left no line at all.</b> This was
+              a plain `await next()` followed by the logging, so a request whose pipeline
+              threw — which is what a client resetting the connection mid-write does —
+              unwound straight past it. Measured: two connections reset during a 4000x4000
+              GetMap produced *Executing endpoint* and *Executed endpoint* from the
+              framework and **nothing from this middleware**.
 
+              <b>That is the real shape of [D-132](../../docs/architecture-debt.md).</b> The
+              row says the access log records `- 200` for a response nobody received, and
+              that is true for the case where the write fits a socket buffer the client
+              never drains. For a genuine mid-write abort there was no line to be wrong:
+              the request that failed is the one the log does not mention, which is worse,
+              because a reader counting requests never sees a gap.
+
+              <b>Nothing is swallowed.</b> The exception continues to whatever handles it;
+              this only guarantees the line.
+            */
+            try
+            {
+                await next().ConfigureAwait(false);
+            }
+            finally
+            {
+                Access(context, started, requests, requestLog, settings.RequestLog);
+            }
+        });
+
+        // <b>Static, so it captures nothing.</b> A closure over `settings` here would
+        // read fine and would be one more thing living for the life of the pipeline; the
+        // one value it needs is passed instead, and the compiler enforces that.
+        static void Access(
+            HttpContext context,
+            long started,
+            ILogger requests,
+            IRequestLog requestLog,
+            bool storeRow)
+        {
             /*
               <b>Redacted once and used twice.</b> The text line and the stored row are the
               same sentence written to two places, so they read the same query string —
@@ -434,6 +480,18 @@ public static class Program
             // pattern for CA1873 and the analyser is right in general: a deployment
             // that turns request logging off should not pay to build a string nothing
             // writes. Here the work is one pass over the query string.
+            /*
+              <b>What happened, not what the header promised, which is
+              [D-132](../../docs/architecture-debt.md).</b> `Response.StatusCode` is fixed
+              the moment the headers go out, so a client that hung up on the thousandth row
+              and a projection that threw on it were both logged as the 200 the header had
+              already announced. `grep -c ' - 499'` over a 6.6 MB log returned one, and that
+              one was ArcGIS's own *Token Required* using the number for something else.
+              `ResponseOutcome` answers the question somebody actually asks — *did they
+              leave or did we break* — because those have opposite next steps.
+            */
+            int outcome = ResponseOutcome.StatusFor(context);
+
             if (requests.IsEnabled(LogLevel.Information))
             {
                 Log.Request(
@@ -441,7 +499,7 @@ public static class Program
                     context.Request.Method,
                     context.Request.Path.Value,
                     redacted,
-                    context.Response.StatusCode);
+                    outcome);
             }
 
             /*
@@ -454,7 +512,7 @@ public static class Program
               record every request as anonymous — including every administrative one, which
               is the opposite of useful.
             */
-            if (!settings.RequestLog)
+            if (!storeRow)
             {
                 return;
             }
@@ -465,7 +523,12 @@ public static class Program
                 context.Request.Method,
                 context.Request.Path.Value ?? "/",
                 redacted is { Length: > 0 } ? redacted : null,
-                context.Response.StatusCode,
+
+                // <b>The same number the text line carries, and for the same reason.</b>
+                // The Logs screen is what an operator reads now, so a row saying 200 for a
+                // response nobody received would put D-132 back where it started with a
+                // nicer interface on it.
+                outcome,
                 (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                 who is { } resolved && !resolved.Principal.IsAnonymous
                     ? resolved.Principal.Name
@@ -474,7 +537,7 @@ public static class Program
                 RequestFacts.Face(context.Request.Path),
                 RequestFacts.Service(context.Request.Path),
                 context.Response.ContentLength));
-        });
+        }
 
         app.UseSecurityHeaders(settings.RequireHttps);
 
@@ -1504,13 +1567,15 @@ public static class Program
         // Taking the lease first is what keeps a count inside the bound — a filtered `count(*)` is one
         // of the more expensive statements this server issues, and it is the first thing an ArcGIS
         // client asks for.
-        using ConnectionBudget.Lease lease = source is BudgetedFeatureSource budgeted
+        BudgetedFeatureSource? budgeted = source as BudgetedFeatureSource;
+
+        using ConnectionBudget.Lease lease = budgeted is not null
             ? await budgeted.LeaseAsync(cancellation).ConfigureAwait(false)
             : default;
 
-        if (source is BudgetedFeatureSource wrapper)
+        if (budgeted is not null)
         {
-            source = wrapper.Inner;
+            source = budgeted.Inner;
         }
 
         if (source is not PostGisFeatureSource postgis)
@@ -1534,6 +1599,40 @@ public static class Program
             return;
         }
 
+        /*
+          <b>Reported to the breaker, because this path is invisible to the decorator it
+          just unwrapped.</b> D-131: the shape queries are the provider's own methods, so a
+          failure here told the breaker nothing and a `returnCountOnly` during an outage
+          kept paying the full four seconds — which is the request an ArcGIS client makes
+          first, so it is the one that matters most.
+
+          <b>Nothing is swallowed.</b> `Observe` returns false for a database that
+          answered, and a false filter leaves the exception to the middleware unchanged.
+        */
+        try
+        {
+            await ShapedAsync(context, layer, described, postgis, query, shape, html, cancellation)
+                .ConfigureAwait(false);
+
+            budgeted?.Observe(null);
+            return;
+        }
+        catch (Exception failure) when (budgeted?.Observe(failure) ?? false)
+        {
+            throw;
+        }
+    }
+
+    private static async Task ShapedAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription described,
+        PostGisFeatureSource postgis,
+        FeatureQuery query,
+        QueryShape shape,
+        bool html,
+        CancellationToken cancellation)
+    {
         switch (shape)
         {
             case QueryShape.Count:
@@ -2933,7 +3032,7 @@ public static class Program
             // recall and the document is truncated. Aborting turns it into an
             // incomplete transfer, which a client detects, instead of malformed
             // JSON, which it does not.
-            ErrorResponse.LogTruncated(loggerFactory.CreateLogger("query"), e);
+            ErrorResponse.LogTruncated(context, loggerFactory.CreateLogger("query"), e);
             context.Abort();
         }
     }

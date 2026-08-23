@@ -350,6 +350,7 @@ internal static class OgcFeaturesEndpoints
         catch (Exception e) when (context.Response.HasStarted)
         {
             ErrorResponse.LogTruncated(
+                context,
                 context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
                 e);
 

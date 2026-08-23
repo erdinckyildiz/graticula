@@ -67,8 +67,17 @@ internal sealed class Authentication
     /// What each role grants — ADR-035. Optional so that a caller with no store keeps the compiled
     /// answer every build before 2026-08-18 gave, rather than silently resolving to nothing.
     /// </param>
+    /// <param name="breaker">
+    /// ADR-007 §4.8's N3, so a store that failed moments ago is not asked again. Optional,
+    /// because a breaker is a property of a running server rather than of resolving a
+    /// principal, and a test that has to build one to check a token is paying for
+    /// something it is not about.
+    /// </param>
     public Authentication(
-        IIdentityStore store, TimeProvider time, IRoleGrants? grants = null)
+        IIdentityStore store,
+        TimeProvider time,
+        IRoleGrants? grants = null,
+        SourceBreaker? breaker = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
@@ -76,7 +85,10 @@ internal sealed class Authentication
         _store = store;
         _grants = grants ?? CompiledRoleGrants.Instance;
         _time = time;
+        _breaker = breaker;
     }
+
+    private readonly SourceBreaker? _breaker;
 
     /// <summary>
     /// Resolves the principal and what it may do, defaulting to anonymous.
@@ -102,6 +114,25 @@ internal sealed class Authentication
         // not honoured, and anonymous-with-no-grants holds no privilege at all.
         // The endpoints that need the store still refuse; the ones that do not,
         // answer.
+        /*
+          <b>[D-131](../../docs/architecture-debt.md): this is the first of the two
+          four-second waits.</b> Measured with the platform store stopped: `/rest/info`,
+          which reads nothing, answered 200 in 4.03 s — all of it here. Every route pays
+          it, because every route resolves a principal first, and a data request then pays
+          it again against its own source, which is where the 8.0 s came from.
+
+          <b>So a store that failed moments ago is not asked again.</b> The answer is the
+          same either way — an unreachable store yields anonymous, as the comment above
+          says — so skipping the attempt changes nothing about who the caller is and
+          removes four seconds from every request during an outage. That is the difference
+          between a degradation and a queue collapse: each of those waits holds a
+          connection for its whole duration.
+        */
+        if (_breaker is { } breaker && breaker.IsOpen(SourceBreaker.PlatformStore))
+        {
+            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
+        }
+
         try
         {
             AuthenticatedSession? session =
@@ -121,14 +152,22 @@ internal sealed class Authentication
                 await live.EnsureFreshAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            _breaker?.Succeeded(SourceBreaker.PlatformStore);
+
             return new RequestPrincipal(
                 principal,
                 session?.SessionId,
                 Authorization.Resolve(userType, roles, _grants, groups),
                 session?.MustChangePassword ?? false);
         }
-        catch (Npgsql.NpgsqlException)
+        catch (Npgsql.NpgsqlException unreachable)
         {
+            // <b>Recorded, not only survived.</b> This catch is why the outage was
+            // invisible to everything else: the request continued as anonymous and nothing
+            // else in the server learnt that the store had just cost four seconds. The
+            // breaker is the thing that learns it.
+            _breaker?.Failed(SourceBreaker.PlatformStore, unreachable);
+
             return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
         }
     }

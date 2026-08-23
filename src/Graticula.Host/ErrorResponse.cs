@@ -52,12 +52,28 @@ internal static class ErrorResponse
     /// Records a response that failed after bytes were already produced.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Separate from <see cref="WriteAsync"/> because there is nothing to write:
     /// the caller aborts the connection. This exists so the failure appears in
     /// the log rather than only as a client-side truncation.
+    /// </para>
+    /// <para>
+    /// <b>And it marks the request, which is the other half of
+    /// [D-132](../../docs/architecture-debt.md).</b> A line in the failure log said what
+    /// went wrong and the access log next to it still said <c>- 200</c>, because
+    /// <c>Response.StatusCode</c> was fixed when the headers went out. Two logs
+    /// disagreeing about the same request is worse than one of them being silent.
+    /// </para>
     /// </remarks>
-    public static void LogTruncated(ILogger logger, Exception exception) =>
+    /// <param name="context">The request, so the access log can record what happened.</param>
+    /// <param name="logger">Where to write the failure.</param>
+    /// <param name="exception">What went wrong.</param>
+    public static void LogTruncated(
+        HttpContext context, ILogger logger, Exception exception)
+    {
+        ResponseOutcome.Truncated(context, exception);
         Log.FailedMidResponse(logger, exception);
+    }
 
     /// <summary>
     /// How long a caller refused by the connection budget is asked to wait.
@@ -88,6 +104,9 @@ internal static class ErrorResponse
 
         if (context.Response.HasStarted)
         {
+            // Marked before the abort: aborting cancels RequestAborted, and after that
+            // there is no way left to tell whose fault it was.
+            ResponseOutcome.Truncated(context, exception);
             Log.FailedMidResponse(logger, exception);
             context.Abort();
             return;
@@ -251,6 +270,17 @@ internal static class ErrorResponse
                 "A coordinate reference system in this request is not one the projection "
                 + "database knows: " + srid.MessageText + ". The server is healthy; check "
                 + "the CRS, SRS, srsName, outSR or bboxSR you sent."),
+
+        // <b>The breaker's refusal, which is the same answer arriving 4,000 times faster.</b>
+        // D-131: a database that failed moments ago is asked again on the next request and
+        // blackholes for another four seconds, holding a connection throughout. This says the
+        // same thing as the NpgsqlException case below and says it immediately.
+        SourceUnreachableException breaker => (
+            StatusCodes.Status503ServiceUnavailable,
+            breaker.Message
+            + " Check /healthz/ready and /admin/health: the first says whether the platform "
+            + "store is up, and the second distinguishes it from a layer's own data source. "
+            + "Retry in a few seconds; the server will try the connection again by itself."),
 
         ConnectionBudgetFullException full => (
             StatusCodes.Status503ServiceUnavailable, full.Message),

@@ -28,7 +28,10 @@ namespace Graticula.Host;
 /// already work, from Npgsql's own pruning rather than from anything here — 79 backends to zero in 184
 /// seconds — and the cap is now <see cref="ConnectionBudget"/>, bounding requests per source and per
 /// worker, which bounds the pools because a request holds at most one connection from a source at a
-/// time. **Still absent: the circuit breaker and quiesce.** And the floor on an idle server is not
+/// time. **The circuit breaker landed 2026-08-23** — <see cref="SourceBreaker"/>, after
+/// [D-131](../../docs/architecture-debt.md) measured what its absence cost: 8.0 seconds a
+/// refusal during an outage, every one of them holding a connection for its whole four
+/// seconds. **Still absent: quiesce.** And the floor on an idle server is not
 /// zero but eight, held open by our own job polling, which is D-110 and which a request budget cannot
 /// reach.
 /// </para>
@@ -52,13 +55,18 @@ internal interface IServiceSources
 internal sealed class LayerConnections : IServiceSources, IDisposable
 {
     private readonly ConnectionBudget _budget;
+    private readonly SourceBreaker _breaker;
 
     /// <summary>Creates the pool cache.</summary>
     /// <param name="budget">ADR-007 §4.8's bound on how much of a database this worker asks for.</param>
-    public LayerConnections(ConnectionBudget budget)
+    /// <param name="breaker">§4.8's N3, which was the last of that section's four still absent.</param>
+    public LayerConnections(ConnectionBudget budget, SourceBreaker breaker)
     {
         ArgumentNullException.ThrowIfNull(budget);
+        ArgumentNullException.ThrowIfNull(breaker);
+
         _budget = budget;
+        _breaker = breaker;
     }
 
     /// <summary>How long a single statement may run before PostgreSQL stops it.</summary>
@@ -98,7 +106,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                     ? wanted
                     : null),
             _budget,
-            layer.ConnectionString);
+            layer.ConnectionString,
+            _breaker);
     }
 
     /// <summary>

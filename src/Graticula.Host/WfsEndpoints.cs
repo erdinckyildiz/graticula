@@ -857,6 +857,7 @@ internal static class WfsEndpoints
         catch (Exception e) when (context.Response.HasStarted)
         {
             ErrorResponse.LogTruncated(
+                context,
                 context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
                 e);
 

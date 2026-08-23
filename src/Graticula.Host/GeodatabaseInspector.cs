@@ -55,6 +55,8 @@ internal sealed class GeodatabaseInspector : BackgroundService
     private readonly ImportScratch _scratch;
     private readonly ILogger<GeodatabaseInspector> _log;
 
+    private readonly RepeatedFailure _claims = new();
+
     public GeodatabaseInspector(
         IJobStore jobs,
         GeodatabaseReader reader,
@@ -70,6 +72,53 @@ internal sealed class GeodatabaseInspector : BackgroundService
         _reader = reader;
         _scratch = scratch;
         _log = log;
+    }
+
+
+    /// <summary>
+    /// Reports a failed claim: in full the first time, as a count thereafter.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="RepeatedFailure"/> for why. The recovery line is emitted from the
+    /// success path rather than here, because a recovery is a different event and an
+    /// operator reads it as one.
+    /// </remarks>
+    private void Report(Exception unreachable)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        switch (_claims.Failed(unreachable.Message, now))
+        {
+            case RepeatedFailure.Action.InFull:
+                Log.InspectorClaimFailed(_log, unreachable);
+                break;
+
+            case RepeatedFailure.Action.Summarise:
+                Log.ClaimStillFailing(
+                    _log,
+                    _claims.Times,
+                    _claims.For(now).TotalMinutes,
+                    unreachable.Message);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Notes that a claim worked, and says so if it had been failing.
+    /// </summary>
+    private void Claimed()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        int failures = _claims.Recovered(now, out TimeSpan over);
+
+        if (failures > 0)
+        {
+            Log.ClaimRecovered(_log, failures, over.TotalMinutes);
+        }
     }
 
     /// <summary>How many jobs this instance has run, for one test.</summary>
@@ -112,11 +161,20 @@ internal sealed class GeodatabaseInspector : BackgroundService
                 // <b>The platform database being unreachable must not end this loop.</b> A worker that
                 // exits on the first failed claim never comes back without a restart, and the thing it
                 // is waiting for — a database — is the thing most likely to be briefly away.
-                Log.InspectorClaimFailed(_log, unreachable);
+                //
+                // <b>And it must not narrate the whole outage either, which is D-133.</b> One
+                // stack trace every three seconds is 100 kB a minute of the same sentence.
+                Report(unreachable);
 
                 await Wait(stopping).ConfigureAwait(false);
                 continue;
             }
+
+            // <b>The claim worked, so if it had been failing say so.</b> Emitted here
+            // rather than inside Report because a recovery is a different event: an
+            // operator reads *it is back, after 338 failures over 17 minutes* as the line
+            // that closes an incident, and a summary line cannot say it.
+            Claimed();
 
             if (job is null)
             {

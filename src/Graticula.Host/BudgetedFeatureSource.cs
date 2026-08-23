@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -29,8 +30,55 @@ namespace Graticula.Host;
 /// </para>
 /// </remarks>
 internal sealed class BudgetedFeatureSource(
-    IFeatureSource inner, ConnectionBudget budget, string source) : IFeatureSource
+    IFeatureSource inner,
+    ConnectionBudget budget,
+    string source,
+    SourceBreaker breaker) : IFeatureSource
 {
+    /// <summary>
+    /// Refuses at once when this source failed a moment ago, and reports what happens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-131](../../docs/architecture-debt.md): a refusal during an outage cost 8.0
+    /// seconds, six times out of six.</b> Two blackholed connects at four seconds each —
+    /// authentication resolves a principal before every route, then the endpoint reads.
+    /// Each of those refusals occupies a connection for its whole four seconds, so the
+    /// outage's cost grows with traffic instead of staying flat.
+    /// </para>
+    /// <para>
+    /// <b>Checked before the budget rather than after.</b> A source that cannot answer
+    /// should not take a permit on its way to failing: it would hold one for four seconds
+    /// and, with ADR-046's queue bound, would fill the queue with requests that are
+    /// certain to fail. Refusing first is what turns the outage from a queue collapse into
+    /// a flat cost.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<T> GuardedAsync<T>(
+        Func<CancellationToken, ValueTask<T>> work, CancellationToken cancellationToken)
+    {
+        if (breaker.IsOpen(source))
+        {
+            throw new SourceUnreachableException();
+        }
+
+        try
+        {
+            T answer = await work(cancellationToken).ConfigureAwait(false);
+            breaker.Succeeded(source);
+
+            return answer;
+        }
+        catch (Exception failure) when (breaker.Failed(source, failure))
+        {
+            // <b>Reported in the filter, so nothing is swallowed.</b> `Failed` returns
+            // false for a database that answered — a bad filter must not take a service
+            // down — and the filter returning false leaves the exception to whoever
+            // handles it, unchanged either way.
+            throw;
+        }
+    }
+
     /// <summary>
     /// What this wraps, for the one caller that needs the provider's own type.
     /// </summary>
@@ -58,8 +106,44 @@ internal sealed class BudgetedFeatureSource(
     /// shape queries, would leave a hole in the bound exactly where an ArcGIS client's first request
     /// goes.
     /// </remarks>
-    public ValueTask<ConnectionBudget.Lease> LeaseAsync(CancellationToken cancellationToken) =>
-        budget.EnterAsync(source, cancellationToken);
+    public ValueTask<ConnectionBudget.Lease> LeaseAsync(CancellationToken cancellationToken)
+    {
+        // <b>The breaker applies to the unwrapped path too.</b> A caller reaching past
+        // this decorator for the provider's own methods is still asking the same database,
+        // and exempting it would leave the hole exactly where an ArcGIS client's first
+        // request goes — the same reasoning this method's remarks give for the budget.
+        if (breaker.IsOpen(source))
+        {
+            throw new SourceUnreachableException();
+        }
+
+        return budget.EnterAsync(source, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports to the breaker what happened on the unwrapped path.
+    /// </summary>
+    /// <param name="failure">What went wrong, or null when the work succeeded.</param>
+    /// <returns>Whether a failure tripped the breaker.</returns>
+    /// <remarks>
+    /// <b>Because <see cref="Inner"/> exists, and everything reached through it is
+    /// invisible to this decorator.</b> `ShapedQueryAsync` unwraps to call the provider's
+    /// own count, id-list, extent and statistics methods, and those are exactly the
+    /// requests an ArcGIS client makes first. Without this, a `returnCountOnly` during an
+    /// outage failed against the source and told the breaker nothing — measured: eight
+    /// serial refusals at 8.0 seconds each with the breaker already in place, because only
+    /// the authentication half of the cost was being reported.
+    /// </remarks>
+    public bool Observe(Exception? failure)
+    {
+        if (failure is null)
+        {
+            breaker.Succeeded(source);
+            return false;
+        }
+
+        return breaker.Failed(source, failure);
+    }
 
     /// <inheritdoc/>
     public FeatureSchema SchemaFor(FeatureQuery query) => inner.SchemaFor(query);
@@ -69,6 +153,18 @@ internal sealed class BudgetedFeatureSource(
         FeatureQuery query,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        // <b>Not wrapped in GuardedAsync, because an iterator cannot be.</b> A `yield
+        // return` inside a `try` with a `catch` is a compiler error, and rewriting this as
+        // a buffered read to get one would undo the streaming the whole face is built on.
+        // So the check is explicit and the failure is reported by the first `MoveNext`
+        // throwing to the caller, where the exception middleware sees it — the breaker
+        // misses that one trip and catches the next request's, which costs one slow
+        // request rather than a design.
+        if (breaker.IsOpen(source))
+        {
+            throw new SourceUnreachableException();
+        }
+
         using ConnectionBudget.Lease lease =
             await budget.EnterAsync(source, cancellationToken).ConfigureAwait(false);
 
@@ -77,23 +173,31 @@ internal sealed class BudgetedFeatureSource(
         {
             yield return feature;
         }
+
+        breaker.Succeeded(source);
     }
 
     /// <inheritdoc/>
-    public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)
-    {
-        using ConnectionBudget.Lease lease =
-            await budget.EnterAsync(source, cancellationToken).ConfigureAwait(false);
+    public Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken) =>
+        GuardedAsync(
+            async token =>
+            {
+                using ConnectionBudget.Lease lease =
+                    await budget.EnterAsync(source, token).ConfigureAwait(false);
 
-        return await inner.DescribeAsync(cancellationToken).ConfigureAwait(false);
-    }
+                return await inner.DescribeAsync(token).ConfigureAwait(false);
+            },
+            cancellationToken).AsTask();
 
     /// <inheritdoc/>
-    public async Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken)
-    {
-        using ConnectionBudget.Lease lease =
-            await budget.EnterAsync(source, cancellationToken).ConfigureAwait(false);
+    public Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken) =>
+        GuardedAsync(
+            async token =>
+            {
+                using ConnectionBudget.Lease lease =
+                    await budget.EnterAsync(source, token).ConfigureAwait(false);
 
-        return await inner.CountAsync(query, cancellationToken).ConfigureAwait(false);
-    }
+                return await inner.CountAsync(query, token).ConfigureAwait(false);
+            },
+            cancellationToken).AsTask();
 }
