@@ -37,6 +37,104 @@ public sealed class JobStoreTests : PostgresFixture
     /// <c>where</c> clause and the two cases are indistinguishable from outside — which is the point,
     /// and is why this test asserts both in one place.
     /// </remarks>
+    /// <summary>
+    /// A claim writes down which worker took the row.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-96](../../docs/architecture-debt.md), found the expensive way.</b> A Python worker
+    /// built and reversed earlier the same day was still running in a container three hours
+    /// later, still polling this table. It claimed a real upload and failed it with
+    /// `KeyError: 'archive'` — a failure describing a program nobody was running, and about
+    /// forty minutes to trace to a container. `for update skip locked` gives the row to whoever
+    /// asks first, which is ADR-011 §3.2 working as designed; what the table could not say is who
+    /// that was.
+    /// </remarks>
+    [Fact]
+    public async Task A_claim_records_which_worker_took_it()
+    {
+        await MigrateAsync();
+
+        PostgresJobStore jobs = new(DataSource);
+
+        (Guid owner, _) = await MemberAsync("zz_job_claimant");
+
+        JobRecord made = await jobs.CreateAsync(
+            owner, JobKind.GeodatabaseImport, "hosted/roads", null, CancellationToken.None);
+
+        // Queued rows have nobody: the column answers *not yet* rather than *nobody knows*.
+        Assert.Null(made.ClaimedBy);
+
+        JobRecord? claimed = await jobs.ClaimAsync(
+            JobKind.GeodatabaseImport, "graticula/import machine#42", 1, CancellationToken.None);
+
+        Assert.NotNull(claimed);
+        Assert.Equal(made.Id, claimed!.Id);
+        Assert.Equal("graticula/import machine#42", claimed.ClaimedBy);
+
+        // And it survives the read the operator's screen makes, not only the claim's own return.
+        JobRecord? read = await jobs.FindAsync(made.Id, owner, false, CancellationToken.None);
+
+        Assert.Equal("graticula/import machine#42", read!.ClaimedBy);
+    }
+
+    /// <summary>
+    /// A job written in a shape this worker does not speak is left alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The prevention half of [D-96](../../docs/architecture-debt.md).</b> Changing what
+    /// `detail` holds and bumping the number stops an un-updated worker claiming work it would
+    /// mangle — it leaves the row queued for a worker that speaks it, instead of failing it
+    /// for a reason the caller cannot act on.
+    /// </para>
+    /// <para>
+    /// <b>Both directions, because a filter that never matches is as broken as one that always
+    /// does.</b> The worker that speaks the newer shape takes the same row immediately after.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_worker_does_not_claim_a_shape_it_does_not_speak()
+    {
+        await MigrateAsync();
+
+        PostgresJobStore jobs = new(DataSource);
+
+        (Guid owner, _) = await MemberAsync("zz_job_protocol");
+
+        JobRecord made = await jobs.CreateAsync(
+            owner, JobKind.GeodatabaseImport, "hosted/roads", null, CancellationToken.None,
+            protocol: 2);
+
+        Assert.Equal(2, made.Protocol);
+
+        Assert.Null(await jobs.ClaimAsync(
+            JobKind.GeodatabaseImport, "graticula/import old", 1, CancellationToken.None));
+
+        JobRecord? claimed = await jobs.ClaimAsync(
+            JobKind.GeodatabaseImport, "graticula/import new", 2, CancellationToken.None);
+
+        Assert.NotNull(claimed);
+        Assert.Equal(made.Id, claimed!.Id);
+        Assert.Equal(2, claimed.Protocol);
+    }
+
+    /// <summary>A claim has to say what it is.</summary>
+    /// <remarks>
+    /// <b>Refused rather than defaulted.</b> A blank worker name would put the column back where
+    /// it started — a row that says a claim happened and not who made it — and the
+    /// default would be invisible at the call site.
+    /// </remarks>
+    [Fact]
+    public async Task A_claim_without_a_name_is_refused()
+    {
+        await MigrateAsync();
+
+        PostgresJobStore jobs = new(DataSource);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => jobs.ClaimAsync(JobKind.GeodatabaseImport, "  ", 1, CancellationToken.None));
+    }
+
     [Fact]
     public async Task A_job_is_the_owners_and_a_stranger_cannot_tell_it_exists()
     {
@@ -387,7 +485,7 @@ public sealed class JobStoreTests : PostgresFixture
 
         try
         {
-            claimed = await jobs.ClaimAsync(JobKind.GeodatabaseImport, patience.Token);
+            claimed = await jobs.ClaimAsync(JobKind.GeodatabaseImport, Worker, 1, patience.Token);
         }
         catch (OperationCanceledException)
         {
@@ -415,17 +513,25 @@ public sealed class JobStoreTests : PostgresFixture
             + "of workers into a queue of one.");
 
         // Nothing left queued, so a third claim finds nothing rather than the locked row.
-        Assert.Null(await jobs.ClaimAsync(JobKind.GeodatabaseImport, CancellationToken.None));
+        Assert.Null(await jobs.ClaimAsync(
+            JobKind.GeodatabaseImport, Worker, 1, CancellationToken.None));
 
         await held.RollbackAsync();
 
         // With the lock released the first job is claimable again — it was never taken.
         JobRecord? afterwards = await jobs.ClaimAsync(
-            JobKind.GeodatabaseImport, CancellationToken.None);
+            JobKind.GeodatabaseImport, Worker, 1, CancellationToken.None);
 
         Assert.NotNull(afterwards);
         Assert.Equal(first.Id, afterwards!.Id);
     }
+
+    /// <summary>What these tests call themselves when they claim.</summary>
+    /// <remarks>
+    /// <b>[D-96](../../docs/architecture-debt.md).</b> The store records who took a row, so
+    /// every claim has to say. Named for the suite because that is what is running.
+    /// </remarks>
+    private const string Worker = "graticula/test JobStoreTests";
 
     private async Task<(Guid Id, string Name)> MemberAsync(string name)
     {

@@ -84,6 +84,16 @@ public enum JobStatus
 /// <param name="Created">When it was recorded.</param>
 /// <param name="Started">When a worker took it, or null.</param>
 /// <param name="Finished">When it stopped, either way, or null.</param>
+/// <param name="ClaimedBy">
+/// Which worker took it, or null while it is still queued.
+/// <b>[D-96](../../../docs/architecture-debt.md): a failure has to name a program somebody
+/// is running.</b> `for update skip locked` gives the row to whoever asks first, which is
+/// ADR-011 §3.2 working as designed; what the table could not say is who that was.
+/// </param>
+/// <param name="Protocol">
+/// Which version of the request shape <paramref name="Detail"/> is written in. A worker
+/// claims a job only when it speaks that version or later.
+/// </param>
 public sealed record JobRecord(
     Guid Id,
     JobKind Kind,
@@ -95,7 +105,9 @@ public sealed record JobRecord(
     string? Failure,
     DateTimeOffset Created,
     DateTimeOffset? Started,
-    DateTimeOffset? Finished);
+    DateTimeOffset? Finished,
+    string? ClaimedBy = null,
+    int Protocol = 1);
 
 /// <summary>
 /// A record of long work, so a request that cannot be answered now can be answered later.
@@ -148,12 +160,18 @@ public interface IJobStore
     /// <param name="detail">What was asked for, as JSON, or null.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The record, as stored.</returns>
+    /// <param name="protocol">
+    /// Which version of the request shape <paramref name="detail"/> is written in. A worker
+    /// claims a job only when it speaks that version or later —
+    /// [D-96](../../../docs/architecture-debt.md).
+    /// </param>
     Task<JobRecord> CreateAsync(
         Guid owner,
         JobKind kind,
         string? subject,
         string? detail,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        int protocol = 1);
 
     /// <summary>One job, or null when there is none with that id.</summary>
     /// <param name="id">Which job.</param>
@@ -213,7 +231,24 @@ public interface IJobStore
     /// building it now would be guessing at a timeout with nothing measured behind it.
     /// </para>
     /// </remarks>
-    Task<JobRecord?> ClaimAsync(JobKind kind, CancellationToken cancellationToken);
+    /// <param name="worker">
+    /// What this claimant is, written onto the row it takes.
+    /// <b>[D-96](../../../docs/architecture-debt.md): a Python worker built and reversed earlier
+    /// the same day was still running in a container three hours later, still polling this
+    /// table.</b> It claimed a real upload and failed it with `KeyError: 'archive'` — a
+    /// failure describing a program nobody was running, which took about forty minutes to trace.
+    /// `for update skip locked` gives the row to whoever asks first, which is ADR-011 §3.2
+    /// working as designed; what the table could not say is who that was.
+    /// </param>
+    /// <param name="speaks">
+    /// The highest request-shape version this claimant understands. A job written in a later
+    /// shape is left alone rather than claimed and failed.
+    /// <b>This binds only workers that read it.</b> A foreign worker ignoring the column claims
+    /// as before, and is diagnosed by <paramref name="worker"/> rather than prevented —
+    /// stating otherwise would be a guarantee this store cannot keep.
+    /// </param>
+    Task<JobRecord?> ClaimAsync(
+        JobKind kind, string worker, int speaks, CancellationToken cancellationToken);
 
     /// <summary>Reports how far along a running job is.</summary>
     /// <param name="id">Which job.</param>

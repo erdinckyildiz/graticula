@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(31);
+    public static SchemaVersion ComponentSchemaVersion => new(32);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -66,6 +66,7 @@ public static class PlatformMigrations
         JobInspectKindV29,
         CoveragesV30,
         LogsV31,
+        JobClaimIdentityV32,
     ]);
 
 
@@ -137,6 +138,59 @@ public static class PlatformMigrations
     /// first condition is about.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A claim says who took the job and what request shape it speaks.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-96](../../../docs/architecture-debt.md), and it was found the expensive way.</b> A
+    /// Python worker built and reversed earlier the same day was still running in a Docker
+    /// container three hours after its project was deleted, still polling this table, and it
+    /// claimed a real upload and failed it with `KeyError: 'archive'`. Two uploads succeeded and
+    /// the third did not, because the race went the other way. The failure named a program nobody
+    /// was running, and it took about forty minutes to trace to a container.
+    /// </para>
+    /// <para>
+    /// <b>`claimed_by` is the diagnosis half.</b> `for update skip locked` gives the row to
+    /// whoever asks first, which is ADR-011 §3.2 working exactly as designed; what the table
+    /// could not say is who that was. A failure that names the worker is a failure an operator
+    /// can act on.
+    /// </para>
+    /// <para>
+    /// <b>`protocol` is the prevention half, and only for workers that read it.</b> It is the
+    /// version of the request shape in `detail`: a worker claims a job only when it speaks that
+    /// version or later. So changing what `detail` holds and bumping this stops an un-updated
+    /// worker claiming, rather than letting it claim and fail. **It does nothing about a foreign
+    /// worker that ignores the column** — that one is diagnosed by `claimed_by` and not
+    /// prevented, and pretending otherwise would be the kind of guarantee this repository refuses
+    /// to store.
+    /// </para>
+    /// <para>
+    /// <b>Default 1 on the existing rows</b>, because every job already in the table was written
+    /// by the only shape there has ever been.
+    /// </para>
+    /// </remarks>
+    private static Migration JobClaimIdentityV32 => Migration.Expand(
+        new SchemaVersion(32),
+        "A job records who claimed it and which request shape it was written in (D-96).",
+
+        """
+        alter table job
+          add column claimed_by text    null,
+          add column protocol   integer not null default 1
+        """,
+
+        "comment on column job.claimed_by is "
+        + "'Which worker took this row. D-96: a failure has to name a program somebody is running.'",
+
+        "comment on column job.protocol is "
+        + "'The version of the request shape in detail. A worker claims only what it speaks.'",
+
+        """
+        alter table job
+          add constraint job_protocol_positive check (protocol >= 1)
+        """);
+
     private static Migration LogsV31 => Migration.Expand(
         new SchemaVersion(31),
         "A request log and a studio event log, so what the server and the studio did can be "

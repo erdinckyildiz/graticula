@@ -130,11 +130,22 @@ public abstract class ArcGisClient : IDisposable
     {
         JsonElement catalogue = await GetJsonAsync("/rest/services");
 
+        // <b>Fixtures are skipped here too, and this one was missed the first time.</b>
+        // `EveryServiceNameAsync` learnt to skip them and this did not, so a caller asking for
+        // *any* service could be handed a `corpus_` layer that another class deletes three
+        // requests later. D-89, found again by the run after the repair.
         if (catalogue.TryGetProperty("services", out JsonElement services)
-            && services.ValueKind == JsonValueKind.Array
-            && services.GetArrayLength() > 0)
+            && services.ValueKind == JsonValueKind.Array)
         {
-            return services[0].GetProperty("name").GetString();
+            foreach (JsonElement service in services.EnumerateArray())
+            {
+                if (service.TryGetProperty("name", out JsonElement named)
+                    && named.GetString() is { Length: > 0 } root
+                    && !Fixture(root))
+                {
+                    return root;
+                }
+            }
         }
 
         if (!catalogue.TryGetProperty("folders", out JsonElement folders)
@@ -165,9 +176,11 @@ public abstract class ArcGisClient : IDisposable
                 {
                     if (service.TryGetProperty("type", out JsonElement type)
                         && string.Equals(type.GetString(), "FeatureServer",
-                            StringComparison.Ordinal))
+                            StringComparison.Ordinal)
+                        && service.GetProperty("name").GetString() is { Length: > 0 } inFolder
+                        && !Fixture(inFolder))
                     {
-                        return service.GetProperty("name").GetString();
+                        return inFolder;
                     }
                 }
             }

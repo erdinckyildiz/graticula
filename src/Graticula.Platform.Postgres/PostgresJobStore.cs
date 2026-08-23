@@ -42,8 +42,11 @@ public sealed class PostgresJobStore : IJobStore
         JobKind kind,
         string? subject,
         string? detail,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int protocol = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(protocol, 1);
+
         if (owner == Guid.Empty)
         {
             throw new ArgumentException(
@@ -53,8 +56,8 @@ public sealed class PostgresJobStore : IJobStore
         }
 
         const string Sql = """
-            insert into job (id, kind, status, owner_principal_id, subject, detail)
-            values (@id, @kind, 'queued', @owner, @subject, @detail)
+            insert into job (id, kind, status, owner_principal_id, subject, detail, protocol)
+            values (@id, @kind, 'queued', @owner, @subject, @detail, @protocol)
             returning created_at
             """;
 
@@ -66,12 +69,17 @@ public sealed class PostgresJobStore : IJobStore
         command.Parameters.AddWithValue("owner", owner);
         command.Parameters.AddWithValue("subject", (object?)subject ?? DBNull.Value);
         command.Parameters.AddWithValue("detail", (object?)detail ?? DBNull.Value);
+        command.Parameters.AddWithValue("protocol", protocol);
 
         object? created = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 
+        // <b>Nobody has claimed it and the shape is the one that was written.</b> D-96: the
+        // record this returns is built here rather than read back, so a field added to the row
+        // and not added here is a field that is right in the store and wrong in the answer.
         return new JobRecord(
             id, kind, JobStatus.Queued, 0, owner, subject, detail, null,
-            created is DateTimeOffset at ? at : DateTimeOffset.UtcNow, null, null);
+            created is DateTimeOffset at ? at : DateTimeOffset.UtcNow, null, null,
+            ClaimedBy: null, Protocol: protocol);
     }
 
     /// <inheritdoc/>
@@ -83,7 +91,7 @@ public sealed class PostgresJobStore : IJobStore
         // the difference shows up the first time somebody logs the query or profiles it.
         const string Sql = """
             select id, kind, status, progress, owner_principal_id, subject, detail, failure,
-                   created_at, started_at, finished_at
+                   created_at, started_at, finished_at, claimed_by, protocol
               from job
              where id = @id
                and (@all or owner_principal_id = @who)
@@ -108,7 +116,7 @@ public sealed class PostgresJobStore : IJobStore
     {
         const string Sql = """
             select id, kind, status, progress, owner_principal_id, subject, detail, failure,
-                   created_at, started_at, finished_at
+                   created_at, started_at, finished_at, claimed_by, protocol
               from job
              where (@all or owner_principal_id = @who)
                and (not @unfinished or status in ('queued', 'running'))
@@ -151,8 +159,12 @@ public sealed class PostgresJobStore : IJobStore
     }
 
     /// <inheritdoc/>
-    public async Task<JobRecord?> ClaimAsync(JobKind kind, CancellationToken cancellationToken)
+    public async Task<JobRecord?> ClaimAsync(
+        JobKind kind, string worker, int speaks, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(worker);
+        ArgumentOutOfRangeException.ThrowIfLessThan(speaks, 1);
+
         // <b>ADR-011 §3.2's statement, and `skip locked` is the whole reason it has this shape.</b>
         // Without it a second worker blocks on the first one's row lock, so a pool of four serialises
         // itself while every metric says it is running in parallel — the failure that looks like
@@ -161,20 +173,22 @@ public sealed class PostgresJobStore : IJobStore
         const string Sql = """
             with taken as (
                 select id from job
-                 where status = 'queued' and kind = @kind
+                 where status = 'queued' and kind = @kind and protocol <= @speaks
                  order by created_at
                  limit 1
                  for update skip locked
             )
             update job
-               set status = 'running', started_at = now()
+               set status = 'running', started_at = now(), claimed_by = @worker
              where id in (select id from taken)
             returning id, kind, status, progress, owner_principal_id, subject, detail, failure,
-                      created_at, started_at, finished_at
+                      created_at, started_at, finished_at, claimed_by, protocol
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("kind", Wire(kind));
+        command.Parameters.AddWithValue("worker", worker);
+        command.Parameters.AddWithValue("speaks", speaks);
 
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -324,5 +338,11 @@ public sealed class PostgresJobStore : IJobStore
         reader.IsDBNull(7) ? null : reader.GetString(7),
         reader.GetFieldValue<DateTimeOffset>(8),
         reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
-        reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10));
+        reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
+
+        // <b>Which worker took it, and which request shape it was written in.</b> D-96: every
+        // select that feeds this reader carries both, so the reader never has to work out from
+        // the field count which query it is looking at.
+        reader.IsDBNull(11) ? null : reader.GetString(11),
+        reader.GetInt32(12));
 }

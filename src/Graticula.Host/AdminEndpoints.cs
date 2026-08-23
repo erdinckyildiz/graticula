@@ -744,6 +744,15 @@ internal static class AdminEndpoints
         created = job.Created,
         started = job.Started,
         finished = job.Finished,
+
+        // <b>Which program took it, D-96.</b> A job that failed used to name only what went
+        // wrong; when the worker was one nobody remembered starting, that was a traceback about
+        // a field this server does not send and forty minutes of looking. Null while queued.
+        claimedBy = job.ClaimedBy,
+
+        // The request shape it was written in. A worker claims only what it speaks, so a job
+        // sitting queued while workers run is a question this answers.
+        protocol = job.Protocol,
     };
 
     private static async Task ListContentItemsAsync(

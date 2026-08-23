@@ -51,6 +51,26 @@ internal sealed class GeodatabaseInspector : BackgroundService
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(2);
 
     private readonly IJobStore _jobs;
+
+    /// <summary>What this worker calls itself when it claims a job.</summary>
+    /// <remarks>
+    /// <b>[D-96](../../docs/architecture-debt.md): a failure has to name a program
+    /// somebody is running.</b> The machine and the process id are what an operator needs
+    /// to find it — the row this was written for was claimed by a container nobody
+    /// remembered starting, and the only clue was a Python traceback naming a field this
+    /// server does not send.
+    /// </remarks>
+    private static readonly string Who =
+        "graticula/inspect " + Environment.MachineName + "#" + Environment.ProcessId;
+
+    /// <summary>The highest request shape this worker understands.</summary>
+    /// <remarks>
+    /// <b>One, because `detail` has had one shape since it existed.</b> The number earns
+    /// its keep the day that changes: bump what the enqueuer writes and leave this behind,
+    /// and an un-updated worker stops claiming instead of claiming and failing.
+    /// </remarks>
+    private const int Speaks = 1;
+
     private readonly GeodatabaseReader _reader;
     private readonly ImportScratch _scratch;
     private readonly ILogger<GeodatabaseInspector> _log;
@@ -149,7 +169,8 @@ internal sealed class GeodatabaseInspector : BackgroundService
 
             try
             {
-                job = await _jobs.ClaimAsync(JobKind.GeodatabaseInspect, stopping)
+                job = await _jobs
+                    .ClaimAsync(JobKind.GeodatabaseInspect, Who, Speaks, stopping)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
