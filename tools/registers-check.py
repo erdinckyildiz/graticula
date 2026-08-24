@@ -415,6 +415,99 @@ def remembered_numbers():
     return problems
 
 
+def condition_counts():
+    """What the ADRs say, counted the way main counts them."""
+    total = 0
+    discharged = 0
+    deferred = 0
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        text = io.open(os.path.join(conditions.ADRS, name), encoding="utf-8").read()
+
+        for _, _, done, put_off in conditions.conditions(text):
+            total += 1
+            discharged += 1 if done else 0
+            deferred += 1 if put_off and not done else 0
+
+    return discharged, deferred, total - discharged - deferred, total
+
+
+def a_condition_tally_that_disagrees_with_the_conditions():
+    """A present-tense condition count in any document, checked against the truth.
+
+    **[D-116](../docs/architecture-debt.md): a fact in three places is three places
+    to be wrong**, and its own trigger is *the next time two documents disagree
+    about the same number*. `remembered_numbers` already forbids a tally in
+    CLAUDE.md outright, because that file is read at the start of every session.
+    Everywhere else a tally is sometimes the right thing to write -- a review
+    reporting what it found, a completeness row stating where the gates stand --
+    so this does not forbid it. It checks it.
+
+    **Only `N of M` where M is the number of conditions there are**, which is what
+    makes this safe to run over prose. A sentence saying *24 of 99* is claiming
+    something this tool can compute; a sentence saying *three of four findings*
+    is not, and is left alone because 4 is not the condition total.
+
+    **Dated history stays legal, for the reason `remembered_numbers` gives.**
+    CLAUDE.md's account of the count being 22 when the truth was 24 is a record of
+    an event. So a line is exempt when it carries a date, or says *was*, or names
+    the count as something that used to be true -- and the exemption is narrow
+    enough that a stale claim written in the present tense still fails.
+    """
+    discharged, deferred, live, total = condition_counts()
+
+    if total == 0:
+        return ["conditions.py found no conditions at all, so nothing can be checked against it"]
+
+    problems = []
+
+    # A tally about *these* conditions names their total. Anything else is a
+    # sentence about something else that happens to contain two numbers.
+    pattern = re.compile(r"(\d+)\s*(?:of|/)\s*" + str(total) + r"\b")
+
+    was = re.compile(
+        r"\bwas\b|\bwere\b|\bused to\b|\bat the time\b|\bthen\b|20\d\d-\d\d-\d\d")
+
+    for path in documents():
+        name = os.path.relpath(path, conditions.ROOT).replace("\\", "/")
+
+        if name == "CLAUDE.md":
+            # remembered_numbers owns that file and refuses a tally there entirely.
+            continue
+
+        try:
+            text = io.open(path, encoding="utf-8").read()
+        except OSError as problem:
+            problems.append(f"{name} could not be read: {problem}")
+            continue
+
+        for line in text.splitlines():
+            if "condition" not in line.lower():
+                continue
+
+            for match in pattern.finditer(line):
+                said = int(match.group(1))
+
+                if said in (discharged, discharged + deferred, live, total):
+                    continue
+
+                if was.search(line):
+                    continue
+
+                problems.append(
+                    f'{name} says "{match.group(0)}" about the conditions and the '
+                    f"conditions say {discharged} discharged, {deferred} deferred and "
+                    f"{live} live of {total}. One fact, one home: cite "
+                    "docs/status.html or run tools/conditions.py, or say when the "
+                    "number you are quoting was true."
+                )
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -617,6 +710,7 @@ def main() -> int:
                 + assumptions_only_an_adr_knows_about()
                 + amendments_the_other_adr_does_not_know_about() + broken_links()
                 + remembered_numbers() + the_former_product_name()
+                + a_condition_tally_that_disagrees_with_the_conditions()
                 + source_the_repository_would_not_receive())
 
     if problems:
