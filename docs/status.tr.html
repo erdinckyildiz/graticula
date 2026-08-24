@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>9f21e20</code> · 2026-08-24 20:47</p>
+<p class="stamp">Şu commit’ten üretildi: <code>8e1b82c</code> · 2026-08-24 20:49</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
@@ -319,7 +319,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-14</td><td>A server that loses its last platform administrator cannot be recovered in band.</td><td class="muted-t">Before the first deployment that is not ours, or sooner if role revocation reaches the admin API</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-18</td><td>/admin/health is anonymous and therefore redacted, which is the wrong trade and the only one available.</td><td class="muted-t">When ADR-017 §6&#x27;s break-glass path is designed (A-051)</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-19</td><td>There is no published image and no release.</td><td class="muted-t">The first release</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58 lands</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58c lands — domains, subtypes and editor tracking.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-21</td><td>Paging by resultOffset is not stable.</td><td class="muted-t">Before anyone syncs a large layer</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-26</td><td>A relationship&#x27;s composite flag is stored, reported, and does nothing.</td><td class="muted-t">Before anybody declares a composite relationship and deletes an origin feature</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -452,6 +452,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>8e1b82c</code><time>2026-08-24</time><span>D-34 and D-20 each carried a sentence that would have closed them wrongly</span></li>
+<li><code>28d96f8</code><time>2026-08-24</time><span>Round 4 so far: 38 open debts to 33, and none of it by lowering the bar</span></li>
 <li><code>9f21e20</code><time>2026-08-24</time><span>D-58 has its number: the render is 77x smaller and the swap is the owner&#x27;s</span></li>
 <li><code>bc4d74a</code><time>2026-08-24</time><span>D-154&#x27;s first repair had the defect it was written to prevent</span></li>
 <li><code>b40ef40</code><time>2026-08-24</time><span>D-24 closes but for the drop: no writer reaches any of the three dead columns</span></li>
@@ -464,8 +466,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7b71de5</code><time>2026-08-24</time><span>Two closures were buried in their own status cells, so the page counted them open</span></li>
 <li><code>1577bef</code><time>2026-08-24</time><span>Three rounds, and the third opened nothing: the loop is closed</span></li>
 <li><code>45da36c</code><time>2026-08-24</time><span>D-154 closes: the directory lists what it can read</span></li>
-<li><code>8218af9</code><time>2026-08-24</time><span>D-153 is withdrawn: the defect was in the check I wrote an hour earlier</span></li>
-<li><code>20cf2b1</code><time>2026-08-24</time><span>D-152 closes: one unopenable credential no longer takes the server with it</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
