@@ -156,6 +156,49 @@ for what ships has to be re-answered the first time somebody asks what is in the
 
 ---
 
+## GDAL — what this build carries, enumerated 2026-08-24
+
+**[D-88](docs/architecture-debt.md) part 2, and the reason it exists is a sentence nobody
+should write.** *"GDAL is MIT"* is true of GDAL's own code and false of the artefact: its
+`LICENSE.TXT` is a bill of materials naming **fourteen** components, and which of them apply
+is decided by which drivers were built in. So the drivers were asked rather than assumed —
+`Graticula.Import.Reader` gained a `drivers` operation, because the native payload arrives
+with `MaxRev.Gdal.Core` and changes when that package does; a list typed into this document
+would be right until the next upgrade.
+
+**Measured: GDAL 3.13.1, 83 vector drivers and 213 raster drivers.**
+
+| Component in `LICENSE.TXT` | Licence | In this build? |
+|---|---|---|
+| GDAL/OGR general | MIT-style | yes, always |
+| `port/cpl_float.cpp` (Industrial Light & Magic) | BSD-3-Clause | yes, core |
+| `frmts/hdf4/hdf-eos/*` | BSD-style | **yes** — HDF4 is present |
+| `frmts/pcraster/libcsf` (Utrecht University) | BSD-style | **yes** — PCIDSK is present |
+| `frmts/grib/degrib/*` | public domain | **yes** — GRIB is present |
+| `port/cpl_minizip*` | Info-ZIP | yes, core |
+| `ogr/ogrsf_frmts/dxf/intronurbs.cpp` | BSD-style | **yes** — DXF is present |
+| `alg/thinplatespline.cpp` and `alg/libqhull` | Qhull | yes, core algorithms |
+| `frmts/pdf/pdfdataset.cpp` (PDFium) | BSD-3-Clause | **yes** — PDF is present |
+| `frmts/mrf/*` — **Copyright 2014-2015 Esri** | **Apache-2.0** | **yes** — MRF is present, and `LICENSE.TXT` says this section applies *"when MRF driver included in build"* |
+| `cmake/modules/3.*` | BSD-3-Clause | build-time only |
+| `ogr/ogrsf_frmts/flatgeobuf` | BSD-2-Clause | **yes** — FlatGeobuf is present |
+| `flatgeobuf/flatbuffers` | **Apache-2.0** | **yes**, with FlatGeobuf |
+
+**So the honest sentence is not *GDAL is MIT*.** It is: an MIT-style core, with BSD-2 and
+BSD-3 components, a public-domain one, Info-ZIP, Qhull, and **two Apache-2.0 components, one
+of them Esri's** — all of them permissive, none of them copyleft, and all compatible with
+redistribution under Apache-2.0. The conclusion is the same as the short sentence would have
+given; the difference is that it is now checkable, and the Esri attribution is visible rather
+than buried under a summary.
+
+**Nothing here is linked into this server.** ADR-037's reversal put GDAL in a child process
+(`Graticula.Import.Reader`), which is what [D-88](docs/architecture-debt.md) part 3 was about,
+and `NativeDependencyTests` holds the confinement — one project per confined dependency, both
+directions, and no path from the host through a project reference. The obligations are
+attribution obligations on the artefact that ships it.
+
+---
+
 ## ⚠ Verification status
 
 Every entry below is marked `UNVERIFIED`. The licences are recorded from general

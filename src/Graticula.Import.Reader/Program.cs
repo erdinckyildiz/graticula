@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Linq;
 using MaxRev.Gdal.Core;
 using OSGeo.OGR;
 using OSGeo.OSR;
@@ -111,6 +112,32 @@ internal static class Program
 
         return operation switch
         {
+            // <b>What this build actually carries — [D-88](../../docs/architecture-debt.md).</b>
+            // That row's second part asks for the driver set enumerated with its licences,
+            // because GDAL's own `LICENSE.TXT` is a bill of materials — an MIT-style core
+            // beside BSD, public-domain, **Apache-2.0 Esri** components, ISC, Info-ZIP and
+            // Qhull — so *"GDAL is MIT"* must not be written as a finding. The licences are
+            // read from that file; **which of them apply depends on which drivers were built
+            // in**, and only the build can say. So it says.
+            //
+            // <b>Asked rather than assumed, because the payload is a package version.</b> The
+            // native set arrives with `MaxRev.Gdal.*` and changes when that package does; a
+            // list written into a document beside it would be right until the next upgrade.
+            "drivers" => new
+            {
+                gdal = Gdal.VersionInfo("RELEASE_NAME"),
+                vector = Enumerable.Range(0, Ogr.GetDriverCount())
+                    .Select(i => Ogr.GetDriver(i).GetName())
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray(),
+                raster = Enumerable.Range(0, Gdal.GetDriverCount())
+                    .Select(i => Gdal.GetDriver(i).ShortName)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray(),
+            },
+
             // <b>A liveness answer, because the host needs one before it trusts a new process.</b>
             // `GeometryWorkerPool` gives a worker a window to become responsive, and an import is a bad
             // first request to discover a missing native payload with.
