@@ -246,7 +246,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // outFields is how a client keeps a large layer usable. Dropping the
         // object id from a narrowed response would break selection while looking
         // like it worked.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "outFields is parsed and applied by one code path for every layer, so this is a question about that path rather than about a layer's fields");
 
         JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
         string oid = layer.GetProperty("objectIdField").GetString()!;
@@ -333,7 +334,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
     private async Task<(JsonElement Layer, JsonElement Query)> LayerAndQueryAsync()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "outFields is parsed and applied by one code path for every layer, so this is a question about that path rather than about a layer's fields");
 
         JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
         JsonElement query = await GetJsonAsync(
@@ -346,15 +348,37 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         return (layer, query);
     }
 
-    /// <summary>Some FeatureServer a client could add, folders included.</summary>
+    /// <summary>
+    /// Some FeatureServer a client could add, for a claim that one service can settle.
+    /// </summary>
+    /// <param name="whyOneIsEnough">
+    /// What makes this test's question a question about the server rather than about a layer.
+    /// </param>
+    /// <returns>The name of a service, folder-qualified if it is in one.</returns>
     /// <remarks>
-    /// <b>Folders included, because every hosted layer lands in one.</b> This
-    /// read only the root array and failed with "no services are visible
-    /// anonymously" against a server published entirely through the hosting API
-    /// -- which is every server CI builds from nothing.
+    /// <para>
+    /// <b>The reason is a parameter because [D-65](../../docs/architecture-debt.md) is about
+    /// not being able to tell two things apart.</b> Most of this suite asks its question of one
+    /// service and is right to: a form's parameters, a button, an `Accept` header are facts
+    /// about the server. Some claims are universal — *for every layer this server serves* — and
+    /// those must walk. **Nothing at the call site distinguished them**, so a universal claim
+    /// asking one service looked exactly like a per-server claim asking one service, and one of
+    /// them sat in the suite passing for four days while three of the owner's ten layers were
+    /// skipping rows.
+    /// </para>
+    /// <para>
+    /// <b>A parameter rather than a comment, because a comment is optional.</b> The compiler
+    /// makes the next person state which kind their test is before it will build, which is the
+    /// note D-65 asked for in the only form that cannot be skipped. The string is not read by
+    /// anything: its reader is whoever is deciding whether to widen the test.
+    /// </para>
     /// </remarks>
-    private async Task<string> FirstServiceNameAsync()
+    private async Task<string> FirstServiceNameAsync(string whyOneIsEnough)
     {
+        Assert.False(
+            string.IsNullOrWhiteSpace(whyOneIsEnough),
+            "A test that asks one service has to say why one is enough. D-65.");
+
         string? name = await AnyServiceNameAsync();
 
         Assert.False(
@@ -449,7 +473,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // A client reading supportsPagination=false does not page — it asks for
         // the whole layer or refuses the large ones — so a false negative here
         // costs exactly the capability it hides.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "these flags come from FeatureServerMetadataWriter and do not vary by layer, so under-claiming is a property of the writer");
 
         JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
 
@@ -485,7 +510,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     {
         // A bare .../query in a browser is somebody about to build a query, not
         // somebody asking for every feature in the layer.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the HTML query page is one template the server serves for every layer");
 
         string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
 
@@ -500,7 +526,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // <b>An administrator who knows Esri's page should not have to re-learn
         // this one.</b> A missing control leaves somebody hunting for a field
         // that is simply not drawn.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the form's parameter list is the server's, not a layer's");
 
         string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
 
@@ -527,7 +554,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // submitted, so the request is exactly what the enabled controls
         // describe — and the reason beside it answers the question on the spot
         // instead of sending somebody to read an error.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "which controls are disabled is decided by what this server implements, which is the same answer on every layer");
 
         string page = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
 
@@ -550,7 +578,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     [Fact]
     public async Task The_query_page_renders_results_and_the_json_link_still_works()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "rendering results and the JSON link are the page's behaviour, not the data's");
 
         string page = await GetHtmlAsync(
             $"/rest/services/{name}/FeatureServer/0/query?where=1%3D1&outFields=*&f=html");
@@ -573,7 +602,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // If the header ever wins, the query endpoint starts returning HTML to
         // machines and nothing in the JSON suite would catch it, because the
         // JSON suite sends no Accept header at all.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "content negotiation is one decision made before any layer is looked at");
 
         Assert.Equal(
             "application/json",
@@ -597,7 +627,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     [Fact]
     public async Task Pressing_the_query_button_works()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the button is the page's, and a page that works for one layer works for all of them or is broken for all of them");
         string path = $"/rest/services/{name}/FeatureServer/0/query";
 
         string form = await GetHtmlAsync(path);
@@ -666,7 +697,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     [Fact]
     public async Task The_query_link_opens_a_form_rather_than_running_a_query()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "where the link goes is a property of the document template");
 
         string layer = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0");
 
@@ -688,7 +720,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     {
         // A table to read and a document to copy into a client, chosen with the
         // control ArcGIS puts in the same place.
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the format list is the server's set of writers");
 
         string form = await GetHtmlAsync($"/rest/services/{name}/FeatureServer/0/query");
 

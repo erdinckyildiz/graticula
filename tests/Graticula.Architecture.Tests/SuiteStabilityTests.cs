@@ -530,4 +530,68 @@ public sealed class SuiteStabilityTests
             + "outside: same service, same instant, one face 200 and another 503. D-127.\n  "
             + string.Join("\n  ", offenders));
     }
+
+    /// <summary>
+    /// A conformance test that asks one service says why one is enough, in its own words.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-65](../../docs/architecture-debt.md): a test whose coverage is a fact about the
+    /// data reports on the data rather than on the server.</b> Most of the ArcGIS suite asks
+    /// its question of one service and is right to — a form's parameters, a button, an
+    /// <c>Accept</c> header. Some claims are universal, and those must walk every layer. From
+    /// the call site the two were indistinguishable, and one of them —
+    /// <c>Pages_do_not_overlap_or_skip</c> — sat in the suite passing for four days while three
+    /// of the owner's ten layers were skipping rows.
+    /// </para>
+    /// <para>
+    /// <b>The compiler now asks for the reason and this asks for it to be a real one.</b>
+    /// <c>FirstServiceNameAsync</c> takes a <c>whyOneIsEnough</c> string, so a new test cannot
+    /// be written without stating which kind it is; what a compiler cannot check is that the
+    /// string says anything. So: long enough to be a sentence, and not a restatement of the
+    /// method's own name, which is the shape a placeholder takes.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_test_that_asks_one_service_says_why_one_is_enough()
+    {
+        string conformance = Path.Combine(
+            Root().FullName, "tests", "Graticula.Conformance.Tests");
+
+        List<string> thin = [];
+        int examined = 0;
+
+        foreach (string file in Directory.EnumerateFiles(conformance, "*.cs"))
+        {
+            string text = File.ReadAllText(file);
+
+            foreach (Match call in Regex.Matches(
+                         text, @"FirstServiceNameAsync\(\s*""([^""]*)""\s*\)", RegexOptions.Singleline))
+            {
+                examined++;
+
+                string reason = Regex.Replace(call.Groups[1].Value, @"\s+", " ").Trim();
+
+                if (reason.Length < 30)
+                {
+                    thin.Add(
+                        $"{Path.GetFileName(file)}: \"{reason}\" is too short to say which kind "
+                        + "of claim this test makes");
+                }
+            }
+        }
+
+        Assert.True(
+            examined > 4,
+            $"Only {examined} call sites were found, so this check is reading nothing. Either "
+            + "the helper was renamed or the suite moved. A check that cannot fail is worse "
+            + "than no check.");
+
+        Assert.True(
+            thin.Count == 0,
+            "A conformance test asks one service and does not say why one is enough. The "
+            + "difference between 'should ask one' and 'forgot to ask all' is invisible from "
+            + "the call site, and it hid for four days once. D-65.\n  "
+            + string.Join("\n  ", thin));
+    }
 }

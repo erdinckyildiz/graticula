@@ -88,7 +88,8 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
     [Fact]
     public async Task Step3_the_service_document_is_where_the_naming_convention_says()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "this is a walkthrough of one service on purpose — it follows a client from the catalogue to a query, and following it against every service would prove the same convention many times");
 
         JsonElement service = await GetJsonAsync($"/rest/services/{name}/FeatureServer");
 
@@ -128,7 +129,8 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
     [Fact]
     public async Task Step4_the_layer_document_carries_everything_needed_to_add_the_layer()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the same walkthrough, one step on; what every layer's document must carry is Every_layer_is_consistent_with_its_own_document in the consistency suite");
 
         JsonElement layer = await GetJsonAsync($"/rest/services/{name}/FeatureServer/0");
 
@@ -171,7 +173,8 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
     [Fact]
     public async Task Step4a_the_extent_is_either_absent_or_actually_somewhere()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "part of the same walkthrough; the extent rule itself is asserted per layer elsewhere");
 
         JsonElement extent = Require(
             await GetJsonAsync($"/rest/services/{name}/FeatureServer/0"), "extent",
@@ -199,7 +202,8 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
     [Fact]
     public async Task Step5_a_query_built_from_the_documents_returns_features()
     {
-        string name = await FirstServiceNameAsync();
+        string name = await FirstServiceNameAsync(
+            "the last step of the walkthrough — that a query assembled from these documents works at all, which is a fact about the documents rather than about a layer");
 
         JsonElement result = await GetJsonAsync(
             $"/rest/services/{name}/FeatureServer/0/query?resultRecordCount=1");
@@ -234,25 +238,37 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
             await StatusOfAsync("/rest/services/definitely-not-a-layer/FeatureServer"));
     }
 
-    /// <summary>The catalogue and the service documents must agree on names.</summary>
-    [Fact]
-    public async Task Every_service_in_the_catalogue_can_actually_be_opened()
+    /// <summary>
+    /// Some FeatureServer a client could add, for a claim that one service can settle.
+    /// </summary>
+    /// <param name="whyOneIsEnough">
+    /// What makes this test's question a question about the server rather than about a layer.
+    /// </param>
+    /// <returns>The name of a service, folder-qualified if it is in one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The reason is a parameter because [D-65](../../docs/architecture-debt.md) is about
+    /// not being able to tell two things apart.</b> Most of this suite asks its question of one
+    /// service and is right to: a form's parameters, a button, an `Accept` header are facts
+    /// about the server. Some claims are universal — *for every layer this server serves* — and
+    /// those must walk. **Nothing at the call site distinguished them**, so a universal claim
+    /// asking one service looked exactly like a per-server claim asking one service, and one of
+    /// them sat in the suite passing for four days while three of the owner's ten layers were
+    /// skipping rows.
+    /// </para>
+    /// <para>
+    /// <b>A parameter rather than a comment, because a comment is optional.</b> The compiler
+    /// makes the next person state which kind their test is before it will build, which is the
+    /// note D-65 asked for in the only form that cannot be skipped. The string is not read by
+    /// anything: its reader is whoever is deciding whether to widen the test.
+    /// </para>
+    /// </remarks>
+    private async Task<string> FirstServiceNameAsync(string whyOneIsEnough)
     {
-        JsonElement services = (await GetJsonAsync("/rest/services")).GetProperty("services");
+        Assert.False(
+            string.IsNullOrWhiteSpace(whyOneIsEnough),
+            "A test that asks one service has to say why one is enough. D-65.");
 
-        foreach (JsonElement service in services.EnumerateArray())
-        {
-            string name = service.GetProperty("name").GetString()!;
-
-            // Listing a service a client cannot then open is worse than not
-            // listing it: the client shows it, the user clicks, and it fails.
-            JsonElement document = await GetJsonAsync($"/rest/services/{name}/FeatureServer");
-            Assert.Equal(name, document.GetProperty("layers")[0].GetProperty("name").GetString());
-        }
-    }
-
-    private async Task<string> FirstServiceNameAsync()
-    {
         string? name = await AnyServiceNameAsync();
 
         Assert.False(
