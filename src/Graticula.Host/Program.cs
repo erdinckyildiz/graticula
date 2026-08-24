@@ -458,7 +458,7 @@ public static class Program
         // warning nobody re-reads.
         Log.AuthorizationIsPortalShaped(logger);
 
-        if (!await AnythingIsSharedAsync(app.Services).ConfigureAwait(false))
+        if (!await AnythingIsSharedAsync(app.Services, logger).ConfigureAwait(false))
         {
             Log.NothingIsShared(logger);
         }
@@ -2124,15 +2124,27 @@ public static class Program
     /// upgrade it is surprising to somebody who had published those layers
     /// openly, which is condition 4.
     /// </remarks>
-    private static async Task<bool> AnythingIsSharedAsync(IServiceProvider services)
+    private static async Task<bool> AnythingIsSharedAsync(IServiceProvider services, ILogger logger)
     {
         PostgresLayerCatalog catalog = services.GetRequiredService<PostgresLayerCatalog>();
 
-        IReadOnlyList<PublishedLayer> layers =
-            await catalog.ListAsync(CancellationToken.None).ConfigureAwait(false);
-
-        // Only worth saying if there is something to share in the first place.
-        return layers.Count == 0 || layers.Any(l => l.Sharing != SharingScope.Private);
+        try
+        {
+            // <b>Two counts, not every layer — D-152.</b> This used to call `ListAsync`, which
+            // decrypts every registered data source on its way to a `Sharing` field, so a single
+            // credential sealed with another key took the whole server down for a check whose
+            // only job is deciding whether one sentence is worth printing.
+            return await catalog.AnythingSharedAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            // <b>And it still must not be fatal.</b> The query above needs no credential, so
+            // reaching here means the platform store itself is unreadable — which the health
+            // endpoints report and which serving already degrades through (ADR-026). A startup
+            // aside is the last thing that should decide whether a server exists.
+            Log.SharingUnknownAtStartup(logger, failure);
+            return true;
+        }
     }
 
 

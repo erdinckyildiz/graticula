@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
@@ -272,6 +273,22 @@ internal static partial class Log
                 + "mean two live credentials for a one-time act. If it is lost, delete the row "
                 + "from setup_token and restart.")]
     public static partial void SetupStillPending(ILogger logger);
+
+    /// <summary>Startup could not tell whether anything is shared, and carried on.</summary>
+    /// <remarks>
+    /// <b>[D-152](../../docs/architecture-debt.md).</b> This aside used to be able to stop the
+    /// server: it listed every layer, which decrypted every credential, and one unopenable
+    /// credential ended <c>Main</c>. It counts now and needs no credential, so reaching here
+    /// means the platform store itself is unreadable — worth saying, and not worth refusing to
+    /// start over.
+    /// </remarks>
+    [LoggerMessage(
+        EventId = 1013,
+        Level = LogLevel.Warning,
+        Message = "Could not determine whether anything on this server is shared. The server is "
+                + "starting anyway: this is a startup note, not a capability. Check "
+                + "/healthz/ready and /admin/health.")]
+    public static partial void SharingUnknownAtStartup(ILogger logger, Exception failure);
 
     [LoggerMessage(
         EventId = 1012,

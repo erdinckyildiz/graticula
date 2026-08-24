@@ -77,9 +77,6 @@ public sealed class PostgresLayerCatalog
         + "join data_source d on d.id = l.data_source_id "
         + "join service s on s.id = l.service_id";
 
-    /// <summary>
-    /// The same joins driven from the service, so an empty one is still a service.
-    /// </summary>
     /// <remarks>
     /// <b>Left, and it matters the moment somebody creates a service before
     /// adding layers to it.</b> An inner join makes that service invisible — the
@@ -116,6 +113,58 @@ public sealed class PostgresLayerCatalog
     }
 
     /// <summary>Every published layer.</summary>
+    /// <summary>Whether anything published on this server is readable by somebody else.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>
+    /// True when there is nothing published at all, or when at least one layer's service is
+    /// shared beyond its owner. False only when there are layers and every one is private.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Counted rather than listed, and that is the whole point —
+    /// [D-152](../../docs/architecture-debt.md).</b> Startup asked this by calling
+    /// <see cref="ListAsync"/>, which maps every layer, which decrypts every registered data
+    /// source's connection string. So a store holding one credential sealed with a key this
+    /// process does not have made <c>SecretProtectionException</c> escape <c>Main</c>: no
+    /// listener, no refusal document, a stack trace and exit — **for a check whose entire
+    /// purpose is deciding whether one sentence is worth printing**.
+    /// </para>
+    /// <para>
+    /// <b>The failure was total and the cause was partial.</b> Layers on the other sources were
+    /// fine and public layers need no credential at all; the server would have served every one
+    /// of them. It also put the repair out of reach, because the admin API that fixes a
+    /// credential lives inside the server that would not start.
+    /// </para>
+    /// <para>
+    /// <b>Two counts rather than one query per layer.</b> Sharing has been the service's column
+    /// since migration 11, so the question is answerable from <c>service</c> alone once the
+    /// layer count is known — and neither count touches <c>data_source</c>, which is where the
+    /// credential is.
+    /// </para>
+    /// </remarks>
+    public async Task<bool> AnythingSharedAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select count(*), count(*) filter (where s.sharing <> 'private') "
+            + "from layer l join service s on s.id = l.service_id");
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        long layers = reader.GetInt64(0);
+        long shared = reader.GetInt64(1);
+
+        return layers == 0 || shared > 0;
+    }
+
+    /// <summary>
+    /// The same joins driven from the service, so an empty one is still a service.
+    /// </summary>
     public async Task<IReadOnlyList<PublishedLayer>> ListAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
