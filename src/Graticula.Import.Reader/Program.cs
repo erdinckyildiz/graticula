@@ -123,6 +123,13 @@ internal static class Program
                     openFileGdb = Ogr.GetDriverByName("OpenFileGDB") is not null,
                     parquet = Ogr.GetDriverByName("Parquet") is not null,
                 },
+
+                // <b>Its own place in the scheduler's order, reported so the parent's setting is
+                // observable.</b> [D-94](../../docs/architecture-debt.md): the host puts this process
+                // below normal so an import loses to the requests the server is answering. A setting
+                // nothing can see is a setting that quietly stops being applied, and this is the only
+                // vantage point from which it is a fact rather than a line of code.
+                priority = System.Diagnostics.Process.GetCurrentProcess().PriorityClass.ToString(),
             },
 
             "layers" => Layers(Text(request, "archive"), Encoding(request)),

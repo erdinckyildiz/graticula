@@ -29,12 +29,19 @@ namespace Graticula.Host;
 /// process is the whole of what keeps that true. `NativeDependencyTests` checks it in both directions.
 /// </para>
 /// <para>
-/// <b>What the deadline does and does not bound.</b> It bounds time, and that is all it is claimed to
-/// do. `DOTNET_GCHeapHardLimit` is set the way the overlay worker sets it, but GDAL allocates
-/// natively, outside the managed heap, so the limit does not bound a malicious archive's memory —
-/// only the process being killable does, together with
-/// <see cref="HostSettings.ImportScratchBudgetBytes"/> bounding what reaches the disk in the first
+/// <b>What each bound bounds.</b> The deadline bounds time and that is all it is claimed to do.
+/// `DOTNET_GCHeapHardLimit` is set the way the overlay worker sets it, but GDAL allocates natively,
+/// outside the managed heap, so it does not bound a malicious archive's memory either.
+/// <see cref="HostSettings.ImportScratchBudgetBytes"/> bounds what reaches the disk in the first
 /// place. Saying so here rather than letting the environment variable imply otherwise.
+/// </para>
+/// <para>
+/// <b>What was missing until 2026-08-24, and is [D-94](../../docs/architecture-debt.md)'s own
+/// account of itself: a CPU or memory bound.</b> There are two now, and both are the parent's
+/// rather than the child's, because the child is the part that cannot be trusted.
+/// <see cref="MemoryCeilingBytes"/> is polled from outside and counts native allocation;
+/// <see cref="ProcessPriorityClass.BelowNormal"/> leaves the import competing for the machine but
+/// losing. Neither is a container, and the row still says a container is what ADR-016 §2 asks for.
 /// </para>
 /// </remarks>
 internal sealed class GeodatabaseReader
@@ -48,16 +55,68 @@ internal sealed class GeodatabaseReader
     /// </remarks>
     public const long HeapLimitBytes = 512L << 20;
 
+    /// <summary>
+    /// How much of the machine the child may hold, native allocation included.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-94](../../docs/architecture-debt.md): the loop competes for the machine with the
+    /// requests this process is serving</b>, and the row's own account of what was missing is a
+    /// CPU or memory bound. `DOTNET_GCHeapHardLimit` bounds the managed heap and GDAL allocates
+    /// outside it, so until now the only memory bound was the process being killable — by a
+    /// deadline, which is a bound on time.
+    /// </para>
+    /// <para>
+    /// <b>Two gigabytes, and the number is a judgement rather than a measurement.</b> Four times
+    /// the managed ceiling, because the whole point is that the native side is the part nobody
+    /// has measured; a limit close to the managed one would kill archives that are merely large.
+    /// The owner's three real archives never approach it — the largest listing was 0.06 s — so
+    /// what this bounds is the case nobody has met, which is what a bound is for.
+    /// </para>
+    /// <para>
+    /// <b>Working set, not commit.</b> It is what both platforms report through
+    /// <see cref="System.Diagnostics.Process.WorkingSet64"/> without a P/Invoke, and a runaway
+    /// parser touches what it allocates. A job object on Windows and a cgroup on Linux would be
+    /// stricter and would be two platform-specific paths to keep in step; recorded here as the
+    /// stricter thing this is not.
+    /// </para>
+    /// </remarks>
+    public const long MemoryCeilingBytes = 2L << 30;
+
+    /// <summary>How often the child's memory is looked at.</summary>
+    /// <remarks>
+    /// <b>Four times a second, which is a compromise stated rather than tuned.</b> A parser can
+    /// allocate a gigabyte between two samples, so this does not make the ceiling exact; it makes
+    /// a runaway process die in a second rather than in two minutes.
+    /// </remarks>
+    private static readonly TimeSpan MemoryPoll = TimeSpan.FromMilliseconds(250);
+
     private readonly string _executable;
     private readonly ILogger<GeodatabaseReader> _log;
+    private readonly long _ceiling;
 
     public GeodatabaseReader(string executable, ILogger<GeodatabaseReader> log)
+        : this(executable, log, MemoryCeilingBytes)
+    {
+    }
+
+    /// <summary>Creates the reader with a memory ceiling of its own.</summary>
+    /// <param name="executable">Where the child is.</param>
+    /// <param name="log">Where its diagnosis goes.</param>
+    /// <param name="ceiling">
+    /// How much the child may hold. <b>A parameter so that the guard can be tested against a
+    /// ceiling a healthy child exceeds</b> — a test that waited for a real archive to allocate
+    /// two gigabytes would be a test nobody runs.
+    /// </param>
+    internal GeodatabaseReader(string executable, ILogger<GeodatabaseReader> log, long ceiling)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentOutOfRangeException.ThrowIfLessThan(ceiling, 1L << 20);
 
         _executable = executable;
         _log = log;
+        _ceiling = ceiling;
     }
 
     /// <summary>
@@ -163,6 +222,10 @@ internal sealed class GeodatabaseReader
 
         timer.CancelAfter(deadline);
 
+        Yield(process);
+
+        using MemoryGuard memory = new(process, _ceiling, timer, MemoryPoll);
+
         try
         {
             await process.StandardInput.WriteLineAsync(
@@ -194,7 +257,7 @@ internal sealed class GeodatabaseReader
         {
             Kill(process);
 
-            throw new InvalidOperationException(
+            throw new InvalidOperationException(TooMuch(memory) ??
                 $"The geodatabase reader ran past its {deadline.TotalSeconds:0.#} s deadline and was "
                 + "killed. This is the designed bound rather than a fault: no property of an archive "
                 + "predicts what GDAL will do with it, so the limit is on execution.");
@@ -287,6 +350,10 @@ internal sealed class GeodatabaseReader
 
         timer.CancelAfter(deadline);
 
+        Yield(process);
+
+        using MemoryGuard memory = new(process, _ceiling, timer, MemoryPoll);
+
         JsonDocument? header = null;
         JsonDocument? trailer = null;
 
@@ -356,7 +423,7 @@ internal sealed class GeodatabaseReader
         {
             Kill(process);
 
-            throw new InvalidOperationException(
+            throw new InvalidOperationException(TooMuch(memory) ??
                 $"The geodatabase reader ran past its {deadline.TotalSeconds:0.#} s deadline while "
                 + "streaming and was killed. The bound is on execution because no property of an "
                 + "archive predicts what GDAL will do with it.");
@@ -364,6 +431,142 @@ internal sealed class GeodatabaseReader
         finally
         {
             Kill(process);
+        }
+    }
+
+    /// <summary>
+    /// Watches a child's memory and stops it, so a bound on time is not the only bound.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-94](../../docs/architecture-debt.md).</b> The parent polls because the child cannot
+    /// be trusted to report on itself: the allocation being bounded is GDAL's, inside a process
+    /// parsing a file somebody else chose. Cancelling the caller's timer is what surfaces it —
+    /// the awaiting code already turns cancellation into a refusal, and <see cref="Exceeded"/> is
+    /// how it tells this apart from the deadline.
+    /// </remarks>
+    private sealed class MemoryGuard : IDisposable
+    {
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Task _loop;
+
+        public MemoryGuard(Process process, long ceiling, CancellationTokenSource cancel, TimeSpan poll)
+        {
+            _loop = Task.Run(async () =>
+            {
+                while (!_stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        if (process.HasExited)
+                        {
+                            return;
+                        }
+
+                        process.Refresh();
+
+                        long held = process.WorkingSet64;
+
+                        if (held > Peak)
+                        {
+                            Peak = held;
+                        }
+
+                        if (held > ceiling)
+                        {
+                            Exceeded = held;
+
+                            // <b>Cancel rather than kill from here.</b> The caller's `finally`
+                            // owns the killing, and two paths killing one process is how a
+                            // confusing exception gets logged instead of a clear refusal.
+                            await cancel.CancelAsync().ConfigureAwait(false);
+
+                            return;
+                        }
+
+                        await Task.Delay(poll, _stop.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The process ended between HasExited and Refresh. Nothing to watch.
+                        return;
+                    }
+                }
+            });
+        }
+
+        /// <summary>What it was holding when it went past the ceiling, or null.</summary>
+        public long? Exceeded { get; private set; }
+
+        /// <summary>The most it was seen holding, for a message that can say so.</summary>
+        public long Peak { get; private set; }
+
+        public void Dispose()
+        {
+            _stop.Cancel();
+
+            try
+            {
+                _loop.Wait(TimeSpan.FromSeconds(1));
+            }
+            catch (AggregateException)
+            {
+                // The loop's own faults are not the caller's problem; it watches, it does not act.
+            }
+
+            _stop.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Puts the child below the server in the scheduler's order.
+    /// </summary>
+    /// <remarks>
+    /// <b>The other half of [D-94](../../docs/architecture-debt.md), and the cheaper half.</b> The
+    /// row's complaint is that an import competes for the machine with the requests this process
+    /// is serving. It still competes; it now loses. A parse that takes twice as long on a busy
+    /// server is the right trade, because the requests are what somebody is waiting for.
+    /// <para>
+    /// <b>Best effort.</b> A process that has already exited throws, a platform that does not
+    /// support it throws, and neither is a reason to fail an import. Logged at debug and dropped.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// The refusal to write when memory was what ended the child, or null when it was time.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both bounds arrive as the same cancellation, and a caller cannot act on
+    /// <i>something stopped it</i>.</b> An archive that is too big for this machine and an archive
+    /// that is slow are different problems with different answers -- a bigger machine, or patience
+    /// -- so the message names which one happened and how much was held when it did.
+    /// </remarks>
+    private static string? TooMuch(MemoryGuard memory)
+    {
+        if (memory.Exceeded is not { } held)
+        {
+            return null;
+        }
+
+        return $"The geodatabase reader held {held / (1024.0 * 1024.0):0} MB, past the "
+            + $"{MemoryCeilingBytes / (1024.0 * 1024.0):0} MB this server allows one archive, and "
+            + "was killed. The bound counts native allocation, which is where a GDAL driver spends "
+            + "most of what it takes, and it exists so that one upload cannot take the machine away "
+            + "from the requests this process is serving.";
+    }
+
+    private static void Yield(Process process)
+    {
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e) when (e is InvalidOperationException or PlatformNotSupportedException
+            or System.ComponentModel.Win32Exception)
+        {
+            // Nothing to do about it and nothing worth failing for.
         }
     }
 
