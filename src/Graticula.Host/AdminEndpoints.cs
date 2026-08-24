@@ -96,35 +96,52 @@ internal sealed record NewGroupRequest(
     string? Name, string? Title, string? Description, string? ItemUpdate);
 
 /// <summary>A group's editable policies — ADR-036 §4g.</summary>
-/// <param name="Title">A display title, or null.</param>
-/// <param name="Summary">One line, shown on the group's Overview.</param>
-/// <param name="Description">What it is for.</param>
-/// <param name="Visibility">
-/// Who may discover it: `members` (the default), `organization` or `public`. **Not who may read its
-/// items** — that is its members and nobody else, whatever this says.
-/// </param>
-/// <param name="JoinPolicy">
-/// `invitation` (the default), `request` or `self`. **`request` is refused**: it needs a queue of
-/// pending requests, and a policy the server stores without honouring is D-67 over again.
-/// </param>
-/// <param name="Contribute">
-/// `managers` (the default) or `members` — who may share a service with the group. Distinct from the
-/// item-update capability, which is fixed at creation and has no write path at all.
-/// </param>
-/// <param name="DeleteLocked">Whether the group is protected from deletion.</param>
 /// <remarks>
+/// <para>
 /// <b>The whole set at once, not a patch.</b> Four radio groups on one screen; a patch API would make
 /// *"set visibility"* and *"set everything, with visibility changed"* two requests with one intent,
 /// which is where a race lives.
+/// </para>
+/// <para>
+/// <b>And every member is `required`, which is [D-79](../../docs/architecture-debt.md)'s repair.</b>
+/// *Whole set* was a sentence in this comment and nothing else: the members were nullable, so a
+/// caller sending only the four policies had `Title`, `Summary` and `Description` arrive as null and
+/// **the store wrote the nulls over text an operator had typed**. Measured in
+/// [ADR-036](../../docs/adr/ADR-036-groups.md) §4h against a running server: whole object overlaid
+/// keeps the text, policies-only erases it. The console has always sent all seven — that is why
+/// nothing had gone wrong yet, and it is exactly the kind of *nothing has gone wrong yet* this
+/// register exists for.
+/// </para>
+/// <para>
+/// <b>`required` rather than a not-null check, because the distinction is absence.</b> A caller may
+/// legitimately clear a summary, so empty is a value and only *missing* is the error —
+/// `System.Text.Json` refuses a body without the member, and a check on the deserialised value could
+/// not tell the two apart at all.
+/// </para>
 /// </remarks>
-internal sealed record GroupSettingsRequest(
-    string? Title,
-    string? Summary,
-    string? Description,
-    string? Visibility,
-    string? JoinPolicy,
-    string? Contribute,
-    bool DeleteLocked);
+internal sealed record GroupSettingsRequest
+{
+    /// <summary>The group's display name.</summary>
+    public required string? Title { get; init; }
+
+    /// <summary>One line, shown on the group's Overview.</summary>
+    public required string? Summary { get; init; }
+
+    /// <summary>What it is for.</summary>
+    public required string? Description { get; init; }
+
+    /// <summary>Who may discover it.</summary>
+    public required string? Visibility { get; init; }
+
+    /// <summary>How somebody joins.</summary>
+    public required string? JoinPolicy { get; init; }
+
+    /// <summary>Who may share a service with it.</summary>
+    public required string? Contribute { get; init; }
+
+    /// <summary>Whether the group is protected from deletion.</summary>
+    public required bool DeleteLocked { get; init; }
+}
 
 /// <summary>Whether a member is a manager of the group.</summary>
 /// <param name="Manager">
