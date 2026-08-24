@@ -313,6 +313,18 @@ zoom-interpolated line width survives on the tile face and arrives as 0.375 pt w
 report on the feature face; clearing the document returns both to the generated appearance
 in the same request.
 
+**Not built: an editor.** A style is set by pasting a document into a `textarea`. There is no
+colour picker, and no preview of the layer drawn under the style being edited — so an author
+changes a colour by typing numbers and finds out what they did by saving and looking
+elsewhere. **What the page does now say is what a client will receive**: the derived
+renderer's colours are drawn as swatches above the JSON, shaped by the symbol kind — a fill
+is a square, `esriSLS` a band, `esriSMS` a dot — with the RGBA quad on the chip's title for
+anybody checking a value. That closed [D-99](../architecture-debt.md), whose recorded cost was
+*an operator sets a colour by typing numbers and cannot tell what they set*: they can tell
+now. **Setting it comfortably is a different thing and it is a product decision**, because a
+picker over a canonical MapLibre document means editing JSON on somebody's behalf — which is
+§5g's line about what this is not, approached from the other side.
+
 **Not built: §5f, the classification suggestion.**
 `POST /admin/layers/{name}/symbology/suggest` — equal interval, quantile, natural breaks,
 unique values — is designed here and has no code. It is the only part of this decision that

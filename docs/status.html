@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>9a7c500</code> · 2026-08-24 21:11</p>
+<p class="stamp">Generated from commit <code>8155140</code> · 2026-08-24 21:17</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">104/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">88 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">74</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">29</div><div class="kpi-l">open debts</div><div class="kpi-n">123 repaid · 4 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">open debts</div><div class="kpi-n">125 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">1914</div><div class="kpi-l">tests</div><div class="kpi-n">237 source files, 90,044 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">11 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-135</b> — What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">121 items</span></div><p><b>88 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>29 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">119 items</span></div><p><b>88 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>27 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -327,12 +327,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-58</td><td>The service list&#x27;s preview is a sample the browser draws, not a picture of the layer, and a dense layer therefore looks sparse.</td><td class="muted-t">When there is a renderer, or a cheaper source of one honest picture.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-61</td><td>The console edits a service&#x27;s settings on each of its layers&#x27; pages, so four layers look like four configurations of one thing — and one of them wrote a value that 500&#x27;d the service.</td><td class="muted-t">Now, and it has already cost: hosted/lookEarlyAlert was carrying capabilityceiling = {} and its service document…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-63</td><td>CI has never executed a single step, and both the register and CLAUDE.md say it runs on every push.</td><td class="muted-t">Now, and the next step is the owner&#x27;s — which is no longer an inference.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-51</td><td>A session exists in two forms and the console can only clear one, so a failed sign-out looks like a dead button.</td><td class="muted-t">Whenever a client holds a copy of session state.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-46</td><td>A behaviour is fixed in one of the several places that carry it, and the others keep the bug.</td><td class="muted-t">Whenever a behaviour is about to be fixed, and the fix is not done until the question what else carries this?</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-40</td><td>ADR-008 states a rule it also documents breaking, and the shipped code follows the break.</td><td class="muted-t">Before the first provider that is not a database is designed — GeoParquet or FlatGeobuf as serving providers (Q-52), or…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-94</td><td>The geodatabase inspector runs inside the serving process, where ADR-016 §2 puts it in its own container.</td><td class="muted-t">The first deployment that serves and imports at the same time, or the first report of an upload slowing requests</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-95</td><td>Nothing automated reads a real geodatabase, and nothing can without somebody&#x27;s data.</td><td class="muted-t">A public-domain geodatabase small enough to commit, with its licence recorded in DEPENDENCY-LICENSES.md — and as of…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-99</td><td>Symbology is the least visual page in a product about maps.</td><td class="muted-t">~~The first cartographic work after ADR-004~~, or sooner for the swatch alone.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -341,7 +339,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-144</td><td>Nothing bounds how long one request may hold a database permit.</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">123 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">125 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -448,6 +446,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>8155140</code><time>2026-08-24</time><span>Republish both Control Room artifacts at 29 open debts</span></li>
 <li><code>9a7c500</code><time>2026-08-24</time><span>D-68 closes, and three rows were missing the cells Â§62 asks every entry for</span></li>
 <li><code>fd1528e</code><time>2026-08-24</time><span>D-34 closes: the unpublish response says what it costs, and the cost is the index</span></li>
 <li><code>f102af9</code><time>2026-08-24</time><span>D-26 closes on its own stated remedy, and D-99&#x27;s trigger was misread</span></li>
@@ -461,7 +460,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7b9673a</code><time>2026-08-24</time><span>Four rows buried their verdict, and the check now says so</span></li>
 <li><code>71fc821</code><time>2026-08-24</time><span>D-116 closes, and its first run found six restatements that were all legitimate</span></li>
 <li><code>aff4bd3</code><time>2026-08-24</time><span>D-116 closes: three of the board&#x27;s seven numbers are defended</span></li>
-<li><code>d337bc2</code><time>2026-08-24</time><span>D-65 closes: the note is a parameter, not a comment</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
