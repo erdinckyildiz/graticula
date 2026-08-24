@@ -76,12 +76,29 @@ default observability stack would have shown a healthy worker throughout.
 
 ### 3.3 "Registration failed"
 
+~~| Step | Endpoint | Answers |~~
+~~| 1 | `GET /admin/jobs/{id}` | Registration is an interactive-class job (ADR-011). Status, phase, and the failing step |~~
+~~| 2 | `GET /admin/jobs/{id}/log` | The provider's actual error, not a wrapped one |~~
+
+**Rewritten 2026-08-24 — registration is not a job, and this walk sent a reader to an
+endpoint they had no id for ([D-151](../architecture-debt.md)).** `JobKind` has two values,
+`GeodatabaseInspect` and `GeodatabaseImport`; `POST /admin/datasources` answers
+synchronously. There was never an id to look up, and `/admin/jobs/{id}/log` is not mapped at
+all. **What shipped is better than what this section asked for** — the reason arrives in the
+response rather than being polled for — and the document is what did not follow.
+
 | Step | Endpoint | Answers |
 |---|---|---|
-| 1 | `GET /admin/jobs/{id}` | Registration is an interactive-class job (ADR-011). Status, phase, and the failing step |
-| 2 | `GET /admin/jobs/{id}/log` | The provider's actual error, not a wrapped one |
-| 3 | `POST /admin/datasources/test` | Re-run connectivity, credentials, TLS and privilege checks **without creating anything** |
-| 4 | `GET /admin/datasources/{id}/capability` | What we *could* do with this source, given granted rights — the honest list, before publishing anything |
+| 1 | the response to `POST /admin/datasources` | The probe ran **before** anything was written, so a failure leaves no row behind. A source that cannot be reached is refused **400** with the probe's own sentence; a name already taken is **409** |
+| 2 | `POST /admin/datasources/test` | Re-run connectivity, credentials, TLS and privilege checks **without creating anything** — the same probe, on demand, for a source that has drifted since it was registered |
+| 3 | `GET /admin/datasources/{id}/capability` | What we *could* do with this source, given granted rights — the honest list, before publishing anything |
+| 4 | `GET /admin/jobs/{id}` | For the two things that **are** jobs — inspecting and importing a geodatabase. Carries `status`, `progress`, `detail` and `failure`, which is the provider's own error rather than a wrapped one |
+
+**The three-way distinction this section asks for exists** and is `ProbeOutcome`:
+`Usable`, `CannotConnect`, `InsufficientPrivilege`. *Cannot connect* is refused at
+registration; *connected but insufficient privilege* is reported rather than refused,
+because rights can be granted after a source is registered and refusing would make the
+ordinary order of work impossible.
 
 **What this forces into existence:** a **dry-run test endpoint that creates no
 state**, and a distinction between *cannot connect*, *connected but insufficient
