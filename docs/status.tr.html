@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d283bd5</code> · 2026-08-24 17:35</p>
+<p class="stamp">Şu commit’ten üretildi: <code>e368eff</code> · 2026-08-24 17:55</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">46</div><div class="kpi-l">açık borç</div><div class="kpi-n">103 ödendi · 7 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1893</div><div class="kpi-l">test</div><div class="kpi-n">237 kaynak dosya, 89,624 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1894</div><div class="kpi-l">test</div><div class="kpi-n">237 kaynak dosya, 89,639 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -555,11 +555,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:29.6%"></div></div><div class="bar-n">112</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.1%"></div></div><div class="bar-n">95</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.3%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">18</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">18</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>e368eff</code><time>2026-08-24</time><span>D-24: the writers are down from four to one, and the guard covers writes now</span></li>
+<li><code>6ed6eee</code><time>2026-08-24</time><span>D-16: the surface does claim Portal compatibility, so the check ran</span></li>
 <li><code>d283bd5</code><time>2026-08-24</time><span>Fix the ADR-035 link I broke one commit ago</span></li>
 <li><code>121ac5f</code><time>2026-08-24</time><span>D-14 is blocked, its trigger fired, and half of it got better unnoticed</span></li>
 <li><code>85b1503</code><time>2026-08-24</time><span>The stale-status defect D-09 and D-11 shared is now a check</span></li>
@@ -572,8 +574,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e891f50</code><time>2026-08-24</time><span>D-03: detail is authorization-scoped, and now something implements it</span></li>
 <li><code>98f8bbc</code><time>2026-08-24</time><span>D-116: the gate tally was restated in four documents and stale in all four</span></li>
 <li><code>476fd47</code><time>2026-08-24</time><span>D-46, found inside D-46&#x27;s own named remedy</span></li>
-<li><code>add7478</code><time>2026-08-24</time><span>D-63 is blocked on a decision, and the decision is now written down</span></li>
-<li><code>cc728d0</code><time>2026-08-24</time><span>a published password is refused, and it is not a breach check</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
