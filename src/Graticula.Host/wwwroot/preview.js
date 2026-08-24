@@ -5,11 +5,21 @@
 // thumbnails too, you can see it without going in. They are right about the value: a list of
 // forty service names tells you nothing about which one holds the roads.
 //
-// <b>Theirs is a rendered map image and we cannot make one.</b> ADR-004 is `DEFERRED` and
-// v1-scope puts WMS, MapServer, ImageServer and OGC Maps out of scope, so this server has no
-// path that turns geometry into pixels. Faking one — a stock icon per geometry type, the way
+// <b>Theirs is a rendered map image and we could not make one.</b> ADR-004 was `DEFERRED` and
+// v1-scope put WMS, MapServer, ImageServer and OGC Maps out of scope, so this server had no
+// path that turned geometry into pixels. Faking one — a stock icon per geometry type, the way
 // their geoprocessing services get a toolbox picture — would be decoration rather than
 // information, and this project's rule is that a picture of the data has to come from the data.
+//
+// <b>That stopped being true, and this comment was the last place saying otherwise (D-58).</b>
+// `Graticula.Render.Skia` exists, ADR-041 is the map renderer, and
+// `GET /rest/services/{name}/MapServer/export` turns a service into an image; WMS `GetMap`
+// does the same through the other face. So route (1) of D-58's trigger — *a real thumbnail,
+// cached, drawn once rather than per viewer* — is available and this preview is no longer the
+// only thing possible. **What has not been measured is whether it is better here**: a render
+// per row against a list of forty, whether a registered layer renders without symbology, and
+// what it costs beside the numbers below, which were measured. Until those exist the sample
+// stays, because this file's own standard is that its numbers came from a measurement.
 //
 // <b>So the browser draws it, from one query.</b> A few hundred features at a precision matched
 // to eighty pixels, through `maxAllowableOffset`, into a canvas with plain 2D calls. No SDK, no
