@@ -453,7 +453,17 @@ def debts():
             "text": first_sentence(cells[1] if len(cells) > 1 else ""),
             "trigger": first_sentence(cells[4], 120) if len(cells) > 4 else "",
             "status": status,
-            "open": not re.match(r"\s*\*{0,2}(RESOLVED|CLOSED)", status, re.I),
+            # <b>The register's own word for a debt is *repaid*, and this only knew
+            # *resolved* and *closed*.</b> Five rows said `~~open~~ repaid 2026-08-19`
+            # and this page counted every one of them as an open debt -- one fact in
+            # two places, disagreeing, which is [D-116] exactly. The strikethrough is
+            # part of the form the register settled on, so it is matched rather than
+            # legislated away.
+            #
+            # <b>`PARTLY` is deliberately not here.</b> Partly paid is open: counting
+            # it as closed is how a pile stops being a pile.
+            "open": not re.match(
+                r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID)\b", status, re.I),
             "partly": bool(re.match(r"\s*\*{0,2}(PARTLY|PARTIALLY)", status, re.I)),
         })
     return out
@@ -881,7 +891,12 @@ def build():
                  f'<th>{esc(ui("th_id"))}</th><th>{esc(ui("th_debt"))}</th><th>{esc(ui("th_repay"))}</th><th>{esc(ui("th_state"))}</th></tr></thead><tbody>')
     for x in d:
         tone = "cond" if x["partly"] else "warn" if x["open"] else "good"
-        label = "PARTLY" if x["partly"] else "OPEN" if x["open"] else "RESOLVED"
+
+        # <b>The register's word, not a synonym for it.</b> A debt is repaid; a
+        # question is resolved. Reading `repaid` in the row and printing `RESOLVED`
+        # here is the same small drift that let five repaid rows be counted open.
+        closed = "REPAID" if "repaid" in x["status"].lower() else "RESOLVED"
+        label = "PARTLY" if x["partly"] else "OPEN" if x["open"] else closed
         parts.append(f'<tr class="{"" if x["open"] else "done"}"><td class="id">{esc(x["id"])}</td>'
                      f'<td>{esc(x["text"])}</td><td class="muted-t">{esc(x["trigger"])}</td>'
                      f'<td><span class="pill {tone}">{label}</span></td></tr>')

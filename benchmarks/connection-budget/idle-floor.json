@@ -1,0 +1,269 @@
+{
+  "underLoad": {
+    "concurrency": 24,
+    "services": 6,
+    "requests": 12745,
+    "peakBackends": 48,
+    "peakActive": 17,
+    "samples": 22,
+    "failures": []
+  },
+  "trail": [
+    {
+      "t": 0,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 8.1
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 0.7
+        }
+      }
+    },
+    {
+      "t": 15,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 7.4
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 16.0
+        }
+      }
+    },
+    {
+      "t": 31,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 22.7
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 31.3
+        }
+      }
+    },
+    {
+      "t": 46,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 7.9
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 46.5
+        }
+      }
+    },
+    {
+      "t": 61,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 23.2
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 61.8
+        }
+      }
+    },
+    {
+      "t": 76,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 8.5
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 77.1
+        }
+      }
+    },
+    {
+      "t": 92,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 23.8
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 92.4
+        }
+      }
+    },
+    {
+      "t": 107,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 9.0
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 107.6
+        }
+      }
+    },
+    {
+      "t": 122,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 24.3
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 122.9
+        }
+      }
+    },
+    {
+      "t": 137,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 9.6
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 138.2
+        }
+      }
+    },
+    {
+      "t": 153,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 24.8
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 153.5
+        }
+      }
+    },
+    {
+      "t": 168,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 10.1
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 168.7
+        }
+      }
+    },
+    {
+      "t": 183,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 25.4
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 184.0
+        }
+      }
+    },
+    {
+      "t": 199,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 10.7
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 199.3
+        }
+      }
+    },
+    {
+      "t": 214,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 25.9
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 214.5
+        }
+      }
+    },
+    {
+      "t": 229,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 11.2
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 229.8
+        }
+      }
+    },
+    {
+      "t": 244,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 26.5
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 245.1
+        }
+      }
+    },
+    {
+      "t": 260,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 11.7
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 260.3
+        }
+      }
+    },
+    {
+      "t": 275,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 27.0
+        },
+        "(shared)": {
+          "backends": 46,
+          "oldestIdleSeconds": 275.6
+        }
+      }
+    },
+    {
+      "t": 290,
+      "pools": {
+        "graticula-jobs": {
+          "backends": 2,
+          "oldestIdleSeconds": 12.3
+        }
+      }
+    }
+  ]
+}

@@ -144,8 +144,27 @@ public static class Program
         // node was asked to do.
         builder.Services.AddSingleton<JobSignal>();
 
-        builder.Services.AddHostedService<GeodatabaseInspector>();
-        builder.Services.AddHostedService<GeodatabaseImporter>();
+        /*
+          <b>Given the pollers' own job store, which is the whole of D-110's remaining half.</b>
+          Everything else about these two is resolved the way it always was;
+          `ActivatorUtilities` fills the rest of the constructor from the container and takes the
+          one argument that is passed explicitly. The alternative was an attribute on the
+          constructor parameter, which would put the pool's key in two files and make a worker
+          know the name of a pool.
+
+          <b>The request path keeps the shared store.</b> Enqueuing a job happens inside a request
+          that already holds the shared pool's connection for its other work, and moving it onto a
+          pool sized for two pollers would put every operator's upload behind them.
+        */
+        builder.Services.AddHostedService(services =>
+            ActivatorUtilities.CreateInstance<GeodatabaseInspector>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
+        builder.Services.AddHostedService(services =>
+            ActivatorUtilities.CreateInstance<GeodatabaseImporter>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
 
         builder.Services.AddSingleton<TileSingleFlight>();
 
@@ -219,6 +238,38 @@ public static class Program
         // ADR-037's job record. A singleton over the data source, like every other store here.
         builder.Services.AddSingleton<Graticula.Platform.Jobs.IJobStore>(services =>
             new PostgresJobStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        /*
+          <b>The pollers' own pool, [D-110](../../docs/architecture-debt.md)'s remaining half.</b>
+          The backoff made the knocking fifteen times rarer and left the floor where it was: a
+          worker claiming on the shared pool touches a connection in it, round-robin, long before
+          `ConnectionIdleLifetime` can prune that connection — so the pool that serves requests
+          could never reach zero on an idle server, which is exactly the state ADR-007 §4.8's
+          *shrink toward a floor of zero* is written for.
+
+          <b>Sized from `JobKind` rather than from a constant.</b> One connection per kind is what
+          the row asks for, and deriving it means a third kind adds exactly one rather than adding
+          however many the shared pool happens to have warm. It is a ceiling, not a reservation:
+          Npgsql opens on demand, so a deployment that never imports anything holds none of them.
+
+          <b>`application_name` so the floor can be attributed rather than inferred.</b> The
+          original measurement had to read `pg_stat_activity.query` and recognise the claim
+          statement to say which sessions were the pollers'; naming the pool makes the same
+          question a `where` clause. `benchmarks/connection-budget` is where it is asked.
+        */
+        builder.Services.AddKeyedSingleton(
+            JobPool,
+            (_, _) => new NpgsqlDataSourceBuilder(
+                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                {
+                    MaxPoolSize = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length,
+                    ApplicationName = "graticula-jobs",
+                }.ConnectionString).Build());
+
+        builder.Services.AddKeyedSingleton<Graticula.Platform.Jobs.IJobStore>(
+            JobPool,
+            (services, _) => new PostgresJobStore(
+                services.GetRequiredKeyedService<NpgsqlDataSource>(JobPool)));
 
         // <b>A second port over the same store, and the split is deliberate</b> — see
         // IMemberDirectory. Every request touches IIdentityStore to authenticate; only
@@ -2804,6 +2855,16 @@ public static class Program
 
     /// <summary>The key for the datastore's own connection pool.</summary>
     private const string DatastorePool = "datastore";
+
+    /// <summary>The key for the pool the job pollers claim on.</summary>
+    /// <remarks>
+    /// <b>[D-110](../../docs/architecture-debt.md): a pool that prunes correctly cannot prune one
+    /// somebody keeps knocking on.</b> The row's repayable form, in its own words, is *their own
+    /// data source, bounded at one connection per worker kind, so the shared pool can reach the
+    /// floor of zero ADR-007 §4.8 claims and the polling cost is one connection per kind by
+    /// construction rather than by luck*. This is the key that separates them.
+    /// </remarks>
+    private const string JobPool = "jobs";
 
     /// <summary>
     /// The datastore connection, derived from the platform store's.

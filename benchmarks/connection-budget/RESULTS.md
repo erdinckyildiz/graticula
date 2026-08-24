@@ -154,3 +154,57 @@ of the formula — including the `+ 1`, which is ours and not the provider's.
   and today the answer is PostgreSQL's refusal.
 - **The per-source concurrency limit (N4), the circuit breaker (N3) and quiesce** are
   all §4.8 policy and all unbuilt. This measures the world without them.
+
+---
+
+# D-110 — where the idle floor is, and whose pool it is in
+
+**Run 2026-08-24**, `idle-floor.py` in this directory. Twenty seconds at 24 clients
+over the same six hosted layers, then five minutes of watching `pg_stat_activity`
+grouped by `application_name`.
+
+[D-110](../../docs/architecture-debt.md) measured the floor once and found **sixteen
+backends, of which eight last ran the job claim**. The workers claim on the pool that
+serves requests, round-robin, so every connection in it is touched again long before
+`ConnectionIdleLifetime` can prune it — *a pool that prunes correctly cannot prune one
+somebody keeps knocking on*. The backoff (2026-08-23) made the knocking fifteen times
+rarer and left the floor exactly where it was.
+
+## What the two runs say
+
+| | Peak under load | Shared pool at t+300 s | Pollers' pool at t+300 s |
+|---|---:|---:|---:|
+| Pollers on the shared pool | 46 | **2, and they are the pollers'** | — |
+| Pollers on their own pool | 46 | **0** | **2** |
+
+The shared pool's drain, sampled every 15 s: **46 → 46 → 23 → 2** with the pollers in
+it, and **46 → 46 → 0** without them. The last two connections in the first run were
+idle 18 s when the run ended, which is the backoff's own interval — they are the
+knocking, seen directly.
+
+Reproduced twice with the change in place, once with it taken back out. Taking it out
+is how the number was verified: the same script, the same load, the same five minutes,
+and the shared pool stops at two.
+
+## What it is bounded by
+
+`MaxPoolSize` on the pollers' pool is `Enum.GetValues<JobKind>().Length` — one
+connection per kind, so **the floor is a construction rather than an observation**. A
+third job kind adds exactly one, which is the arithmetic ADR-007 §4.8 asks for and the
+thing the row said was true by luck.
+
+It is a ceiling, not a reservation: Npgsql opens on demand, and a server that has never
+been asked to import anything holds none of them. Two is what a server that has run the
+workers once holds.
+
+## What this does not settle
+
+- **The floor is not zero, it is bounded.** Two connections for two job kinds is the
+  polling cost, and polling is still the mechanism. `LISTEN`/`NOTIFY` would replace it
+  with a connection held open for ever per node, which is this row's own complaint
+  arriving from the other side (§82).
+- **One node.** The `nodes ×` factor is arithmetic here as it is everywhere else in this
+  file.
+- **The drain took longer in the run without the change** — 276 s against 214 s to fall
+  below the plateau — which is consistent with the round-robin keeping connections warm,
+  and is one observation rather than a measurement.
