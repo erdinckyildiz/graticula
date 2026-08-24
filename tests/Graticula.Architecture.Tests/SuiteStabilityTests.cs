@@ -380,4 +380,46 @@ public sealed class SuiteStabilityTests
         Assert.Contains(
             "sessionStorage.removeItem(\"gis-token\")", handler.Value, StringComparison.Ordinal);
     }
+
+    /// <summary>The symbology page shows its colours as colours, and divides the alpha.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-99](../../docs/architecture-debt.md): the least visual page in a product about
+    /// maps.</b> A derived renderer was shown as raw JSON and a colour inside it as an RGBA
+    /// quad. The swatches are the repair, and a repair with nothing holding it is one somebody
+    /// removes while tidying — which is the lesson
+    /// [D-26](../../docs/architecture-debt.md) records about a refusal nobody exercised.
+    /// </para>
+    /// <para>
+    /// <b>Two things, and the second is the one that fails silently.</b> That the page draws
+    /// swatches at all is visible the moment it stops. That the alpha is divided by 255 is
+    /// not: ArcGIS writes <c>[r, g, b, a]</c> with a in 0–255, CSS wants 0–1, and handing the
+    /// quad over unchanged makes every opaque colour clamp to 1 — which looks perfectly
+    /// correct, on every colour that was opaque anyway. The half-transparent ones are the only
+    /// evidence, and they are the rare case.
+    /// </para>
+    /// <para>
+    /// <b>Read from source, because the console suites need a running server and this does
+    /// not</b> — the same argument as the sign-out check above.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_symbology_page_draws_its_colours_and_scales_the_alpha()
+    {
+        string console = File.ReadAllText(Path.Combine(
+            Root().FullName, "src", "Graticula.Host", "wwwroot", "console.js"));
+
+        Assert.Contains("drawSwatches(r.drawingInfo)", console, StringComparison.Ordinal);
+        Assert.Contains("id=\"symSwatches\"", console, StringComparison.Ordinal);
+
+        Match convert = Regex.Match(
+            console, @"function rgba\(color\)\s*\{(.*?)\n\}", RegexOptions.Singleline);
+
+        Assert.True(
+            convert.Success,
+            "console.js has no rgba(color) helper, so the symbology swatches either draw "
+            + "nothing or convert their colours somewhere this check cannot see. D-99.");
+
+        Assert.Contains("/ 255", convert.Groups[1].Value, StringComparison.Ordinal);
+    }
 }

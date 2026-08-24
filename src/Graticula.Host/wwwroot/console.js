@@ -4047,6 +4047,108 @@ async function loadEmptyServices() {
  * showed only the document a person wrote would leave them to discover the losses from a
  * client's rendering, which is the failure the condition exists to prevent.
  */
+/**
+ * Draws the colours an ArcGIS client will use, as colours.
+ *
+ * <b>D-99: the least visual page in a product about maps.</b> The derived renderer was shown
+ * as raw JSON and a colour inside it as an RGBA quad — `[214, 92, 43, 255]` — which is a
+ * number a person converts in their head, badly, or does not convert at all. The document
+ * stays, because it is the exact thing a client receives and a reader checking a value needs
+ * to see it; what changes is that the answer is above the evidence.
+ *
+ * <b>The three families ArcGIS understands, and nothing invented.</b> `simple` draws every
+ * feature one way; `uniqueValue` and `classBreaks` each carry a list whose entries already
+ * have the label a legend would print. So the labels are read rather than composed — a
+ * swatch captioned by this console rather than by the renderer would be a second opinion
+ * about what the layer means.
+ *
+ * <b>An outline is a colour too, and it is drawn as a border rather than as a second square.</b>
+ * A fill and its outline are one symbol, and two squares side by side would read as two
+ * classes.
+ *
+ * @param {object|null|undefined} drawingInfo What an ArcGIS client receives.
+ */
+function drawSwatches(drawingInfo) {
+  const box = $("symSwatches");
+  const renderer = drawingInfo && drawingInfo.renderer;
+  const symbols = [];
+
+  if (renderer && renderer.type === "simple") {
+    symbols.push({ label: "Every feature", symbol: renderer.symbol });
+  } else if (renderer && Array.isArray(renderer.uniqueValueInfos)) {
+    for (const info of renderer.uniqueValueInfos) {
+      symbols.push({ label: info.label || info.value, symbol: info.symbol });
+    }
+  } else if (renderer && Array.isArray(renderer.classBreakInfos)) {
+    for (const info of renderer.classBreakInfos) {
+      symbols.push({ label: info.label, symbol: info.symbol });
+    }
+  }
+
+  // <b>Hidden rather than empty.</b> An empty strip under a heading reads as a layer with no
+  // colours, which is a different thing from a renderer this console does not draw swatches
+  // for — and the document below says which.
+  const drawn = symbols.filter(s => rgba(s.symbol && s.symbol.color));
+  box.hidden = drawn.length === 0;
+  box.textContent = "";
+
+  for (const { label, symbol } of drawn) {
+    const chip = document.createElement("span");
+    chip.className = "swatch";
+
+    // <b>Two elements, because one cannot carry both.</b> The checkerboard is a background
+    // image and the colour is a background colour, and a colour paints *behind* an image —
+    // so a single element would show the checkerboard and hide the fill. The outer square
+    // holds the texture, the inner one holds the paint.
+    const patch = document.createElement("span");
+    patch.className = "patch";
+
+    const fill = document.createElement("span");
+    fill.className = "fill";
+    fill.style.background = rgba(symbol.color);
+    patch.append(fill);
+
+    const outline = symbol.outline && rgba(symbol.outline.color);
+    if (outline) {
+      patch.style.borderColor = outline;
+    }
+
+    const text = document.createElement("span");
+    text.textContent = label === undefined || label === null || label === ""
+      ? "(no label)"
+      : String(label);
+
+    chip.append(patch, text);
+
+    // <b>The quad stays reachable.</b> Somebody checking a value against a specification
+    // wants the numbers, and hiding them behind a picture would be the opposite of this
+    // page's job.
+    chip.title = `[${symbol.color.join(", ")}]`;
+
+    box.append(chip);
+  }
+}
+
+/**
+ * An ArcGIS colour as CSS, or null when it is not one.
+ *
+ * ArcGIS writes `[r, g, b, a]` with **a in 0–255**, which is the trap: passing it to CSS
+ * unchanged makes every opaque colour 255 times too opaque, which browsers clamp to 1 and
+ * every transparent one wrong. Divided here, once.
+ *
+ * @param {unknown} color The candidate.
+ * @returns {string|null} A CSS colour, or null.
+ */
+function rgba(color) {
+  if (!Array.isArray(color) || color.length < 3) return null;
+  if (!color.slice(0, 3).every(n => typeof n === "number")) return null;
+
+  const [r, g, b] = color;
+  const a = typeof color[3] === "number" ? color[3] / 255 : 1;
+
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
 async function loadSymbology(name) {
   const state = $("symState");
 
@@ -4058,6 +4160,8 @@ async function loadSymbology(name) {
     $("symDerived").textContent = r.drawingInfo
       ? JSON.stringify(r.drawingInfo, null, 1)
       : "none — this layer's stored document could not be projected";
+
+    drawSwatches(r.drawingInfo);
 
     // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
     // appearance a real answer with a version of 0, and a reader who sees nothing cannot
@@ -5152,6 +5256,7 @@ function showLayer(name, page, pending = null) {
         client understands — <span class="mono">simple</span>,
         <span class="mono">uniqueValue</span>, <span class="mono">classBreaks</span>.
         Read-only: it is a projection, not a second place to edit.</p>
+      <div class="swatches" id="symSwatches" hidden></div>
       <pre class="doc" id="symDerived">—</pre>
     </section>
 
