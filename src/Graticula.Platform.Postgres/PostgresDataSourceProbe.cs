@@ -215,6 +215,38 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                 order by i.indisprimary desc, ai.attnum
                 limit 1
               ) as object_id_column,
+              (
+                -- <b>The table's own key, whatever its type — D-50.</b> Reported even
+                -- when it cannot be an object id, because an operator choosing an
+                -- identity column wants to see the key the table was designed around
+                -- before deciding against it. A composite key reports nothing: naming
+                -- one of its columns would be worse than naming none.
+                select ai.attname
+                from pg_index i
+                join pg_attribute ai
+                  on ai.attrelid = i.indrelid and ai.attnum = any (i.indkey)
+                where i.indrelid = c.oid and i.indisprimary and i.indnkeyatts = 1
+                limit 1
+              ) as primary_key_column,
+              (
+                -- <b>Every candidate, not the first — D-50.</b> The single suggestion
+                -- above made the console able to offer one nomination and only when an
+                -- ArcGIS-shaped id already existed; everything else was typed from
+                -- memory, and a wrong-but-existing column silently becomes the feature
+                -- identity. Same rule as the column above, without the `limit`.
+                select coalesce(array_agg(x.attname order by x.pk desc, x.attnum), '{}')
+                from (
+                  select distinct ai.attname, ai.attnum, bool_or(i.indisprimary) as pk
+                  from pg_index i
+                  join pg_attribute ai
+                    on ai.attrelid = i.indrelid and ai.attnum = any (i.indkey)
+                  where i.indrelid = c.oid
+                    and i.indisunique
+                    and i.indnkeyatts = 1
+                    and ai.atttypid in ('int2'::regtype, 'int4'::regtype)
+                  group by ai.attname, ai.attnum
+                ) x
+              ) as identity_candidates,
               pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE') as writable
             from pg_class c
             join pg_namespace n on n.oid = c.relnamespace
@@ -247,7 +279,9 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                 reader.GetInt32(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
-                !reader.IsDBNull(6) && reader.GetBoolean(6)));
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? [] : reader.GetFieldValue<string[]>(7),
+                !reader.IsDBNull(8) && reader.GetBoolean(8)));
         }
 
         return tables;

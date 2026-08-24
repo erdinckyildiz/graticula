@@ -6622,6 +6622,16 @@ internal static class AdminEndpoints
             t.Srid,
             geometryType = t.GeometryType,
             objectIdColumn = t.CandidateObjectIdColumn,
+
+            // <b>D-50: the nomination is a choice among named candidates.</b> `POST
+            // /admin/layers` requires `identityColumn` and Q-57 makes it a nomination
+            // rather than an inference — *declared, not inferred* — and until this the
+            // probe reported one suggestion, and only when an ArcGIS-shaped object id
+            // already existed. Everything else was typed from memory, where a typo is a
+            // 400 and a wrong-but-existing column decides which row an edit lands on.
+            primaryKeyColumn = t.PrimaryKeyColumn,
+            identityCandidates = t.IdentityCandidates,
+
             arcGisServable = t.CandidateObjectIdColumn is not null,
             t.Writable,
         }),

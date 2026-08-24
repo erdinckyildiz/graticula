@@ -56,6 +56,17 @@ public enum ProbeOutcome
 /// none — ADR-013 §2a's requirement, answered before publishing rather than at
 /// the first query.
 /// </param>
+/// <param name="PrimaryKeyColumn">
+/// Its single-column primary key, whatever the type, or null when it has none or the key
+/// spans more than one column. Reported even when it cannot be an object id, because an
+/// operator nominating an identity column wants to know what the table's own key is
+/// before deciding to use something else.
+/// </param>
+/// <param name="IdentityCandidates">
+/// Every single-column unique <c>int2</c>/<c>int4</c> column, the primary key first.
+/// <see cref="SourceTable.CandidateObjectIdColumn"/> is the first of these, and is kept
+/// because it is the one the console offers as a one-click nomination.
+/// </param>
 /// <param name="Writable">Whether our credential may write to it.</param>
 public readonly record struct SourceTable(
     string SchemaName,
@@ -64,6 +75,8 @@ public readonly record struct SourceTable(
     int Srid,
     string? GeometryType,
     string? CandidateObjectIdColumn,
+    string? PrimaryKeyColumn,
+    IReadOnlyList<string> IdentityCandidates,
     bool Writable);
 
 /// <summary>What a probe found.</summary>
