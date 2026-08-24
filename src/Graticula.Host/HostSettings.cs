@@ -92,6 +92,22 @@ internal sealed record HostSettings(
     // this setting is worse than not having it: a forwarded header trusted from anybody lets every
     // caller pick their own rate-limit bucket, which is a limit of zero.
     IReadOnlyList<System.Net.IPNetwork> TrustedProxies,
+    // <b>On by default, because turning it off refuses clients that have always worked.</b>
+    // [D-120](../../docs/architecture-debt.md): Esri clients send a session token as `?token=`
+    // on ordinary requests — it is how every one of them works — so a URL carrying a live
+    // credential reaches this server's request log, and any proxy's, and any browser history
+    // between here and the caller. <c>QueryRedaction</c> keeps it out of <em>our</em> log; it
+    // cannot reach theirs.
+    //
+    // <b>So the switch is for a deployment that knows its clients do not need it</b>, which is
+    // the condition D-120 states for closing. With it false the query parameter is not read at
+    // all: a caller sending only <c>?token=</c> is anonymous and meets the ordinary refusal,
+    // rather than a special one, because a message saying <em>your token channel is
+    // disabled</em> would confirm the token was valid to somebody who guessed it.
+    //
+    // <b>Not a default this side can flip.</b> Off by default would refuse every unmodified
+    // ArcGIS client on upgrade, which is Q-17's whole promise.
+    bool AcceptTokenInQueryString,
 
     // <b>The passwords this deployment refuses, [D-23](../../docs/architecture-debt.md).</b> A
     // few hundred bases are built in; this names a file of more — the top ten thousand, the top
@@ -403,6 +419,7 @@ internal sealed record HostSettings(
             Math.Clamp(keys.Value("JpegQuality", 85), 1, 100),
 
             proxies,
+            keys.Value("AcceptTokenInQueryString", true),
             common,
             passwordFile,
 

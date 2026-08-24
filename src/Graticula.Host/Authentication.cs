@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -244,6 +245,18 @@ internal sealed class Authentication
             {
                 return bearer;
             }
+        }
+
+        // <b>The query channel is a deployment's choice, D-120.</b> This is the channel that
+        // puts a live credential into every log between the caller and here, and the header
+        // above is the one a client with a choice uses. A deployment that knows its clients
+        // send the header sets `Graticula:AcceptTokenInQueryString` to false and the parameter
+        // is not read at all, so a caller who sends only `?token=` is anonymous and meets the
+        // ordinary refusal. <b>Deliberately not a distinct refusal</b>: *your token channel is
+        // disabled* tells somebody who guessed a token that they guessed a real one.
+        if (!context.RequestServices.GetRequiredService<HostSettings>().AcceptTokenInQueryString)
+        {
+            return null;
         }
 
         string query = context.Request.Query["token"].ToString();
