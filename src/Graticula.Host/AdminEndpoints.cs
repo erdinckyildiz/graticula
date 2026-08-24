@@ -6557,6 +6557,18 @@ internal static class AdminEndpoints
             // Said out loud, because "delete" on a layer that reads somebody
             // else's database could reasonably be feared to mean more.
             note = "The registration was removed. The table in the data source was not touched.",
+
+            // <b>And what there is no other way to do — D-34.</b> There is no move, no rename
+            // and no reorder, so an operator correcting a placement arrives here whether they
+            // meant to or not, and this is the last moment anything can tell them what it
+            // costs. **The index is the cost.** ADR-013 §4 says a layer index is referenced by
+            // saved web maps and must never be reused, so republishing does not put the layer
+            // back where it was: it puts it at the next index, and a client that stored the old
+            // address keeps it. That is worth knowing *before* the republish rather than after.
+            moving = "There is no move, rename or reorder: correcting a service or group name "
+                   + "means publishing this layer again. It will be given the next free layer "
+                   + "index rather than this one — an index is never reused — so any client "
+                   + "holding the old URL will not follow it.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
