@@ -673,7 +673,31 @@ def a_debt_row_that_disagrees_with_itself():
         rows += 1
         identifier, body, status = cells[0], cells[1], cells[-1]
 
-        if done.match(status) or not claimed.search(body):
+        if done.match(status):
+            continue
+
+        # <b>The same lie from inside the status cell — found 2026-08-24.</b> The check below
+        # was written for a row whose *text* claims a resolution its status denies. Four rows
+        # had the resolution **in the status cell** and not at the front of it: D-17, D-120,
+        # D-65 and D-127 each said `CLOSED <date>` somewhere in the middle of a paragraph that
+        # opened with `OPEN` or `PARTLY`. `status-page.py` reads the start of the cell, so all
+        # four were counted among the open debts — and the answer to *are they all closed* was
+        # wrong by four.
+        #
+        # <b>The verdict leads.</b> A cell that buries it is a cell whose first sentence is
+        # false, and the first sentence is the whole of what a reader skims and the tool reads.
+        verdict = re.search(r"\*\*(CLOSED|RESOLVED|REPAID|WITHDRAWN)\s+20\d\d-\d\d-\d\d", status)
+
+        if verdict:
+            problems.append(
+                f'{identifier} says "{verdict.group(0)}" inside its status cell, which opens '
+                f'"{status[:50].strip()}...". The verdict has to lead: status-page.py reads '
+                "the front of the cell, so a closure buried in the middle is counted open. "
+                "D-116's shape inside one cell."
+            )
+            continue
+
+        if not claimed.search(body):
             continue
 
         problems.append(
