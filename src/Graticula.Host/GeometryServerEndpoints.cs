@@ -455,6 +455,13 @@ internal static class GeometryServerEndpoints
         supportedOperations = Supported.Concat(Engine).ToArray(),
         unsupportedOperations = Blocked.Keys,
         maximumVertices = MaximumVertices,
+
+        // <b>The other ceiling, and the one a large batch meets first.</b> D-148: a caller
+        // sizing a request against maximumVertices alone can build a body this server will not
+        // read, and the refusal used to be a closed connection. Null when the deployment has
+        // not set one.
+        maximumRequestBytes = BodyCeiling(context),
+
         maximumCandidatePairs = preflight ?? pool.EnforcedPreflightPairs,
         deadlineSeconds = (deadline ?? pool.EnforcedDeadline).TotalSeconds,
 
@@ -1822,6 +1829,26 @@ internal static class GeometryServerEndpoints
         return TryGeometries(form, srid, out geometries, out _, out error);
     }
 
+    /// <summary>Marks a refusal as being about size rather than about correctness.</summary>
+    /// <remarks>
+    /// <b>On the context because `TryForm` has eight callers and one of its refusals is a
+    /// different status.</b> [D-148](../../docs/architecture-debt.md): a caller has to be able to
+    /// tell *too large* from *wrong*, and they do different things about each. Threading a status
+    /// through eight signatures to carry one boolean is how a signature grows a parameter nobody
+    /// reads — the same reasoning `ServiceLookup` gives for its own marker.
+    /// </remarks>
+    private const string TooLargeKey = "gis-geometry-body-too-large";
+
+    /// <summary>How large a body this server will read, or null when it does not say.</summary>
+    /// <remarks>
+    /// <b>Asked of the request rather than written down.</b> The limit is Kestrel's and a
+    /// deployment can change it; a constant here would be right until somebody did.
+    /// </remarks>
+    private static long? BodyCeiling(HttpContext context) =>
+        context.Features
+            .Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()
+            ?.MaxRequestBodySize;
+
     private static bool TryForm(HttpContext context, out IFormCollection form, out string? error)
     {
         error = null;
@@ -1841,10 +1868,57 @@ internal static class GeometryServerEndpoints
 
         if (context.Request.HasFormContentType)
         {
+            /*
+              <b>Measured before it is read, [D-148](../../docs/architecture-debt.md).</b> A body
+              past Kestrel's ceiling used to end the connection: the client saw
+              `EOF occurred in violation of protocol` after 23 milliseconds, which is a TLS error
+              rather than a status code, and nothing reached the request log because no request
+              was ever dispatched. Found while measuring D-31 \u2014 two 600,000-vertex operands
+              encode to about 50 MB against a 30 MB default.
+
+              <b>`Content-Length` rather than the body itself</b>, because the point is to answer
+              without draining fifty megabytes. A chunked body has no length and falls through to
+              the catch below, which is the same refusal arriving later.
+            */
+            if (context.Request.ContentLength is { } sent
+                && BodyCeiling(context) is { } ceiling
+                && sent > ceiling)
+            {
+                form = FormCollection.Empty;
+                error =
+                    $"This request is {sent / 1_000_000.0:0.#} MB and this server reads at most "
+                    + $"{ceiling / 1_000_000.0:0.#} MB in one body. The documented bound is "
+                    + $"{MaximumVertices:N0} vertices, and a batch that size can exceed the byte "
+                    + "ceiling first \u2014 split it. The service document reports both, as "
+                    + "maximumVertices and maximumRequestBytes.";
+
+                context.Items[TooLargeKey] = true;
+
+                return false;
+            }
+
             try
             {
                 form = context.Request.Form;
                 return true;
+            }
+            catch (Microsoft.AspNetCore.Http.BadHttpRequestException e)
+            {
+                // <b>The same refusal for a body whose size was not declared.</b> Kestrel raises
+                // this while reading past its ceiling; uncaught it is a 400 with the framework's
+                // own words, which name neither bound. D-148.
+                form = FormCollection.Empty;
+                error =
+                    "This request is larger than this server reads in one body"
+                    + (BodyCeiling(context) is { } limit
+                        ? $" ({limit / 1_000_000.0:0.#} MB)"
+                        : string.Empty)
+                    + $". The documented bound is {MaximumVertices:N0} vertices; split the batch. "
+                    + $"({e.Message})";
+
+                context.Items[TooLargeKey] = true;
+
+                return false;
             }
             catch (System.IO.InvalidDataException e)
             {
@@ -1854,6 +1928,8 @@ internal static class GeometryServerEndpoints
                 // that was refused correctly, by a limit nobody had documented,
                 // before the documented one could apply.
                 form = FormCollection.Empty;
+                context.Items[TooLargeKey] = true;
+
                 error =
                     "The request body is larger than this server will read in one form. "
                     + $"The documented bound is {MaximumVertices:N0} vertices; split the batch. "
@@ -2059,12 +2135,23 @@ internal static class GeometryServerEndpoints
     /// spent five minutes pasting a polygon into is a refusal they will work
     /// around by not using the page.
     /// </remarks>
-    private static Task Fail(HttpContext context, string message)
+    /// <summary>Writes a refusal, at 400 unless the caller says otherwise.</summary>
+    /// <remarks>
+    /// <b>The status is a parameter because one refusal here is not a bad request.</b> A body
+    /// past the server's ceiling is 413, and [D-148](../../docs/architecture-debt.md) is about a
+    /// caller being able to tell *too large* from *wrong* — which a shared 400 cannot say.
+    /// </remarks>
+    private static Task Fail(
+        HttpContext context, string message, int? status = null)
     {
+        status ??= context.Items.ContainsKey(TooLargeKey)
+            ? StatusCodes.Status413PayloadTooLarge
+            : StatusCodes.Status400BadRequest;
+
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept)
             && OperationOf(context) is { } operation)
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.StatusCode = status.Value;
 
             return Html(GeometryPage.Form(
                 context.Request.Path, operation, context.Request.Query, message))
@@ -2072,8 +2159,8 @@ internal static class GeometryServerEndpoints
         }
 
         return Results.Json(
-            new { error = new { code = 400, message } },
-            statusCode: StatusCodes.Status400BadRequest)
+            new { error = new { code = status.Value, message } },
+            statusCode: status.Value)
             .ExecuteAsync(context);
     }
 }

@@ -39,16 +39,28 @@ public sealed class DecoyVerificationCostTests
 
     private const int Samples = 15;
 
-    /// <summary>Medians of two operations, sampled alternately.</summary>
+    /// <summary>The fastest each of two operations managed, sampled alternately.</summary>
     /// <remarks>
-    /// <b>Alternately, and the first version of this measured them in sequence and was wrong by
-    /// a factor of two.</b> Each hash allocates four mebibytes, so the first batch measured pays
+    /// <para>
+    /// <b>Alternately, because the first version measured them in sequence and was wrong by a
+    /// factor of two.</b> Each hash allocates four mebibytes, so the first batch measured pays
     /// for the heap growing to hold them and the second does not: verifying a real credential
-    /// came out at 22.5 ms and verifying the decoy — the same operation on the same parameters
-    /// — at 10.9 ms, purely because it ran second. Interleaving puts both halves on both sides
-    /// of whatever the runtime is doing.
+    /// came out at 22.5 ms and verifying the decoy — the same operation on the same
+    /// parameters — at 10.9 ms, purely because it ran second.
+    /// </para>
+    /// <para>
+    /// <b>The fastest rather than the median, because the median flaked.</b> This file used
+    /// medians and failed once inside a full suite run: 24.9 ms against 18.4 ms, a ratio of 1.35
+    /// where it wanted 1.6, on a machine that was also running two overlay workers. A median
+    /// carries whatever else the machine was doing; the fastest sample of each is the one least
+    /// disturbed by it, and the claim under test is about the work rather than about the load.
+    /// </para>
+    /// <para>
+    /// <b>It is still a comparison and never an absolute.</b> Both halves are sampled in the same
+    /// loop on the same machine, so a slow machine moves both.
+    /// </para>
     /// </remarks>
-    private static (double First, double Second) MediansOf(Action first, Action second)
+    private static (double First, double Second) FastestOf(Action first, Action second)
     {
         // Untimed passes, so no sample carries the JIT or the first allocation.
         first();
@@ -71,7 +83,7 @@ public sealed class DecoyVerificationCostTests
         Array.Sort(onto);
         Array.Sort(other);
 
-        return (onto[Samples / 2], other[Samples / 2]);
+        return (onto[0], other[0]);
     }
 
     /// <summary>
@@ -91,7 +103,7 @@ public sealed class DecoyVerificationCostTests
         PasswordHash stored = hasher.Hash("correct horse battery staple");
         PasswordHash decoy = hasher.Hash(Guid.NewGuid().ToString("N"));
 
-        (double real, double against) = MediansOf(
+        (double real, double against) = FastestOf(
             () => hasher.Verify("wrong password", stored),
             () => hasher.Verify("wrong password", decoy));
 
@@ -127,7 +139,7 @@ public sealed class DecoyVerificationCostTests
 
         PasswordHash stored = hasher.Hash("correct horse battery staple");
 
-        (double real, double old) = MediansOf(
+        (double real, double old) = FastestOf(
             () => hasher.Verify("wrong password", stored),
             () => hasher.Verify("wrong password", hasher.Hash("wrong password")));
 

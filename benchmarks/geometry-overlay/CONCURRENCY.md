@@ -81,11 +81,14 @@ enforced and it says what it is.
 
 ## What turned up that the row did not ask about
 
-**A request body over Kestrel's 30 MB default is closed rather than refused.** A
-600,000-vertex intersect encodes to about 50 MB and the connection ends after 23
-milliseconds; the client sees `EOF occurred in violation of protocol`, not a status code it
-can read. The bound is right and the way it is delivered is not — recorded as
-[D-148](../../docs/architecture-debt.md).
+**A request body over Kestrel's 30 MB default was closed rather than refused.** A
+600,000-vertex intersect encodes to about 37 MB and the connection ended after 23
+milliseconds; the client saw `EOF occurred in violation of protocol`, not a status code it
+could read. Recorded as [D-148](../../docs/architecture-debt.md) and **repaired the same
+day**: the size is compared against the ceiling before the body is read, the answer is a
+413 naming both bounds, and the service document reports `maximumRequestBytes` beside
+`maximumVertices`. A client that sends `Expect: 100-continue` reads the refusal; one that
+streams without asking still meets a reset, which is HTTP rather than this server.
 
 **And 300,000 vertices is already close to that ceiling** at about 25 MB, which is why the
 load above stops there: the largest overlay this server will accept over the wire is
