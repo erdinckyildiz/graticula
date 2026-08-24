@@ -963,6 +963,70 @@ def a_register_tally_that_disagrees_with_the_register():
     return problems
 
 
+def a_debt_row_with_an_empty_cell():
+    """A debt row that leaves out what it was, why it was acceptable, or what it costs.
+
+    **[CLAUDE.md §62](../CLAUDE.md) states the shape and nothing enforced it.**
+    Every entry records what was compromised, why it was acceptable at the time,
+    and the observable condition that makes it unacceptable -- and *an entry
+    without a trigger is not debt, it is an undocumented permanent decision
+    wearing a disguise*. `ragged_register_rows` catches a row with the **wrong
+    number** of cells, which is a pipe in prose; this catches a row with the right
+    number and nothing in them.
+
+    **Found 2026-08-24: D-29 and D-30 each had three empty cells** -- taken on,
+    why it was acceptable, and what it costs if unpaid. Both were readable rows
+    with long claims and long statuses, so nothing about them looked thin, and
+    the missing halves are the two that make a debt reviewable at all: *when did
+    we accept this* and *what does it cost us*.
+
+    **The trigger column is not checked here.** `ragged_register_rows` already
+    refuses a row that cannot be parsed, and a trigger that is present but vague
+    is a judgement rather than a check -- that is what a review gate is for.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "architecture-debt.md")
+
+    try:
+        text = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"architecture-debt.md could not be read: {problem}"]
+
+    # The register's own column order, from its header.
+    names = ["id", "the debt", "taken on", "why it was acceptable",
+             "trigger to repay", "cost if unpaid", "status"]
+
+    problems = []
+    rows = 0
+
+    for line in text.splitlines():
+        if not line.startswith("| D-"):
+            continue
+
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+
+        if len(cells) != len(names):
+            # ragged_register_rows owns that failure and says it better.
+            continue
+
+        rows += 1
+
+        empty = [names[i] for i, cell in enumerate(cells) if cell == ""]
+
+        if empty:
+            problems.append(
+                f"{cells[0]} leaves {', '.join(empty)} empty. §62 asks every entry for what was "
+                "compromised, why it was acceptable at the time, and what it costs unpaid -- a "
+                "row missing those is readable and not reviewable."
+            )
+
+    if rows < 100:
+        problems.append(
+            f"only {rows} debt rows were parsed, which means the register's shape moved and this "
+            "check is reading nothing. A check that cannot fail is worse than no check.")
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -1170,6 +1234,7 @@ def main() -> int:
                 + a_debt_row_that_disagrees_with_itself()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
+                + a_debt_row_with_an_empty_cell()
                 + source_the_repository_would_not_receive())
 
     if problems:
