@@ -618,6 +618,79 @@ def a_gate_tally_that_disagrees_with_the_gates():
     return problems
 
 
+def a_debt_row_that_disagrees_with_itself():
+    """A row whose text says it is resolved while its status cell says it is open.
+
+    **Found twice in one pass, 2026-08-24, and each had stood for ten days.**
+    [D-09](../docs/architecture-debt.md) read *RESOLVED 2026-08-14* in its own
+    text and `OPEN` in its status; [D-11](../docs/architecture-debt.md) read
+    *RESOLVED 2026-08-13* and `OPEN`, and gave as its reason a fact D-09 had just
+    disproved. Nothing noticed, because the two halves are read by different
+    people at different times: the status column is what `status-page.py` counts
+    and what a reader skims, and the text is what somebody updates when they fix
+    the thing.
+
+    **So the register disagreed with the register, inside one row.** That is
+    [D-116](../docs/architecture-debt.md)'s *a fact in three places is three
+    places to be wrong* at its smallest possible scale, and the cheapest to check.
+
+    **Narrow, like the two tally checks above.** It fires only when the text
+    carries an emphasised **RESOLVED**, **CLOSED** or **REPAID** -- the register's
+    own vocabulary for done, emphasised because that is how this file marks a
+    verdict -- and the status cell does not start with one. A row saying *partly
+    resolved* is a third state and is left alone, and so is a row whose text
+    merely mentions that some other debt was closed.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "architecture-debt.md")
+
+    try:
+        text = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"architecture-debt.md could not be read: {problem}"]
+
+    # The same verdict words status-page.py counts, and in the same order, so the
+    # two cannot disagree about what *done* looks like.
+    done = re.compile(
+        r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|WITHDRAWN)\b", re.I)
+
+    # In the text, the verdict is emphasised: that is how this file marks one.
+    # PARTLY is excluded by requiring the marker to open the emphasis.
+    claimed = re.compile(r"\*\*(RESOLVED|CLOSED|REPAID)\b")
+
+    problems = []
+    rows = 0
+
+    for line in text.splitlines():
+        if not line.startswith("| D-"):
+            continue
+
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+
+        if len(cells) < 7:
+            # ragged_register_rows owns that failure and says it better.
+            continue
+
+        rows += 1
+        identifier, body, status = cells[0], cells[1], cells[-1]
+
+        if done.match(status) or not claimed.search(body):
+            continue
+
+        problems.append(
+            f'{identifier} says "{claimed.search(body).group(0)}" in its own text and its '
+            f'status cell reads "{status[:60].strip()}...". One of the two is wrong, and the '
+            "status cell is the one the page counts and a reader skims. D-09 and D-11 each "
+            "stood like this for ten days."
+        )
+
+    if rows < 100:
+        problems.append(
+            f"only {rows} debt rows were parsed, which means the register's shape moved and "
+            "this check is reading nothing. A check that cannot fail is worse than no check.")
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -822,6 +895,7 @@ def main() -> int:
                 + remembered_numbers() + the_former_product_name()
                 + a_condition_tally_that_disagrees_with_the_conditions()
                 + a_gate_tally_that_disagrees_with_the_gates()
+                + a_debt_row_that_disagrees_with_itself()
                 + source_the_repository_would_not_receive())
 
     if problems:
