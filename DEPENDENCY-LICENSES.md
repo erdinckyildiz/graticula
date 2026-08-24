@@ -118,6 +118,44 @@ The generated ranges are derived from the outlines and are covered by the same
 permission. They are not a separate licence question, and they are not a
 different obligation.
 
+## Transitive dependencies — enumerated 2026-08-24
+
+**[D-06](docs/architecture-debt.md)'s missing step, which was one command.** The §66
+licensing gate verified the direct set on 2026-08-15 and left the graph beneath it
+unexamined; the row named `dotnet list package --include-transitive` as the step nobody had
+run. It has now been run over the whole solution, and every package's licence read from its
+own `.nuspec` in the local NuGet cache — the same method the direct set was verified by.
+
+**Thirty-three packages, direct and transitive together, and the answer is the one that
+matters: no copyleft anywhere.**
+
+| Licence | Packages |
+|---|---|
+| MIT | `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` |
+| BSD-3-Clause | `NetTopologySuite` |
+| PostgreSQL Licence (BSD-style) | `Npgsql` |
+| Apache-2.0 | the `xunit` family — `xunit`, `xunit.assert`, `xunit.core`, `xunit.analyzers`, `xunit.abstractions`, `xunit.extensibility.core`, `xunit.extensibility.execution`, `xunit.runner.visualstudio` |
+| BSD-style, stated by URL rather than SPDX | `BitMiracle.LibTiff.NET` |
+
+**Nothing in the graph is GPL, LGPL or AGPL**, so the Apache-2.0 outbound licence is lawful
+to grant over what is shipped, which is the question D-06 was opened on. PostGIS remains
+GPL-2.0-or-later and remains a separate process that is not linked, which is recorded above
+and unchanged.
+
+**A method note, because it cost a wrong answer once.** The first pass read each package's
+nuspec from `ls ~/.nuget/packages/<id>/*/ | head -1`, which is the **oldest cached version**
+rather than the resolved one — and it reported the two `Microsoft.Extensions.*Abstractions`
+packages under the old .NET Library EULA, from cached 1.1.0 folders that nothing in this
+solution references. The resolved versions are 8.0.2 and both are MIT. The lesson is the one
+this repository keeps relearning: *which* artefact was measured is part of the measurement.
+
+**Half the list is test-only** — the xunit family, the TestPlatform packages,
+`Microsoft.CodeCoverage`, `Microsoft.Extensions.TimeProvider.Testing` — and is not linked
+into anything distributed. It is enumerated anyway, because a licence question answered only
+for what ships has to be re-answered the first time somebody asks what is in the repository.
+
+---
+
 ## ⚠ Verification status
 
 Every entry below is marked `UNVERIFIED`. The licences are recorded from general
