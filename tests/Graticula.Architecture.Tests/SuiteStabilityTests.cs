@@ -316,4 +316,68 @@ public sealed class SuiteStabilityTests
             + "the page to the attribute. D-46.\n  "
             + string.Join("\n  ", missing));
     }
+
+    /// <summary>
+    /// A sign-out that the server refused leaves the console's own session state alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-51](../../docs/architecture-debt.md), and the rule it states:</b> a client that
+    /// holds a copy of session state clears it <em>only after the server has confirmed</em>,
+    /// never before and never regardless. A session here exists in two forms — a bearer
+    /// token the console keeps in <c>sessionStorage</c>, and a <c>gis-session</c> cookie it
+    /// cannot touch by design — so **only the server can end one**. The original defect was
+    /// a handler that swallowed the failure of the single request that does it
+    /// (<c>catch { /* already gone */ }</c>) and reloaded anyway: the cookie signed the
+    /// operator straight back in and the button appeared to do nothing. Reported as
+    /// <em>"it does not sign out, it comes back to the same page."</em>
+    /// </para>
+    /// <para>
+    /// <b>Checked from the source rather than through a browser</b>, because the console
+    /// suites need a running server and this invariant does not. What it asserts is the
+    /// shape of the failure path: the sign-out handler's <c>catch</c> must leave, and must
+    /// not clear the token on its way out. The success path is where the clearing belongs
+    /// and this check requires it to be there — a handler that never cleared would sign
+    /// nobody out, so the absence has to fail too.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_refused_sign_out_does_not_clear_the_console_s_own_session()
+    {
+        string console = File.ReadAllText(Path.Combine(
+            Root().FullName, "src", "Graticula.Host", "wwwroot", "console.js"));
+
+        Match handler = Regex.Match(
+            console,
+            @"\$\(""signout""\)\.addEventListener\(.*?\n\}\);",
+            RegexOptions.Singleline);
+
+        Assert.True(
+            handler.Success,
+            "No sign-out handler was found in console.js, so this check is reading nothing. "
+            + "Either the control was renamed or the handler moved, and a check that cannot "
+            + "fail is worse than no check.");
+
+        Match failure = Regex.Match(
+            handler.Value, @"catch\s*\([^)]*\)\s*\{(.*?)\n  \}", RegexOptions.Singleline);
+
+        Assert.True(
+            failure.Success,
+            "The sign-out handler has no catch block. D-51's whole subject is what happens "
+            + "when the one request that ends a session fails: swallowing it, or not having a "
+            + "path for it, is how the button came to look dead.\n" + handler.Value);
+
+        Assert.DoesNotContain("sessionStorage", failure.Groups[1].Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("token = null", failure.Groups[1].Value, StringComparison.Ordinal);
+
+        // It must also stop rather than fall through to the clearing below.
+        Assert.Contains("return", failure.Groups[1].Value, StringComparison.Ordinal);
+
+        // And the caller must be told, because a refusal nobody sees is the same button.
+        Assert.Contains("toast", failure.Groups[1].Value, StringComparison.Ordinal);
+
+        // The success path still clears, or nobody signs out at all.
+        Assert.Contains(
+            "sessionStorage.removeItem(\"gis-token\")", handler.Value, StringComparison.Ordinal);
+    }
 }
