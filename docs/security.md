@@ -230,6 +230,20 @@ the provider and the reason. An anonymous client sees the capability in abstract
 terms and a generic refusal. Cheap now, awkward once clients depend on the
 detailed form.
 
+**Implemented 2026-08-24**, twelve days after the rule was written here and after
+the surfaces it governs had already shipped. `ErrorResponse.Explain` carries both
+sentences for each failure and `WriteAsync` picks by `admin:manageServer` — the
+privilege the detailed sentences assume, since they say to go and read
+`/admin/health`. A request with no principal is anonymous, not privileged. The WFS
+service abstract and the WMS service keywords no longer name the engine.
+
+The guard is `Every_refusal_an_anonymous_caller_can_reach_is_free_of_the_provider`,
+a `[Theory]` over every arm of the switch rather than over the ones somebody
+remembered, and it reads what an unprivileged caller would actually receive — so an
+arm added without a public sentence fails on what its operator sentence discloses.
+Its pair, `Every_public_refusal_still_says_what_to_do`, exists because scoping
+detail is not a licence to answer *an error occurred*.
+
 ## 6. Not yet written
 
 §54's list, minus what is above. Named so the gap is visible:

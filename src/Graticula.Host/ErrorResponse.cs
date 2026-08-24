@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Graticula.Api.OgcFeatures;
 using Graticula.Api.Wfs;
 using Graticula.Api.Wms;
+using Graticula.Platform.Identity;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
@@ -138,10 +139,29 @@ internal static class ErrorResponse
         // whoever reads it to look at the network. Only the deadline knows which happened,
         // so it is asked before the general mapping — and it answers false when the client's
         // own token was cancelled too.
+        // <b>[D-03](../../docs/architecture-debt.md): detail is authorization-scoped, and until
+        // 2026-08-24 this handler had no authorization dimension at all.</b>
+        // [security.md](../../docs/security.md) §5 states the rule — an authenticated
+        // administrator sees the provider and the reason, anybody else sees a generic refusal —
+        // and it had been stated and not implemented since 2026-08-12, while the sentences below
+        // named PostGIS, echoed the store's own message text and pointed at `/admin/health`.
+        //
+        // <b>The privilege is `admin:manageServer` because that is who the detailed sentences
+        // are addressed to.</b> They say to check `/healthz/ready`, `/admin/health` and
+        // `/admin/datasources/{id}/capability`, and those want the same privilege — so a caller
+        // who can read the advice can act on it, and one who cannot is not told to go somewhere
+        // they will be refused.
+        //
+        // <b>No principal means anonymous, not administrator.</b> A failure early enough that
+        // the authentication middleware has not run is exactly when the safe answer matters, and
+        // a null-tolerant read that defaults open would have made this handler its own hole.
+        bool detailed = context.Features.Get<RequestPrincipal>() is { } who
+            && who.Authorization.Allows(Privilege.AdminManageServer);
+
         (int status, string message) = exception is OperationCanceledException
             && RequestDeadline.Expired(context)
                 ? (StatusCodes.Status504GatewayTimeout, DeadlineMessage(context))
-                : Classify(exception);
+                : Classify(exception, detailed);
 
         if (context.Response.HasStarted)
         {
@@ -269,13 +289,68 @@ internal static class ErrorResponse
             + "service's own setting.";
     }
 
+    /// <summary>A refusal in both the forms it may be read in.</summary>
+    /// <param name="Status">The status code, which is the same for everybody.</param>
+    /// <param name="Operator">
+    /// The sentence written for whoever can act on it, which may name the provider, the
+    /// setting or the endpoint to look at.
+    /// </param>
+    /// <param name="Anonymous">
+    /// What a caller without <c>admin:manageServer</c> is told, or null when
+    /// <paramref name="Operator"/> discloses nothing and everybody may read it.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-03](../../docs/architecture-debt.md), from review G7, and the rule is
+    /// [security.md](../../docs/security.md) §5:</b> detail is authorization-scoped. An
+    /// authenticated administrator sees the provider and the reason; anybody else sees the
+    /// capability in abstract terms and a generic refusal. A capability report and a
+    /// detailed refusal are pleasant to receive and they tell any client that can reach a
+    /// layer which database engine sits behind it, and by implication its version and the
+    /// organisation's internal topology.
+    /// </para>
+    /// <para>
+    /// <b>The rule was already understood in exactly one arm of this switch.</b> The
+    /// fallback below says its reason is in the log *"because this endpoint is reachable
+    /// without authentication"* — and every arm above it named PostGIS, echoed the
+    /// database's own message text, or pointed at <c>/admin/health</c>. One place knowing
+    /// the rule and the rest not is [D-46](../../docs/architecture-debt.md), which is why
+    /// the pair lives on one record rather than in a second switch that would have to be
+    /// kept in step with this one.
+    /// </para>
+    /// <para>
+    /// <b>Null means safe, and a test rather than a habit decides that it is.</b>
+    /// <c>Every_refusal_an_anonymous_caller_can_reach_is_free_of_the_provider</c> drives
+    /// every arm and reads what an unprivileged caller would receive, so an arm added with
+    /// no anonymous form is caught by what its operator sentence says rather than by
+    /// somebody noticing the null.
+    /// </para>
+    /// </remarks>
+    internal readonly record struct Refusal(int Status, string Operator, string? Anonymous);
+
     /// <summary>Which status and sentence an exception earns.</summary>
+    /// <param name="exception">What went wrong.</param>
+    /// <param name="detailed">
+    /// Whether the caller may read the detailed form. False is the safe default at every
+    /// call site that does not know who is asking.
+    /// </param>
+    /// <returns>The status and the sentence to write.</returns>
     /// <remarks>
     /// Internal so it can be tested without a server. The mapping is the part
     /// with judgement in it — whether a dropped table is the caller's problem or
     /// ours — and it is the part a running-server test would exercise least.
     /// </remarks>
-    internal static (int Status, string Message) Classify(Exception exception) => exception switch
+    internal static (int Status, string Message) Classify(Exception exception, bool detailed = true)
+    {
+        Refusal refusal = Explain(exception);
+
+        return (refusal.Status, detailed ? refusal.Operator : refusal.Anonymous ?? refusal.Operator);
+    }
+
+    /// <summary>The refusal an exception earns, in both forms.</summary>
+    /// <param name="exception">What went wrong.</param>
+    /// <returns>The status, the operator's sentence, and the public one where they differ.</returns>
+    internal static Refusal Explain(Exception exception) => exception switch
     {
         // <b>The server's own bound, and it must not read as the database's.</b> ADR-007 §4.8's
         // connection budget refuses when this worker already has its full complement of requests in
@@ -294,35 +369,50 @@ internal static class ErrorResponse
         // XX000 covers unrelated genuine faults, so the code alone cannot decide; the
         // text PROJ raises is stable and specific. Anything else in XX000 keeps the
         // conservative answer.
+        //
+        // <b>The public form keeps all of the advice and none of the evidence.</b> Which
+        // reference system was rejected is the caller's own parameter, so naming the
+        // parameters to check costs nothing; the database's message text is the projection
+        // library talking and is not theirs to read.
         PostgresException { SqlState: "XX000" } srid
-            when srid.MessageText.Contains("SRID", StringComparison.OrdinalIgnoreCase) => (
+            when srid.MessageText.Contains("SRID", StringComparison.OrdinalIgnoreCase) => new(
                 StatusCodes.Status400BadRequest,
                 "A coordinate reference system in this request is not one the projection "
                 + "database knows: " + srid.MessageText + ". The server is healthy; check "
-                + "the CRS, SRS, srsName, outSR or bboxSR you sent."),
+                + "the CRS, SRS, srsName, outSR or bboxSR you sent.",
+                "A coordinate reference system in this request is not one this server can use. "
+                + "The server is healthy; check the CRS, SRS, srsName, outSR or bboxSR you sent."),
 
         // <b>The breaker's refusal, which is the same answer arriving 4,000 times faster.</b>
         // D-131: a database that failed moments ago is asked again on the next request and
         // blackholes for another four seconds, holding a connection throughout. This says the
         // same thing as the NpgsqlException case below and says it immediately.
-        SourceUnreachableException breaker => (
+        SourceUnreachableException breaker => new(
             StatusCodes.Status503ServiceUnavailable,
             breaker.Message
             + " Check /healthz/ready and /admin/health: the first says whether the platform "
             + "store is up, and the second distinguishes it from a layer's own data source. "
-            + "Retry in a few seconds; the server will try the connection again by itself."),
+            + "Retry in a few seconds; the server will try the connection again by itself.",
+            "This service is temporarily unavailable. Retry in a few seconds; the server will "
+            + "try again by itself."),
 
-        ConnectionBudgetFullException full => (
-            StatusCodes.Status503ServiceUnavailable, full.Message),
+        // The message names a setting, which is the operator's to change and nobody else's
+        // to learn — but *the server is busy, wait* is the whole of what a client can do
+        // with it, so the public form loses nothing the caller could have used.
+        ConnectionBudgetFullException full => new(
+            StatusCodes.Status503ServiceUnavailable,
+            full.Message,
+            "This service is busy. Retry in a few seconds."),
 
         // A cancelled statement is nearly always the timeout below rather than a
         // disconnected client, and 504 is the difference between "your query was
         // too expensive" and "the server is broken". The first is actionable.
-        PostgresException { SqlState: "57014" } => (
+        PostgresException { SqlState: "57014" } => new(
             StatusCodes.Status504GatewayTimeout,
             "The query exceeded the statement timeout on the underlying database. Narrow the "
             + "extent, lower resultRecordCount, or index the geometry column. The server did not "
-            + "fail; it stopped waiting."),
+            + "fail; it stopped waiting.",
+            TookTooLong),
 
         // <b>A client-side statement timeout, which arrives wearing the connectivity costume.</b>
         // Npgsql's command timeout does not produce 57014 above: it gives up on the socket read
@@ -332,11 +422,12 @@ internal static class ErrorResponse
         // statement bound on their own service had their clients told the database was down —
         // measured, 19 of 30 concurrent queries, and the same misdiagnosis 42883 and 42703 were
         // already corrected for. The bound was honoured; only the sentence was wrong.
-        NpgsqlException { InnerException: TimeoutException } => (
+        NpgsqlException { InnerException: TimeoutException } => new(
             StatusCodes.Status504GatewayTimeout,
             "The query exceeded the statement timeout configured for this service. Narrow the "
             + "extent, lower resultRecordCount, or index the geometry column. The database is "
-            + "up and reachable; this server stopped waiting for one statement."),
+            + "up and reachable; this server stopped waiting for one statement.",
+            TookTooLong),
 
         // <b>A name already taken is the caller's problem, and it was reported as an
         // outage.</b> 23505 is a unique-constraint violation — publishing a service
@@ -345,17 +436,23 @@ internal static class ErrorResponse
         // database was unreachable. Found on 2026-08-21 by registering the same
         // coverage twice. 409 is the status for it, and the fourth instance of this
         // file mistaking a caller's mistake for a connectivity failure.
-        PostgresException { SqlState: "23505" } => (
+        //
+        // The name is the caller's own, so the whole sentence is theirs to read except
+        // the aside about the database being healthy, which is a fact about the server.
+        PostgresException { SqlState: "23505" } => new(
             StatusCodes.Status409Conflict,
             "Something with that name or location is already registered here. The database is "
             + "healthy; it refused a duplicate. Pick another name, or look at what is already "
-            + "published at that address."),
+            + "published at that address.",
+            "Something with that name or location is already registered here. Pick another name, "
+            + "or look at what is already published at that address."),
 
-        PostgresException { SqlState: "42P01" } => (
+        PostgresException { SqlState: "42P01" } => new(
             StatusCodes.Status503ServiceUnavailable,
             "The table behind this layer no longer exists. The registration and the database have "
             + "diverged — this is a catalogue problem, not a transient one, and retrying will not "
-            + "help."),
+            + "help.",
+            NeedsAnAdministrator),
 
         // <b>42883 and 42703 are a schema problem wearing a connectivity
         // costume.</b> Both fell through to the NpgsqlException case below and
@@ -378,49 +475,67 @@ internal static class ErrorResponse
         // fixed here.</b> Neither front end converts a date literal, deliberately, so
         // that the two give the same answer to the same question. What this changes is
         // that the refusal now says so instead of blaming the database.
+        //
+        // <b>This is the one arm where the public form was hardest to write and matters
+        // most.</b> The caller's filter is genuinely at fault and they cannot fix it
+        // without knowing why, so the explanation stays whole — in the vocabulary of the
+        // request rather than of the store, and without the store's own message text,
+        // which names types and operators the caller never wrote.
         PostgresException { SqlState: "42883" } e
-            when e.MessageText.StartsWith("operator does not exist", StringComparison.Ordinal) => (
+            when e.MessageText.StartsWith("operator does not exist", StringComparison.Ordinal) => new(
                 StatusCodes.Status400BadRequest,
                 "This filter compares a column with a value of a type this server does not convert "
                 + $"for it — the database reports: {e.MessageText}. The usual case is a date or "
                 + "timestamp column: every filter language here sends its literals as text, and "
                 + "neither the ArcGIS `where` grammar nor Filter Encoding converts them, so the "
                 + "comparison reaches the database as text. The database is healthy; the request "
-                + "cannot be answered as written."),
+                + "cannot be answered as written.",
+                "This filter compares a field with a value of a type this server does not convert "
+                + "for it. The usual case is a date or timestamp field: every filter language here "
+                + "sends its literals as text, and neither the ArcGIS `where` grammar nor Filter "
+                + "Encoding converts them. The request cannot be answered as written."),
 
-        PostgresException { SqlState: "42883" } => (
+        PostgresException { SqlState: "42883" } => new(
             StatusCodes.Status500InternalServerError,
             "The database is reachable but does not have a function this server needs. The usual "
             + "cause is PostGIS not being installed in that database, or being installed in a "
             + "schema outside the connection's search_path. Check /admin/datasources/{id}/capability, "
-            + "which reports the PostGIS version the server can actually see."),
+            + "which reports the PostGIS version the server can actually see.",
+            NeedsAnAdministrator),
 
-        PostgresException { SqlState: "42703" } => (
+        PostgresException { SqlState: "42703" } => new(
             StatusCodes.Status500InternalServerError,
             "The database is reachable but a column this layer was registered with does not exist. "
             + "The registration and the table have diverged. Retrying will not help; the layer "
-            + "needs republishing against the columns the table actually has."),
+            + "needs republishing against the columns the table actually has.",
+            NeedsAnAdministrator),
 
-        PostgresException { SqlState: "42501" } or PostgresException { SqlState: "28P01" } => (
+        PostgresException { SqlState: "42501" } or PostgresException { SqlState: "28P01" } => new(
             StatusCodes.Status503ServiceUnavailable,
             "The server could not authenticate against the layer's database, or lacks permission "
-            + "to read the table. The stored credential needs attention."),
+            + "to read the table. The stored credential needs attention.",
+            NeedsAnAdministrator),
 
         // <b>A body too large is the caller's problem, not a fault.</b>
         // Kestrel throws this when a request exceeds the configured limit, and
         // uncaught it became "the server failed to handle this request" — for a
         // request the server refused correctly and on purpose.
+        //
+        // No public form: a limit the caller just exceeded is the caller's business, and
+        // the sentence names nothing behind the server.
         Microsoft.AspNetCore.Http.BadHttpRequestException big
-            when big.StatusCode == StatusCodes.Status413PayloadTooLarge => (
+            when big.StatusCode == StatusCodes.Status413PayloadTooLarge => new(
             StatusCodes.Status413PayloadTooLarge,
             "The request body is larger than this endpoint accepts. Each surface that takes a "
             + "body states its own limit in the refusal it would have given you; this one came "
-            + "from the web server first."),
+            + "from the web server first.",
+            null),
 
-        SecretProtectionException => (
+        SecretProtectionException => new(
             StatusCodes.Status503ServiceUnavailable,
             "The stored credential for this layer could not be decrypted. The server is running "
-            + "with a different key than the one that sealed it. See the server log."),
+            + "with a different key than the one that sealed it. See the server log.",
+            NeedsAnAdministrator),
 
         // <b>Two different databases, and telling them apart is the whole
         // value of the message.</b> "The layer's database is unreachable" sends
@@ -432,20 +547,48 @@ internal static class ErrorResponse
         // The distinction cannot be made from the exception, which knows only
         // that a socket failed — so it is made by the caller, which knows which
         // pool it was using.
-        NpgsqlException => (
+        //
+        // And *two* databases is precisely the topology D-03 is about, so the public form
+        // has one: something this service needs is not answering, and it may come back.
+        NpgsqlException => new(
             StatusCodes.Status503ServiceUnavailable,
             "A database this server depends on is unreachable. Check /healthz/ready and "
             + "/admin/health: the first says whether the platform store is up, and the second "
-            + "distinguishes the platform store from a layer's own data source."),
+            + "distinguishes the platform store from a layer's own data source.",
+            "This service is temporarily unavailable. Retry in a few seconds."),
 
         // 499 is nginx's, not an IANA code, and nothing will read it — the
         // client has gone. It exists so the access log distinguishes "they left"
         // from "we broke", which are the same 500 otherwise.
-        OperationCanceledException => (499, "The request was cancelled by the caller."),
+        OperationCanceledException => new(499, "The request was cancelled by the caller.", null),
 
-        _ => (
+        _ => new(
             StatusCodes.Status500InternalServerError,
             "The server failed to handle this request. The reason is in the server log; it is not "
-            + "repeated here because this endpoint is reachable without authentication."),
+            + "repeated here because this endpoint is reachable without authentication.",
+            null),
     };
+
+    /// <summary>What a caller who may not read the operator's sentence is told instead.</summary>
+    /// <remarks>
+    /// One sentence for the whole class of *the store behind this layer is not in a state
+    /// this request can be answered from*, because the difference between a dropped table,
+    /// a missing extension, a renamed column, a refused credential and an unopenable secret
+    /// is the difference D-03 says an anonymous caller may not learn. It is deliberately not
+    /// *try again*: none of them clear by themselves, and telling a client to retry a
+    /// permanent fault is worse advice than none.
+    /// </remarks>
+    private const string NeedsAnAdministrator =
+        "This layer cannot be served at the moment. Retrying will not help; it needs attention "
+        + "from whoever administers this server.";
+
+    /// <summary>The public form of both statement timeouts.</summary>
+    /// <remarks>
+    /// Which bound was reached, and whether it was the store's or this server's, is an
+    /// operator's fact. What is left is the caller's — their request was too expensive, and
+    /// both levers named are ones they set themselves.
+    /// </remarks>
+    private const string TookTooLong =
+        "This query took longer than this service allows and was stopped. The server did not "
+        + "fail; it stopped waiting. Narrow the extent or lower resultRecordCount.";
 }

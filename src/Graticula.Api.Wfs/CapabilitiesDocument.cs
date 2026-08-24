@@ -148,7 +148,14 @@ public static class CapabilitiesDocument
                 "ows",
                 "Abstract",
                 WfsNames.Ows,
-                "Read-only WFS 2.0 over PostGIS. Query, paging and property values are "
+                // <b>[D-03](../../docs/architecture-debt.md): the abstract said *over
+                // PostGIS*.</b> A capabilities document is reachable by anybody who can
+                // reach a public service, and the engine behind a layer is the provider
+                // type [security.md](../../docs/security.md) §5 keeps for an authenticated
+                // administrator — it implies a version, and by implication an
+                // organisation's internal topology. Nothing a WFS client does with this
+                // document changes on the answer, which is what made it free to remove.
+                "Read-only WFS 2.0. Query, paging and property values are "
                 + "supported; Transaction and LockFeature are not implemented.")
             .ConfigureAwait(false);
 

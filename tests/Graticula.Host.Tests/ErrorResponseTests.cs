@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using Graticula.Platform.Secrets;
 using Npgsql;
 using Xunit;
 
@@ -207,5 +208,149 @@ public sealed class ErrorResponseTests
                 + "to do about it.");
             Assert.EndsWith(".", message, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>Every exception this switch has an arm for, one of each.</summary>
+    /// <remarks>
+    /// <b>Enumerated here rather than per test</b>, so a new arm is covered by whichever
+    /// invariant it breaks rather than by somebody remembering to widen a list — the
+    /// property [D-46](../../docs/architecture-debt.md) says is the difference between a
+    /// fix and a fix in one of the places that carry it.
+    /// </remarks>
+    public static TheoryData<string, Exception> EveryArm()
+    {
+        TheoryData<string, Exception> arms = [];
+
+        PostgresException srid = new(
+            messageText: "Invalid reserved SRID 900913", severity: "ERROR",
+            invariantSeverity: "ERROR", sqlState: "XX000");
+
+        PostgresException mismatch = new(
+            messageText: "operator does not exist: timestamp with time zone = text",
+            severity: "ERROR", invariantSeverity: "ERROR", sqlState: "42883");
+
+        arms.Add("bad SRID", srid);
+        arms.Add("breaker open", new SourceUnreachableException("The layer's database is unreachable."));
+        arms.Add("budget full", new ConnectionBudgetFullException());
+        arms.Add("statement timeout", WithSqlState("57014"));
+        arms.Add("client timeout", new NpgsqlException("read", new TimeoutException()));
+        arms.Add("duplicate", WithSqlState("23505"));
+        arms.Add("dropped table", WithSqlState("42P01"));
+        arms.Add("filter type mismatch", mismatch);
+        arms.Add("missing function", WithSqlState("42883"));
+        arms.Add("missing column", WithSqlState("42703"));
+        arms.Add("credential refused", WithSqlState("42501"));
+        arms.Add("password refused", WithSqlState("28P01"));
+        arms.Add("secret unopenable", new SecretProtectionException("sealed with another key"));
+        arms.Add("database down", new NpgsqlException("no route to host"));
+        arms.Add("caller left", new OperationCanceledException());
+        arms.Add("anything else", new InvalidOperationException("boom"));
+
+        return arms;
+    }
+
+    /// <summary>
+    /// What an unprivileged caller reads names no provider, no internal address and no
+    /// message the store wrote.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-03](../../docs/architecture-debt.md), from review G7, stated 2026-08-12 in
+    /// [security.md](../../docs/security.md) §5 and unimplemented until 2026-08-24.</b>
+    /// The rule is that detail is authorization-scoped: an authenticated administrator
+    /// sees the provider and the reason, anybody else sees the capability in abstract
+    /// terms and a generic refusal. Before this test, fourteen of the sixteen arms told
+    /// an anonymous caller something about what sits behind the server — five named
+    /// PostGIS or the engine, two echoed the store's own message text verbatim, and four
+    /// sent the reader to an `/admin` address they cannot open.
+    /// </para>
+    /// <para>
+    /// <b>It reads the public form rather than checking that one was written.</b> An arm
+    /// added with no anonymous sentence falls back to the operator's, so this fails on
+    /// what that sentence says — which is the failure a reviewer would otherwise have to
+    /// notice as an absent argument.
+    /// </para>
+    /// </remarks>
+    /// <param name="arm">Which failure, for the message.</param>
+    /// <param name="exception">The failure.</param>
+    [Theory]
+    [MemberData(nameof(EveryArm))]
+    public void Every_refusal_an_anonymous_caller_can_reach_is_free_of_the_provider(
+        string arm, Exception exception)
+    {
+        (_, string message) = ErrorResponse.Classify(exception, detailed: false);
+
+        // The engine and its extension, the addresses only an administrator can open, the
+        // configuration this server reads, and the two words that say there are two stores.
+        string[] disclosures =
+        [
+            "postgis", "postgres", "npgsql", "search_path", "/admin", "/healthz",
+            "platform store", "data source", "credential", "the database",
+        ];
+
+        foreach (string disclosure in disclosures)
+        {
+            Assert.False(
+                message.Contains(disclosure, StringComparison.OrdinalIgnoreCase),
+                $"The '{arm}' refusal tells a caller without admin:manageServer about "
+                + $"'{disclosure}': \"{message}\". security.md §5 keeps the provider and the "
+                + "reason for an authenticated administrator; everybody else gets the "
+                + "capability in abstract terms. D-03.");
+        }
+    }
+
+    /// <summary>An administrator still gets the sentence that says what to do.</summary>
+    /// <remarks>
+    /// <b>The half that makes the other half safe to have.</b> Scoping detail is only
+    /// defensible if the detail still reaches somebody — otherwise it is deleting the
+    /// diagnosis and calling it security. Each of these is an arm whose operator sentence
+    /// exists to send a person to a particular system, and this asserts they still arrive.
+    /// </remarks>
+    [Fact]
+    public void An_administrator_still_reads_the_provider_and_the_reason()
+    {
+        (_, string missingFunction) = ErrorResponse.Classify(WithSqlState("42883"), detailed: true);
+        Assert.Contains("PostGIS", missingFunction, StringComparison.Ordinal);
+        Assert.Contains("search_path", missingFunction, StringComparison.Ordinal);
+
+        (_, string down) = ErrorResponse.Classify(
+            new NpgsqlException("no route to host"), detailed: true);
+        Assert.Contains("/admin/health", down, StringComparison.Ordinal);
+
+        // Default true, because every existing caller that knows who is asking passes it
+        // explicitly and the tests above read the operator's form.
+        Assert.Equal(missingFunction, ErrorResponse.Classify(WithSqlState("42883")).Message);
+    }
+
+    /// <summary>
+    /// A refusal an anonymous caller reads still tells them something they can act on.
+    /// </summary>
+    /// <remarks>
+    /// <b>The generic form is where advice goes to die</b>, and *an error occurred* passed
+    /// for a refusal in this file's own history — which is why
+    /// <c>Every_message_tells_the_caller_something_they_can_act_on</c> exists for the
+    /// operator's form. The public form needs the same guard, or scoping detail becomes a
+    /// licence to say nothing. 499 is excluded for the reason it always is: the caller has
+    /// already gone.
+    /// </remarks>
+    /// <param name="arm">Which failure, for the message.</param>
+    /// <param name="exception">The failure.</param>
+    [Theory]
+    [MemberData(nameof(EveryArm))]
+    public void Every_public_refusal_still_says_what_to_do(string arm, Exception exception)
+    {
+        (int status, string message) = ErrorResponse.Classify(exception, detailed: false);
+
+        if (status == 499)
+        {
+            return;
+        }
+
+        Assert.True(
+            message.Length > 40,
+            $"The '{arm}' refusal reads '{message}' to a caller without admin:manageServer, "
+            + "which is too short to say what to do about it. Scoping the detail is not a "
+            + "licence to drop the advice.");
+        Assert.EndsWith(".", message, StringComparison.Ordinal);
     }
 }

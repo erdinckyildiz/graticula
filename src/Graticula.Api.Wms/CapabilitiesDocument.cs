@@ -199,7 +199,14 @@ public static class CapabilitiesDocument
             // can index the server, and the temptation is to write "GIS, maps, spatial"
             // — words true of every server of this kind and therefore useless for
             // telling one from another. These five say what a client can do here.
-            ["WMS", "GetMap", "GetFeatureInfo", "vector", "PostGIS"]);
+            //
+            // <b>[D-03](../../docs/architecture-debt.md) took the fifth one out.</b> It was
+            // `PostGIS`, which fails this list's own test in a way the four survivors do
+            // not: it is not something a client can do here, it is what sits behind the
+            // server — the provider type [security.md](../../docs/security.md) §5 keeps for
+            // an authenticated administrator. `GetLegendGraphic` replaces it and is a
+            // request this server actually answers.
+            ["WMS", "GetMap", "GetFeatureInfo", "GetLegendGraphic", "vector"]);
 
         WriteOnlineResource(writer, endpoint);
 
