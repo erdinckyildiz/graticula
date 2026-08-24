@@ -378,6 +378,14 @@ The owner named the model. These are ours and are marked `INFERRED`:
 2. **Which Portal privileges have no local equivalent** (§4) — groups,
    websites, premium.
 3. **Three sharing scopes rather than four** (§3b), groups deferred.
+4. **Five default roles rather than Portal's six** — `INFERRED` 2026-08-24, and added
+   here because condition 2's check found it. Esri's built-ins are Viewer, Data Editor,
+   User, Publisher, **Facilitator** and Administrator; `Roles.All` omits Facilitator,
+   which exists for partnered collaboration and group facilitation. §4's rule covers
+   the omission — *only the privileges that mean something for a GIS server appear* —
+   but nobody applied it out loud, and the number *five* had been written into
+   [Q-59](../open-questions.md) and [D-11](../architecture-debt.md) as though it were
+   Portal's. **For confirmation**: drop Facilitator by decision, or add it.
 
 **Condition 2 covers the part that must not be guessed**: the exact privilege
 identifiers and default-role assignments must be checked against Esri's
@@ -426,9 +434,40 @@ divergence a breaking change to our core.
 1. **The ceiling is tested for the escalation it exists to prevent** — a
    principal with a narrow user type and a wide role gets the intersection, and
    the test is written from the migration-import scenario, not from the unit.
-2. **The privilege identifiers and default-role assignments are verified against
+2. ~~**The privilege identifiers and default-role assignments are verified against
    Esri's published documentation** before any surface claims Portal
-   compatibility. §5 records that the current table is structural.
+   compatibility. §5 records that the current table is structural.~~
+   **DISCHARGED 2026-08-24**, and the trigger had fired: `/sharing/rest` publishes
+   `generateToken`, `search`, `community/groups` and `portals/self`, which is a Portal
+   surface by any reading. Verified against Esri's published privilege list and
+   member-roles documentation, cited rather than the reference checkout (ADR-030).
+
+   **The identifiers that go on the wire are right, verbatim.** `PortalEndpoints` emits
+   exactly three — `portal:admin:viewItems`, `portal:user:viewOrgItems` and
+   `portal:user:viewOrgUsers` — and each appears in Esri's list spelled that way, in the
+   category §6 would put it in.
+
+   **The eighteen in §4 are ours and were never a Portal claim**, which §6 already said
+   and this check confirms from the other direction: not one of them matches Esri's
+   spelling. Most differ by namespace — ours `admin:manageRoles`, Esri's
+   `portal:admin:manageRoles`; ours `content:create`, Esri's `portal:user:createItem`.
+   **The two that look identical are the two worth naming**: ours are `features:edit`
+   and `features:fullEdit`, Esri's are `features:user:edit` and `features:user:fullEdit`,
+   a single segment apart. A reader skimming either table would call them the same, and
+   a client sending ours to Portal would be refused. That is the exact failure this
+   condition existed to catch, and the answer is that the seam §6 draws is real and
+   must stay drawn.
+
+   **One finding, and it is about the roles rather than the privileges.** Esri's
+   built-in organisation roles are **six** — Viewer, Data Editor, User, Publisher,
+   **Facilitator** and Administrator. `Roles.All` has five: Facilitator is absent, and
+   the word appears nowhere in this repository. §4's rule would justify dropping it —
+   *only the privileges that mean something for a GIS server appear*, and Facilitator
+   exists for partnered collaboration and group facilitation, which this product does
+   not have — **but it was dropped without anybody saying so**, and §5's list of what is
+   inferred does not mention it. Recorded as `INFERRED` in §5 rather than adopted here,
+   because *five* has been written down as Portal's number in two registers and it is
+   six.
 3. **`admin:viewAllContent` is auditable.** An administrator reading a private
    layer is legitimate and must leave a record, or the sharing model is
    decorative.

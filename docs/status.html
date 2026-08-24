@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>3ef7a19</code> · 2026-08-24 17:00</p>
+<p class="stamp">Generated from commit <code>d283bd5</code> · 2026-08-24 17:35</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">102/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">67</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">48</div><div class="kpi-l">open debts</div><div class="kpi-n">99 repaid · 7 partly</div></div>
+<div class="kpi good"><div class="kpi-v">103/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">89 live · 0 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">68</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">46</div><div class="kpi-l">open debts</div><div class="kpi-n">103 repaid · 7 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">1893</div><div class="kpi-l">tests</div><div class="kpi-n">237 source files, 89,624 lines</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-135</b> — What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-135</b> — What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">142 items</span></div><p><b>90 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>48 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">139 items</span></div><p><b>89 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>46 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -135,7 +135,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -143,6 +142,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-019 · One deployable, three fused tiers</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-022 · GeometryServer ships in halves, an</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -200,7 +200,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
 <tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">1/3</td></tr>
-<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction →…</span><div class="muted-t">REOPENED 2026-08-14 by owner direction → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">1/5</td></tr>
+<tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction →…</span><div class="muted-t">REOPENED 2026-08-14 by owner direction → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">2/5</td></tr>
 <tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">0/3</td></tr>
 <tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3/3</td></tr>
 <tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">1/3</td></tr>
@@ -266,6 +266,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-133</span><span class="owner">2026-08-20</span></div><p>ANSWERED 2026-08-23: yes, and by repairing the other end.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-135</span><span class="owner">Owner</span></div><p>What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-136</span><span class="owner">Owner</span></div><p>Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-137</span><span class="owner">Owner</span></div><p>Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-14</span><span class="owner">Council</span></div><p>Which CRS set must be supported at launch, and is on-the-fly reprojection a hot path or a convenience?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-15</span><span class="owner">Council</span></div><p>What does &quot;air-gapped&quot; concretely require — offline PROJ grids, GDAL driver data, font bundles, no telemetry?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-19</span><span class="owner">Council</span></div><p>Deferred, not rejected.</p></article>
@@ -333,15 +334,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-03</td><td>~~Capability reports and detailed refusals disclose provider type and internal topology to any client that can reach a layer.~~ CLOSED 2026-08-24, and the trigger had fired twelve days earlier.</td><td class="muted-t">Before the capability report ships — which it had: both the WFS and WMS capabilities documents were serving the…</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-07</td><td>A streaming response that fails after its first byte cannot report the failure.</td><td class="muted-t">Before a client is expected to distinguish a truncated page from a short one</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-08</td><td>The statement timeout is 30 seconds because a number was needed.</td><td class="muted-t">When Q-04 is measured</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-09</td><td>~~Publishing a layer means hand-written SQL.~~ RESOLVED 2026-08-14.</td><td class="muted-t">Before anyone but us runs this</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-08</td><td>~~The statement timeout is 30 seconds because a number was needed.~~ CLOSED 2026-08-24.</td><td class="muted-t">When Q-04 is measured</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-09</td><td>~~Publishing a layer means hand-written SQL.~~ RESOLVED 2026-08-14.</td><td class="muted-t">Before anyone but us runs this</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-11</td><td>~~Authorization does not exist.~~ RESOLVED 2026-08-13, and the resolution was replaced on 2026-08-14 when the owner directed that we adopt ArcGIS Portal&#x27;s matrix.</td><td class="muted-t">Q-59, which now blocks rather than merely being open</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-11</td><td>~~Authorization does not exist.~~ RESOLVED 2026-08-13, and the resolution was replaced on 2026-08-14 when the owner directed that we adopt ArcGIS Portal&#x27;s matrix.</td><td class="muted-t">Q-59, which now blocks rather than merely being open</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-12</td><td>The per-address rate limit uses the socket address, never X-Forwarded-For.</td><td class="muted-t">Before a documented deployment behind a proxy</td><td><span class="pill good">REPAID</span></td></tr>
 <tr class="done"><td class="id">D-13</td><td>The timing gap between a known and an unknown account name is narrowed, not closed.</td><td class="muted-t">If account enumeration is ever demonstrated against a deployment</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-14</td><td>A server that loses its last platform administrator cannot be recovered in band.</td><td class="muted-t">Before the first deployment that is not ours, or sooner if role revocation reaches the admin API</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-15</td><td>The user-type ceiling is enforced but unreachable from any endpoint.</td><td class="muted-t">The first admin endpoint</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class=""><td class="id">D-16</td><td>Portal&#x27;s privilege identifiers and default-role assignments are structural, not verified line by line.</td><td class="muted-t">Before any surface claims Portal compatibility</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-16</td><td>Portal&#x27;s privilege identifiers and default-role assignments are structural, not verified line by line.</td><td class="muted-t">Before any surface claims Portal compatibility</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-17</td><td>The request path reads the catalogue on every query, and that half is now deliberate.</td><td class="muted-t">Before any performance claim about serving, and before ADR-017 §6&#x27;s degraded surface is called done (ADR-019 condition…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-18</td><td>/admin/health is anonymous and therefore redacted, which is the wrong trade and the only one available.</td><td class="muted-t">When ADR-017 §6&#x27;s break-glass path is designed (A-051)</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-19</td><td>There is no published image and no release.</td><td class="muted-t">The first release</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -449,6 +450,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-148</td><td>A request body over the server&#x27;s limit ends the connection instead of answering 413.</td><td class="muted-t">The first client that reports the geometry server dropping connections</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-149</td><td>One register says an assumption is load-bearing and is not, on two lines of the same file.</td><td class="muted-t">Now — a reader choosing what to validate next reads the load-bearing table, which is the whole reason it is at the top</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-150</td><td>A lock wait is reported to the caller as a database outage, and it is the fifth time this file has mistaken a specific fault for a connectivity failure.</td><td class="muted-t">Before an operator is advised to set locktimeout, which is the natural response to D-08&#x27;s measurement that a blocked…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-151</td><td>ADR-017 §3.3 walks a failed registration through the jobs API, and registration is not a job.</td><td class="muted-t">Now — ADR-017 §3 is the four scenarios, walked, and a walk nobody can follow is the one kind of operability document…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-147</td><td>A publish naming a data source that does not exist answered 201 Created and wrote nothing.</td><td class="muted-t">Closed on discovery</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-146</td><td>The status page reported the wrong status for four debt rows, and the registers were right the whole time.</td><td class="muted-t">Now, and repaired in the same hour.</td><td><span class="pill good">RESOLVED</span></td></tr>
 </tbody></table></div></section>
@@ -557,6 +560,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>d283bd5</code><time>2026-08-24</time><span>Fix the ADR-035 link I broke one commit ago</span></li>
+<li><code>121ac5f</code><time>2026-08-24</time><span>D-14 is blocked, its trigger fired, and half of it got better unnoticed</span></li>
+<li><code>85b1503</code><time>2026-08-24</time><span>The stale-status defect D-09 and D-11 shared is now a check</span></li>
+<li><code>42cfd7c</code><time>2026-08-24</time><span>D-11 closes, and its stated reason had been refuted an hour earlier</span></li>
+<li><code>8306216</code><time>2026-08-24</time><span>D-10&#x27;s second trigger had fired and been satisfied, and the row never heard</span></li>
+<li><code>4c771db</code><time>2026-08-24</time><span>D-09 had been contradicting itself for ten days</span></li>
+<li><code>a573b0a</code><time>2026-08-24</time><span>D-08: both things the measurement could not say, measured</span></li>
 <li><code>3ef7a19</code><time>2026-08-24</time><span>D-07 is blocked, and its trigger has already fired</span></li>
 <li><code>a14d0c3</code><time>2026-08-24</time><span>D-05 was closed by decision ten days ago and this row was the last to know</span></li>
 <li><code>e891f50</code><time>2026-08-24</time><span>D-03: detail is authorization-scoped, and now something implements it</span></li>
@@ -564,13 +574,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>476fd47</code><time>2026-08-24</time><span>D-46, found inside D-46&#x27;s own named remedy</span></li>
 <li><code>add7478</code><time>2026-08-24</time><span>D-63 is blocked on a decision, and the decision is now written down</span></li>
 <li><code>cc728d0</code><time>2026-08-24</time><span>a published password is refused, and it is not a breach check</span></li>
-<li><code>8afa10f</code><time>2026-08-24</time><span>a forwarded header is read from a named proxy and from nobody else</span></li>
-<li><code>d9defe8</code><time>2026-08-24</time><span>a page costs the page now, not the table</span></li>
-<li><code>03ee467</code><time>2026-08-24</time><span>a dropped filter, a dangling owner, and one address that meant two services</span></li>
-<li><code>495cfc5</code><time>2026-08-24</time><span>every route that answers GET answers HEAD</span></li>
-<li><code>5097614</code><time>2026-08-24</time><span>two conventions become two checks, and a picture nobody had looked at</span></li>
-<li><code>49304bd</code><time>2026-08-24</time><span>the pollers get their own pool, and the shared one reaches zero</span></li>
-<li><code>798f816</code><time>2026-08-24</time><span>the reader has a bound on the machine, not only on time</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
