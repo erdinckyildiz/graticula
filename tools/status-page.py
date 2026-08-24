@@ -428,7 +428,13 @@ def questions():
         if not line.startswith("|"):
             continue
 
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        # <b>cells_of, not a second splitter.</b> This split on a raw pipe until
+        # 2026-08-24, while cells_of two hundred lines up already honoured `\|`
+        # as content. Q-124 escapes one inside a code span, so its row broke a
+        # cell early and the *owner* column on this page rendered a paragraph
+        # from the middle of the question. One rule, one implementation: the
+        # duplicate is what went stale, not the rule.
+        cells = cells_of(line)
         if not cells or not re.match(r"^Q-\d+$", cells[0]):
             continue
 
