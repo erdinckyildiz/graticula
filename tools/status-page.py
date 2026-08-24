@@ -101,6 +101,7 @@ TEXT = {
         "n_blocking": "blocking",
         "n_repaid": "repaid",
         "n_partly": "partly",
+        "kept_in_register": "every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work",
         "n_outside": "need an outside reviewer",
         "n_unproven": "the rest are unproven",
         "n_files": "source files",
@@ -193,6 +194,7 @@ TEXT = {
         "n_blocking": "engelleyici",
         "n_repaid": "\u00f6dendi",
         "n_partly": "k\u0131smen",
+        "kept_in_register": "hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir",
         "n_outside": "tanesi d\u0131\u015far\u0131dan bir incelemeci istiyor",
         "n_unproven": "geri kalan\u0131 kan\u0131tlanmad\u0131",
         "n_files": "kaynak dosya",
@@ -894,7 +896,17 @@ def build():
     parts.append(f'<p class="sub">{ui("sub_debt")}</p>')
     parts.append('<div class="scroll"><table><thead><tr>'
                  f'<th>{esc(ui("th_id"))}</th><th>{esc(ui("th_debt"))}</th><th>{esc(ui("th_repay"))}</th><th>{esc(ui("th_state"))}</th></tr></thead><tbody>')
-    for x in d:
+    # <b>Open debts only, from 2026-08-24.</b> This table carried all of them —
+    # a hundred and seventeen repaid rows above the forty that are not — and a
+    # board somebody opens to see what is left should not make them scroll past
+    # what is finished to find it. The register keeps every row and its history;
+    # this page is derived and shows the work.
+    #
+    # <b>The repaid are counted, not hidden.</b> A count with no rows is a
+    # summary; rows with no count would be the thing that got removed. The KPI
+    # above already carries the same number, and the line below says where the
+    # rest went, so nobody concludes the register lost them.
+    for x in d_open:
         tone = "cond" if x["partly"] else "warn" if x["open"] else "good"
 
         # <b>The register's word, not a synonym for it.</b> A debt is repaid; a
@@ -906,7 +918,11 @@ def build():
         parts.append(f'<tr class="{"" if x["open"] else "done"}"><td class="id">{esc(x["id"])}</td>'
                      f'<td>{esc(x["text"])}</td><td class="muted-t">{esc(x["trigger"])}</td>'
                      f'<td><span class="pill {tone}">{label}</span></td></tr>')
-    parts.append('</tbody></table></div></section>')
+    parts.append('</tbody></table></div>')
+    parts.append(
+        f'<p class="sub">{len(d) - len(d_open)} {esc(ui("n_repaid"))} — '
+        f'{esc(ui("kept_in_register"))}</p>')
+    parts.append('</section>')
 
     # ---- assumptions
     parts.append(f'<section><h2>{esc(ui("assumptions"))}</h2>')
