@@ -341,7 +341,7 @@ internal static class HostedDataEndpoints
             new AuditEvent(
                 current.Principal.Id,
                 current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "layer.import",
                 name,
                 Detail(result, dataset!, validity),
@@ -780,7 +780,7 @@ internal static class HostedDataEndpoints
         await audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id, current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "layer.define", design.Name,
                 JsonSerializer.Serialize(new
                 {

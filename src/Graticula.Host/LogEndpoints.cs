@@ -251,7 +251,7 @@ internal static class LogEndpoints
 
         context.Response.StatusCode = StatusCodes.Status204NoContent;
 
-        string? address = context.Connection.RemoteIpAddress?.ToString();
+        string? address = CallerAddress.Of(context)?.ToString();
 
         if (!Throttle.Allow(address, DateTimeOffset.UtcNow))
         {

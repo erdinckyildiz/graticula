@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>03ee467</code> · 2026-08-24 15:05</p>
+<p class="stamp">Generated from commit <code>d9defe8</code> · 2026-08-24 15:22</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">101/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">91 live · 0 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">102/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">50</div><div class="kpi-l">open debts</div><div class="kpi-n">96 repaid · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">49</div><div class="kpi-l">open debts</div><div class="kpi-n">97 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1853</div><div class="kpi-l">tests</div><div class="kpi-n">235 source files, 88,839 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1865</div><div class="kpi-l">tests</div><div class="kpi-n">236 source files, 89,129 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">145 items</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>50 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">143 items</span></div><p><b>90 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>49 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -135,13 +135,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-018 · Authorization: user types, roles a</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:80%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-014 · TLS and Certificates</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-016 · Packaging, Deployment and Upgrade</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-019 · One deployable, three fused tiers</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-022 · GeometryServer ships in halves, an</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
@@ -196,7 +196,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
-<tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
+<tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">1/4</td></tr>
 <tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
 <tr><td class="id">017</td><td>Admin API Shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is decided, the surface is not</td><td class="num">1/3</td></tr>
@@ -335,7 +335,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-09</td><td>~~Publishing a layer means hand-written SQL.~~ RESOLVED 2026-08-14.</td><td class="muted-t">Before anyone but us runs this</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-11</td><td>~~Authorization does not exist.~~ RESOLVED 2026-08-13, and the resolution was replaced on 2026-08-14 when the owner directed that we adopt ArcGIS Portal&#x27;s matrix.</td><td class="muted-t">Q-59, which now blocks rather than merely being open</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-12</td><td>The per-address rate limit uses the socket address, never X-Forwarded-For.</td><td class="muted-t">Before a documented deployment behind a proxy</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-12</td><td>The per-address rate limit uses the socket address, never X-Forwarded-For.</td><td class="muted-t">Before a documented deployment behind a proxy</td><td><span class="pill good">REPAID</span></td></tr>
 <tr class="done"><td class="id">D-13</td><td>The timing gap between a known and an unknown account name is narrowed, not closed.</td><td class="muted-t">If account enumeration is ever demonstrated against a deployment</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-14</td><td>A server that loses its last platform administrator cannot be recovered in band.</td><td class="muted-t">Before the first deployment that is not ours, or sooner if role revocation reaches the admin API</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-15</td><td>The user-type ceiling is enforced but unreachable from any endpoint.</td><td class="muted-t">The first admin endpoint</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -541,7 +541,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">378</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:86.5%"></div></div><div class="bar-n">327</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:89.7%"></div></div><div class="bar-n">339</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:85.7%"></div></div><div class="bar-n">324</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.8%"></div></div><div class="bar-n">275</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:38.4%"></div></div><div class="bar-n">145</div></div>
@@ -554,6 +554,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">16</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>d9defe8</code><time>2026-08-24</time><span>a page costs the page now, not the table</span></li>
 <li><code>03ee467</code><time>2026-08-24</time><span>a dropped filter, a dangling owner, and one address that meant two services</span></li>
 <li><code>495cfc5</code><time>2026-08-24</time><span>every route that answers GET answers HEAD</span></li>
 <li><code>5097614</code><time>2026-08-24</time><span>two conventions become two checks, and a picture nobody had looked at</span></li>
@@ -567,7 +568,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b062021</code><time>2026-08-23</time><span>a claim says which worker took the row and what shape it speaks</span></li>
 <li><code>be1aa81</code><time>2026-08-23</time><span>four rows, and three of them were partly stale</span></li>
 <li><code>fb745c3</code><time>2026-08-23</time><span>the probe publisher&#x27;s password is made per run</span></li>
-<li><code>7024930</code><time>2026-08-23</time><span>a probe pages, a publish stays in its own service, and a publish that wrote nothing says so</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

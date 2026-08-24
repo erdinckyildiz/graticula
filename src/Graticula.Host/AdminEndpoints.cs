@@ -4121,7 +4121,7 @@ internal static class AdminEndpoints
         }
 
         LoginResult result = await login
-            .AuthenticateAsync(name, password, context.Connection.RemoteIpAddress, cancellation)
+            .AuthenticateAsync(name, password, CallerAddress.Of(context), cancellation)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -6769,7 +6769,7 @@ internal static class AdminEndpoints
             new AuditEvent(
                 current.Principal.Id,
                 current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 action,
                 resource,
                 detail,

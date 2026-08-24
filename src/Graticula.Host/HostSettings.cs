@@ -83,6 +83,15 @@ internal sealed record HostSettings(
     // administrative action that cannot be recorded has not been authorised to happen.
     bool RequestLog,
     int JpegQuality,
+
+    // <b>Which peers may speak for somebody else, [D-12](../../docs/architecture-debt.md).</b>
+    // Empty by default, and with it empty this server behaves exactly as it did: the socket
+    // address is the caller, for every request. A deployment behind a reverse proxy names the
+    // proxy here — an address or a CIDR range, comma separated — and only then does
+    // `X-Forwarded-For` mean anything. The default is the safe one because the unsafe version of
+    // this setting is worse than not having it: a forwarded header trusted from anybody lets every
+    // caller pick their own rate-limit bucket, which is a limit of zero.
+    IReadOnlyList<System.Net.IPNetwork> TrustedProxies,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -138,6 +147,13 @@ internal sealed record HostSettings(
         // artificially starved, small enough that four of them cannot crowd
         // everything else out between them.
         long layerBudget = keys.Value("TileCacheLayerBudgetMB", Math.Max(1, budget / 4));
+
+        // <b>Parsed at startup so a mistyped proxy address is a refusal to start</b>, not a
+        // deployment that quietly behaves as though nothing were configured — which looks exactly
+        // like the state this replaces, and is discovered when somebody's sign-in is rate-limited
+        // by a stranger.
+        IReadOnlyList<System.Net.IPNetwork> proxies =
+            CallerAddress.Trusted(keys.Text("TrustedProxies"));
 
         return new HostSettings(
             platformStore,
@@ -372,6 +388,8 @@ internal sealed record HostSettings(
             // hard edges, which is a harder case than a photograph: a one-pixel road
             // over a flat fill is exactly what block transforms smear.
             Math.Clamp(keys.Value("JpegQuality", 85), 1, 100),
+
+            proxies,
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

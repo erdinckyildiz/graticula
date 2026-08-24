@@ -528,7 +528,7 @@ internal static class AuthEndpoints
             new AuditEvent(
                 current.Principal.Id,
                 current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 action,
                 resource,
                 detail,
@@ -607,15 +607,22 @@ internal static class AuthEndpoints
 
     /// <summary>The source address, or null when it cannot be determined.</summary>
     /// <remarks>
-    /// <b>The socket's address, never a forwarded header.</b> Behind a proxy this
-    /// is the proxy, which makes the per-address limit far too coarse — but
-    /// trusting <c>X-Forwarded-For</c> without a configured trusted-proxy list
-    /// lets any caller set their own rate-limit bucket, which makes the limit
-    /// zero. Too coarse is recoverable; forgeable is not. Configuring trusted
-    /// proxies is owed.
+    /// <para>
+    /// <b>The socket's address, unless a proxy this deployment named says otherwise</b> —
+    /// [D-12](../../docs/architecture-debt.md), repaid 2026-08-24. It used to be the socket and
+    /// nothing else, which behind a reverse proxy made the per-address limit one shared bucket:
+    /// fifty failures anywhere disabled sign-in for everybody.
+    /// </para>
+    /// <para>
+    /// <b>The reason it could not simply read the header</b> was that trusting
+    /// <c>X-Forwarded-For</c> from anybody lets every caller choose their own rate-limit bucket,
+    /// which makes the limit zero. Too coarse is recoverable; forgeable is not. So
+    /// <see cref="CallerAddress"/> reads it only from a peer in `Graticula:TrustedProxies`, which
+    /// is empty by default — and with it empty this is what it always was.
+    /// </para>
     /// </remarks>
     private static IPAddress? RemoteAddress(HttpContext context) =>
-        context.Connection.RemoteIpAddress;
+        CallerAddress.Of(context);
 
     private static Task Refuse(HttpContext context, int status, string message) =>
         Results.Json(new { error = new { code = status, message } }, statusCode: status)

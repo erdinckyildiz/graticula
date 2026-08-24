@@ -168,7 +168,7 @@ internal static class CoverageAdminEndpoints
             new AuditEvent(
                 principal.Principal.Id,
                 principal.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 action,
                 resource,
                 System.Text.Json.JsonSerializer.Serialize(detail),
@@ -295,7 +295,7 @@ internal static class CoverageAdminEndpoints
             new AuditEvent(
                 principal.Principal.Id,
                 principal.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "coverage.register",
                 published.QualifiedName,
                 // <b>JSON, because the column is.</b> A plain sentence here is a

@@ -212,6 +212,45 @@ trust and must be mutually authenticated when it exists.
 
 ---
 
+## 5a. Decision — T5: what a reverse proxy is allowed to say
+
+**Added 2026-08-24, repaying [D-12](../architecture-debt.md).** §2 lets a deployment
+put a reverse proxy in front of this server. Nothing said what the server may believe
+from it, and the answer in the code was *nothing at all*: every request was attributed
+to the socket address, so behind a proxy the per-address rate limit became one shared
+bucket — fifty failures anywhere disabling sign-in for everybody.
+
+**The decision: a forwarded header is read from a peer this deployment has named, and
+from nobody else.** `Graticula:TrustedProxies` takes addresses or CIDR ranges. It is
+**empty by default**, and with it empty the server behaves exactly as it did.
+
+Three properties, and the order matters:
+
+1. **A caller who is not a listed proxy is themselves**, whatever they wrote in
+   `X-Forwarded-For`. This is what makes the header unforgeable. The alternative —
+   reading it from anybody — lets every caller choose their own rate-limit bucket, which
+   is a limit of zero. **Too coarse is recoverable; forgeable is not**, and that sentence
+   is why D-12 stood open rather than being repaired the obvious way.
+2. **The chain is read right to left**, stopping at the first address that is not a
+   listed proxy. The header is appended to, so the rightmost entry is what the nearest
+   proxy saw and the leftmost is whatever the client claimed. Reading from the right
+   means entries a client invented sit behind the real one and are never reached.
+3. **A mistyped entry refuses to start.** Ignoring it would leave the deployment behaving
+   exactly as it did before the setting existed, with nothing to say so — and the symptom
+   would be somebody's sign-in rate-limited by a stranger.
+
+**One notion of *the caller*, resolved once**, before authentication, and read by the
+rate limiter and by every path that records a source address. Two notions is how a log
+and a limiter come to disagree about who was there.
+
+**`X-Forwarded-Proto` is not read at all**, and that is deliberate rather than pending:
+§2a decides HTTPS is terminated here by default, so the scheme this server serves under
+is its own fact and not the proxy's to assert. If a deployment terminates TLS at the
+proxy, what it needs is `RequireHttps=false` and a note in its own runbook — not a header
+that changes what the server believes about its own listener.
+
+---
+
 ## 6. mTLS
 
 **Supported, off by default.** Q-83 put client-certificate authentication in
@@ -267,6 +306,12 @@ Three consequences, all of which change the checklist:
    being assumed negligible against shrink-to-zero pools.
 3. **The forwarded-header trusted-proxy default is empty**, and a test proves a
    spoofed `X-Forwarded-Proto` from an untrusted source is ignored.
+   ***(Discharged 2026-08-24 — §5a.)*** `Graticula:TrustedProxies` is empty by default and
+   `CallerAddressTests` proves the ignoring, on `X-Forwarded-For` rather than
+   `X-Forwarded-Proto`: the proto header is read nowhere, which §5a now records as a
+   decision instead of leaving it as an absence. Twelve cases, including a client that
+   writes its own hops in front of the proxy's, and a mistyped range that refuses to
+   start.
 4. **Data-source certificate expiry produces a named diagnosis**, not a generic
    connection error — tested by expiring one.
 

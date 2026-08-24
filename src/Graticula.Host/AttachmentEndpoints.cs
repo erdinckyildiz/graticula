@@ -472,7 +472,7 @@ internal static class AttachmentEndpoints
             new AuditEvent(
                 current.Principal.Id,
                 current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "layer.attachment",
                 $"{layerName}/{objectId}",
                 System.Text.Json.JsonSerializer.Serialize(new { name, what }),

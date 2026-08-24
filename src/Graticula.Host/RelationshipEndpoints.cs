@@ -208,7 +208,7 @@ internal static class RelationshipEndpoints
         await audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id, current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "relationship.declare", request.Name,
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
@@ -338,7 +338,7 @@ internal static class RelationshipEndpoints
         await audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id, current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "relationship.remove", id.ToString(), "{}", true),
             cancellation).ConfigureAwait(false);
 

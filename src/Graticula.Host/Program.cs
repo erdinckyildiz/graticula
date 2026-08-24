@@ -524,6 +524,31 @@ public static class Program
         */
         app.UseRouting();
 
+        /*
+          <b>Who is calling, resolved once, [D-12](../../docs/architecture-debt.md).</b> The
+          per-address rate limit used the socket address and never `X-Forwarded-For`, so behind a
+          reverse proxy every request came from the proxy and the limit was one shared bucket —
+          fifty failures anywhere disabling sign-in for everybody.
+
+          <b>Here rather than in each handler, because two notions of *the caller* is how the log
+          and the limiter come to disagree.</b> Three places record a source address and one
+          rate-limits on it; they now read the same answer.
+
+          <b>Early, and before authentication</b>, so a refusal written by any later middleware is
+          recorded against the caller rather than against the proxy.
+
+          <b>With no trusted proxies configured this is exactly what it was.</b> `CallerAddress`
+          returns the socket address for every request until a deployment names a proxy, which is
+          the safe default: a forwarded header trusted from anybody lets every caller pick their
+          own bucket.
+        */
+        app.Use(async (context, next) =>
+        {
+            CallerAddress.Resolve(context, settings.TrustedProxies);
+
+            await next(context).ConfigureAwait(false);
+        });
+
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
         // exception must still produce an answer that says what to do.
         app.UseExceptionHandler(handler => handler.Run(context =>
@@ -676,7 +701,7 @@ public static class Program
                 who is { } resolved && !resolved.Principal.IsAnonymous
                     ? resolved.Principal.Name
                     : null,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 RequestFacts.Face(context.Request.Path),
                 RequestFacts.Service(context.Request.Path),
                 context.Response.ContentLength));
@@ -2738,7 +2763,7 @@ public static class Program
             new AuditEvent(
                 current.Principal.Id,
                 current.Principal.Name,
-                context.Connection.RemoteIpAddress?.ToString(),
+                CallerAddress.Of(context)?.ToString(),
                 "layer.applyEdits",
                 layerName,
                 JsonSerializer.Serialize(new
@@ -3089,7 +3114,7 @@ public static class Program
                 new AuditEvent(
                     current.Principal.Id,
                     current.Principal.Name,
-                    context.Connection.RemoteIpAddress?.ToString(),
+                    CallerAddress.Of(context)?.ToString(),
                     "layer.read.override",
                     $"{serviceName}/{layerId}",
                     SharingDetail(layer.Sharing),
