@@ -462,20 +462,6 @@ public sealed class SuiteStabilityTests
                 continue;
             }
 
-            // <b>One exemption, and it is a debt rather than a carve-out.</b>
-            // `RelationshipEndpoints` takes the raw catalogue in three of its methods and the
-            // fallback in a fourth, which this check found on the day it was written — and
-            // [D-127](../../docs/architecture-debt.md)'s own text says relationships *inherit*
-            // the fallback, so the register was wrong about it too. Repairing it is not a
-            // parameter swap: `CatalogFallback` remembers services and listings, not the
-            // per-layer reads a relationship query makes, so what a related-records request
-            // should answer during an outage is a decision ADR-026 has not taken. Recorded as
-            // [D-153](../../docs/architecture-debt.md) and named here, so the exemption is
-            // visible and bounded rather than a silence.
-            if (name == "RelationshipEndpoints.cs")
-            {
-                continue;
-            }
 
             examined++;
 
@@ -483,11 +469,51 @@ public sealed class SuiteStabilityTests
                 File.ReadAllText(file), @"^[ \t]*(///|//).*$", string.Empty,
                 RegexOptions.Multiline);
 
-            foreach (Match raw in Regex.Matches(
-                         text, @"^\s*(PostgresLayerCatalog|ILayerCatalog)\s+\w+\s*[,)]",
-                         RegexOptions.Multiline))
+            // <b>An administrative handler is exempt, and the exemption is derived rather than
+            // typed.</b> The first version of this check exempted whole files, and it named
+            // `RelationshipEndpoints` — which mixes both kinds, because relationships are
+            // declared through `/admin/relationships` and *queried* through the service. Its
+            // three raw-catalogue methods are all admin handlers and are right to be: an
+            // administrative action during a catalogue outage must fail rather than act on
+            // remembered state. That was recorded as
+            // [D-153](../../docs/architecture-debt.md) and withdrawn the same day, once the
+            // routes rather than the filename were read.
+            //
+            // So the exemption is the route: whatever `app.Map*("/admin/…", Handler)` names.
+            // And only a **handler** is examined at all — a private helper takes whatever its
+            // caller already has, so `Find` holding a raw catalogue says nothing about a face;
+            // it says its callers are administrative, which they are.
+            HashSet<string> administrative = new(StringComparer.Ordinal);
+            HashSet<string> handlers = new(StringComparer.Ordinal);
+
+            foreach (Match route in Regex.Matches(
+                         text, @"app\.Map\w+\(\s*(?:\$?""|[\w.]+)([^,]*),[^,]*?(\w+)\s*\)"))
             {
-                offenders.Add($"{name} takes {raw.Value.Trim()}");
+                handlers.Add(route.Groups[2].Value);
+
+                if (route.Groups[1].Value.Contains("/admin/", StringComparison.Ordinal))
+                {
+                    administrative.Add(route.Groups[2].Value);
+                }
+            }
+
+            foreach (Match handler in Regex.Matches(
+                         text,
+                         @"static\s+async\s+Task(?:<[^>]+>)?\s+(\w+)\s*\((.*?)\)\s*\{",
+                         RegexOptions.Singleline))
+            {
+                if (!handlers.Contains(handler.Groups[1].Value)
+                    || administrative.Contains(handler.Groups[1].Value))
+                {
+                    continue;
+                }
+
+                if (Regex.IsMatch(
+                        handler.Groups[2].Value, @"\b(PostgresLayerCatalog|ILayerCatalog)\b"))
+                {
+                    offenders.Add(
+                        $"{name}.{handler.Groups[1].Value} takes the catalogue directly");
+                }
             }
         }
 
