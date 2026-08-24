@@ -283,7 +283,7 @@ internal static partial class Log
     /// start over.
     /// </remarks>
     [LoggerMessage(
-        EventId = 1013,
+        EventId = 1049,
         Level = LogLevel.Warning,
         Message = "Could not determine whether anything on this server is shared. The server is "
                 + "starting anyway: this is a startup note, not a capability. Check "

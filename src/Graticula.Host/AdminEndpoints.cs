@@ -4175,6 +4175,12 @@ internal static class AdminEndpoints
     private static async Task HealthAsync(
         HttpContext context,
         IAdminCatalog catalog,
+
+        // <b>The layer catalogue as well, for D-154's one field.</b> `/admin/health` is an
+        // administrative route, so it takes the raw catalogue for the reason every
+        // administrative route does: an operator asking what is wrong must be told what is
+        // actually there rather than what was remembered.
+        PostgresLayerCatalog layerCatalog,
         ServiceContexts contexts,
         ITileCache tiles,
         TileSingleFlight flight,
@@ -4318,6 +4324,15 @@ internal static class AdminEndpoints
           How close a deployment is to its bound is a capacity fact about the server, which is
           exactly the class of thing the §66 security gate took out of the anonymous answer.
         */
+        // <b>Which registrations this process cannot open — D-154.</b> A source sealed with a
+        // key this process does not hold used to make `/rest/services` answer 503 for
+        // everybody; the listing omits those layers now and names the source here, which is
+        // where operational detail belongs. **Not on the directory itself**: that document is
+        // Esri's shape and a member of ours on it is the compatibility question
+        // [Q-141](../../docs/open-questions.md) asks about a datum caution, with the same
+        // answer. Empty is the ordinary case and is not a failure.
+        health["unopenableSources"] = layerCatalog.UnopenableSources;
+
         health["admissionControl"] = new
         {
             perSource = budget.PerSource,

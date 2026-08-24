@@ -100,6 +100,10 @@ public sealed class PostgresLayerCatalog
         + "where s.kind is distinct from 'ImageServer'";
 
     private readonly NpgsqlDataSource _dataSource;
+
+    /// <summary>The sources this process has failed to open, by name.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte>
+        _unopenableSources = new(StringComparer.Ordinal);
     private readonly SecretProtector _secrets;
 
     /// <summary>Creates a catalogue reader.</summary>
@@ -167,19 +171,70 @@ public sealed class PostgresLayerCatalog
     /// </summary>
     public async Task<IReadOnlyList<PublishedLayer>> ListAsync(CancellationToken cancellationToken)
     {
+        (IReadOnlyList<PublishedLayer> layers, _) =
+            await ListWhatCanBeReadAsync(cancellationToken).ConfigureAwait(false);
+
+        return layers;
+    }
+
+    /// <summary>Every layer whose credential this process can open, and how many it could not.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The readable layers, and the names of the data sources that could not be opened.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-154](../../docs/architecture-debt.md): one unopenable credential took the whole
+    /// directory with it.</b> Listing decrypts every layer's connection string on its way to a
+    /// <see cref="PublishedLayer"/>, so a single source sealed with a key this process does not
+    /// hold made <c>/rest/services</c> answer 503 — while every layer on every other source was
+    /// servable and the directory that would let a client find them was the thing that refused.
+    /// A key rotation, a restored backup, or a source registered by another install all produce
+    /// exactly that state.
+    /// </para>
+    /// <para>
+    /// <b>Omitted rather than tolerated, and counted rather than skipped quietly.</b> A layer
+    /// whose credential cannot be opened cannot be served, so listing it would advertise
+    /// something that answers 503 — the <em>capability report</em> problem in miniature. But an
+    /// omission nobody can see is how a directory comes to disagree with the catalogue, so the
+    /// sources are named and returned, and the caller decides what to do with that: the log
+    /// says it, and an operator reading <c>/admin/health</c> can be told, while an anonymous
+    /// client is told nothing it could not already infer from the layer being absent.
+    /// </para>
+    /// <para>
+    /// <b>Only this failure is caught.</b> Anything else is a bug and propagates, which is the
+    /// same rule <see href="../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md">
+    /// ADR-026</see> applies to its own blind path.
+    /// </para>
+    /// </remarks>
+    public async Task<(IReadOnlyList<PublishedLayer> Layers, IReadOnlyList<string> Unopenable)>
+        ListWhatCanBeReadAsync(CancellationToken cancellationToken)
+    {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Columns} {From} order by s.name, l.layer_index");
 
         List<PublishedLayer> layers = [];
+        SortedSet<string> unopenable = new(StringComparer.Ordinal);
+
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            layers.Add(Map(reader));
+            try
+            {
+                layers.Add(Map(reader));
+            }
+            catch (SecretProtectionException)
+            {
+                // <b>Column 10 is `d.name` and it is not sealed</b>, so a listing can still
+                // say which registration needs attention without opening anything. Counted
+                // once per source rather than once per layer: an operator fixes a credential,
+                // not a hundred layers.
+                unopenable.Add(reader.GetString(10));
+                _unopenableSources.TryAdd(reader.GetString(10), 0);
+            }
         }
 
-        return layers;
+        return (layers, [.. unopenable]);
     }
 
     /// <summary>Every layer published under this name.</summary>
@@ -447,6 +502,17 @@ public sealed class PostgresLayerCatalog
 
         return names;
     }
+    /// <summary>Data sources whose credential this process could not open while listing.</summary>
+    /// <remarks>
+    /// <b>[D-154](../../docs/architecture-debt.md).</b> Written by the listing rather than
+    /// returned by it, because the listing's callers are a fallback and a directory and neither
+    /// wants a second return value — and because an operator fixes a credential rather than a
+    /// hundred layers, so the interesting thing is the set of source names and not a count of
+    /// what each one hid. It accumulates rather than resetting: a source that failed once is
+    /// worth naming until somebody looks, and the set is small by construction.
+    /// </remarks>
+    public IReadOnlyCollection<string> UnopenableSources => [.. _unopenableSources.Keys];
+
 
     /// <summary>Every service, with its layers.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -557,7 +623,23 @@ public sealed class PostgresLayerCatalog
                 // nulls. That is a service, not a broken row.
                 if (!reader.IsDBNull(0))
                 {
-                    layers.Add(Map(reader));
+                    // <b>A layer whose credential cannot be opened is left out of the
+                    // service rather than taking the whole listing down — D-154.</b> One
+                    // source sealed with a key this process does not hold made
+                    // `/rest/services` answer 503 while every layer on every other source was
+                    // servable. It cannot be served, so listing it would advertise something
+                    // that answers 503; it is omitted, and the source is named in
+                    // `UnopenableSources` so an operator learns which registration needs
+                    // attention. Only this failure is caught — anything else is a bug and
+                    // propagates, the same rule ADR-026 applies to its own blind path.
+                    try
+                    {
+                        layers.Add(Map(reader));
+                    }
+                    catch (SecretProtectionException)
+                    {
+                        _unopenableSources.TryAdd(reader.GetString(10), 0);
+                    }
                 }
             }
         }
