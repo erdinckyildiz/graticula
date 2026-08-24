@@ -804,6 +804,84 @@ def a_demoted_assumption_still_called_load_bearing():
                     "register says it was demoted. This is the file read at the start of every "
                     "session, so it is the worst place for a claim a decision has already "
                     "reversed. D-149.")
+    # <b>Every document, not two named ones -- widened 2026-08-24, hours after
+    # D-149 closed.</b> The first version read the impact table and CLAUDE.md,
+    # because those were the two places the defect had been found. Two more were
+    # standing while it passed: `v1-scope.md` §6, which CLAUDE.md §1 calls
+    # authoritative for scope, and this register's own *Priority* paragraph, four
+    # lines above the table the check did read. A check shaped like the instances
+    # rather than like the class is D-130 wearing a tool.
+    #
+    # <b>Flowed, because prose wraps.</b> The Priority sentence breaks between
+    # *"A-003 is the"* and *"load-bearing"*, so a line-by-line scan cannot see it
+    # -- and did not.
+    #
+    # <b>Reviews and research are records and are exempt.</b> A review says what
+    # was believed on a date and is never rewritten; `independent-review-3-process`
+    # quotes the register's own stale note, which is the thing it is for.
+    exempt = ("reviews", "research", "architecture-assessment.md")
+
+    claim = re.compile(
+        r"\*{0,2}(A-\d+)\*{0,2}[^.]{0,40}?\b(?:is|are|stays?|remains?|being)\b"
+        r"[^.]{0,30}?\bload-bearing\b"
+        r"|\bload-bearing\b[^.]{0,40}?\*{0,2}(A-\d+)\*{0,2}")
+
+    # <b>Word boundaries, and one of them was load-bearing itself.</b> Written
+    # without them, `read` matched *threaded* in *"a threaded worker model is
+    # available"* -- the sentence immediately before the real defect -- and the
+    # check reported clean on the file it was reading.
+    record = re.compile(
+        r"no longer|stops? being|stopped being|less load-bearing|not load-bearing|"
+        r"from load-bearing|to load-bearing|\bagain\b|\bused to\b|\bwas the\b|"
+        r"\bwere the\b|\bsaid\b|\bsays\b|\bcalled\b|\blisted\b|\bquoted\b|\bread\b|"
+        r"\bpreviously\b|\buntil\b", re.I)
+
+    for base, _, names in os.walk(conditions.ROOT):
+        if any(part in base for part in (".git", "REFERENCES", "node_modules")):
+            continue
+
+        for name in names:
+            if not name.endswith(".md"):
+                continue
+
+            path = os.path.join(base, name)
+            shown = os.path.relpath(path, conditions.ROOT).replace(os.sep, "/")
+
+            if any(part in shown for part in exempt):
+                continue
+
+            try:
+                text = io.open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+
+            flowed = re.sub(r"\s*\n\s*", " ", re.sub(r"~~.*?~~", "", text, flags=re.S))
+
+            for found in claim.finditer(flowed):
+                who = found.group(1) or found.group(2)
+                if not demoted.search(status.get(who, "")):
+                    continue
+
+                # <b>The sentence, not a window of characters around it.</b> The
+                # first version read 90 characters either side, and v1-scope's
+                # closing paragraph -- *"no document said who would build it"* --
+                # silenced a planted claim three lines below it. Whether a
+                # sentence is a record is a property of that sentence; borrowing
+                # the neighbour's vocabulary is how a check passes on a defect it
+                # is looking straight at. Proved by planting one and watching this
+                # fail, which the version above did not.
+                start = flowed.rfind(".", 0, found.start()) + 1
+                stop = flowed.find(".", found.end())
+                sentence = flowed[start:stop if stop > 0 else len(flowed)]
+
+                if record.search(sentence):
+                    continue
+
+                problems.append(
+                    f"{shown} calls {who} load-bearing and the assumptions register says it "
+                    f"was demoted: \"...{found.group(0)[:70]}...\". A decision that stops "
+                    "holding something up has to stop being written down as holding it up, "
+                    "or the register and the documents that quote it disagree. D-149, D-130.")
 
     return problems
 

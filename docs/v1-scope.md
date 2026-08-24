@@ -275,7 +275,7 @@ open and still owed:
 | **A11, A-042** | GeometryServer is in, so the caps it names and never numbers are on the critical path |
 | **A1, P7** | ADR-001's status honesty is unaffected by scope |
 | **A2, A5, A6, P11, P14** | The propagation debt. Cutting scope does not un-stale a document |
-| **P4** | Dissolving Q-49's criterion removed the validation path for A-003 and five others. A-003 is the load-bearing assumption under ADR-007, and ADR-007 is in v1 |
+| **P4** | Dissolving Q-49's criterion removed the validation path for A-003 and five others — **and that half is still true and still owed.** ~~A-003 is the load-bearing assumption under ADR-007, and ADR-007 is in v1~~ — **corrected 2026-08-24: A-003 was downgraded to informational on 2026-08-15**, when [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md) took affinity routing out of the default. It holds nothing up, so a missing validation route for it costs nothing today and costs everything the day affinity is reconsidered. **What the dissolution really left exposed is the other five**, which this row names and does not list |
 
 ## 7. Why this is the right shape
 

@@ -98,8 +98,11 @@ ADR depends on is either mislabelled or unnecessary.
 | A-079 | The publisher and the operator are different people often enough for two surfaces to be worth their cost | `UNVALIDATED`, and on a small deployment they are the same person, which is the case this decision serves worst. The owner's own estate is the first place to check it | *Not separated when this row was copied from its ADR's three-column table; what is known is in Status.* | [ADR-034](adr/ADR-034-server-and-studio.md) |
 | A-080 | `admin:manageServer` is the right single gate for Server, so no reader is left without a tool they need | `UNVALIDATED` but cheap to falsify: it fails the first time somebody has to ask an administrator for something about their own layer, and that complaint names the screen that is in the wrong surface | *Not separated when this row was copied from its ADR's three-column table; what is known is in Status.* | [ADR-034](adr/ADR-034-server-and-studio.md) |
 
-**Priority.** A-013 is resolved — a threaded worker model is available. A-003 is the
-load-bearing assumption under the shared-worker model. **A-037 is
+**Priority.** A-013 is resolved — a threaded worker model is available. ~~A-003 is the
+load-bearing assumption under the shared-worker model.~~ **A-003 was downgraded to
+informational on 2026-08-15** by [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md)
+and holds nothing up; this paragraph outlived that for nine days, four lines above the
+table where the same defect was found and fixed today. **A-037 is
 the first assumption this project found by measuring rather than by reasoning**
 — it was not on anyone's list until a tile turned out to allocate 204 MB — and
 it was validated the same day it was opened. **A-039 came the same way**, from
