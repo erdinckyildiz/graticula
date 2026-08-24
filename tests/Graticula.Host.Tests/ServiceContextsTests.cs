@@ -397,6 +397,10 @@ public sealed class ServiceContextsTests
 
             public Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken) =>
                 throw new NotSupportedException();
+
+            public Task<long> CountUpToAsync(
+                FeatureQuery query, long ceiling, CancellationToken cancellationToken) =>
+                throw new NotSupportedException();
         }
     }
 }

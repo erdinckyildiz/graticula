@@ -670,6 +670,53 @@ public sealed class PostGisFeatureSource : IFeatureSource
         return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
 
+    /// <summary>Counts up to a ceiling, so the cost follows the page rather than the table.</summary>
+    /// <param name="query">The query, whose filters apply.</param>
+    /// <param name="ceiling">The most it needs to count.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The number matched, or the ceiling when at least that many match.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-118](../../docs/architecture-debt.md).</b> `select count(*) from (select 1 from t
+    /// where … limit n) s` — the inner limit is what stops the scan, and selecting the constant
+    /// rather than a column keeps the geometry out of it.
+    /// </para>
+    /// <para>
+    /// <b>No <c>order by</c>, deliberately.</b> The question is *how many*, and a sort would make
+    /// this cost what the page costs a second time. Which rows are counted does not matter when
+    /// only their number is read.
+    /// </para>
+    /// <para>
+    /// <b>Distinct falls through to the whole count.</b> A distinct count is the number of
+    /// combinations, and stopping early would count combinations of a prefix — a number a client
+    /// believes, which this file's own note already gives as worse than no number.
+    /// </para>
+    /// </remarks>
+    public async Task<long> CountUpToAsync(
+        FeatureQuery query, long ceiling, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ceiling);
+
+        if (query.Distinct && query.Fields.Count > 0)
+        {
+            return await CountAsync(query, cancellationToken).ConfigureAwait(false);
+        }
+
+        StringBuilder sql = new("select count(*) from (select 1 from ");
+
+        sql.Append(_layer.QuotedTable);
+
+        AppendWhere(sql, query);
+
+        sql.Append(" limit ").Append(ceiling.ToString(CultureInfo.InvariantCulture)).Append(") s");
+
+        await using NpgsqlCommand command = Command(sql.ToString());
+        BindFilters(command, query);
+
+        return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+    }
+
     /// <summary>The extent of everything this query matches, and how many.</summary>
     /// <param name="query">The query, whose filters apply.</param>
     /// <param name="cancellationToken">Cancellation.</param>

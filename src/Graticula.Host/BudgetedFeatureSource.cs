@@ -200,4 +200,17 @@ internal sealed class BudgetedFeatureSource(
                 return await inner.CountAsync(query, token).ConfigureAwait(false);
             },
             cancellationToken).AsTask();
+
+    /// <inheritdoc/>
+    public Task<long> CountUpToAsync(
+        FeatureQuery query, long ceiling, CancellationToken cancellationToken) =>
+        GuardedAsync(
+            async token =>
+            {
+                using ConnectionBudget.Lease lease =
+                    await budget.EnterAsync(source, token).ConfigureAwait(false);
+
+                return await inner.CountUpToAsync(query, ceiling, token).ConfigureAwait(false);
+            },
+            cancellationToken).AsTask();
 }

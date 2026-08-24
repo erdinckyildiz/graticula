@@ -345,4 +345,36 @@ public interface IFeatureSource
     /// </remarks>
     System.Threading.Tasks.Task<long> CountAsync(
         FeatureQuery query, System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>Counts matching features, stopping once <paramref name="ceiling"/> is reached.</summary>
+    /// <param name="query">The query, whose filters apply and whose limit does not.</param>
+    /// <param name="ceiling">The most it needs to count. Must be positive.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The number matched, or <paramref name="ceiling"/> when there are at least that many.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-118](../../../docs/architecture-debt.md): every `GetFeature` counted the whole result
+    /// before writing a page of it.</b> WFS 2.0 makes <c>numberReturned</c> a required attribute
+    /// on the collection element, so it has to be known before the first feature is written, and
+    /// the two ways to know it were to buffer the page — which
+    /// [A-037](../../../docs/architecture-assumptions.md) rules out, allocation being the binding
+    /// constraint — or to ask how many rows match. Asking cost <c>O(table)</c> beside a page that
+    /// costs <c>O(page)</c>.
+    /// </para>
+    /// <para>
+    /// <b>A third way, and it is the one the row said to measure for.</b> A caller writing a page
+    /// does not need the total; it needs to know how many rows this page will hold and whether
+    /// there is another. Counting to <c>offset + limit + 1</c> answers both exactly, and reads at
+    /// most that many rows. Measured before it was written — see
+    /// [benchmarks/wfs-count](../../../benchmarks/wfs-count/RESULTS.md).
+    /// </para>
+    /// <para>
+    /// <b>The return is deliberately ambiguous at the ceiling, and callers must treat it so.</b>
+    /// A result equal to <paramref name="ceiling"/> means *at least this many*, which is what lets
+    /// the WFS writer say <c>numberMatched="unknown"</c> — a value the specification defines for
+    /// exactly this case.
+    /// </para>
+    /// </remarks>
+    System.Threading.Tasks.Task<long> CountUpToAsync(
+        FeatureQuery query, long ceiling, System.Threading.CancellationToken cancellationToken);
 }

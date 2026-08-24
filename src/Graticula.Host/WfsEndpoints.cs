@@ -635,7 +635,46 @@ internal static class WfsEndpoints
             return;
         }
 
-        long matched = await source.CountAsync(query!, cancellation).ConfigureAwait(false);
+        /*
+          <b>[D-118](../../docs/architecture-debt.md): every `GetFeature` counted the whole result
+          before writing a page of it.</b> WFS 2.0 makes `numberReturned` a required attribute on
+          the collection element, so it has to be known before the first feature is written — and
+          the two ways to know it were to buffer the page, which A-037 rules out, or to ask how
+          many rows match. Asking cost `O(table)` beside a page costing `O(page)`.
+
+          <b>Measured before it was changed, because the row said to</b>
+          (`benchmarks/wfs-count`): on the 6.5-million-row corpus an unfiltered `count(*)` is
+          **577 ms** where the page it accompanies is **7.6 ms**. On a 46,041-row layer it is 3.9 ms
+          of a 44 ms request — immaterial. The count is `O(table)` and the page is `O(page)`, so
+          the share is not a constant: it is whatever the deployment's largest table makes it.
+
+          <b>`resultType=hits` keeps the whole count, deliberately.</b> That is what hits is for —
+          the client asked for the number and nothing else, and answering *unknown* would answer a
+          different question. The row said the change was only ever to the `results` path.
+
+          <b>Counting to `startIndex + limit + 1` answers both questions this path has.</b> How
+          many rows will this page hold, exactly; and is there another page, exactly. What it
+          gives up is the total, and only when the total exceeds the bound — which is the case the
+          specification's `numberMatched="unknown"` exists for.
+
+          <b>And that bound alone would have been the wrong trade, which the measurement showed
+          too.</b> A page of ten from a 1,421-row layer would answer *unknown* — the row's own
+          warning, that removing the count removes the paging metadata every client uses to draw a
+          scrollbar, and it would have applied to every layer this deployment has. `ExactUpTo`
+          raises the floor: the cost stops growing with the table and the total stays exact for
+          any layer somebody is likely to page through by hand.
+        */
+        long ceiling = Math.Max((long)request.StartIndex + query!.Limit + 1, ExactUpTo);
+
+        long counted = request.HitsOnly
+            ? await source.CountAsync(query!, cancellation).ConfigureAwait(false)
+            : await source.CountUpToAsync(query!, ceiling, cancellation).ConfigureAwait(false);
+
+        // <b>At the ceiling the number means *at least this many*.</b> Everywhere below that
+        // treats it as a total, so the ambiguity is resolved once, here.
+        bool whole = request.HitsOnly || counted < ceiling;
+
+        long? matched = whole ? counted : null;
 
         // <b>An identifier that matches nothing is a 404 and not an empty collection.</b>
         // Every other operation here answers *no features* with a collection of none,
@@ -643,7 +682,7 @@ internal static class WfsEndpoints
         // question about a set: it addresses one resource, and returning 200 with an
         // empty document tells a client its identifier was fine and the feature is
         // simply absent — which is exactly the case a 404 exists to name.
-        if (byId && matched == 0)
+        if (byId && counted == 0)
         {
             await RefuseAsync(
                     context,
@@ -669,7 +708,7 @@ internal static class WfsEndpoints
 
         long returned = none
             ? 0
-            : Math.Clamp(matched - request.StartIndex, 0, query!.Limit);
+            : Math.Clamp(counted - request.StartIndex, 0, query!.Limit);
 
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
@@ -737,7 +776,7 @@ internal static class WfsEndpoints
             return;
         }
 
-        (string? next, string? previous) = Pages(context, request, query!, matched, returned);
+        (string? next, string? previous) = Pages(context, request, query!, counted, returned);
 
         await StreamAsync(context, "wfs", () =>
                 writer.WriteAsync(
@@ -745,6 +784,30 @@ internal static class WfsEndpoints
                     next, previous))
             .ConfigureAwait(false);
     }
+
+    /// <summary>How far the results path will count before it says the total is unknown.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A hundred thousand, and the number is measured rather than chosen</b> —
+    /// [benchmarks/wfs-count](../../benchmarks/wfs-count/RESULTS.md), on the 6.5-million-row
+    /// corpus: counting to this ceiling costs <b>17.9 ms</b> where the unbounded count of the same
+    /// table costs <b>577 ms</b>, and where the page it accompanies costs 7.6 ms. Thirty-two times
+    /// cheaper, and flat: a table ten times larger costs the same, which is the property
+    /// [D-118](../../docs/architecture-debt.md) is about.
+    /// </para>
+    /// <para>
+    /// <b>Generous on purpose.</b> Every layer this deployment publishes is under it — the largest
+    /// is 46,041 — so `numberMatched` stays exact for all of them, and a client drawing a
+    /// scrollbar keeps the number it draws it from. What is given up is the total on a table
+    /// nobody pages through by hand.
+    /// </para>
+    /// <para>
+    /// <b>Not configuration, for now.</b> A setting invites a deployment to raise it back to the
+    /// cost this removed, and nothing has asked for it. Recorded here rather than in
+    /// `HostSettings` so that whoever needs it can see what the number is worth first.
+    /// </para>
+    /// </remarks>
+    private const long ExactUpTo = 100_000;
 
     /// <summary>
     /// Where the next and previous pages are, as absolute URLs, or null for neither.
@@ -776,7 +839,7 @@ internal static class WfsEndpoints
     /// </para>
     /// </remarks>
     private static (string? Next, string? Previous) Pages(
-        HttpContext context, WfsRequest request, FeatureQuery query, long matched, long returned)
+        HttpContext context, WfsRequest request, FeatureQuery query, long counted, long returned)
     {
         if (context.Request.Query.Count == 0)
         {
@@ -837,7 +900,7 @@ internal static class WfsEndpoints
         */
         if (request.HitsOnly)
         {
-            return (matched > 0 ? At(0, forceResults: true) : null, null);
+            return (counted > 0 ? At(0, forceResults: true) : null, null);
         }
 
         // <b>`next` on the strength of `numberMatched`, not on a full page.</b> A page
@@ -851,7 +914,10 @@ internal static class WfsEndpoints
         // because the URL preserves every other parameter, including `resultType`, a
         // client following it would have received the same document with the same `next`
         // for ever. Measured on `resultType=hits` against tr_il before it shipped.
-        string? next = returned > 0 && start + returned < matched
+        // <b>D-118: `counted` is bounded at `startIndex + limit + 1`</b>, so *is there another
+        // page* is *did the bounded count reach past this page* — which is the same question the
+        // full count used to answer and is the reason the bound is `+ 1` rather than `+ 0`.
+        string? next = returned > 0 && start + returned < counted
             ? At((int)(start + returned))
             : null;
 

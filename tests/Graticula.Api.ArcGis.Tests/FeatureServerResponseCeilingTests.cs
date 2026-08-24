@@ -176,6 +176,10 @@ public sealed class FeatureServerResponseCeilingTests
         public Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken) =>
             throw new NotSupportedException("The response writer does not count.");
 
+        public Task<long> CountUpToAsync(
+            FeatureQuery query, long ceiling, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The response writer does not count.");
+
         public async IAsyncEnumerable<Feature> ReadAsync(
             FeatureQuery query,
             [System.Runtime.CompilerServices.EnumeratorCancellation]
