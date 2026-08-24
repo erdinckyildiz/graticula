@@ -1027,6 +1027,67 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def an_open_question_that_asks_without_saying_why():
+    """An open question recorded as a sentence and nothing else.
+
+    **[CLAUDE.md §2](../CLAUDE.md) says uncertainty is recorded, not hidden**, and
+    a question with no context is a third thing: recorded and unusable. Four were
+    like that on 2026-08-24 -- **Q-01**, *which language, on measured evidence?*,
+    carried the question and the word *Council*, so a reader met it and could
+    conclude the decision had never been taken. It had: ADR-001 chose C# on
+    2026-08-12 and the whole product is written in it. What is open is the
+    *evidence*, and the row could not say so because it said nothing.
+
+    **What makes a question usable is not length.** It is that somebody meeting
+    it can tell what is undecided, what the candidate answers cost, and where to
+    look -- so the check asks for any of those: a date, an emphasised phrase, or
+    a link. A one-line question with a pointer passes; a one-line question with
+    nothing does not.
+
+    **Answered rows are exempt.** A question that has been answered is history
+    and its shape is settled -- the section heading says which is which, so the
+    check reads only what is above `## Answered`.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "open-questions.md")
+
+    try:
+        lines = io.open(path, encoding="utf-8").read().splitlines()
+    except OSError as problem:
+        return [f"open-questions.md could not be read: {problem}"]
+
+    answered = next(
+        (i for i, line in enumerate(lines) if line.startswith("## Answered")), len(lines))
+
+    problems = []
+    rows = 0
+
+    for line in lines[:answered]:
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+
+        if len(cells) < 2 or not re.match(r"^Q-[\w-]+$", cells[0]):
+            continue
+
+        rows += 1
+        body = re.sub(r"\s+", " ", cells[1])
+
+        # A date, an emphasis, or a link — any one of them means somebody wrote
+        # down what they knew rather than only what they were unsure about.
+        if len(body) < 90 and not re.search(r"\*\*|20\d\d-\d\d-\d\d|\]\(", body):
+            problems.append(
+                f'{cells[0]} is recorded as "{body}" and nothing else — no candidate answers, no '
+                "date, no pointer. §2 asks for uncertainty to be recorded; a question somebody "
+                "cannot act on is recorded and unusable, and Q-01 read as though the decision "
+                "had never been taken when it had."
+            )
+
+    if rows < 40:
+        problems.append(
+            f"only {rows} open questions were parsed, so this check is reading nothing. A check "
+            "that cannot fail is worse than no check.")
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -1235,6 +1296,7 @@ def main() -> int:
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()
+                + an_open_question_that_asks_without_saying_why()
                 + source_the_repository_would_not_receive())
 
     if problems:
