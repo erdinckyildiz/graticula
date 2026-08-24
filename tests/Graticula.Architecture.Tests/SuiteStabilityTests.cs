@@ -422,4 +422,86 @@ public sealed class SuiteStabilityTests
 
         Assert.Contains("/ 255", convert.Groups[1].Value, StringComparison.Ordinal);
     }
+
+    /// <summary>A protocol face reads the catalogue through the fallback, not around it.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-127](../../docs/architecture-debt.md) was found by counting call sites by
+    /// hand</b>, on 2026-08-20, and what it found was four of seven faces with no degraded
+    /// path at all: same service, same instant, its MapServer legend answering 200 while its
+    /// WMS `GetMap` refused 503. All four were given the fallback on 2026-08-23. Counting by
+    /// hand is how the gap was found and is not how it stays closed.
+    /// </para>
+    /// <para>
+    /// <b>The invariant, and it needs no list of faces.</b> `CatalogFallback` is the only
+    /// thing that remembers a catalogue it cannot currently read, so a face that takes the
+    /// raw catalogue has opted out of degrading by taking a different parameter — which is
+    /// exactly how the four came to differ from the three without anybody choosing it.
+    /// </para>
+    /// <para>
+    /// <b>`AdminEndpoints` is exempt and the exemption is the point.</b> An administrative
+    /// action during a catalogue outage must fail rather than act on remembered state: a
+    /// publish written against a fifteen-minute-old listing is a decision taken about a
+    /// server nobody can currently see. Serving from memory is degradation; writing from
+    /// memory is a different thing wearing the same word.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void No_protocol_face_takes_the_catalogue_without_the_fallback()
+    {
+        string host = Path.Combine(Root().FullName, "src", "Graticula.Host");
+        List<string> offenders = [];
+        int examined = 0;
+
+        foreach (string file in Directory.EnumerateFiles(host, "*Endpoints.cs"))
+        {
+            string name = Path.GetFileName(file);
+
+            if (name == "AdminEndpoints.cs" || name == "CoverageAdminEndpoints.cs")
+            {
+                continue;
+            }
+
+            // <b>One exemption, and it is a debt rather than a carve-out.</b>
+            // `RelationshipEndpoints` takes the raw catalogue in three of its methods and the
+            // fallback in a fourth, which this check found on the day it was written — and
+            // [D-127](../../docs/architecture-debt.md)'s own text says relationships *inherit*
+            // the fallback, so the register was wrong about it too. Repairing it is not a
+            // parameter swap: `CatalogFallback` remembers services and listings, not the
+            // per-layer reads a relationship query makes, so what a related-records request
+            // should answer during an outage is a decision ADR-026 has not taken. Recorded as
+            // [D-153](../../docs/architecture-debt.md) and named here, so the exemption is
+            // visible and bounded rather than a silence.
+            if (name == "RelationshipEndpoints.cs")
+            {
+                continue;
+            }
+
+            examined++;
+
+            string text = Regex.Replace(
+                File.ReadAllText(file), @"^[ \t]*(///|//).*$", string.Empty,
+                RegexOptions.Multiline);
+
+            foreach (Match raw in Regex.Matches(
+                         text, @"^\s*(PostgresLayerCatalog|ILayerCatalog)\s+\w+\s*[,)]",
+                         RegexOptions.Multiline))
+            {
+                offenders.Add($"{name} takes {raw.Value.Trim()}");
+            }
+        }
+
+        Assert.True(
+            examined >= 4,
+            $"Only {examined} endpoint files were examined, so this check is reading nothing. "
+            + "A check that cannot fail is worse than no check.");
+
+        Assert.True(
+            offenders.Count == 0,
+            "A protocol face takes the catalogue directly instead of through CatalogFallback, "
+            + "so it cannot serve from the remembered listing when the platform store is "
+            + "unreachable — while the faces beside it can. That difference is visible from "
+            + "outside: same service, same instant, one face 200 and another 503. D-127.\n  "
+            + string.Join("\n  ", offenders));
+    }
 }
