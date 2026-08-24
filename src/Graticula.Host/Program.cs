@@ -463,6 +463,67 @@ public static class Program
             Log.NothingIsShared(logger);
         }
 
+        /*
+          <b>Every route that answers GET answers HEAD, [D-121](../../docs/architecture-debt.md).</b>
+          `MapGet` registers one method, so `HEAD /rest/services/x/FeatureServer/0` answered 405
+          where the `GET` beside it answered 200. HTTP says a resource that answers GET answers
+          HEAD, and the row stopped being tidiness when ArcGIS Pro's portal connection failed on
+          it: Pro sends HEAD before each discovery probe and reads 405 as a dead end.
+
+          <b>One middleware rather than sixty-three route registrations.</b> The row called the
+          repair *one call shape across the route table*, and that is the version that goes wrong:
+          it is right sixty-three times and then somebody adds the sixty-fourth `MapGet`. Rewriting
+          the method before routing makes it true by construction, including for routes nobody has
+          written yet.
+
+          <b>The body is Kestrel's to drop, and it does.</b> A HEAD response must carry the
+          headers a GET would and no body; Kestrel decides that from the method it parsed, not
+          from this property, so the handler writes its answer and the bytes are discarded on the
+          way out. Measured rather than assumed — `benchmarks/head-requests`.
+
+          <b>Restored on the way back out, so the log tells the truth.</b> The request log reads
+          the method after its own `next` returns, and it is registered outside this, so it sees
+          HEAD. A log that recorded a client's HEAD as a GET would answer *what did they ask for*
+          with a different question's answer.
+
+          <b>`POST`-only routes are untouched.</b> This does not invent a HEAD where there is no
+          GET: the rewrite offers the request to the route table as a GET and a route that has no
+          GET still answers 405, which is the correct answer.
+        */
+        app.Use(async (context, next) =>
+        {
+            if (!HttpMethods.IsHead(context.Request.Method))
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            // <b>Remembered, because restoring it afterwards is too late for the log.</b> The
+            // request log reads the method after its own `next` returns, and its `next` is inside
+            // this one — so it would read the GET this rewrote and record a client's HEAD as a
+            // GET, which answers *what did they ask for* with a different question's answer.
+            context.Items[AskedWith] = HttpMethods.Head;
+            context.Request.Method = HttpMethods.Get;
+
+            try
+            {
+                await next(context).ConfigureAwait(false);
+            }
+            finally
+            {
+                context.Request.Method = HttpMethods.Head;
+            }
+        });
+
+        /*
+          <b>Explicit, so the HEAD rewrite above is in front of it.</b> `WebApplication` inserts
+          `UseRouting` at the very start of the pipeline when it is not called, which is before
+          every middleware here — and the method constraint that answers 405 is applied by
+          routing. A rewrite behind it rewrites a decision that has already been made, which is
+          what the first attempt did and what the measurement caught.
+        */
+        app.UseRouting();
+
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
         // exception must still produce an answer that says what to do.
         app.UseExceptionHandler(handler => handler.Run(context =>
@@ -570,11 +631,15 @@ public static class Program
             */
             int outcome = ResponseOutcome.StatusFor(context);
 
+            // <b>Into a local for CA1873, the way `redacted` is</b> — and the analyser is right
+            // in general even though this one is a dictionary lookup. Both writers below want it.
+            string asked = AskedMethod(context);
+
             if (requests.IsEnabled(LogLevel.Information))
             {
                 Log.Request(
                     requests,
-                    context.Request.Method,
+                    asked,
                     context.Request.Path.Value,
                     redacted,
                     outcome);
@@ -598,7 +663,7 @@ public static class Program
             RequestPrincipal? who = context.Features.Get<RequestPrincipal>();
 
             requestLog.Record(new RequestEntry(
-                context.Request.Method,
+                asked,
                 context.Request.Path.Value ?? "/",
                 redacted is { Length: > 0 } ? redacted : null,
 
@@ -2852,6 +2917,22 @@ public static class Program
     /// pointless during an outage.
     /// </remarks>
     private const string LivenessPath = "/healthz/live";
+
+    /// <summary>Where a rewritten HEAD remembers what the client actually sent.</summary>
+    /// <remarks>
+    /// <b>[D-121](../../docs/architecture-debt.md).</b> The rewrite that makes every GET route
+    /// answer HEAD has to happen in front of routing, and the request log runs behind it, so the
+    /// method the log would read is the rewritten one. One item, read in the one place that cares.
+    /// </remarks>
+    private const string AskedWith = "graticula.asked-with";
+
+    /// <summary>What the client sent, whether or not it was rewritten on the way in.</summary>
+    /// <param name="context">The request.</param>
+    /// <returns>The method as the client wrote it.</returns>
+    private static string AskedMethod(HttpContext context) =>
+        context.Items.TryGetValue(AskedWith, out object? asked) && asked is string method
+            ? method
+            : context.Request.Method;
 
     /// <summary>The key for the datastore's own connection pool.</summary>
     private const string DatastorePool = "datastore";
