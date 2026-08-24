@@ -784,6 +784,161 @@ def a_demoted_assumption_still_called_load_bearing():
     return problems
 
 
+def register_counts():
+    """What each register actually holds, counted the way the status page counts it.
+
+    **One reader for both the page and the checks.** The tallies below are the
+    numbers `status-page.py` publishes, so a document restating one is checked
+    against the same arithmetic the board uses rather than against a second
+    implementation that could drift from it -- which would be the defect these
+    checks exist to catch, one level up.
+    """
+    counts = {}
+
+    debts = os.path.join(conditions.ROOT, "docs", "architecture-debt.md")
+    questions = os.path.join(conditions.ROOT, "docs", "open-questions.md")
+    assumptions = os.path.join(conditions.ROOT, "docs", "architecture-assumptions.md")
+
+    try:
+        text = io.open(debts, encoding="utf-8").read()
+    except OSError:
+        text = ""
+
+    done = re.compile(
+        r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|WITHDRAWN)\b", re.I)
+
+    rows = 0
+    open_rows = 0
+    for line in text.splitlines():
+        if not line.startswith("| D-"):
+            continue
+
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+
+        if len(cells) < 7:
+            continue
+
+        rows += 1
+        open_rows += 0 if done.match(cells[-1]) else 1
+
+    counts["debt"] = (open_rows, rows)
+
+    try:
+        adrs = [n for n in os.listdir(conditions.ADRS)
+                if n.startswith("ADR-") and n.endswith(".md")]
+    except OSError:
+        adrs = []
+
+    counts["ADR"] = (len(adrs), len(adrs))
+
+    return counts
+
+
+def a_register_tally_that_disagrees_with_the_register():
+    """A present-tense count of debts or ADRs, checked against the registers.
+
+    **[D-116](../docs/architecture-debt.md)'s remaining half.** Two checks above
+    already cover the ADR conditions and the §66 gates, each against its own
+    total. The board also publishes counts of debts and ADRs, and nothing
+    compared a document restating one of those against the thing itself -- which
+    is how *four documents said `0 of 9`* went unnoticed for four days, and there
+    was no reason the same could not happen to a debt count.
+
+    **The same narrowness, for the same reason.** Only a bare number immediately
+    before the register's own word -- *38 open debts*, *46 ADRs* -- and only when
+    it is neither the count nor a plausible neighbour of it. A checker that
+    guessed at which numbers were claims would be turned off within a week, and
+    the two checks above earn their keep by being boring.
+
+    **Dated history stays legal**, as it does above: a line that says when its
+    number was true is a record of an event, and deleting those to satisfy a tool
+    would destroy the reason the tool exists.
+    """
+    counts = register_counts()
+
+    if counts.get("debt", (0, 0))[1] < 50:
+        return ["architecture-debt.md parsed fewer than fifty rows, so this check is reading "
+                "nothing. A check that cannot fail is worse than no check."]
+
+    # <b>A claim about the present, and these words say it is not one.</b> `read`, `said`
+    # and `quoted` are how this repository records what a document used to hold — *Scope
+    # read: all 17 ADRs* is a reviewer naming what they opened on the day, and *this table
+    # said 12 ADRs* is a correction quoting the thing it corrected. Deleting either to
+    # satisfy a checker would destroy the record the checker exists to protect.
+    was = re.compile(
+        r"\bwas\b|\bwere\b|\bremained\b|\bused to\b|\bat the time\b|\bthen\b"
+        r"|\bread\b|\bsaid\b|\bquoted\b|20\d\d-\d\d-\d\d")
+
+    # <b>And a sentence about somebody else's repository is not about this one.</b>
+    # ADR-030 counts the reference's ADRs, which is the whole subject of that document.
+    elsewhere = re.compile(r"\breference\b|\bpeer\b|\btheir\b", re.I)
+
+    words = {
+        "debt": r"open debts?",
+        "ADR": r"ADRs\b",
+    }
+
+    problems = []
+
+    for path in documents():
+        name = os.path.relpath(path, conditions.ROOT).replace("\\", "/")
+
+        if name == "CLAUDE.md":
+            # remembered_numbers owns that file and refuses a tally there entirely.
+            continue
+
+        try:
+            text = io.open(path, encoding="utf-8").read()
+        except OSError as problem:
+            problems.append(f"{name} could not be read: {problem}")
+            continue
+
+        # <b>A document that stamps its own date is a record of that date.</b> An independent
+        # review opens *Produced 2026-08-13 by a reviewer with no access to…*; the phase-0
+        # assessment opens *Written 2026-08-13*. Every number in one of those is a statement
+        # about the day it was made, and the way this repository keeps them honest is the
+        # header rather than a date on every line — which is what
+        # [architecture-assessment.md](../docs/architecture-assessment.md) already does, and
+        # why it was repaired with a header instead of a rewrite.
+        #
+        # <b>Derived rather than a path list</b>, so a review filed somewhere new is covered
+        # and a live document that grows a date is not silently exempted: only the first
+        # fifteen lines are read, which is where a document declares what it is.
+        stamped = re.search(
+            r"\b(Produced|Written|Run|Recorded|Reviewed)\b[^\n]{0,40}20\d\d-\d\d-\d\d",
+            "\n".join(text.splitlines()[:15]))
+
+        if stamped:
+            continue
+
+        rows = text.splitlines()
+
+        for n, line in enumerate(rows):
+            # <b>A sentence is not a line.</b> ADR-030's *the reference's `docs/` tree already
+            # carries … 74 ADRs* wraps, so the subject and the number sit on different lines and
+            # reading one line at a time asks the question of half a sentence.
+            sentence = (rows[n - 1] + " " + line) if n else line
+
+            if was.search(sentence) or elsewhere.search(sentence):
+                continue
+
+            for kind, word in words.items():
+                for found in re.finditer(r"(\d+)\s+" + word, line, re.I):
+                    said = int(found.group(1))
+                    current, total = counts[kind]
+
+                    if said in (current, total):
+                        continue
+
+                    problems.append(
+                        f'{name} says "{found.group(0)}" and the register holds {current} '
+                        f"of {total}. One fact, one home: cite docs/status.html, or say when "
+                        "the number you are quoting was true."
+                    )
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -990,6 +1145,7 @@ def main() -> int:
                 + a_gate_tally_that_disagrees_with_the_gates()
                 + a_debt_row_that_disagrees_with_itself()
                 + a_demoted_assumption_still_called_load_bearing()
+                + a_register_tally_that_disagrees_with_the_register()
                 + source_the_repository_would_not_receive())
 
     if problems:
