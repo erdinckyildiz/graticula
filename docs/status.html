@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7b04634</code> · 2026-08-24 19:02</p>
+<p class="stamp">Generated from commit <code>45da36c</code> · 2026-08-24 19:41</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">104/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">88 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">74</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">45</div><div class="kpi-l">open debts</div><div class="kpi-n">106 repaid · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">40</div><div class="kpi-l">open debts</div><div class="kpi-n">112 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1905</div><div class="kpi-l">tests</div><div class="kpi-n">237 source files, 89,726 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1906</div><div class="kpi-l">tests</div><div class="kpi-n">237 source files, 89,930 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">11 open</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-135</b> — What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">137 items</span></div><p><b>88 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>45 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">132 items</span></div><p><b>88 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>40 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -455,11 +455,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-144</td><td>Nothing bounds how long one request may hold a database permit.</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-148</td><td>A request body over the server&#x27;s limit ends the connection instead of answering 413.</td><td class="muted-t">The first client that reports the geometry server dropping connections</td><td><span class="pill good">RESOLVED</span></td></tr>
-<tr class=""><td class="id">D-149</td><td>One register says an assumption is load-bearing and is not, on two lines of the same file.</td><td class="muted-t">Now — a reader choosing what to validate next reads the load-bearing table, which is the whole reason it is at the top</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-150</td><td>A lock wait is reported to the caller as a database outage, and it is the fifth time this file has mistaken a specific fault for a connectivity failure.</td><td class="muted-t">Before an operator is advised to set locktimeout, which is the natural response to D-08&#x27;s measurement that a blocked…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-151</td><td>ADR-017 §3.3 walks a failed registration through the jobs API, and registration is not a job.</td><td class="muted-t">Now — ADR-017 §3 is the four scenarios, walked, and a walk nobody can follow is the one kind of operability document…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-152</td><td>One data source whose credential cannot be opened stops the whole server from starting, and the check that decrypts them exists to decide whether to print a sentence.</td><td class="muted-t">Before a deployment rotates a key, restores a backup, or registers a source from another install — all three produce…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-153</td><td>RelationshipEndpoints reads the catalogue around the fallback in three of its four methods, so a related-records request refuses during a catalogue outage while the feature query beside it serves from memory.</td><td class="muted-t">Now, and it is the same trigger D-127 has — any deployment where the catalogue and the data are separately reachable,…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-149</td><td>One register says an assumption is load-bearing and is not, on two lines of the same file.</td><td class="muted-t">Now — a reader choosing what to validate next reads the load-bearing table, which is the whole reason it is at the top</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-150</td><td>A lock wait is reported to the caller as a database outage, and it is the fifth time this file has mistaken a specific fault for a connectivity failure.</td><td class="muted-t">Before an operator is advised to set locktimeout, which is the natural response to D-08&#x27;s measurement that a blocked…</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-151</td><td>ADR-017 §3.3 walks a failed registration through the jobs API, and registration is not a job.</td><td class="muted-t">Now — ADR-017 §3 is the four scenarios, walked, and a walk nobody can follow is the one kind of operability document…</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-152</td><td>One data source whose credential cannot be opened stops the whole server from starting, and the check that decrypts them exists to decide whether to print a sentence.</td><td class="muted-t">Before a deployment rotates a key, restores a backup, or registers a source from another install — all three produce…</td><td><span class="pill good">RESOLVED</span></td></tr>
+<tr class="done"><td class="id">D-153</td><td>~~RelationshipEndpoints reads the catalogue around the fallback in three of its four methods~~ WITHDRAWN the day it was opened — all three are admin handlers., so a related-records request refuses during a catalogue outage while the feature query beside it…</td><td class="muted-t">Now, and it is the same trigger D-127 has — any deployment where the catalogue and the data are separately reachable,…</td><td><span class="pill good">WITHDRAWN</span></td></tr>
+<tr class="done"><td class="id">D-154</td><td>The services directory refuses everything when one data source&#x27;s credential cannot be opened.</td><td class="muted-t">Whenever a deployment has more than one data source — which is the ordinary case, since the datastore is registered as…</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-147</td><td>A publish naming a data source that does not exist answered 201 Created and wrote nothing.</td><td class="muted-t">Closed on discovery</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-146</td><td>The status page reported the wrong status for four debt rows, and the registers were right the whole time.</td><td class="muted-t">Now, and repaired in the same hour.</td><td><span class="pill good">RESOLVED</span></td></tr>
 </tbody></table></div></section>
@@ -555,7 +556,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">379</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:97.1%"></div></div><div class="bar-n">368</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:97.4%"></div></div><div class="bar-n">369</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:86.8%"></div></div><div class="bar-n">329</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.6%"></div></div><div class="bar-n">275</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:38.3%"></div></div><div class="bar-n">145</div></div>
@@ -568,6 +569,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>45da36c</code><time>2026-08-24</time><span>D-154 closes: the directory lists what it can read</span></li>
+<li><code>8218af9</code><time>2026-08-24</time><span>D-153 is withdrawn: the defect was in the check I wrote an hour earlier</span></li>
+<li><code>20cf2b1</code><time>2026-08-24</time><span>D-152 closes: one unopenable credential no longer takes the server with it</span></li>
+<li><code>1e1745d</code><time>2026-08-24</time><span>D-150 closes the day it opened: a lock wait is no longer an outage</span></li>
+<li><code>0167466</code><time>2026-08-24</time><span>D-151 closes: ADR-017 Â§3.3 now walks the registration that exists</span></li>
+<li><code>f3d589f</code><time>2026-08-24</time><span>D-149 was three instances, and the check found two of them</span></li>
+<li><code>8ba93dd</code><time>2026-08-24</time><span>The debt round is finished: 49 records, no line left waiting</span></li>
 <li><code>7b04634</code><time>2026-08-24</time><span>D-65 said four claims were widened, and the fourth was not</span></li>
 <li><code>6c8a423</code><time>2026-08-24</time><span>D-61&#x27;s two remaining items are the owner&#x27;s, and now they are written as questions</span></li>
 <li><code>a3881c2</code><time>2026-08-24</time><span>D-32&#x27;s residual is blocked on where a caution goes, not on how to compute one</span></li>
@@ -575,13 +583,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>62bd111</code><time>2026-08-24</time><span>D-17 closes, and ADR-019 condition 2 is discharged on the evidence it asked for</span></li>
 <li><code>92c270b</code><time>2026-08-24</time><span>D-06 closes: the transitive graph is enumerated and holds no copyleft</span></li>
 <li><code>777a1a5</code><time>2026-08-24</time><span>D-128, D-144 and D-145 are blocked, and two of them are one question</span></li>
-<li><code>24176c2</code><time>2026-08-24</time><span>D-127&#x27;s central claim was stale, and the check written for it found a live one</span></li>
-<li><code>a6044bc</code><time>2026-08-24</time><span>D-120 closes: the query token channel can be switched off</span></li>
-<li><code>9b0419d</code><time>2026-08-24</time><span>D-107 and D-108 are not due</span></li>
-<li><code>4936f4d</code><time>2026-08-24</time><span>D-99: the swatch alone, which is what the trigger said should come sooner</span></li>
-<li><code>7446280</code><time>2026-08-24</time><span>D-95 is blocked on an input, and the input is now a question with three answers</span></li>
-<li><code>fca2a0c</code><time>2026-08-24</time><span>D-79, D-88 and D-94 are not due, and each was checked rather than assumed</span></li>
-<li><code>1122416</code><time>2026-08-24</time><span>D-68&#x27;s premise was measured, and it was wrong</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
