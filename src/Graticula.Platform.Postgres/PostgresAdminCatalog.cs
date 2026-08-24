@@ -280,18 +280,19 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             -- what the next reader finds and believes. `owner_principal_id` is nullable
             -- and `sharing` defaults to 'private', so both simply stop being mentioned.
             --
-            -- <b>`is_hosted` is still written, and it is the one that cannot stop yet.</b>
-            -- It is `not null` with no default, so omitting it fails the insert; freeing
-            -- it needs a migration, and the migration that would add a default is the
-            -- same one that should drop the column. That is the rest of D-24 and it waits
-            -- for D-24's own trigger.
+            -- <b>And `is_hosted` stopped too, on 2026-08-24.</b> It was `not null` with no
+            -- default, so omitting it failed the insert — the one writer that could not be
+            -- removed by an edit. Migration 34 gives it a default, which is an expand and
+            -- moves no reader version: the column still exists and still holds `false`,
+            -- and nothing has to say so. **Dropping the three is still D-33** and waits for
+            -- the release after the one that ships migration 11.
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
-               identity_column, object_id_column, srid, geometry_type, is_hosted,
+               identity_column, object_id_column, srid, geometry_type,
                service_id, layer_index, parent_layer_index, cache_seconds)
             select
                @id, @source, @name, @schema, @table, @geometry,
-               @identity, @objectid, @srid, @type, false,
+               @identity, @objectid, @srid, @type,
                slot.id, slot.layer_index, @parent, @cache
             from slot
             -- <b>The folder comes back with the index</b>, because the caller may have asked

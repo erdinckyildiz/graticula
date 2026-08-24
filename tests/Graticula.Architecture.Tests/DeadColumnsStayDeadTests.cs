@@ -157,12 +157,13 @@ public sealed class DeadColumnsStayDeadTests
     /// The dead layer columns that can already be left unwritten, and what still writes them.
     /// </summary>
     /// <remarks>
-    /// <b><c>is_hosted</c> is deliberately absent.</b> It is `not null` with no default, so
-    /// the publish path cannot stop mentioning it until a migration frees it — and the
-    /// migration that frees it is the one that should drop it. The other two can stop
-    /// today: `owner_principal_id` is nullable and `sharing` defaults to `'private'`.
+    /// <b>All three, from 2026-08-24.</b> `owner_principal_id` was nullable and `sharing`
+    /// defaulted, so both stopped being written that morning. <c>is_hosted</c> was `not null`
+    /// with no default and could not — omitting it failed the insert — so migration 34 gives
+    /// it one. That is an expand: the column still exists and still holds `false`, and
+    /// nothing has to say so. **Dropping the three is D-33** and is not this.
     /// </remarks>
-    private static readonly string[] Unwritable = ["owner_principal_id", "sharing"];
+    private static readonly string[] Unwritable = ["owner_principal_id", "sharing", "is_hosted"];
 
     /// <summary>
     /// Nothing writes a layer column whose meaning moved and which can already be left alone.

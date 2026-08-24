@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(33);
+    public static SchemaVersion ComponentSchemaVersion => new(34);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -68,6 +68,7 @@ public static class PlatformMigrations
         LogsV31,
         JobClaimIdentityV32,
         OwnerKeysV33,
+        DeadLayerColumnDefaultsV34,
     ]);
 
 
@@ -171,6 +172,41 @@ public static class PlatformMigrations
     /// by the only shape there has ever been.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The dead layer columns stop needing to be written (D-24, D-33).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Expand, and <c>minimum_reader_version</c> stays where it is.</b> Nothing is dropped
+    /// and nothing changes meaning: <c>layer.is_hosted</c> gains a default, so a build that
+    /// stops mentioning it inserts <c>false</c> exactly as the build that mentions it does. A
+    /// version-33 reader is unaffected — the column is still there and still holds what it
+    /// always held.
+    /// </para>
+    /// <para>
+    /// <b>Why a default is worth a migration for a column nobody reads.</b>
+    /// [D-24](../../../docs/architecture-debt.md)'s sentence is that *a dead column is a live
+    /// hazard while a writer can still reach it*, and its expensive incident was a writer:
+    /// <c>PUT /admin/layers/{name}/sharing</c> wrote <c>layer.sharing</c>, answered 200, and
+    /// left the layer readable by anybody. Two of the three writers were stopped on
+    /// 2026-08-24 because <c>sharing</c> already defaulted and <c>owner_principal_id</c> was
+    /// nullable. <c>is_hosted</c> is <c>not null</c> with no default, so it was the one that
+    /// could not stop — and the shape of the repair was a migration rather than an edit.
+    /// </para>
+    /// <para>
+    /// <b>This is not the contract migration and does not pretend to be.</b> The three columns
+    /// are still there, which is what the rollback window requires; what changes is that
+    /// nothing in the serving or publishing path writes any of them. Dropping them is
+    /// [D-33](../../../docs/architecture-debt.md) and waits for the release after the one that
+    /// ships migration 11.
+    /// </para>
+    /// </remarks>
+    private static Migration DeadLayerColumnDefaultsV34 => Migration.Expand(
+        new SchemaVersion(34),
+        "The layer's dead columns carry defaults, so nothing has to write them (D-24).",
+
+        "alter table layer alter column is_hosted set default false");
+
     /// <summary>
     /// The two owner columns anything reads gain the key the dead one already had.
     /// </summary>
