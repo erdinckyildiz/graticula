@@ -122,6 +122,27 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// the pool for every other layer sharing that data source.
     /// </para>
     /// <para>
+    /// <b>And the sentence above describes a failure this does not prevent —
+    /// measured 2026-08-24</b>
+    /// (`benchmarks/slow-reader`). <em>Until the client gives up</em> is exactly
+    /// the part that stays unbounded: a statement timeout bounds a
+    /// <em>statement</em>, and a response is not one. Rows are pulled as the
+    /// writer consumes them, so a client reading slowly restarts the clock on
+    /// every round trip — one reader at 150 kB/s held a connection active for
+    /// <b>115.7 s</b> against a service whose statement timeout was <b>one
+    /// second</b>. Eight of them held eight of a source's twenty-four permits
+    /// for 289 seconds. What this timeout buys is a bound on a pathological
+    /// <em>query</em>, which is real and is not the same promise.
+    /// </para>
+    /// <para>
+    /// The bound that would cover it is Kestrel's
+    /// <c>MinResponseDataRate</c>, which this server does not set — so it is at
+    /// the framework default of 240 bytes a second. Choosing a floor is
+    /// [D-144](../../../docs/architecture-debt.md) and
+    /// [Q-139](../../../docs/open-questions.md), and it is a decision rather
+    /// than an omission because ending a response cannot say why it ended.
+    /// </para>
+    /// <para>
     /// <b>Applied server-side</b> via <c>options=-c statement_timeout</c> rather
     /// than through Npgsql's <c>CommandTimeout</c>, because the two do different
     /// things. <c>CommandTimeout</c> stops <em>us</em> waiting and then asks
