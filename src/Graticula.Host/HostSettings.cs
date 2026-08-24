@@ -92,6 +92,13 @@ internal sealed record HostSettings(
     // this setting is worse than not having it: a forwarded header trusted from anybody lets every
     // caller pick their own rate-limit bucket, which is a limit of zero.
     IReadOnlyList<System.Net.IPNetwork> TrustedProxies,
+
+    // <b>The passwords this deployment refuses, [D-23](../../docs/architecture-debt.md).</b> A
+    // few hundred bases are built in; this names a file of more — the top ten thousand, the top
+    // million, a breach corpus if somebody keeps one. Empty is the ordinary case and is not a
+    // failure: the built-in list is the floor, and the mechanism is the durable part.
+    IReadOnlySet<string> CommonPasswords,
+    string? CommonPasswordFile = null,
     IReadOnlyList<string>? LegacyKeys = null)
 {
     /// <summary>Reads and validates settings.</summary>
@@ -154,6 +161,12 @@ internal sealed record HostSettings(
         // by a stranger.
         IReadOnlyList<System.Net.IPNetwork> proxies =
             CallerAddress.Trusted(keys.Text("TrustedProxies"));
+
+        // <b>Read at startup rather than per request</b>: a list somebody points at a breach
+        // corpus is read once and held, and a file that is not there refuses to start rather than
+        // leaving a deployment believing it has a defence it does not have.
+        string? passwordFile = keys.Text("CommonPasswordFile");
+        IReadOnlySet<string> common = Graticula.Host.CommonPasswords.Load(passwordFile);
 
         return new HostSettings(
             platformStore,
@@ -390,6 +403,8 @@ internal sealed record HostSettings(
             Math.Clamp(keys.Value("JpegQuality", 85), 1, 100),
 
             proxies,
+            common,
+            passwordFile,
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.

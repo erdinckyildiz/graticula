@@ -448,6 +448,7 @@ internal static class AuthEndpoints
         IIdentityStore store,
         IPasswordHasher hasher,
         IAuditLog audit,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -474,6 +475,12 @@ internal static class AuthEndpoints
                 + $"{MinimumPasswordLength}. Length is the only rule: composition requirements "
                 + "push people toward predictable passwords, so this is the one that is enforced.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        if (await RefusedAsCommonAsync(context, request.NewPassword, settings)
+            .ConfigureAwait(false))
+        {
             return;
         }
 
@@ -544,6 +551,7 @@ internal static class AuthEndpoints
         IPasswordHasher hasher,
         ServerState state,
         TimeProvider time,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(request.Token)
@@ -562,6 +570,11 @@ internal static class AuthEndpoints
                 $"The password must be at least {MinimumPasswordLength} characters. Length is the "
                 + "only rule: composition requirements push people toward predictable passwords.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        if (await RefusedAsCommonAsync(context, request.Password, settings).ConfigureAwait(false))
+        {
             return;
         }
 
@@ -603,6 +616,47 @@ internal static class AuthEndpoints
                 "Layers are private to their owner by default. To publish openly, set a layer's "
                 + "sharing to 'public'; to expose it to signed-in members only, 'organization'.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Refuses a password that is already published, as far as this deployment can tell.
+    /// </summary>
+    /// <param name="context">The request, for the answer.</param>
+    /// <param name="password">What was chosen.</param>
+    /// <param name="settings">Where the list lives.</param>
+    /// <returns>True when the request was refused and the caller should stop.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-23](../../docs/architecture-debt.md), repaid 2026-08-24.</b> Length was the only
+    /// rule, so <c>Passw0rd!</c> and a random nine characters were treated alike. The realistic
+    /// attack on a small deployment is credential stuffing, and Argon2id and the rate limit do
+    /// nothing at all about a password that is already published.
+    /// </para>
+    /// <para>
+    /// <b>The refusal says what to do, and does not say what was matched.</b> Naming the entry
+    /// would teach an attacker the list; naming the shape of the fix is what the person choosing
+    /// a password needs.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RefusedAsCommonAsync(
+        HttpContext context, string password, HostSettings settings)
+    {
+        if (!CommonPasswords.Known(password, settings.CommonPasswords))
+        {
+            return false;
+        }
+
+        await Refuse(
+            context,
+            400,
+            "That password is one of the ones attackers try first, or a decorated version of one "
+            + "— capitals, a trailing year and letter-for-digit swaps are all in every list. "
+            + "Length is the only other rule: composition requirements push people toward exactly "
+            + "these, which is why they are not enforced. Three unrelated words are stronger than "
+            + "anything a rule can ask for.")
+            .ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>The source address, or null when it cannot be determined.</summary>

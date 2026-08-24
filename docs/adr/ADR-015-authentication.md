@@ -272,10 +272,36 @@ was weak at 12 too. The defences that do the work are Argon2id at 19 MiB and 2
 iterations per guess (§3), which makes offline guessing expensive, and
 `LoginService`'s rate limit, which makes online guessing slow. Neither changed.
 
-**What is still missing, and is worth more than any length rule:** a check
-against known-breached passwords. It needs a corpus we do not ship, and until
-it exists `correct horse battery staple` and `Passw0rd!` are treated alike.
-Tracked as [D-23](../architecture-debt.md).
+**Added 2026-08-24: a common-password check, which is worth more than the length
+rule and is not a breach check.** [D-23](../architecture-debt.md) recorded that
+`correct horse battery staple` and `Passw0rd!` were treated alike, and recorded
+why it had not been repaired: Pwned Passwords is about 10 GB and the k-anonymity
+API leaks a hash prefix to a third party, and **neither fits a product whose
+baseline is one deployable against one PostgreSQL**. That is still true, so this
+is not that.
+
+`CommonPasswords` carries a few hundred **bases** — what sits at the top of every
+published list, which is where credential stuffing actually lives — and reads a
+password twice before comparing: once literally, once with the letter-for-digit
+substitutions undone. Either reading matching, with or without a trailing run of
+digits, is a refusal. So `Passw0rd!`, `P@ssw0rd`, `password123` and `Sifre123`
+all reach `password` or `sifre`, and `12345678` matches itself.
+
+**Two readings rather than one, and that is not a detail.** A single
+normalisation that undoes substitutions turns `12345678` — the most common
+password there is — into letters, and the entry stops matching itself. The first
+version did exactly that and the tests said so.
+
+**A deployment that wants the real thing points at it.**
+`Graticula:CommonPasswordFile` names a newline-separated list of any size, read
+at startup and added to the built-in one. A named file that is absent **refuses
+to start**, because a deployment that pointed at a breach corpus and silently got
+a few hundred entries would believe it had a defence it does not have.
+
+**What it does not claim.** A password it accepts may still be published. §3's
+Argon2id and `LoginService`'s rate limit remain what carry the weight against
+guessing; this is aimed at the one thing neither touches — a password that is
+already known.
 
 **The rule is stated in exactly one place** — `AuthEndpoints.MinimumPasswordLength`
 — and every message that quotes a number reads it from there. The setup log
@@ -342,7 +368,9 @@ server cannot send a message at all — no mail, no token table, no expiry polic
 to an administrator relaying a password was no member at all. The issued password does not expire;
 it is single-use in effect because the account cannot do anything else until it is replaced, which
 is a weaker property than an expiry and a much simpler one. And nothing checks any password against
-known breached lists, which is [D-23](../architecture-debt.md) and unchanged.
+known breached lists — §6a's common-password check is a few hundred bases and a
+deployment's own file, not a breach corpus, and an issued password is generated
+rather than chosen so it does not meet either.
 
 ## 6c. Decision — a member is removed by disposing of what they own, and the operator chooses how
 
