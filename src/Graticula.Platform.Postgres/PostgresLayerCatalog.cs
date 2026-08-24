@@ -576,6 +576,15 @@ public sealed class PostgresLayerCatalog
         NpgsqlCommand command, CancellationToken cancellationToken)
     {
         Dictionary<Guid, List<PublishedLayer>> byService = [];
+
+        // <b>Services that had layers and lost all of them — D-154, the same day.</b> Omitting
+        // an unreadable layer leaves its service behind with nothing in it, and the first
+        // version of this listed those: two empty `FeatureServer` documents with `layers: []`
+        // and names that lead nowhere, which is exactly the *advertise something that cannot be
+        // served* the omission was meant to prevent. **An empty service is a real state** — one
+        // is created empty and filled later — so the distinction is not emptiness but how it
+        // arrived: this set names the services whose layers existed and could not be opened.
+        HashSet<Guid> hidden = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith)> heads = [];
@@ -639,6 +648,7 @@ public sealed class PostgresLayerCatalog
                     catch (SecretProtectionException)
                     {
                         _unopenableSources.TryAdd(reader.GetString(10), 0);
+                        hidden.Add(owning);
                     }
                 }
             }
@@ -653,6 +663,17 @@ public sealed class PostgresLayerCatalog
 
         foreach (Guid id in order)
         {
+            // <b>A service emptied by omission is not listed — D-154.</b> Its layers exist and
+            // this process cannot open their credential, so it can serve nothing; listing it
+            // gives a client a `FeatureServer` document with `layers: []` and a name that leads
+            // nowhere, which is the thing omitting the layers was meant to prevent. **A service
+            // that is empty because nobody has published into it yet is untouched** — it never
+            // had a layer to lose, so it is not in `hidden`.
+            if (hidden.Contains(id) && byService[id].Count == 0)
+            {
+                continue;
+            }
+
             var head = heads[id];
 
             services.Add(new PublishedService(
