@@ -170,7 +170,9 @@ level where reasoning actually lives. Four specific transfers are already
 identified — a generated, drift-gated capability catalogue; a five-tier CI gate
 model with an explicit burden of proof for entering the PR lane; conformance
 suites run as evidence-producing CI lanes; and a parser → AST → SQL seam. The
-first two bear directly on live debts: the §66 gates (0 of 9 run) and the
+first two bear directly on live debts: the §66 gates — 0 of 9 run when this ADR was written —
+whose live tally is the §66 table in
+[architecture-completeness.md](../architecture-completeness.md) — and the
 condition count that [tools/conditions.py](../../tools/conditions.py) computes
 but no gate enforces.
 

@@ -252,7 +252,9 @@ are not (A-042). The scope table now says so for both.
 
 ## What this sweep did not cover
 
-- **The §66 review gates**, which are a different exercise and remain 0 of 9.
+- **The §66 review gates**, which are a different exercise and remained 0 of 9
+  when this sweep ran. Seven of the nine had run by 2026-08-20; the live tally is
+  the §66 table in [architecture-completeness.md](../architecture-completeness.md).
 - **ADR conditions**, roughly 60 across 22 documents. Whether each is discharged
   is a per-condition check, not a contradiction search.
 - **Contradictions between an ADR and a document neither it nor the code

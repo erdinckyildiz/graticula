@@ -338,7 +338,8 @@ roughly thirty items, and Q-86 is open. Meanwhile `ADR-005` remains
 than proven**".
 
 **Why it matters:** the completeness matrix shows Security, Ops and Failure
-review columns `—` for nearly every row, and §66's gates 0 of 9. **Scope is being
+review columns `—` for nearly every row, and §66's gates 0 of 9 at the time — seven
+of the nine had run by 2026-08-20. **Scope is being
 added in the one dimension the process has no instrument to measure.**
 
 ---

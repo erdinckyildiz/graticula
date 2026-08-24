@@ -508,6 +508,116 @@ def a_condition_tally_that_disagrees_with_the_conditions():
     return problems
 
 
+def gate_counts():
+    """The §66 gates, counted from the one table that owns them.
+
+    CLAUDE.md §1 says which gates have run *"is maintained in one place, the §66
+    table in architecture-completeness.md, and is read there rather than restated
+    here"*. This reads it there. A gate has run when its `Run` cell carries a
+    date; the two that have not carry an em dash and a sentence saying what they
+    are waiting for.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "architecture-completeness.md")
+
+    try:
+        text = io.open(path, encoding="utf-8").read()
+    except OSError:
+        return 0, 0
+
+    run = 0
+    total = 0
+    inside = False
+
+    for line in text.splitlines():
+        if line.startswith("| Gate | Run | Result |"):
+            inside = True
+            continue
+
+        if inside:
+            if not line.startswith("|"):
+                break
+
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+
+            if len(cells) < 2 or set(cells[0]) <= set("-: "):
+                continue
+
+            total += 1
+            run += 1 if re.search(r"20\d\d-\d\d-\d\d", cells[1]) else 0
+
+    return run, total
+
+
+def a_gate_tally_that_disagrees_with_the_gates():
+    """A present-tense §66 gate count in any document, checked against the table.
+
+    **[D-116](../docs/architecture-debt.md)'s trigger, fired a second time.** The
+    condition check one function up catches `N of M` where M is the number of
+    conditions. It caught nothing about the gates, because the gates are a
+    different register with a different total -- and four documents were saying
+    **0 of 9 run** in the present tense while seven of the nine had run. The
+    stale one that mattered was in an ADR, listing the gates among *live debts*;
+    the other three were snapshots that had simply never been dated.
+
+    **The same narrowness as the condition check**, for the same reason. Only
+    `N of 9` on a line that mentions a gate, only when N is neither the number
+    run nor the number outstanding, and only when the line does not say when it
+    was true. A checker that guessed at which numbers were claims would be turned
+    off within a week.
+    """
+    run, total = gate_counts()
+
+    if total == 0:
+        return ["architecture-completeness.md has no §66 gate table, so nothing can be checked "
+                "against it -- and CLAUDE.md §1 sends every reader there for the tally"]
+
+    problems = []
+
+    pattern = re.compile(r"(\d+)\s*(?:of|/)\s*" + str(total) + r"\b")
+    was = re.compile(
+        r"\bwas\b|\bwere\b|\bremained\b|\bused to\b|\bat the time\b|\bthen\b|20\d\d-\d\d-\d\d")
+
+    for path in documents():
+        name = os.path.relpath(path, conditions.ROOT).replace("\\", "/")
+
+        if name == "CLAUDE.md":
+            # remembered_numbers owns that file and refuses a tally there entirely.
+            continue
+
+        if name == "docs/architecture-completeness.md":
+            # The table itself. A count read off its own source is not a restatement.
+            continue
+
+        try:
+            text = io.open(path, encoding="utf-8").read()
+        except OSError as problem:
+            problems.append(f"{name} could not be read: {problem}")
+            continue
+
+        for line in text.splitlines():
+            if "gate" not in line.lower():
+                continue
+
+            for match in pattern.finditer(line):
+                said = int(match.group(1))
+
+                if said in (run, total - run, total):
+                    continue
+
+                if was.search(line):
+                    continue
+
+                problems.append(
+                    f'{name} says "{match.group(0)}" about the §66 review gates and the '
+                    f"gate table says {run} of {total} have run. One fact, one home: cite "
+                    "the §66 table in docs/architecture-completeness.md, which is where "
+                    "CLAUDE.md §1 sends every reader, or say when the number you are "
+                    "quoting was true."
+                )
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -711,6 +821,7 @@ def main() -> int:
                 + amendments_the_other_adr_does_not_know_about() + broken_links()
                 + remembered_numbers() + the_former_product_name()
                 + a_condition_tally_that_disagrees_with_the_conditions()
+                + a_gate_tally_that_disagrees_with_the_gates()
                 + source_the_repository_would_not_receive())
 
     if problems:

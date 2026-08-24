@@ -21,7 +21,7 @@ which do not, and gives a recommendation with a shape and a rough duration.
 > was being updated the same day. **The most-quoted status summary in the
 > repository was the least maintained part of it**, and the matrix cites this
 > section as its §81 verdict.
-| §66 review gates | **0 of 9 run** |
+| §66 review gates | **0 of 9 run** on 2026-08-13. Seven had run by 2026-08-20 — the live tally is the §66 table in [architecture-completeness.md](architecture-completeness.md) |
 | Benchmarks | 3 rounds, one subsystem (the tile path) |
 | Independent adversarial review | **never done** — see §5 |
 
