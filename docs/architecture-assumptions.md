@@ -107,17 +107,44 @@ finding that a sparse tile reads 97 times more geometry than it emits. A-007 is 
 and needs splitting into a managed-code path and a native-code path rather than
 being answered once.
 
-## Failure impact — the load-bearing five
+## Failure impact — the load-bearing three
 
 Added after adversarial review F4. The register's "depended on by" column is a
 link, not an impact analysis, and one assumption failing can partially reverse a
 flagship decision without that being written anywhere.
 
+**Corrected 2026-08-24 — it was five and one of them was not load-bearing.**
+[D-149](architecture-debt.md): **A-019** sat here with the failure *tiles from SQL
+Server and Oracle are too slow*, and line 35 of this same file has recorded it as
+*validated 2026-08-12 — and demoted the same day: no longer load-bearing* since Q-67
+removed its premise. The v1 cut then removed the engines its failure was about. So this
+file stated and denied the same fact eighty lines apart, and **the list a reader uses to
+decide where to spend a measurement was wrong about its own length**. A-019's row is
+gone from the table below rather than struck through it, because a struck row in an
+impact table still reads as an impact; the demotion is recorded on its own row where it
+always was, and here.
+
+**And it was two, not one — found by the check rather than by the reading.** The check
+written for D-149 immediately named **A-014** as well: *routing requests to workers
+already warm* was **DOWNGRADED to informational 2026-08-15** by
+[ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md), the same decision and the
+same day as A-003, and it was still here with the failure *blind routing → ADR-007 §4.4
+is deleted*. **So the load-bearing five were three**, and the two that had stopped
+holding anything up were the two an eye passing over a table would not question, because
+nothing in the row said so. That is the whole argument for the check existing: this file
+is where a demotion is written, and it was also where the demotion was not read.
+
+**And the same defect pointed the other way, in a heavier file.** [CLAUDE.md](../CLAUDE.md) §1 called **A-003** *the load-bearing assumption under
+ADR-007*, and this register has recorded it as **DOWNGRADED to informational
+2026-08-15** since [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md) took
+affinity routing out of the default — *this holds nothing up*. A-003 is not in the table
+below and should not be, and CLAUDE.md is corrected rather than the table widened. It
+**becomes load-bearing again the moment affinity is reconsidered**, which is why the row
+at line 23 keeps its reasoning instead of being deleted.
+
 | ID | If it is false | What actually changes |
 |---|---|---|
 | **A-015** warm state is small | Context bind/unbind is expensive | ADR-007 §4.3 lazy binding becomes a cold-start latency problem; §4.4 eviction becomes costly so the budget shrinks; §4.12 pinning becomes the norm rather than the exception — **which recreates per-service resource allocation, the thing §3 said killed ArcSOC.** ADR-010's L1 model changes shape. This single assumption partially reverses ADR-007. |
-| **A-019** in-process MVT meets latency targets — *validated on PostGIS 2026-08-12. The two engines this row is about were unmeasured, and v1 removed them: [D-05](architecture-debt.md) closed 2026-08-24 because there is no SQL Server or Oracle to measure. The failure beside it cannot happen, and this row's own line 35 already records the assumption as demoted — see [D-149](architecture-debt.md)* | Tiles from SQL Server and Oracle are too slow | The multi-database promise is hollow for tiles. ADR-008 §4.8's tile path needs a different answer, ADR-010's seeding becomes mandatory rather than an optimisation, and ADR-001's weighting shifts again. |
-| **A-014** affinity routing works and is stable | Blind routing | ADR-007 §4.4 is deleted; we become GeoServer with extra steps. Acceptable, but L1 hit rates and therefore ADR-010's value both fall, and the pinning budget becomes the only affinity mechanism. |
 | **A-024** refusal plus a capability report is acceptable | Users reject it | ADR-008 §2's central choice fails. Combined with F3's amendment the fallback exists, but the native API would have to adopt best-effort too, which removes the principle entirely. |
 | **A-027** concurrency correct against unseen writes | Silent lost updates | The worst defect class an editing API can have. Editing cannot ship. Q-41's companion schema stops being optional. |
 

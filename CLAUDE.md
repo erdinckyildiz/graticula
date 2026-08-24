@@ -70,8 +70,15 @@ judgement is recorded rather than implied. Of §81's sixteen:
   no workflow in this repository has ever executed a step. The check is real and
   the workflow that would run it is written; what was not true is that anything
   ran it. [D-63](docs/architecture-debt.md). `tools/registers-check.py` now fails the build if a count reappears
-  in this file, because it did, and it was stale within a day; **A-003**, the load-bearing assumption under
-  ADR-007, which now has no validation route; and every finding in
+  in this file, because it did, and it was stale within a day; ~~**A-003**, the load-bearing assumption under
+  ADR-007, which now has no validation route~~ — **corrected 2026-08-24: A-003 was
+  downgraded to informational on 2026-08-15, when
+  [ADR-029](docs/adr/ADR-029-affinity-routing-is-not-the-default.md) took affinity
+  routing out of the default, and it holds nothing up. This sentence outlived that
+  decision by nine days in the file every session reads first, which is
+  [D-149](docs/architecture-debt.md). It becomes load-bearing again the moment affinity
+  is reconsidered, and the missing validation route is real for that day rather than
+  for this one**; and every finding in
   [independent review 3](docs/reviews/independent-review-3-synthesis.md) not
   removed by the v1 cut.
 

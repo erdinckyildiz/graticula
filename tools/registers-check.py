@@ -691,6 +691,99 @@ def a_debt_row_that_disagrees_with_itself():
     return problems
 
 
+def a_demoted_assumption_still_called_load_bearing():
+    """An assumption the register has demoted, still listed as load-bearing.
+
+    **[D-149](../docs/architecture-debt.md), and it was true in both directions.**
+    `architecture-assumptions.md` listed **A-019** under *the load-bearing five*
+    while line 35 of the same file recorded it as *demoted the same day: no longer
+    load-bearing*, with a failure scenario about the two engines v1 removed. And
+    `CLAUDE.md` called **A-003** *the load-bearing assumption under ADR-007* while
+    the register had recorded it **DOWNGRADED to informational** nine days
+    earlier. One file stated and denied the same fact; the other outlived a
+    decision in the document every session reads first.
+
+    **What it checks and why that is enough.** The register's own row is the
+    truth, because that is where a status is maintained. So: no assumption whose
+    row says it was demoted, downgraded or is no longer load-bearing may appear in
+    the impact table, and none may be called *load-bearing* in CLAUDE.md. Both
+    halves matter -- the first is the list somebody reads to decide what to
+    validate next, the second is what a new reader is told to worry about.
+
+    **Narrow, like the tally checks above.** It fires only on the register's own
+    demotion vocabulary, and only for identifiers that actually have a row.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "architecture-assumptions.md")
+
+    try:
+        register = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"architecture-assumptions.md could not be read: {problem}"]
+
+    demoted = re.compile(
+        r"\bdemoted\b|\bDOWNGRADED\b|\bdowngraded\b|no longer load-bearing", re.I)
+
+    # The status of an assumption is whatever its own row says. Rows in the impact
+    # table start with `| **A-` and carry no status, so they are not read as one.
+    status = {}
+    for line in register.splitlines():
+        found = re.match(r"\|\s*(A-\d+)\s*\|", line)
+        if found and found.group(1) not in status:
+            status[found.group(1)] = line
+
+    if len(status) < 20:
+        return [f"only {len(status)} assumption rows were parsed, so this check is reading "
+                "nothing. A check that cannot fail is worse than no check."]
+
+    problems = []
+
+    inside = False
+    for line in register.splitlines():
+        if line.startswith("## Failure impact"):
+            inside = True
+            continue
+
+        if inside:
+            if line.startswith("## "):
+                break
+
+            # <b>Rows, not prose.</b> The section's own text names the assumptions it
+            # explains — including the ones it explains the *absence* of — and reading those
+            # as entries would make the correction that removed one look like the defect.
+            if not line.startswith("|"):
+                continue
+
+            found = re.search(r"\*\*(A-\d+)\*\*", line)
+            if found and demoted.search(status.get(found.group(1), "")):
+                problems.append(
+                    f"{found.group(1)} is listed under 'Failure impact' and its own row in "
+                    "architecture-assumptions.md says it was demoted. The impact table is what "
+                    "somebody reads to decide where to spend a measurement, so an assumption "
+                    "that holds nothing up makes the pile look larger than it is. D-149.")
+
+    claude = os.path.join(conditions.ROOT, "CLAUDE.md")
+
+    try:
+        text = io.open(claude, encoding="utf-8").read()
+    except OSError as problem:
+        return problems + [f"CLAUDE.md could not be read: {problem}"]
+
+    # <b>Struck text is history</b>, and is how this file records what it used to say. It
+    # spans lines here, so it is removed from the whole document before reading any of it.
+    living = re.sub(r"~~.*?~~", "", text, flags=re.S)
+
+    for line in living.splitlines():
+        for found in re.finditer(r"\*\*(A-\d+)\*\*[^.]{0,60}load-bearing", line):
+            if demoted.search(status.get(found.group(1), "")):
+                problems.append(
+                    f"CLAUDE.md calls {found.group(1)} load-bearing and the assumptions "
+                    "register says it was demoted. This is the file read at the start of every "
+                    "session, so it is the worst place for a claim a decision has already "
+                    "reversed. D-149.")
+
+    return problems
+
+
 def source_the_repository_would_not_receive():
     """Source files an ignore rule keeps out of the repository.
 
@@ -896,6 +989,7 @@ def main() -> int:
                 + a_condition_tally_that_disagrees_with_the_conditions()
                 + a_gate_tally_that_disagrees_with_the_gates()
                 + a_debt_row_that_disagrees_with_itself()
+                + a_demoted_assumption_still_called_load_bearing()
                 + source_the_repository_would_not_receive())
 
     if problems:
