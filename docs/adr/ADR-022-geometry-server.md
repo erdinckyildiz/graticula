@@ -620,10 +620,18 @@ asymptotics, which is the kind of reasoning A-042 was, and each returns only
 with a number.
 
 **What this does not settle.** The benchmark's own *what this does not show*
-list is untouched: one engine, one adversarial shape, `union` and `difference`
-measured only on real data, and **no concurrency**. The pool bounds concurrency
-to two, which makes the unmeasured case much smaller — it does not measure it.
-Recorded as **D-31**.
+list is untouched: one engine, one adversarial shape, and `union` and
+`difference` measured only on real data.
+
+**Concurrency was the fourth item and it is measured now, 2026-08-24** —
+[CONCURRENCY.md](../../benchmarks/geometry-overlay/CONCURRENCY.md), which closes
+**D-31**. Two workers hold under the ceiling with eight 300,000-vertex overlays
+in flight (754 MB and 618 MB of a permitted 1 GB each), a killed worker's memory
+is back within a second and a launch under contention costs about 240 ms, and the
+queue wait refuses with its own sentence at ten seconds. What that run also found
+is that **the wait bounds queueing for a worker rather than the request**: a
+25 MB operand arrives slowly enough that sixteen callers can each see seventeen
+seconds without any of them waiting ten for a worker.
 
 ---
 

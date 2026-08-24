@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>533d510</code> · 2026-08-23 22:48</p>
+<p class="stamp">Generated from commit <code>86371aa</code> · 2026-08-24 03:26</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADRs</div><div class="kpi-n">1 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">101/192</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">91 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">open questions</div><div class="kpi-n">62 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">64</div><div class="kpi-l">open debts</div><div class="kpi-n">81 repaid · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">64</div><div class="kpi-l">open debts</div><div class="kpi-n">82 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">1817</div><div class="kpi-l">tests</div><div class="kpi-n">234 source files, 88,023 lines</div></div>
@@ -355,7 +355,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-33</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-30</td><td>~~The feature query path has never been measured.~~ PARTLY PAID 2026-08-16 — benchmarks/feature-query, run 5.</td><td class="muted-t">The concurrency half is still what ADR-007 condition 3&#x27;s connection budget needs, and they still need the same harness</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-34</td><td>A layer or group cannot be moved, re-parented, renamed or removed without unpublishing it.</td><td class="muted-t">The first time somebody puts a layer in the wrong service or the wrong group</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-31</td><td>Overlay under concurrency is still unmeasured.</td><td class="muted-t">Before the overlay worker count is raised above two, or before anyone claims a throughput figure for overlay</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-35</td><td>Planar area was computed by a shoelace sum with no local origin, and it shipped that way for a day.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-36</td><td>~~Nothing in the repository says how to install against an empty database, and the first command fails with a raw Postgres error.~~ CLOSED 2026-08-15, partly.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-37</td><td>~~A test that had been written off as flaky twice was not measuring its own claim.~~ CLOSED 2026-08-16.</td><td class="muted-t">—</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -445,6 +445,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-143</td><td>~~ListPagingTests.Filteringreturnstothefirstpage fails about one run in six, and the cause is not established.~~ RESOLVED 2026-08-23.</td><td class="muted-t">n/a.</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-144</td><td>Nothing bounds how long one request may hold a database permit.</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-148</td><td>A request body over the server&#x27;s limit ends the connection instead of answering 413.</td><td class="muted-t">The first client that reports the geometry server dropping connections</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-147</td><td>A publish naming a data source that does not exist answered 201 Created and wrote nothing.</td><td class="muted-t">Closed on discovery</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class="done"><td class="id">D-146</td><td>The status page reported the wrong status for four debt rows, and the registers were right the whole time.</td><td class="muted-t">Now, and repaired in the same hour.</td><td><span class="pill good">RESOLVED</span></td></tr>
 </tbody></table></div></section>
@@ -553,6 +554,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>86371aa</code><time>2026-08-24</time><span>a layer name that names two layers is a question, not a guess</span></li>
 <li><code>533d510</code><time>2026-08-23</time><span>the idle poll backs off, and the job that arrives here still starts at once</span></li>
 <li><code>b062021</code><time>2026-08-23</time><span>a claim says which worker took the row and what shape it speaks</span></li>
 <li><code>be1aa81</code><time>2026-08-23</time><span>four rows, and three of them were partly stale</span></li>
@@ -566,7 +568,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>c9b8e2d</code><time>2026-08-23</time><span>the catalogue remembers its listing, and a document stops costing four seconds</span></li>
 <li><code>2df7241</code><time>2026-08-23</time><span>the warning in the console becomes a test that fails</span></li>
 <li><code>1fbd084</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
-<li><code>5b260ba</code><time>2026-08-23</time><span>the second coordinate engine is deleted, and one answer is left</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
