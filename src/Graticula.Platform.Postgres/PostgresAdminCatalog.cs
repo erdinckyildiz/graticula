@@ -1328,17 +1328,27 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
-    public async Task<bool> UnpublishLayerAsync(
-        string layerName, CancellationToken cancellationToken)
+    public async Task<bool> UnpublishLayerAsync(Guid layerId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        /*
+          <b>By id, and until 2026-08-24 this was `delete from layer where name = @name`.</b>
+          [D-109](../../../docs/architecture-debt.md) records that a bare layer name is not
+          unique — `FindAsync` answers `limit 1` and the one whose service sorts first wins.
+          The row describes that as the wrong layer being *edited*. This statement was worse: with
+          two layers of one name it deleted **both**, and the caller purged the tiles of one of
+          them.
 
-        // Only the registration. The table in the customer's database is not
-        // ours to drop, and a delete endpoint that removed data would be the
-        // single most dangerous thing in this API.
+          <b>Every caller already had the layer.</b> All three read it before calling — for
+          the tile purge, for the cache eviction, for the audit line — so taking the id
+          costs nothing and removes the ambiguity at the only place it could destroy something.
+
+          <b>Only the registration.</b> The table in the customer's database is not ours to drop,
+          and a delete endpoint that removed data would be the single most dangerous thing in this
+          API.
+        */
         await using NpgsqlCommand command =
-            _dataSource.CreateCommand("delete from layer where name = @name");
-        command.Parameters.AddWithValue("name", layerName);
+            _dataSource.CreateCommand("delete from layer where id = @id");
+        command.Parameters.AddWithValue("id", layerId);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

@@ -150,9 +150,22 @@ internal static class RelationshipEndpoints
 
         if (origin is null || related is null)
         {
-            await Fail(context, 404,
-                $"No layer named '{(origin is null ? request.OriginLayer : request.RelatedLayer)}'.")
-                .ConfigureAwait(false);
+            string missing = origin is null ? request.OriginLayer! : request.RelatedLayer!;
+
+            // <b>Absent and ambiguous are different refusals, D-109.</b> *No layer named X* about
+            // a name that names three of them sends the operator looking for a publish that
+            // already happened.
+            int named = await NamedCountAsync(layers, missing, cancellation).ConfigureAwait(false);
+
+            await Fail(
+                context,
+                named > 1 ? 409 : 404,
+                named > 1
+                    ? $"'{missing}' is the name of {named} layers, so this declaration did not say "
+                      + "which one. Rename one of them, or declare the relationship against a "
+                      + "name only one layer carries."
+                    : $"No layer named '{missing}'.").ConfigureAwait(false);
+
             return;
         }
 
@@ -486,11 +499,34 @@ internal static class RelationshipEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>The one layer with this name, or null when there is not exactly one.</summary>
+    /// <remarks>
+    /// <b>[D-109](../../docs/architecture-debt.md): a bare layer name is not unique.</b> A
+    /// relationship declared against the wrong one of two same-named layers is a relationship
+    /// that queries the wrong table for ever after, and nothing about it would look wrong. So an
+    /// ambiguous name is not a layer here — the caller reports it, with the count, in the same
+    /// place it reports an absent one.
+    /// </remarks>
     private static async Task<PublishedLayer?> Find(
+        PostgresLayerCatalog layers, string? name, CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        IReadOnlyList<PublishedLayer> found =
+            await layers.NamedAsync(name, cancellation).ConfigureAwait(false);
+
+        return found.Count == 1 ? found[0] : null;
+    }
+
+    /// <summary>How many layers carry this name, for a refusal that can say why.</summary>
+    private static async Task<int> NamedCountAsync(
         PostgresLayerCatalog layers, string? name, CancellationToken cancellation) =>
         string.IsNullOrWhiteSpace(name)
-            ? null
-            : await layers.FindAsync(name, cancellation).ConfigureAwait(false);
+            ? 0
+            : (await layers.NamedAsync(name, cancellation).ConfigureAwait(false)).Count;
 
     private static string Value(HttpContext context, string name) =>
         context.Request.HasFormContentType && context.Request.Form.ContainsKey(name)

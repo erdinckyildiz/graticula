@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b062021</code> · 2026-08-23 22:20</p>
+<p class="stamp">Şu commit’ten üretildi: <code>533d510</code> · 2026-08-23 22:48</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">101/192</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">91 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">açık soru</div><div class="kpi-n">62 yanıtlandı · 3 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">65</div><div class="kpi-l">açık borç</div><div class="kpi-n">80 ödendi · 6 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">64</div><div class="kpi-l">açık borç</div><div class="kpi-n">81 ödendi · 6 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1815</div><div class="kpi-l">test</div><div class="kpi-n">234 kaynak dosya, 87,838 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1817</div><div class="kpi-l">test</div><div class="kpi-n">234 kaynak dosya, 88,023 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-121</b> — ANSWERED 2026-08-21 by owner decision: yes, registered in place and never copied — ADR-043 §3.3.</p><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">160 madde</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>65 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">159 madde</span></div><p><b>91 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>64 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -408,7 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class="done"><td class="id">D-106</td><td>~~An empty feature class cannot be published, although the archive declares its schema.~~ FIXED 2026-08-19, hours after it was named.</td><td class="muted-t">Closed</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-109</td><td>A layer is addressed by its bare name, and nothing makes that unique.</td><td class="muted-t">The first deployment that imports two archives from the same project</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class="done"><td class="id">D-109</td><td>A layer is addressed by its bare name, and nothing makes that unique.</td><td class="muted-t">The first deployment that imports two archives from the same project</td><td><span class="pill good">RESOLVED</span></td></tr>
 <tr class=""><td class="id">D-110</td><td>Two background workers polling every two seconds hold eight database sessions open for ever, on a server doing nothing.</td><td class="muted-t">The third job kind, or the first deployment where the database&#x27;s session count is billed</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-111</td><td>The conformance suite fails on its own fixtures, because xUnit runs test classes in parallel.</td><td class="muted-t">The next class that publishes into the catalogue</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class="done"><td class="id">D-112</td><td>~~The closed drawer kept a focusable button off screen.~~ FIXED 2026-08-19.</td><td class="muted-t">The next off-canvas panel</td><td><span class="pill good">RESOLVED</span></td></tr>
@@ -539,20 +539,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">357</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:89.9%"></div></div><div class="bar-n">321</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:89.1%"></div></div><div class="bar-n">318</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:77.0%"></div></div><div class="bar-n">275</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:40.6%"></div></div><div class="bar-n">145</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:34.2%"></div></div><div class="bar-n">122</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:31.4%"></div></div><div class="bar-n">112</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.3%"></div></div><div class="bar-n">94</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">359</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:89.4%"></div></div><div class="bar-n">321</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.6%"></div></div><div class="bar-n">318</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:76.6%"></div></div><div class="bar-n">275</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:40.4%"></div></div><div class="bar-n">145</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:34.0%"></div></div><div class="bar-n">122</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:31.2%"></div></div><div class="bar-n">112</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">94</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.7%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:5.0%"></div></div><div class="bar-n">18</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.8%"></div></div><div class="bar-n">17</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">12</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">17</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">12</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>533d510</code><time>2026-08-23</time><span>the idle poll backs off, and the job that arrives here still starts at once</span></li>
 <li><code>b062021</code><time>2026-08-23</time><span>a claim says which worker took the row and what shape it speaks</span></li>
 <li><code>be1aa81</code><time>2026-08-23</time><span>four rows, and three of them were partly stale</span></li>
 <li><code>fb745c3</code><time>2026-08-23</time><span>the probe publisher&#x27;s password is made per run</span></li>
@@ -566,7 +567,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2df7241</code><time>2026-08-23</time><span>the warning in the console becomes a test that fails</span></li>
 <li><code>1fbd084</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 <li><code>5b260ba</code><time>2026-08-23</time><span>the second coordinate engine is deleted, and one answer is left</span></li>
-<li><code>249a4d5</code><time>2026-08-23</time><span>the status page catches up with its own commit</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

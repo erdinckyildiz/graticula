@@ -827,6 +827,13 @@ public interface IAdminCatalog
         string layerName, ServiceStatus status, CancellationToken cancellationToken);
 
     /// <summary>Removes a published layer. The data is untouched.</summary>
+    /// <param name="layerId">
+    /// Which layer, by catalogue id rather than by name.
+    /// <b>[D-109](../../../docs/architecture-debt.md): a bare layer name is not unique</b>, and
+    /// this statement used to delete every row carrying it while the caller purged the tiles of
+    /// one. Every caller holds the layer already.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether a layer was removed.</returns>
-    Task<bool> UnpublishLayerAsync(string layerName, CancellationToken cancellationToken);
+    Task<bool> UnpublishLayerAsync(Guid layerId, CancellationToken cancellationToken);
 }

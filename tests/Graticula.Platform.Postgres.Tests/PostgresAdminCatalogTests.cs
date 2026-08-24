@@ -808,7 +808,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
             null, "tree", "Roads", null, CancellationToken.None))
             ?? throw new InvalidOperationException("the group was not created");
 
-        await admin.PublishLayerAsync(
+        PublishedLayerAddress child = await admin.PublishLayerAsync(
             Publication(source, "child", service: "tree") with
             {
                 ParentLayerIndex = group.LayerIndex,
@@ -822,7 +822,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(Removal.Occupied, occupied);
         Assert.Equal(1, children);
 
-        Assert.True(await admin.UnpublishLayerAsync("child", CancellationToken.None));
+        // <b>By id, D-109.</b> A bare name is not unique, and this statement used to delete
+        // every row carrying it.
+        Assert.True(await admin.UnpublishLayerAsync(child.Id, CancellationToken.None));
 
         Assert.Equal(
             (Removal.Removed, 0),

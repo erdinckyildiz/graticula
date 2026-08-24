@@ -133,7 +133,58 @@ public sealed class PostgresLayerCatalog
         return layers;
     }
 
+    /// <summary>Every layer published under this name.</summary>
+    /// <param name="name">The bare layer name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>All of them, in the order <see cref="FindAsync"/> would have chosen from.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-109](../../../docs/architecture-debt.md): a bare layer name is not unique, and
+    /// nothing said so.</b> <see cref="FindAsync"/> answers `order by s.name limit 1`, so two
+    /// layers of one name in different services resolve to whichever service sorts first —
+    /// silently. The `limit 1` is not the defect; it stops a duplicate throwing. The silence is.
+    /// </para>
+    /// <para>
+    /// <b>So a caller that is about to act on a named layer asks this instead.</b> One row is
+    /// the ordinary case and costs the same query; more than one is a question for the operator,
+    /// and the answer they need is *which service*, which is why the whole row comes back rather
+    /// than a count.
+    /// </para>
+    /// <para>
+    /// <b>One archive publishes fifty-five layers under names their owner chose</b>, and an Esri
+    /// estate has `Segment_Boundary` in three of them. Before the geodatabase import a collision
+    /// needed two deliberate publishes; now it needs one upload.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<PublishedLayer>> NamedAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {Columns} {From} where l.name = @name order by s.name");
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<PublishedLayer> found = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found.Add(Map(reader));
+        }
+
+        return found;
+    }
+
     /// <summary>One layer by published name, or <see langword="null"/>.</summary>
+    /// <remarks>
+    /// <b>Ambiguous by construction, and <see cref="NamedAsync"/> is what a writer should use.</b>
+    /// [D-109](../../../docs/architecture-debt.md): the name is not unique and this takes the
+    /// first. That is the right answer for a read that only needs *a* layer of this name — a
+    /// cache eviction, a shape lookup — and the wrong one for anything that changes something.
+    /// </remarks>
     public async Task<PublishedLayer?> FindAsync(string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

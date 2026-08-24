@@ -1565,7 +1565,7 @@ internal static class AdminEndpoints
                 string? failure = null;
 
                 bool unpublished = await catalog
-                    .UnpublishLayerAsync(layerName, cancellation).ConfigureAwait(false);
+                    .UnpublishLayerAsync(layer.Id, cancellation).ConfigureAwait(false);
 
                 if (unpublished)
                 {
@@ -5483,6 +5483,81 @@ internal static class AdminEndpoints
     /// by principal id and every caller here has a name; the member listing is one statement and is
     /// already read on this path to count administrators.
     /// </remarks>
+    /// <summary>
+    /// The one layer with this name, or null with the refusal already written.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layers">The catalogue.</param>
+    /// <param name="name">The bare layer name from the path.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The layer, or null when it is absent or the name names more than one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-109](../../docs/architecture-debt.md): a bare layer name is not unique and nothing
+    /// said so.</b> `FindAsync` answers `order by s.name limit 1`, so an operator could open the
+    /// settings of a layer they were not looking at. One archive publishes fifty-five layers
+    /// under names their owner chose, and an Esri estate has `Segment_Boundary` in three of them.
+    /// </para>
+    /// <para>
+    /// <b>409 rather than a guess, and the refusal names the services.</b> The operator knows
+    /// which one they meant; the server does not, and the only thing it can usefully do is say
+    /// what the choices are and how to express one. `?service=` is that expression, and it is
+    /// how the same collision is already resolved everywhere a service is addressed.
+    /// </para>
+    /// </remarks>
+    private static async Task<PublishedLayer?> OneNamedLayerAsync(
+        HttpContext context,
+        PostgresLayerCatalog layers,
+        string name,
+        CancellationToken cancellation)
+    {
+        IReadOnlyList<PublishedLayer> found =
+            await layers.NamedAsync(name, cancellation).ConfigureAwait(false);
+
+        string? wanted = context.Request.Query["service"].FirstOrDefault();
+
+        if (wanted is { Length: > 0 })
+        {
+            found =
+            [
+                .. found.Where(l => string.Equals(
+                    l.ServiceName, wanted, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Qualified(l), wanted, StringComparison.OrdinalIgnoreCase)),
+            ];
+        }
+
+        if (found.Count == 0)
+        {
+            await Refuse(
+                context, 404,
+                wanted is { Length: > 0 }
+                    ? $"No layer '{name}' in service '{wanted}'."
+                    : $"No layer '{name}'.").ConfigureAwait(false);
+
+            return null;
+        }
+
+        if (found.Count > 1)
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' is the name of {found.Count} layers, so this request did not say which "
+                + "one: "
+                + string.Join(", ", found.Select(Qualified))
+                + ". Add ?service=<name> to choose.").ConfigureAwait(false);
+
+            return null;
+        }
+
+        return found[0];
+    }
+
+    /// <summary>A layer's service as an operator would type it.</summary>
+    private static string Qualified(PublishedLayer layer) =>
+        layer.Folder is { Length: > 0 } folder
+            ? folder + "/" + layer.ServiceName
+            : layer.ServiceName;
+
     private static async Task<bool> HoldsAdministratorAsync(
         IMemberDirectory directory, string name, CancellationToken cancellation) =>
         (await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
@@ -5841,7 +5916,7 @@ internal static class AdminEndpoints
                 {
                     foreach (PublishedLayer held in service.Layers)
                     {
-                        if (await catalog.UnpublishLayerAsync(held.Definition.Name, cancellation)
+                        if (await catalog.UnpublishLayerAsync(held.Id, cancellation)
                                 .ConfigureAwait(false))
                         {
                             tiles.Purge(held.Id);
@@ -6339,15 +6414,21 @@ internal static class AdminEndpoints
             return;
         }
 
-        // Read before the delete, because afterwards there is nothing left to
-        // derive the cache key from. Nothing here depends on it succeeding: a
-        // shape left behind expires on its own, and would only ever be reused by
-        // a layer republished onto the very same table.
-        PublishedLayer? going = await layers.FindAsync(name, cancellation).ConfigureAwait(false);
+        // <b>Read before the delete, and now it decides the delete.</b> D-109: this used to
+        // read one layer for the cache key and then delete by name — which, with two layers of
+        // one name, removed both and purged the tiles of one. The read is the same read; what
+        // changed is that the delete takes its id, and that an ambiguous name is refused here
+        // rather than resolved by whichever service sorts first.
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } going)
+        {
+            return;
+        }
 
-        bool removed = await catalog.UnpublishLayerAsync(name, cancellation).ConfigureAwait(false);
+        bool removed = await catalog.UnpublishLayerAsync(going.Id, cancellation)
+            .ConfigureAwait(false);
 
-        if (removed && going is not null)
+        if (removed)
         {
             contexts.Forget(going);
 
@@ -6418,14 +6499,14 @@ internal static class AdminEndpoints
             return;
         }
 
-        PublishedLayer? layer = await layers.FindAsync(name, cancellation).ConfigureAwait(false);
-
-        if (layer is null)
+        // D-109: an ambiguous name is refused rather than resolved by sort order. Evicting the
+        // wrong layer's shape is harmless and answering *done* about it is not.
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
         {
             await AuditAsync(context, audit, "layer.refresh", name, Detail(new { found = false }),
                 succeeded: false, cancellation).ConfigureAwait(false);
 
-            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
             return;
         }
 
