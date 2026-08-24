@@ -460,10 +460,15 @@ def debts():
             # part of the form the register settled on, so it is matched rather than
             # legislated away.
             #
+            # <b>`WITHDRAWN` is the fourth word, and it means the row was wrong.</b>
+            # D-138 accused the server on the strength of one `tail`; withdrawing it
+            # is a different act from repaying it and the register says so. What both
+            # have in common is that nobody has work left, which is what this counts.
+            #
             # <b>`PARTLY` is deliberately not here.</b> Partly paid is open: counting
             # it as closed is how a pile stops being a pile.
             "open": not re.match(
-                r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID)\b", status, re.I),
+                r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|WITHDRAWN)\b", status, re.I),
             "partly": bool(re.match(r"\s*\*{0,2}(PARTLY|PARTIALLY)", status, re.I)),
         })
     return out
@@ -895,7 +900,8 @@ def build():
         # <b>The register's word, not a synonym for it.</b> A debt is repaid; a
         # question is resolved. Reading `repaid` in the row and printing `RESOLVED`
         # here is the same small drift that let five repaid rows be counted open.
-        closed = "REPAID" if "repaid" in x["status"].lower() else "RESOLVED"
+        closed = ("WITHDRAWN" if "withdrawn" in x["status"].lower()
+                  else "REPAID" if "repaid" in x["status"].lower() else "RESOLVED")
         label = "PARTLY" if x["partly"] else "OPEN" if x["open"] else closed
         parts.append(f'<tr class="{"" if x["open"] else "done"}"><td class="id">{esc(x["id"])}</td>'
                      f'<td>{esc(x["text"])}</td><td class="muted-t">{esc(x["trigger"])}</td>'
