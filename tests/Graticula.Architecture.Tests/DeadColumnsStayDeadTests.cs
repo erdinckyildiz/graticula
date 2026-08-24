@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Graticula.Architecture.Tests;
@@ -150,5 +151,106 @@ public sealed class DeadColumnsStayDeadTests
             "s.sharing",
             File.ReadAllText(catalogue),
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The dead layer columns that can already be left unwritten, and what still writes them.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>is_hosted</c> is deliberately absent.</b> It is `not null` with no default, so
+    /// the publish path cannot stop mentioning it until a migration frees it — and the
+    /// migration that frees it is the one that should drop it. The other two can stop
+    /// today: `owner_principal_id` is nullable and `sharing` defaults to `'private'`.
+    /// </remarks>
+    private static readonly string[] Unwritable = ["owner_principal_id", "sharing"];
+
+    /// <summary>
+    /// Nothing writes a layer column whose meaning moved and which can already be left alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The check above catches readers and could not catch a writer, which is the whole
+    /// of [D-24](../../docs/architecture-debt.md).</b> That row's own words are *a dead
+    /// column is a live hazard while a writer can still reach it*, and its expensive
+    /// incident was a writer: `PUT /admin/layers/{name}/sharing` wrote `layer.sharing`,
+    /// answered 200, and left the layer readable by anybody. The reader check cannot see
+    /// any of that, because a writer spells the column unqualified — `insert into layer
+    /// (… sharing …)`, `update layer set owner_principal_id` — while the reader check
+    /// looks for `l.sharing`. One guard on one half is
+    /// [D-46](../../docs/architecture-debt.md), and this is the other half.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to statements that write the layer table</b>, because these column names
+    /// belong to four other tables that legitimately own them: `service`, `folder`,
+    /// `sharing_group` and `job` all have an `owner_principal_id` and it is theirs. So the
+    /// check reads forward from each `insert into layer` or `update layer set` and looks
+    /// only inside that statement.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void No_statement_outside_the_migrations_writes_a_layer_column_that_can_stop_being_written()
+    {
+        List<string> found = [];
+
+        foreach (string file in Directory.EnumerateFiles(Root, "*.cs", SearchOption.AllDirectories))
+        {
+            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal)
+                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal)
+                || Path.GetFileName(file).Contains("Migrations", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // <b>Comments are stripped first, for the reason the check above gives.</b>
+            // Three of these columns are explained at length in the catalogue's own SQL —
+            // *reading l.sharing here would be the is_hosted mistake a second time* — and
+            // the first run of this check failed on a doc comment containing the words
+            // `update layer set sharing`, which is the sentence warning against the thing.
+            // A check that deletes its own warning is worse than no check.
+            string text = Regex.Replace(
+                File.ReadAllText(file), @"^[ 	]*(///|//|--).*$", string.Empty,
+                RegexOptions.Multiline);
+
+            foreach (Match statement in Regex.Matches(
+                         text,
+                         // The column list of an insert, or everything a `set` assigns up to
+                         // the clause that ends it. Both stop before the next statement.
+                         @"insert\s+into\s+layer\s*\(([^)]*)\)|update\s+layer\s+set\s+(.*?)"
+                         + @"(?=\breturning\b|\bwhere\b|\bfrom\b|\)|;|""""""|$)",
+                         RegexOptions.IgnoreCase | RegexOptions.Singleline))
+            {
+                string written = statement.Groups[1].Value + statement.Groups[2].Value;
+
+                foreach (string column in Unwritable)
+                {
+                    if (Regex.IsMatch(written, @"\b" + column + @"\b", RegexOptions.IgnoreCase))
+                    {
+                        int line = text.Take(statement.Index).Count(c => c == '\n') + 1;
+
+                        found.Add(
+                            $"{Path.GetRelativePath(Root, file)}:{line} writes layer.{column} — "
+                            + Collapse(statement.Value));
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            found.Count == 0,
+            "A statement writes a layer column whose meaning moved onto the service in "
+            + "migration 11. The value it writes is right on the day and wrong afterwards, "
+            + "which is worse than absent: the next reader finds something plausible. "
+            + "`owner_principal_id` is nullable and `sharing` defaults to 'private', so both "
+            + "can simply stop being mentioned. D-24.\n  " + string.Join("\n  ", found));
+    }
+
+    /// <summary>One line of a SQL statement, for a failure message.</summary>
+    private static string Collapse(string statement)
+    {
+        string flat = Regex.Replace(statement, @"\s+", " ").Trim();
+
+        return flat.Length <= 110 ? flat : flat[..110] + "…";
     }
 }

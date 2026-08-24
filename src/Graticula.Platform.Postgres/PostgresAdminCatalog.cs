@@ -273,15 +273,26 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 union all
                 select id, layer_index from created
             )
+            -- <b>Two dead columns are no longer written — D-24.</b> `owner_principal_id`
+            -- and `sharing` moved onto the service in migration 11 and nothing has read
+            -- the layer's copies since. Writing them anyway is what made D-24 dangerous
+            -- rather than merely untidy: a plausible value in a column nobody reads is
+            -- what the next reader finds and believes. `owner_principal_id` is nullable
+            -- and `sharing` defaults to 'private', so both simply stop being mentioned.
+            --
+            -- <b>`is_hosted` is still written, and it is the one that cannot stop yet.</b>
+            -- It is `not null` with no default, so omitting it fails the insert; freeing
+            -- it needs a migration, and the migration that would add a default is the
+            -- same one that should drop the column. That is the rest of D-24 and it waits
+            -- for D-24's own trigger.
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type, is_hosted,
-               owner_principal_id, sharing, service_id, layer_index, parent_layer_index,
-               cache_seconds)
+               service_id, layer_index, parent_layer_index, cache_seconds)
             select
                @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type, false,
-               @owner, @sharing, slot.id, slot.layer_index, @parent, @cache
+               slot.id, slot.layer_index, @parent, @cache
             from slot
             -- <b>The folder comes back with the index</b>, because the caller may have asked
             -- for one it did not get: a datastore publish naming 'turkiye' lands in 'hosted',

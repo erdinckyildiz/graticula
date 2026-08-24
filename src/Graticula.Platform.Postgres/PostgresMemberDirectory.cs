@@ -531,8 +531,12 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                         where owner_principal_id = (select id from giver) returning 1),
                  f as (update folder set owner_principal_id = (select id from taker)
                         where owner_principal_id = (select id from giver) returning 1),
-                 l as (update layer set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) returning 1),
+                 -- <b>The layer's owner column is not updated here — D-24.</b> A layer's
+                 -- owner is its service's owner since migration 11, and `s` above is what
+                 -- actually moves it. This CTE wrote `layer.owner_principal_id` to keep a
+                 -- dead column in step, which is the opposite of D-24's repayment: keeping
+                 -- them in step is what makes them look alive. Its count was never in the
+                 -- total below either, so nothing observable changes.
 
                  -- <b>Groups move too — ADR-036, and ADR-015 6c said this would be an addition.</b>
                  -- The receiver becomes the owner; the group's members and its shares are untouched,
