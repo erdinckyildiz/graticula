@@ -237,6 +237,16 @@ slotting into it — and it is **Q-93**, not this ADR.
    direction. What is actually owed is the honesty of the measurement: D-17's
    fixed-overhead figures are per request *with* the catalogue read, and any
    later figure that drops it says so.
+   **DISCHARGED 2026-08-24.** Every performance claim about serving names the catalogue read
+   rather than quietly excluding it.
+   [benchmarks/feature-query](../../benchmarks/feature-query/RESULTS.md) decomposes a request
+   into lookup, prepare, driver, decode and serialise and reports the catalogue read as
+   **1.8 ms flat on every query — 70% of a one-feature request, and 2.6x the cost of the data
+   query it precedes**, which is the opposite of dropping it: the read is the headline.
+   [benchmarks/statement-timeout](../../benchmarks/statement-timeout/RESULTS.md) round 2 states
+   in its own text that its numbers are store-side and why, so a figure that *does* exclude this
+   server's overhead says so on the page. The condition asked for honesty rather than for a
+   number, and that is what these carry.
 3. **Every subsequent ADR states which of its state is catalogue and which is
    runtime**, extending ADR-012's existing inventory requirement.
 
