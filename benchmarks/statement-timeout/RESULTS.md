@@ -11,6 +11,13 @@ too high lets one query hold a pooled connection while every layer sharing that 
 source waits.** [Performance gate 2](../../docs/reviews/performance-gate-2.md) F3 keeps
 that gate at FAIL for this and nothing else.
 
+**Amended 2026-08-24.** That gate's carried F3 says the statement timeout *"was not
+re-tested; it needs a deliberately slow query and was judged outside a bounded-load
+gate"*. Round 2 below is that deliberately slow query, and it is a lock rather than a
+plan — which is why it did not belong in a load gate and does belong here. D-08 is
+closed on the strength of it. Whether the Performance gate's own verdict moves is the
+gate's to say and not this document's: it is re-run, not amended in passing.
+
 ## What was measured
 
 Two levels, because they answer different halves.
@@ -84,18 +91,75 @@ filter, because the filter cannot be made expensive. What is left for it to boun
 pathological plan and a lock wait: a DBA's `ALTER TABLE`, a checkpoint, a table that has
 lost its statistics.
 
-## What this cannot say
+## Round 2, 2026-08-24 — the two things round 1 could not say
 
-**A table a hundred times this one.** The scale target is 100–1,000 *services*
-([CLAUDE.md §7](../../CLAUDE.md)), and nothing says how large one layer may be. At the
-measured rate a full-extent render read reaches 30 seconds at roughly **90 million rows**
-— an extrapolation from one point, on one machine, with points rather than polygons, and
-it is written here as an extrapolation.
+Both are measured at the store rather than through a face, deliberately:
+`statement_timeout` is a PostgreSQL setting and it is the store's clock that runs out.
+What a face adds — encode, serialise, TLS — is already decomposed in
+[benchmarks/feature-query](../feature-query/RESULTS.md), and adding it here would put two
+questions in one number.
 
-**A lock wait**, which is the case the number now exists for and the one this measurement
-did not construct. ADR-007 §4.8's quiesce — *drain its connections, hold its requests, let
-the DBA work, resume* — is the mechanism that would make the timeout's behaviour under DDL
-a choice rather than an accident, and it is still absent.
+### A table a hundred times this one: linear, and the extrapolation was sound
+
+Round 1 measured one size and extrapolated. One point cannot tell a linear cost from a
+superlinear one, and the difference decides whether the ceiling arrives at ninety million
+rows or at nine. So the same read — every geometry in the layer's own extent, as
+`ST_AsBinary`, which is what a renderer receives — was measured at three sizes, each with
+a GiST index and fresh statistics, best of three by `EXPLAIN ANALYZE` execution time:
+
+| Rows | Full-extent render read | Ratio to previous | `count(*)` |
+|---|---|---|---|
+| 1,000,000 | **250 ms** | — | 24 ms |
+| 4,000,000 | **1,024 ms** | 4.10× for 4× the rows | 87 ms |
+| 16,000,000 | **3,832 ms** | 3.74× for 4× the rows | 356 ms |
+
+**Linear across a sixteen-fold range, and very slightly sublinear at the top.** So the
+ceiling is reached at **roughly 120 million rows** extrapolating from either end — 30 s /
+250 ms × 1 M gives 120 M, and 30 s / 3,832 ms × 16 M gives 125 M. Round 1's figure was
+90 million from a 330 ms measurement through the HTTP face; this series is store-side and
+faster per row, and the two agree on the shape, which is what was in question. **The
+extrapolation is now a slope rather than a guess**, and the answer is that no layer this
+product is likely to hold reaches the ceiling by size alone.
+
+### A lock wait: constructed, and the ceiling holds to the second
+
+Two sessions. One takes `ACCESS EXCLUSIVE` on the table and holds it past the budget; the
+other reads and is timed.
+
+| `statement_timeout` | `lock_timeout` | Blocked for | Ended by |
+|---|---|---|---|
+| 3 s | unset | **3.31 s** | `canceling statement due to statement timeout` |
+| **30 s** — the configured ceiling | unset | **30.30 s** | `canceling statement due to statement timeout` |
+| 30 s | 2 s | **2.30 s** | `canceling statement due to lock timeout` |
+| — | — | 0.296 s | completed, unblocked control |
+
+**Three findings.**
+
+**The number does the job it now exists for.** `statement_timeout` fires on a lock wait
+— this was not obvious, because a blocked statement is not running — and it fires at the
+budget, to within 300 ms of it at both 3 s and 30 s.
+
+**And the cost is exactly D-08's stated one.** The read that takes 296 ms unblocked
+occupies its pooled connection for **30.30 seconds**, a hundredfold, while every layer
+sharing that data source waits behind it. That is the sentence D-08 was opened on, now
+with a number under it.
+
+**`lock_timeout` separates the two cases and nothing sets it.** With it at 2 s the wait
+ends in 2.30 s with a **different SQLSTATE** — `55P03` rather than `57014` — which is the
+distinction *waiting for somebody* versus *running too long*. `LayerConnections`
+preserves whatever `Options` an operator set, so a deployment can set it today. **Doing so
+is not yet advisable**: `55P03` reaches `ErrorResponse` with no arm of its own and is
+answered *a database this server depends on is unreachable*, which is
+[D-150](../../docs/architecture-debt.md).
+
+ADR-007 §4.8's quiesce — *drain its connections, hold its requests, let the DBA work,
+resume* — is still the mechanism that would make the behaviour under DDL a choice rather
+than an accident, and it is still absent. It is tracked as an obligation in
+[architecture-completeness.md](../../docs/architecture-completeness.md) rather than here:
+this benchmark's question was what the number bounds, and the answer is that it bounds
+this, for thirty seconds, at the price above.
+
+## What this still cannot say
 
 **Concurrency.** Every number here is one request at a time. Under load the same statement
 costs more, and how much more is ADR-046's measurement rather than this one.
