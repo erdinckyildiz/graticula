@@ -59,7 +59,22 @@ internal sealed record PublishRequest(
     // not a reason for this server to decline to serve it — and every layer published
     // before today was published without the question being asked. So the count is
     // *always reported* and the refusal is asked for by whoever wants it.
-    bool RequireValidGeometry = false);
+    bool RequireValidGeometry = false,
+
+    // <b>D-156: the override [geometry-crs-policy](../../docs/geometry-crs-policy.md) §2
+    // asks for, made something somebody has to type.</b> That section wants a definition
+    // able to say *the declared SRID is wrong, treat this as EPSG:x*, because a registered
+    // read-only source cannot be corrected at its own table. It also wants the mismatch
+    // detected and never published over silently, and only the first half shipped — so the
+    // capability existed with no sentence attached to it.
+    //
+    // <b>Off by default, and that is the opposite decision from `RequireValidGeometry`
+    // above.</b> Invalid geometry is a fact about somebody else's data and refusing over it
+    // is the caller's choice; a reference that disagrees with its own table is a fact about
+    // *this publish*, and everything downstream — the extent, the tile envelope, `outSR` —
+    // is arithmetically correct and geographically wrong. That failure has no error and no
+    // visual signature, so the default has to be the one that stops.
+    bool OverrideDeclaredSrid = false);
 
 /// <summary>Who receives everything a member owns.</summary>
 /// <param name="To">The receiving member's sign-in name.</param>
@@ -4912,6 +4927,53 @@ internal static class AdminEndpoints
         }
     }
 
+    /// <summary>
+    /// Asks the source whether the declared reference is the one it holds.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same shape as <see cref="ValidityOfSourceAsync"/> and for the same reason
+    /// — D-53's argument applied to D-156.</b> Before the write, so a refusal leaves
+    /// nothing behind; its own short bound, because a publish is interactive; and
+    /// <see langword="null"/> for *could not ask* rather than a guess. The difference is
+    /// what happens next: an unscannable table is still servable, so validity may be
+    /// unmeasured and publish anyway, while an unverifiable reference is the thing being
+    /// declared — and that distinction is made by the caller, not here.
+    /// </remarks>
+    private static async Task<DeclaredReference?> DeclaredReferenceOfSourceAsync(
+        IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
+    {
+        try
+        {
+            if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
+                    .ConfigureAwait(false) is not { Length: > 0 } connection)
+            {
+                return null;
+            }
+
+            NpgsqlDataSourceBuilder builder = new(connection);
+
+            // <b>Ten seconds, not thirty.</b> This is an aggregate over an index-backed
+            // extent rather than a sequential validity pass, and a publisher waiting on
+            // a reference check is waiting on one number.
+            builder.ConnectionStringBuilder.CommandTimeout = 10;
+
+            await using NpgsqlDataSource source = builder.Build();
+
+            return await DeclaredReference.MeasureAsync(
+                source,
+                publication.SchemaName,
+                publication.TableName,
+                publication.GeometryColumn,
+                publication.Srid,
+                cancellation).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is NpgsqlException or ArgumentException
+            or InvalidOperationException or TimeoutException)
+        {
+            return null;
+        }
+    }
+
     private static async Task PublishAsync(
         HttpContext context,
         PublishRequest request,
@@ -5036,6 +5098,42 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>D-156: never publish silently over a reference that disagrees with its
+        // table.</b> geometry-crs-policy §2 asks for the mismatch to be detected and for
+        // the override to be explicit, and until 2026-08-24 this path took `srid` from the
+        // request body, checked that it was a positive integer, and never looked at what
+        // the column held — while the probe that listed the table had reported its real
+        // SRID a hundred lines earlier.
+        //
+        // <b>Refuses rather than warns, and the choice is the failure's shape.</b> A layer
+        // published under the wrong reference answers every request successfully: the
+        // extent is computed from it, the tile envelope is transformed into it, `outSR`
+        // reprojects from it, and each of those is arithmetically correct and
+        // geographically wrong. A warning in a response body is read once; the data is
+        // wrong for as long as it is published.
+        //
+        // <b>Unmeasured is not a refusal.</b> A source this server cannot scan is still a
+        // source it can serve — the same reasoning as the validity probe above — so a null
+        // check publishes.
+        DeclaredReference? reference = await DeclaredReferenceOfSourceAsync(
+            catalog, publication, cancellation).ConfigureAwait(false);
+
+        if (!request.OverrideDeclaredSrid && reference is { Agrees: false } mismatch)
+        {
+            await Refuse(
+                context, 422,
+                $"'{publication.SchemaName}.{publication.TableName}' was not published "
+                + $"because {mismatch.Complaint}. Publishing over that would answer every "
+                + "request successfully and put the data somewhere it is not — there is no "
+                + "error to see afterwards, because every calculation downstream is correct "
+                + "and the reference under it is not. Republish with the reference the table "
+                + "holds, or send overrideDeclaredSrid: true if the table's own declaration "
+                + "is the wrong one and you mean to correct it here.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         try
         {
             PublishedLayerAddress published = await catalog
@@ -5053,6 +5151,15 @@ internal static class AdminEndpoints
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
                     invalidGeometries = validity?.Invalid,
+
+                    // <b>An override is the interesting row in this log.</b> It is
+                    // somebody saying the table's own declaration is wrong, which is
+                    // exactly the act geometry-crs-policy §2 allows and exactly the one
+                    // a later reader will want to find.
+                    declaredSrid = publication.Srid,
+                    storedSrid = reference?.Stored,
+                    overrodeDeclaredSrid = request.OverrideDeclaredSrid
+                        && reference is { Agrees: false },
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
