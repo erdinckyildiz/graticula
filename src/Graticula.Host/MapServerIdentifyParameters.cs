@@ -61,6 +61,14 @@ internal sealed class MapServerIdentifyParameters
         parsed = null;
         error = null;
 
+        // <b>Refused rather than dropped, [D-125](../../docs/architecture-debt.md).</b>
+        // See SilentlyDroppedFilter: this face took `layerDefs` and ignored it, which is
+        // the one failure the caller cannot see.
+        if (!SilentlyDroppedFilter.Absent(parameter("layerDefs"), "layerDefs", out error))
+        {
+            return false;
+        }
+
         if (!TryPoint(parameter("geometry"), parameter("geometryType"), out double x, out double y, out error))
         {
             return false;

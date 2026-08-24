@@ -70,6 +70,14 @@ internal sealed class MapServerExportParameters
         parsed = null;
         error = null;
 
+        // <b>Refused rather than dropped, [D-125](../../docs/architecture-debt.md).</b>
+        // See SilentlyDroppedFilter: this face took `layerDefs` and ignored it, which is
+        // the one failure the caller cannot see.
+        if (!SilentlyDroppedFilter.Absent(parameter("layerDefs"), "layerDefs", out error))
+        {
+            return false;
+        }
+
         if (!TryExtent(parameter("bbox"), out Envelope extent, out error))
         {
             return false;

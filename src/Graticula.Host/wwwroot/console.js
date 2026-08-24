@@ -2755,7 +2755,7 @@ async function showService(qualified) {
   // bounds to set, and asking the server which kind this is beats guessing from the shape of a
   // document that 404s for the other kind. `/limits` exists only for a system service, so its
   // answer is the question.
-  const limits = await loadServiceLimits(name);
+  const limits = await loadServiceLimits(name, folder);
 
   if (limits) {
     $("serviceFacts").textContent = `${limits.kind} · no layers`;
@@ -4107,7 +4107,7 @@ function drawLosses(losses) {
  * @param {string} name the service's name within its folder
  * @returns the limits document for a system service, or null for anything else
  */
-async function loadServiceLimits(name) {
+async function loadServiceLimits(name, folder) {
   const panel = $("serviceLimits");
   if (!panel) return;
 
@@ -4117,7 +4117,12 @@ async function loadServiceLimits(name) {
 
   let limits;
   try {
-    limits = await api(`/admin/services/${encodeURIComponent(name)}/limits`);
+    // <b>The folder, because `/admin/services/{name}` used to mean two things.</b> D-39: a
+    // published service named Geometry would have had its settings land on the system geometry
+    // server. The server tells them apart by folder now, so a call that omits it is a call about
+    // the root — which is where the system services are not.
+    limits = await api(`/admin/services/${encodeURIComponent(name)}/limits`
+      + `?folder=${encodeURIComponent(folder || "")}`);
   } catch {
     // A feature service has no such route, which is the ordinary case rather than a fault. Null
     // is the answer to "is this a system service", which is what the caller asked.
@@ -4709,6 +4714,7 @@ async function loadServices() {
 
         <td class="acts">${r.system ? `
           <button class="tiny" data-system-status="${h(r.name)}"
+            data-system-folder="${h(r.folder || "")}"
             data-to="${stopped ? "start" : "stop"}"
             title="${stopped ? "Answer this service's operations again"
               : "Answer 503 for every operation on this service, without changing who may call it"}"
@@ -8880,7 +8886,8 @@ async function handleClick(event) {
 
     t.disabled = true;
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(name)}/limits`, {
+      const r = await api(`/admin/services/${encodeURIComponent(name)}/limits`
+        + `?folder=${encodeURIComponent((serviceOpen && serviceOpen.folder) || "")}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(clearing
@@ -8895,14 +8902,15 @@ async function handleClick(event) {
       toast(r.note, true);
     } catch (e) { toast(e.message); }
     t.disabled = false;
-    await section("limits", () => loadServiceLimits(name));
+    await section("limits", () => loadServiceLimits(name, serviceOpen && serviceOpen.folder));
     return;
   }
 
   if (d.systemStatus) {
     t.disabled = true;
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.systemStatus)}/${d.to}`,
+      const r = await api(`/admin/services/${encodeURIComponent(d.systemStatus)}/${d.to}`
+        + `?folder=${encodeURIComponent(d.systemFolder || "")}`,
         { method: "POST" });
       toast(`${d.systemStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
     } catch (e) { toast(e.message); }

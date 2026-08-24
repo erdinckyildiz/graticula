@@ -377,13 +377,13 @@ internal static class AdminEndpoints
         // geometry service had no start and no stop, and the answer was that nothing had given
         // it one — <c>system_service</c> carried sharing and nothing else. Two routes rather
         // than a PUT with a body, matching the layer pair, so an operator learns one shape.
-        app.MapPost("/admin/services/{name}/start", (HttpContext c, string name,
+        app.MapPost("/admin/services/{name}/start", (HttpContext c, string name, string? folder,
             PostgresSystemServices y, IAuditLog l, CancellationToken t) =>
-            SetSystemStatusAsync(c, name, ServiceStatus.Started, y, l, t));
+            SetSystemStatusAsync(c, name, folder, ServiceStatus.Started, y, l, t));
 
-        app.MapPost("/admin/services/{name}/stop", (HttpContext c, string name,
+        app.MapPost("/admin/services/{name}/stop", (HttpContext c, string name, string? folder,
             PostgresSystemServices y, IAuditLog l, CancellationToken t) =>
-            SetSystemStatusAsync(c, name, ServiceStatus.Stopped, y, l, t));
+            SetSystemStatusAsync(c, name, folder, ServiceStatus.Stopped, y, l, t));
 
         // <b>The bounds, readable and writable.</b> The owner asked why they could not define the
         // timeout — *"iyi de neden yok. yani ben neden max timeout süresi tanımlayamıyorum?"* —
@@ -2491,6 +2491,59 @@ internal static class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// A system service by name, but only when the caller asked for the folder it is in.
+    /// </summary>
+    /// <param name="services">Where system services live.</param>
+    /// <param name="name">The bare name from the route.</param>
+    /// <param name="folder">The folder the caller named, or null for the root.</param>
+    /// <param name="cancellation">The request's token.</param>
+    /// <returns>The system service, or null when the caller meant a different one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-39](../../docs/architecture-debt.md): <c>/admin/services/{name}</c> means two
+    /// different things.</b> <c>…/sharing</c> reached a system service, <c>…/groups</c> and
+    /// <c>…/style</c> reached a published one, and a published service named <c>Geometry</c> would
+    /// have made a sharing change land on the geometry server instead. Latent, because no
+    /// published service has that name — and a latent collision is one nobody notices until
+    /// somebody publishes a layer and names it after a utility.
+    /// </para>
+    /// <para>
+    /// <b>The row prescribed a route rename, and this is not one.</b> A rename moves eighteen
+    /// console call sites and thirteen test ones to fix a collision that has a smaller cause: the
+    /// lookup ignored a parameter it already had. A system service lives in a folder —
+    /// <c>Utilities/Geometry</c> — and every one of these routes already carries <c>?folder=</c>,
+    /// because the published services they share the path with need it. Asking whether the folder
+    /// matches makes the two addresses distinct, which is what the rename was for.
+    /// </para>
+    /// <para>
+    /// <b>What this makes true.</b> <c>hosted/Geometry</c> resolves to the published service,
+    /// because its folder is not <c>Utilities</c>. A root-level <c>Geometry</c> resolves to the
+    /// published one for the same reason. <c>Utilities/Geometry</c> resolves to the system one.
+    /// There is no name that reaches the wrong thing, and no name that reaches nothing it used to
+    /// reach: the console asks for the system service with its own folder, which is what the
+    /// listing gave it.
+    /// </para>
+    /// </remarks>
+    private static async Task<SystemService?> SystemServiceAsync(
+        PostgresSystemServices services,
+        string name,
+        string? folder,
+        CancellationToken cancellation)
+    {
+        SystemService? found = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+
+        if (found is not { } service)
+        {
+            return null;
+        }
+
+        string asked = folder?.Trim() ?? string.Empty;
+        string lives = service.Folder ?? string.Empty;
+
+        return string.Equals(asked, lives, StringComparison.OrdinalIgnoreCase) ? service : null;
+    }
+
     /// <summary>Drops the stored style, returning the service to the generated one.</summary>
     private static async Task DeleteStyleAsync(
         HttpContext context,
@@ -2580,7 +2633,8 @@ internal static class AdminEndpoints
 
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
 
-        SystemService? before = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+        SystemService? before = await SystemServiceAsync(services, name, folder, cancellation)
+            .ConfigureAwait(false);
 
         if (before is null)
         {
@@ -6080,6 +6134,7 @@ internal static class AdminEndpoints
     private static async Task GetSystemLimitsAsync(
         HttpContext context,
         string name,
+        string? folder,
         PostgresSystemServices services,
         IGeometryEngine engine,
         HostSettings settings,
@@ -6091,7 +6146,8 @@ internal static class AdminEndpoints
             return;
         }
 
-        SystemService? found = await services.FindAsync(name, cancellation).ConfigureAwait(false);
+        SystemService? found = await SystemServiceAsync(services, name, folder, cancellation)
+            .ConfigureAwait(false);
 
         if (found is not { } service)
         {
@@ -6172,6 +6228,7 @@ internal static class AdminEndpoints
     private static async Task SetSystemLimitsAsync(
         HttpContext context,
         string name,
+        string? folder,
         SystemLimitsRequest request,
         PostgresSystemServices services,
         IAuditLog audit,
@@ -6295,6 +6352,7 @@ internal static class AdminEndpoints
     private static async Task SetSystemStatusAsync(
         HttpContext context,
         string name,
+        string? folder,
         ServiceStatus status,
         PostgresSystemServices services,
         IAuditLog audit,
@@ -6303,6 +6361,16 @@ internal static class AdminEndpoints
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
             .ConfigureAwait(false))
         {
+            return;
+        }
+
+        // <b>D-39: the folder is what says which service this is.</b> Asked for before the write,
+        // because `SetStatusAsync` matches on the name alone and would start the geometry server
+        // for a caller who meant a published service that happens to share its name.
+        if (await SystemServiceAsync(services, name, folder, cancellation).ConfigureAwait(false)
+            is null)
+        {
+            await Refuse(context, 404, $"No system service '{name}'.").ConfigureAwait(false);
             return;
         }
 

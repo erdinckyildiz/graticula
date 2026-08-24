@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(32);
+    public static SchemaVersion ComponentSchemaVersion => new(33);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -67,6 +67,7 @@ public static class PlatformMigrations
         CoveragesV30,
         LogsV31,
         JobClaimIdentityV32,
+        OwnerKeysV33,
     ]);
 
 
@@ -170,6 +171,77 @@ public static class PlatformMigrations
     /// by the only shape there has ever been.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The two owner columns anything reads gain the key the dead one already had.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-66](../../../docs/architecture-debt.md): the one owner column nothing reads has a
+    /// foreign key; the two that are read have none.</b> <c>layer.owner_principal_id</c> —
+    /// vestigial since migration 11 moved ownership onto the service — carries
+    /// <c>references principal on delete set null</c>. <c>service.owner_principal_id</c> and
+    /// <c>folder.owner_principal_id</c>, which the catalogue reports and the console displays,
+    /// carried none. Measured against the live schema on 2026-08-18: both counts zero.
+    /// </para>
+    /// <para>
+    /// <b>What that permitted.</b> A plain <c>delete from principal</c> cascaded the credential,
+    /// the sessions, the roles and the api keys, set the dead column to null, and left every
+    /// service and folder that member owned pointing at a principal that does not exist — with
+    /// nothing raised. The catalogue reports an owner by joining to <c>principal</c>, so the
+    /// orphan reports no owner, which is indistinguishable from a service published before
+    /// ownership was recorded. The fact is simply gone.
+    /// </para>
+    /// <para>
+    /// <b><c>on delete set null</c>, matching the key that was already here.</b> Not
+    /// <c>restrict</c>: a member delete that a foreign key refuses is a delete an administrator
+    /// cannot complete, and [ADR-015](../../../docs/adr/ADR-015-authentication.md) §6c already
+    /// requires a disposition — this is the floor under that rule, not a second copy of it. Not
+    /// <c>cascade</c>, which would delete somebody's services because their account was removed.
+    /// </para>
+    /// <para>
+    /// <b>An expand, and it is worth saying why a constraint counts as one.</b> Nothing is
+    /// dropped and no column changes shape, so a previous release runs unchanged against this
+    /// schema — it writes owner ids that are principal ids, because that is all it has ever
+    /// written. What the constraint forbids is a value no version of this server produces. §6c's
+    /// dispositions are what keep the rows valid; this is what catches the writer who has not
+    /// read §6c.
+    /// </para>
+    /// <para>
+    /// <b>Orphans are cleared first, in the same migration.</b> Adding the constraint to a table
+    /// that already holds a dangling id fails, and a migration that fails on somebody's data
+    /// leaves them with a server that will not start. There were none here — measured — but a
+    /// deployment that deleted a principal by hand before this shipped is exactly who this is
+    /// for, and setting the column null is what the constraint would have done at the time.
+    /// </para>
+    /// </remarks>
+    private static Migration OwnerKeysV33 => Migration.Expand(
+        new SchemaVersion(33),
+        "A service's and a folder's owner is a principal that exists (D-66).",
+
+        """
+        update service set owner_principal_id = null
+         where owner_principal_id is not null
+           and not exists (select 1 from principal p where p.id = service.owner_principal_id)
+        """,
+
+        """
+        update folder set owner_principal_id = null
+         where owner_principal_id is not null
+           and not exists (select 1 from principal p where p.id = folder.owner_principal_id)
+        """,
+
+        """
+        alter table service
+          add constraint service_owner_is_a_principal
+          foreign key (owner_principal_id) references principal (id) on delete set null
+        """,
+
+        """
+        alter table folder
+          add constraint folder_owner_is_a_principal
+          foreign key (owner_principal_id) references principal (id) on delete set null
+        """);
+
     private static Migration JobClaimIdentityV32 => Migration.Expand(
         new SchemaVersion(32),
         "A job records who claimed it and which request shape it was written in (D-96).",
