@@ -1105,6 +1105,77 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def an_answered_question_still_filed_as_open():
+    """A question whose own row opens with its answer, still under an Open heading.
+
+    **Nine of them on 2026-08-24, and the page counted every one as live
+    uncertainty.** `status-page.py` takes resolution from the section heading
+    rather than from the text, deliberately: the version that read the text
+    reported 93 of 95 questions open, which is the kind of confidently wrong
+    number a status page exists to avoid. The cost of that choice is this --
+    a row that answers itself in place is a row the page cannot see the answer
+    in -- and it accumulated silently over eleven days.
+
+    **Eight had the answer in the question cell and one in *Resolves in*
+    ([Q-89](../docs/open-questions.md)), which is why the first sweep found
+    eight.** So every cell is read, not the second one.
+
+    **Narrow, because a question may legitimately mention another's answer.**
+    Q-92's original text opened *"Q-59 has stopped being merely open"* and its
+    body said *"Q-59 is answered"*; neither is this defect. The rule is that the
+    verdict is the cell's **first word** -- bold markers allowed, nothing else
+    before it -- which is what all nine looked like and what a passing mention
+    never does.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "open-questions.md")
+
+    try:
+        lines = io.open(path, encoding="utf-8").read().splitlines()
+    except OSError as problem:
+        return [f"open-questions.md could not be read: {problem}"]
+
+    answered = next(
+        (i for i, line in enumerate(lines) if line.startswith("## Answered")), len(lines))
+
+    verdict = re.compile(
+        r"^\*{0,2}(ANSWERED|Answered|RESOLVED|Resolved|Re-answered|Re-ANSWERED"
+        r"|DISSOLVED|Dissolved|WITHDRAWN|Withdrawn)\b")
+
+    problems = []
+    rows = 0
+
+    for line in lines[:answered]:
+        cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+        if len(cells) < 2 or not re.match(r"^Q-\d+$", cells[0]):
+            continue
+
+        # A struck question is withdrawn and its shape is settled.
+        if cells[1].startswith("~~"):
+            continue
+
+        rows += 1
+
+        for which, cell in enumerate(cells[1:], start=1):
+            found = verdict.match(cell)
+            if not found:
+                continue
+
+            problems.append(
+                f'{cells[0]} is filed under an open heading and its own cell {which} opens '
+                f'"{found.group(1)}". The page classifies by section, so the answer is invisible '
+                "to it and the question is counted as live uncertainty. Move the row into "
+                "Answered; nine had accumulated when this check was written.")
+            break
+
+    if rows < 30:
+        problems.append(
+            f"only {rows} open questions were parsed, so this check is reading nothing. A check "
+            "that cannot fail is worse than no check.")
+
+    return problems
+
+
 def an_open_question_that_asks_without_saying_why():
     """An open question recorded as a sentence and nothing else.
 
@@ -1375,6 +1446,7 @@ def main() -> int:
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()
                 + an_open_question_that_asks_without_saying_why()
+                + an_answered_question_still_filed_as_open()
                 + source_the_repository_would_not_receive())
 
     if problems:
