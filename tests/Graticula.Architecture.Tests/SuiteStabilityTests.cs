@@ -219,4 +219,101 @@ public sealed class SuiteStabilityTests
             + "list and two of them would have read a full page as an empty one.\n  "
             + string.Join("\n  ", offenders));
     }
+
+    /// <summary>
+    /// Every page the console serves is covered by every guard that claims to cover every page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>D-46, found inside D-46's own named remedy.</b> That row calls the enumerating form
+    /// the fix — <c>Every_file_a_console_page_asks_for_is_permitted</c> walks whatever a page
+    /// references, "which is the property the other two lack" — and then the enumerating test
+    /// carried its own hand-typed list of pages, as did the inline-script guard beside it, and
+    /// the two disagreed. Four pages against three: <c>/studio/view.html</c> was checked for a
+    /// permitted subresource and not for an inline script it must never carry. The page
+    /// happened to be clean, so nothing was broken; what was missing was the reason to believe
+    /// it would stay that way.
+    /// </para>
+    /// <para>
+    /// <b>So the list is read rather than written.</b> <c>Program</c> serves one physical
+    /// <c>wwwroot</c> under two request paths, so the set of console pages is the set of
+    /// <c>.html</c> files in that directory, and a new one is covered the moment it is added
+    /// rather than when somebody remembers two <c>[Theory]</c> attributes. This is the same
+    /// argument the class-selector check one method along already makes: a hard-coded list is a
+    /// second place to keep in step, which is the defect rather than the repair.
+    /// </para>
+    /// <para>
+    /// <b>What it does not claim.</b> Not every guard should walk every page.
+    /// <c>The_console_reads_its_session_before_it_paints</c> is about <c>session.js</c>, which
+    /// only the two shells load, and its two-page list is correct. The rule is scoped to the
+    /// guards whose own names say <em>console page</em> — those are the ones whose coverage is
+    /// a claim about all of them.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_console_page_is_covered_by_every_guard_that_claims_all_of_them()
+    {
+        DirectoryInfo root = Root();
+        string web = Path.Combine(root.FullName, "src", "Graticula.Host", "wwwroot");
+
+        // The default document answers the surface root; the rest answer their own name. Both
+        // spellings are accepted, because a guard naming `/studio/` is covering `index.html`.
+        Dictionary<string, string[]> spellings = new(StringComparer.Ordinal);
+
+        foreach (string file in Directory.EnumerateFiles(web, "*.html"))
+        {
+            string name = Path.GetFileName(file);
+
+            spellings[name] = name == "index.html"
+                ? ["/server/", "/studio/"]
+                : [$"/server/{name}", $"/studio/{name}"];
+        }
+
+        Assert.True(
+            spellings.Count > 1,
+            $"Only {spellings.Count} console page(s) were found under {web}, which means the "
+            + "console moved and this check is reading nothing. A check that cannot fail is "
+            + "worse than no check.");
+
+        string guards = Path.Combine(
+            root.FullName, "tests", "Graticula.Conformance.Tests",
+            "SecurityHeaderConformanceTests.cs");
+
+        string source = File.ReadAllText(guards);
+        List<string> missing = [];
+
+        // A guard is its `[InlineData]` run, and it ends at the method the attributes decorate.
+        foreach (Match guard in Regex.Matches(
+                     source,
+                     "((?:\\s*\\[InlineData\\(\"[^\"]+\"\\)\\])+)\\s*public\\s+async\\s+Task\\s+"
+                     + "(\\w*console_page\\w*)\\("))
+        {
+            string method = guard.Groups[2].Value;
+
+            HashSet<string> covered = Regex.Matches(guard.Groups[1].Value, "\"([^\"]+)\"")
+                .Select(path => path.Groups[1].Value)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (KeyValuePair<string, string[]> page in spellings)
+            {
+                if (!page.Value.Any(covered.Contains))
+                {
+                    missing.Add($"{method} does not cover {page.Key} ({string.Join(" or ", page.Value)})");
+                }
+            }
+        }
+
+        Assert.True(
+            missing.Count > 0 || Regex.IsMatch(source, "\\w*console_page\\w*\\("),
+            "No guard in SecurityHeaderConformanceTests names a console page, so this check "
+            + "matched nothing. Either the guards were renamed or they were removed.");
+
+        Assert.True(
+            missing.Count == 0,
+            "A guard whose name claims every console page is missing one. The console serves one "
+            + "directory under two paths, so adding a page adds it to every surface at once — and "
+            + "a guard that lists its pages by hand does not follow. Read the directory, or add "
+            + "the page to the attribute. D-46.\n  "
+            + string.Join("\n  ", missing));
+    }
 }

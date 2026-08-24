@@ -331,6 +331,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     [InlineData("/server/")]
     [InlineData("/studio/")]
     [InlineData("/studio/map.html")]
+    [InlineData("/studio/view.html")]
     public async Task No_console_page_carries_an_inline_script(string path)
     {
         using HttpResponseMessage page = await GetAsync(path, "text/html");
