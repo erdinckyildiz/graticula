@@ -382,41 +382,64 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
     [Fact]
     public async Task Pages_do_not_overlap_or_skip()
     {
-        string name = await FirstServiceNameAsync();
+        // <b>Every service, not the first — [D-65](../../docs/architecture-debt.md), and this
+        // test is the reason that row exists.</b> It sat in the suite passing for the four days
+        // that three of the owner's ten layers were skipping rows, because it asked its question
+        // of whichever service the catalogue listed first, and that one was small enough for heap
+        // order to be identity order. It went red the moment an unrelated change moved which
+        // service came first. **D-65's own resolution claimed this test had been widened with
+        // three others and it had not** — measured 2026-08-24, it was still taking the first
+        // service — so the register recorded the intention and the file kept the habit.
+        int examined = 0;
 
-        JsonElement first = await GetJsonAsync(
-            $"/rest/services/{name}/FeatureServer/0/query"
-            + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=0");
-
-        if (first.GetProperty("features").GetArrayLength() < 2)
+        foreach (string name in await EveryServiceNameAsync())
         {
-            // Fewer than two features, so there is no second page to compare.
-            // A fact about the fixture, not a failure.
-            return;
+            JsonElement first = await GetJsonAsync(
+                $"/rest/services/{name}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=0");
+
+            if (first.GetProperty("features").GetArrayLength() < 2)
+            {
+                // Fewer than two features, so there is no second page to compare.
+                // A fact about the fixture, not a failure.
+                continue;
+            }
+
+            JsonElement second = await GetJsonAsync(
+                $"/rest/services/{name}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=1");
+
+            string oid = first.GetProperty("objectIdFieldName").GetString()!;
+
+            int[] page1 =
+            [
+                .. first.GetProperty("features").EnumerateArray()
+                    .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
+            ];
+
+            int[] page2 =
+            [
+                .. second.GetProperty("features").EnumerateArray()
+                    .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
+            ];
+
+            // Offset one, page size two: the second row of page one must be the
+            // first row of page two. Anything else means the order moved between
+            // requests, which is the failure pagination without an order produces.
+            Assert.Equal(page1[1], page2[0]);
+
+            examined++;
         }
 
-        JsonElement second = await GetJsonAsync(
-            $"/rest/services/{name}/FeatureServer/0/query"
-            + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=2&resultOffset=1");
-
-        string oid = first.GetProperty("objectIdFieldName").GetString()!;
-
-        int[] page1 =
-        [
-            .. first.GetProperty("features").EnumerateArray()
-                .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
-        ];
-
-        int[] page2 =
-        [
-            .. second.GetProperty("features").EnumerateArray()
-                .Select(f => f.GetProperty("attributes").GetProperty(oid).GetInt32()),
-        ];
-
-        // Offset one, page size two: the second row of page one must be the
-        // first row of page two. Anything else means the order moved between
-        // requests, which is the failure pagination without an order produces.
-        Assert.Equal(page1[1], page2[0]);
+        // <b>A universal claim that examined nothing is a claim about nothing.</b> The same
+        // guard the other three widened checks carry, and the reason they carry it: a server
+        // whose services all held one feature would pass every assertion above by never
+        // reaching one.
+        Assert.True(
+            examined > 0,
+            "No service had two features, so paging was never exercised and this test proved "
+            + "nothing. D-65: a test whose coverage is a fact about the data reports on the "
+            + "data rather than on the server.");
     }
 
     [Fact]
