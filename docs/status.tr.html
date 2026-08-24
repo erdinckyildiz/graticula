@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>9e73ebe</code> · 2026-08-24 22:37</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d90cf08</code> · 2026-08-24 22:39</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">46</div><div class="kpi-l">ADR</div><div class="kpi-n">1 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">104/192</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">88 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">57</div><div class="kpi-l">açık soru</div><div class="kpi-n">77 yanıtlandı · 3 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">56</div><div class="kpi-l">açık soru</div><div class="kpi-n">78 yanıtlandı · 3 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">açık borç</div><div class="kpi-n">126 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -287,7 +287,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-86</span><span class="owner">Council</span></div><p>§82 answer, per newly-scoped capability — sweep S3, severe.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-87</span><span class="owner">Council</span></div><p>Where does DuckDB execute — job worker or request path?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-89</span><span class="owner">Council</span></div><p>Does v1 build ADR-005&#x27;s protocol-neutral internal interface, or the ArcGIS surface directly?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-91</span><span class="owner">Council</span></div><p>How does a streaming response report a failure that happens after bytes are on the wire?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-99</span><span class="owner">Council</span></div><p>Do ArcGIS&#x27;s geometry editing operations — autoComplete, reshape, trimExtend — belong on GeometryServer or on FeatureServer?</p></article>
 </div></section>
@@ -430,6 +429,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d90cf08</code><time>2026-08-24</time><span>Q-123&#x27;s question cell was four days behind its own resolution cell</span></li>
 <li><code>9e73ebe</code><time>2026-08-24</time><span>Q-36 has already been half-answered by the build, and nobody wrote that down</span></li>
 <li><code>045c332</code><time>2026-08-24</time><span>Regenerate the board at 57 open questions and 27 open debts</span></li>
 <li><code>101f96c</code><time>2026-08-24</time><span>Q-46 was answered by removing its premise: a fast operation is not a job</span></li>
@@ -443,7 +443,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>be185ae</code><time>2026-08-24</time><span>Eight questions answered themselves in place, so the page counted them open</span></li>
 <li><code>1114614</code><time>2026-08-24</time><span>Q-52 and Q-33 each existed twice, and the Control Room counted the stale half</span></li>
 <li><code>931981a</code><time>2026-08-24</time><span>The questions table had a second splitter, and it did not know about \|</span></li>
-<li><code>6575f2a</code><time>2026-08-24</time><span>Regenerate the board after the question fills</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
