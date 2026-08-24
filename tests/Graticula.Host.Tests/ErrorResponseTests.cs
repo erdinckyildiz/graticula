@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using Graticula.Platform.Secrets;
+using Microsoft.AspNetCore.Http;
 using Npgsql;
 using Xunit;
 
@@ -239,6 +240,7 @@ public sealed class ErrorResponseTests
         arms.Add("filter type mismatch", mismatch);
         arms.Add("missing function", WithSqlState("42883"));
         arms.Add("missing column", WithSqlState("42703"));
+        arms.Add("lock wait cut", WithSqlState("55P03"));
         arms.Add("credential refused", WithSqlState("42501"));
         arms.Add("password refused", WithSqlState("28P01"));
         arms.Add("secret unopenable", new SecretProtectionException("sealed with another key"));
@@ -352,5 +354,44 @@ public sealed class ErrorResponseTests
             + "which is too short to say what to do about it. Scoping the detail is not a "
             + "licence to drop the advice.");
         Assert.EndsWith(".", message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A lock wait is not reported as an outage.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-150](../../docs/architecture-debt.md), and the fifth time this file has mistaken a
+    /// specific fault for a connectivity failure</b> — after <c>XX000</c>, <c>23505</c>,
+    /// <c>42883</c> and <c>42703</c>. PostgreSQL raises <c>55P03</c> when <c>lock_timeout</c>
+    /// cuts a statement that is *waiting* rather than running. There was no arm for it, and
+    /// <c>PostgresException</c> derives from <c>NpgsqlException</c>, so it fell to the general
+    /// branch and was answered <em>a database this server depends on is unreachable</em> —
+    /// measured before the repair. The database is up and a DBA is holding a lock.
+    /// </para>
+    /// <para>
+    /// <b>Caught before anybody met it, which is the unusual part.</b> Nothing sets
+    /// <c>lock_timeout</c> today, so the state is unreachable in a default deployment — it was
+    /// found by taking [D-08](../../docs/architecture-debt.md)'s own advice about setting one
+    /// and looking at what happened next.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_lock_wait_is_not_reported_as_an_unreachable_database()
+    {
+        (int status, string message) = ErrorResponse.Classify(WithSqlState("55P03"));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, status);
+
+        // The operator is sent to whoever holds the lock, not to the network.
+        Assert.Contains("locked", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("unreachable", message, StringComparison.OrdinalIgnoreCase);
+
+        // <b>And it must say the query did not run.</b> A caller who believes a partial answer
+        // was possible reads a retry as a duplicate risk; this one is safe to retry precisely
+        // because nothing happened.
+        Assert.Contains("never ran", message, StringComparison.OrdinalIgnoreCase);
+
+        // <b>No Retry-After.</b> Nobody here knows how long a DBA holds a lock, and a number
+        // invented for the header makes every client that believes it retry in lockstep.
+        Assert.Null(ErrorResponse.RetryAfterFor(WithSqlState("55P03")));
     }
 }

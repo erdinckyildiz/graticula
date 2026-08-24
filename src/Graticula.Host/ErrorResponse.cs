@@ -510,6 +510,35 @@ internal static class ErrorResponse
             + "needs republishing against the columns the table actually has.",
             NeedsAnAdministrator),
 
+        // <b>A lock wait is not an outage, and it was answered as one — D-150.</b> PostgreSQL
+        // raises 55P03 when `lock_timeout` cuts a statement that is *waiting* rather than
+        // running, and nothing here had an arm for it: `PostgresException` derives from
+        // `NpgsqlException`, so it fell to the general branch and was answered *a database this
+        // server depends on is unreachable*. Measured 2026-08-24: 503, with the sentence naming
+        // `/healthz/ready`. The database is up, connected and answering; a DBA is holding
+        // `ACCESS EXCLUSIVE` on one table, and an operator reading that goes to check the
+        // network. **The fifth time this file has mistaken a specific fault for a connectivity
+        // failure** — after `XX000`, `23505`, `42883` and `42703` — and the first one caught
+        // before somebody met it, because nothing sets `lock_timeout` yet.
+        //
+        // <b>503 rather than 504.</b> The statement never ran, so *your query was too
+        // expensive* is the wrong story; something else holds the table and will let go, which
+        // is temporary in the way 503 means and a timeout is not.
+        //
+        // <b>And no `Retry-After`, deliberately.</b> `RetryAfterFor` answers only where this
+        // server knows the recovery time — the breaker knows when its window closes. Nobody
+        // here knows how long a DBA will hold a lock, and a number invented for the header is
+        // worse than none: a client that believes it retries in lockstep with every other
+        // client that believed it.
+        PostgresException { SqlState: "55P03" } => new(
+            StatusCodes.Status503ServiceUnavailable,
+            "This layer's table is locked by something else — a schema change or an "
+            + "administrative operation — and the wait exceeded this service's `lock_timeout`. "
+            + "The database is healthy and the query never ran. Retry in a few seconds; if it "
+            + "persists, ask whoever is running DDL against that table.",
+            "This layer is busy while something else finishes with it. The query was not run. "
+            + "Retry in a few seconds."),
+
         PostgresException { SqlState: "42501" } or PostgresException { SqlState: "28P01" } => new(
             StatusCodes.Status503ServiceUnavailable,
             "The server could not authenticate against the layer's database, or lacks permission "
