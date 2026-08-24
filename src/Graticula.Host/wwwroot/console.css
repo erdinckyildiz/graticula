@@ -1707,6 +1707,12 @@ dialog { color: var(--ink); }
 }
 .swatches .patch .fill { position: absolute; inset: 0; }
 
+/* D-99: the shape a client will see. A line is a band across the chip rather than a filled
+   square, and a point is a dot in the middle of one — both drawn from the same colour, so a
+   reader compares colours across shapes without having to discount the shape. */
+.swatches .patch.stroke .fill { inset: 6px 0; border-radius: 1px; }
+.swatches .patch.mark .fill { inset: 4px; border-radius: 50%; }
+
 /* A document this server derived, shown as output because that is what it is. */
 pre.doc {
   margin: 8px 0 0; padding: 12px 14px; overflow: auto; max-height: 320px;

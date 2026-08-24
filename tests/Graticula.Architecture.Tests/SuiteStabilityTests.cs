@@ -421,6 +421,15 @@ public sealed class SuiteStabilityTests
             + "nothing or convert their colours somewhere this check cannot see. D-99.");
 
         Assert.Contains("/ 255", convert.Groups[1].Value, StringComparison.Ordinal);
+
+        // <b>And the shape is read from the symbol rather than assumed — D-99.</b> A square is
+        // right for a fill and wrong for a line, so the three ArcGIS symbol kinds have to reach
+        // the chip. A swatch that drew every symbol as a square would still pass every check
+        // above, because every check above is about colour.
+        foreach (string kind in new[] { "esriSLS", "esriSMS" })
+        {
+            Assert.Contains(kind, console, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>A protocol face reads the catalogue through the fallback, not around it.</summary>

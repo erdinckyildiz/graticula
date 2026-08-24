@@ -395,7 +395,7 @@ enlarges that slice rather than following it.
 | §3 | `queryRelatedRecords` is one query, not N+1 | **built**, and the reader counts its own statements so a test can prove it |
 | §7 | Publish validates a declaration's join keys | **built** — both columns must exist and be comparable |
 | §3 | Many-to-many via an intermediate table | **not built** — refused with the reason. The ADR sketches it and does not specify the second declaration it needs |
-| §3 | Composite relationships cascade on delete | **not built.** The flag is stored and nothing acts on it, which is worse than not having it — see below |
+| §3 | Composite relationships cascade on delete | **not built, and no longer claimable — amended 2026-08-24.** `RelationshipEndpoints.DeclareAsync` refuses `composite: true` with **501**, naming what is missing and what to do instead (`ON DELETE CASCADE` in the database, where PostgreSQL enforces it), and `CompositeRelationshipTests` holds the refusal with a control that declares the same relationship without the flag. So the flag can no longer be stored, reported and ignored — which was [D-26](../architecture-debt.md), now closed. **The cascade itself is still not built**, and that is an absent feature rather than a compromise: it is recorded here, which is where absent features live. |
 
 **`composite` is stored and does nothing, and that is the worst state.** §3 says
 a composite relationship cascades on delete — performed by the database where it

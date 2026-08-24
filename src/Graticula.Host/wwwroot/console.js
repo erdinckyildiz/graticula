@@ -4103,13 +4103,24 @@ function drawSwatches(drawingInfo) {
     const patch = document.createElement("span");
     patch.className = "patch";
 
+    // <b>The swatch takes the symbol's shape — D-99.</b> A square is right for a fill and
+    // wrong for everything else: a road layer drawn as a filled square says the wrong thing
+    // about what a client will see, and a point layer says it twice. ArcGIS already names the
+    // shape — `esriSFS` fills, `esriSLS` strokes, `esriSMS` marks — so the shape is read
+    // rather than guessed, which is the same rule the labels follow.
+    const kind = typeof symbol.type === "string" ? symbol.type : "";
+    if (kind === "esriSLS") patch.classList.add("stroke");
+    else if (kind === "esriSMS") patch.classList.add("mark");
+
     const fill = document.createElement("span");
     fill.className = "fill";
     fill.style.background = rgba(symbol.color);
     patch.append(fill);
 
+    // <b>A line's colour is its own, not an outline's.</b> `esriSLS` has no fill: its `color`
+    // *is* the stroke, so the band drawn across the chip takes it and the border stays clear.
     const outline = symbol.outline && rgba(symbol.outline.color);
-    if (outline) {
+    if (outline && kind !== "esriSLS") {
       patch.style.borderColor = outline;
     }
 
