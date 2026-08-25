@@ -537,7 +537,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
                    -- Q-129, on the end: the console shows a declaration that is set and
                    -- a control that shows nothing is a control nobody trusts.
-                   l.time_field
+                   l.time_field,
+
+                   -- <b>D-159, and the same sentence turned out to be literally true one
+                   -- column along.</b> The console has read `l.cacheSeconds` off this
+                   -- listing since the tile-cache control was written, and this listing
+                   -- has never selected it — so the box was blank for every layer, and
+                   -- pressing Set with a blank box sent 0, which means *never cache*.
+                   l.cache_seconds
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -567,7 +574,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.GetString(11),
                 reader.IsDBNull(12) ? null : reader.GetString(12),
                 reader.GetInt32(13),
-                reader.IsDBNull(14) ? null : reader.GetString(14)));
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                reader.IsDBNull(15) ? null : reader.GetInt32(15)));
         }
 
         return layers;

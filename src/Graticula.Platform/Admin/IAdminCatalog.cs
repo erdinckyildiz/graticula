@@ -159,6 +159,7 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="Folder">That service's folder, or null for the root.</param>
 /// <param name="LayerIndex">Its number within the service — the last URL segment.</param>
 /// <param name="TimeField">The column declared as this layer's time, or null to derive it (Q-129).</param>
+/// <param name="CacheSeconds">How long its tiles stay fresh, or null for the server's own figure. <b>Zero is not null</b> — see D-159.</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -173,7 +174,8 @@ public readonly record struct AdminLayer(
     string Service,
     string? Folder,
     int LayerIndex,
-    string? TimeField = null)
+    string? TimeField = null,
+    int? CacheSeconds = null)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>

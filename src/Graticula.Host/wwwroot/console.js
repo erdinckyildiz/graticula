@@ -7977,15 +7977,29 @@ async function handleClick(event) {
   }
 
   if (d.cache) {
-    const seconds = d.clear ? null : Number($("ttl").value);
+    // <b>D-159: an empty box is "nobody has said", not zero.</b> `Number("")` is 0
+    // and the endpoint takes 0 as the real answer *never serve a cached tile*, so
+    // pressing Set on a layer whose box had not been filled in turned caching off and
+    // said so in a toast that reads like confirmation. The box was empty because this
+    // listing did not carry `cacheSeconds` — that is fixed too, and this line is the
+    // half that has to hold even when a value fails to load.
+    const typed = $("ttl").value.trim();
+    const seconds = d.clear || typed === "" ? null : Number(typed);
+
+    if (seconds !== null && !Number.isFinite(seconds)) {
+      toast(`"${typed}" is not a number of seconds.`);
+      return;
+    }
+
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(d.cache)}/cache`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seconds: d.clear ? null : seconds }),
+        body: JSON.stringify({ seconds }),
       });
       toast(r.note, true);
     } catch (e) { toast(e.message); }
+    await loadLayers();
     return;
   }
 

@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>31daf35</code> · 2026-08-25 13:28</p>
+<p class="stamp">Şu commit’ten üretildi: <code>b13fbc2</code> · 2026-08-25 14:16</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">49</div><div class="kpi-l">açık soru</div><div class="kpi-n">93 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">açık borç</div><div class="kpi-n">129 ödendi · 4 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">açık borç</div><div class="kpi-n">130 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1947</div><div class="kpi-l">test</div><div class="kpi-n">238 kaynak dosya, 91,253 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1949</div><div class="kpi-l">test</div><div class="kpi-n">238 kaynak dosya, 91,267 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -318,7 +318,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-157</td><td>Unpublishing the last layer of a service leaves the service, and nothing can remove it.</td><td class="muted-t">When a deployment can empty a service — which today means the first operator who unpublishes to correct a mistake,…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-158</td><td>The strongest external evidence this project has is re-earned by somebody remembering.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">129 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">130 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -418,13 +418,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:36.2%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:30.5%"></div></div><div class="bar-n">122</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">112</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.8%"></div></div><div class="bar-n">95</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">97</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.5%"></div></div><div class="bar-n">22</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">18</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>b13fbc2</code><time>2026-08-25</time><span>Q-129 closes: a layer declares which column is its time</span></li>
 <li><code>31daf35</code><time>2026-08-25</time><span>Q-131 closes: a classified style gets a classified legend, from the style</span></li>
 <li><code>f85e8c3</code><time>2026-08-25</time><span>Q-128 closes by refusing a style filter where the author is standing</span></li>
 <li><code>009d827</code><time>2026-08-25</time><span>The status page could not see nine question rows, one of them open</span></li>
@@ -438,7 +439,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f5d2a1d</code><time>2026-08-25</time><span>Q-117 answered, and D-158 opened for the gap its closure left behind</span></li>
 <li><code>d5e7b33</code><time>2026-08-25</time><span>D-63 closes: CI runs, and the four claims that rested on it are true</span></li>
 <li><code>3345da1</code><time>2026-08-25</time><span>CI ran nine of twelve test projects, and said it ran all of them</span></li>
-<li><code>31b21da</code><time>2026-08-25</time><span>The fixture that gave a source its layer count perturbed two other suites</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

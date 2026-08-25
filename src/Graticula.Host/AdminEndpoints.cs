@@ -5420,6 +5420,10 @@ internal static class AdminEndpoints
 
                 // Q-129: which column this layer's time comes from, when somebody said.
                 timeField = l.TimeField,
+
+                // D-159: the console has read this off this listing since the tile-cache
+                // control was written, and it was not here.
+                cacheSeconds = l.CacheSeconds,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
