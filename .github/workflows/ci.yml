@@ -298,15 +298,6 @@ jobs:
       # above uses a placeholder because it seals nothing; this one seals data
       # source credentials, and a fixed key in a public workflow would be a
       # credential in the repository.
-      # <b>Two tables nothing publishes, for the ambiguous-name suite.</b> After
-      # migrate, because the hosted schema is the server's to create, and before the
-      # server starts so the catalogue sees them from its first read.
-      - name: two free tables
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
-          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
-            -f tools/ci-free-tables.sql
-
       - name: start the server
         run: |
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
@@ -359,6 +350,20 @@ jobs:
             --setup-token="$SETUP_TOKEN" \
             --prefix=ci \
             --github-env="$GITHUB_ENV"
+
+      # <b>Two tables nothing publishes, for the ambiguous-name suite.</b>
+      #
+      # <b>After seeding, and the first attempt put it before the server started.</b>
+      # `hosted` is not created by migrate — the server makes it when the first hosted
+      # layer is defined — so the step ran against a database that had no such schema
+      # and said so. Seeding is what brings it into existence, so this belongs after
+      # it, and the catalogue reads the data source live, so tables that appear later
+      # are still found.
+      - name: two free tables
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
+            -f tools/ci-free-tables.sql
 
       - name: conformance
         run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
