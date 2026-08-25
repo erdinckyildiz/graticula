@@ -178,11 +178,16 @@ public static class SymbologyConversion
         JsonObject layer = painting[0];
         JsonObject paint = layer["paint"] as JsonObject ?? new JsonObject();
 
+        // <b>Reachable only for a document stored before 2026-08-25.</b> The write
+        // path refuses a filter now (Q-128), so no newly-stored canonical carries
+        // one -- and a deployment that stored one earlier still gets told what its
+        // Esri face does with it rather than being left to find out.
         if (layer["filter"] is not null)
         {
             losses.Add(
-                "The layer carries a `filter`. Esri renderers select a symbol by value and cannot "
-                + "hide a feature, so every feature is drawn on this face.");
+                "The layer carries a `filter`, which this server no longer accepts and stored "
+                + "before it stopped. Esri renderers select a symbol by value and cannot hide a "
+                + "feature, so every feature is drawn on this face.");
         }
 
         object renderer = wanted switch
@@ -261,6 +266,27 @@ public static class SymbologyConversion
             string type = Text(source["type"])
                 ?? throw new SymbologyException("Every layer needs a `type`.");
 
+            // <b>Q-128: refused here, where the author is reading.</b> This server
+            // does not evaluate MapLibre's filter language, and until 2026-08-25 a
+            // filter was accepted by this method and refused by <c>SymbologyPlan</c>
+            // at draw time -- a document accepted at write time and rejected at read
+            // time, which is A-072's premise inverted and the one arrangement Q-128
+            // called wrong. The alternative was to evaluate filters, which is a
+            // second expression dialect for a case this server's own converter never
+            // emits. The refusal names the paint expression that does the same job,
+            // because an author who pasted a hand-written style needs the way
+            // forward and not only the No.
+            if (source["filter"] is not null)
+            {
+                throw new SymbologyException(
+                    $"The `{type}` layer carries a `filter`, and this server does not evaluate "
+                    + "filters. Drawing every feature of a layer whose style says to draw some of "
+                    + "them is a map that is wrong without looking wrong, so the style is refused "
+                    + "here rather than stored and refused when something tries to draw it. "
+                    + "Express the distinction in the paint with `match` or `step`, or remove the "
+                    + "features from the layer.");
+            }
+
             if (type is not ("fill" or "line" or "circle" or "symbol"))
             {
                 losses.Add(
@@ -278,7 +304,9 @@ public static class SymbologyConversion
 
             // `source` and `source-layer` are regenerated with the sources block —
             // a canonical document does not know which service will serve it.
-            foreach (string property in new[] { "paint", "layout", "filter", "minzoom", "maxzoom" })
+            // <b>No `filter`.</b> It is refused above rather than copied: a property
+            // this server cannot honour has no business in the document it stores.
+            foreach (string property in new[] { "paint", "layout", "minzoom", "maxzoom" })
             {
                 if (source[property] is { } value)
                 {

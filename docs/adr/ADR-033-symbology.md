@@ -358,6 +358,20 @@ looks symmetrical.
 - **Q-114 opens**: whether the generated default should consider what the layer *is* —
   a road network and a parcel fabric want different treatments and the geometry type does
   not distinguish them. Deliberately not answered here.
+- **A style layer's `filter` is refused, and since 2026-08-25 it is refused where the
+  author is standing.** [Q-128](../open-questions.md) closed on the *moment* rather than
+  on the verdict: this server does not evaluate MapLibre's filter language, and for five
+  days it stored a filtered document happily and then refused to draw from it, so a `PUT`
+  succeeded and a client's `GetMap` returned `StyleNotDefined` afterwards. That is
+  [ADR-028](ADR-028-style-documents.md)'s own principle — *a style is a validated document
+  checked on write* — inverted, and [A-072](../architecture-assumptions.md) is the premise
+  it inverted. The refusal now happens in `SymbologyConversion.Read`, names `match` and
+  `step` as the way to express the same distinction, and `SymbologyPlan` keeps its own so
+  that a document stored before this change, or edited into the database by hand, still
+  cannot silently draw every feature of a layer that says to draw some. **What did not
+  change is the capability**: filters are still not evaluated, which is why
+  [A-077](../architecture-assumptions.md) still lists their absence against the model's
+  sufficiency.
 
 ## 7. Conditions
 

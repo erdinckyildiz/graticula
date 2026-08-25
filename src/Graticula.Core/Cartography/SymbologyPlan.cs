@@ -25,10 +25,11 @@ namespace Graticula.Cartography;
 /// </para>
 /// <para>
 /// <b>What it refuses, and why refusing is the honest answer.</b> A style layer with
-/// a <c>filter</c> is refused: MapLibre's filter language is a second expression
-/// dialect, this server's own converter never emits one, and drawing every feature
-/// of a layer whose style says *draw some of them* is a map that is wrong without
-/// looking wrong. [Q-128](../../../docs/open-questions.md).
+/// a <c>filter</c> is refused -- at write time since 2026-08-25, which is Q-128's
+/// answer, and here as well for a document stored before that. MapLibre's filter
+/// language is a second expression dialect, this server's own converter never emits
+/// one, and drawing every feature of a layer whose style says *draw some of them* is
+/// a map that is wrong without looking wrong.
 /// </para>
 /// </remarks>
 public sealed class SymbologyPlan
@@ -116,13 +117,21 @@ public sealed class SymbologyPlan
                 continue;
             }
 
+            // <b>The second line, not the first, since 2026-08-25.</b> Q-128 moved
+            // the refusal to the write path, where the author is reading. This one
+            // stays because a stored document can predate that change or be edited
+            // in the database directly, and a renderer that quietly drew every
+            // feature of a filtered layer would produce a map that is wrong without
+            // looking wrong -- which is the whole reason either refusal exists.
             if (layer["filter"] is not null)
             {
                 throw new SymbologyException(
-                    "A style layer carries a `filter`, and this server does not evaluate filters. "
-                    + "Drawing every feature of a layer whose style says to draw some of them is a "
-                    + "map that is wrong without looking wrong, so it is refused instead. Express "
-                    + "the distinction in the paint with `match` or `step`.");
+                    "A stored style layer carries a `filter`, and this server does not evaluate "
+                    + "filters. Drawing every feature of a layer whose style says to draw some of "
+                    + "them is a map that is wrong without looking wrong, so it is refused "
+                    + "instead. This document was stored before filters were refused at write "
+                    + "time: PUT it again without the filter, expressing the distinction in the "
+                    + "paint with `match` or `step`.");
             }
 
             PlanLayer? compiled = CompileLayer(layer, ref margin);

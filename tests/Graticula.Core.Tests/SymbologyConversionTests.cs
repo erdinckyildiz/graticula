@@ -509,6 +509,106 @@ public sealed class SymbologyConversionTests
         Assert.Contains("262,144", refused.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A layer carrying a <c>filter</c> is refused when it is written, not when
+    /// something tries to draw it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Q-128, and the point is the moment rather than the verdict.</b> Until
+    /// 2026-08-25 this document was stored happily and <c>SymbologyPlan</c> threw
+    /// the first time a face tried to draw from it — a document accepted at write
+    /// time and refused at read time, which is the one arrangement Q-128 called
+    /// wrong: the author is gone by then, and what fails is a client's map rather
+    /// than the request that caused it.
+    /// </remarks>
+    [Fact]
+    public void A_filter_is_refused_when_the_style_is_written()
+    {
+        const string style = """
+        {
+          "version": 8,
+          "layers": [{
+            "id": "a", "type": "fill",
+            "filter": ["==", ["get", "zoning"], "park"],
+            "paint": { "fill-color": "#123456" }
+          }]
+        }
+        """;
+
+        SymbologyException refused = Assert.Throws<SymbologyException>(
+            () => SymbologyConversion.Read(style, GeometryKind.Polygon));
+
+        Assert.Contains("filter", refused.Message, StringComparison.Ordinal);
+
+        // <b>The way forward, not only the No.</b> An author who pasted a
+        // hand-written style has to be told what to write instead, or the refusal
+        // is a dead end and they go and edit the database.
+        Assert.Contains("match", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The refusal survives being buried under a layer this server does not store.
+    /// </summary>
+    /// <remarks>
+    /// <b>The control on where the check sits.</b> A <c>heatmap</c> layer is dropped
+    /// with a loss note and never reaches the property copy, so a check placed after
+    /// the drop would still be right about this document. This one is filtered *and*
+    /// second, which fails if the refusal is ever moved below the type test or into
+    /// the copy loop.
+    /// </remarks>
+    [Fact]
+    public void A_filter_on_a_later_layer_is_still_refused()
+    {
+        const string style = """
+        {
+          "version": 8,
+          "layers": [
+            { "id": "heat", "type": "heatmap" },
+            { "id": "a", "type": "fill",
+              "filter": ["!=", ["get", "status"], "demolished"],
+              "paint": { "fill-color": "#123456" } }
+          ]
+        }
+        """;
+
+        Assert.Throws<SymbologyException>(
+            () => SymbologyConversion.Read(style, GeometryKind.Polygon));
+    }
+
+    /// <summary>
+    /// A style with no filter still stores everything it stored before.
+    /// </summary>
+    /// <remarks>
+    /// <b>The control on the refusal's blast radius.</b> <c>filter</c> came out of
+    /// the copied-property list at the same time, and a wrong edit there would take
+    /// <c>minzoom</c> or <c>layout</c> with it — which no test above would catch,
+    /// because every one of them is about colour.
+    /// </remarks>
+    [Fact]
+    public void Removing_filter_from_the_copy_left_the_other_properties_alone()
+    {
+        const string style = """
+        {
+          "version": 8,
+          "layers": [{
+            "id": "a", "type": "line",
+            "minzoom": 4, "maxzoom": 14,
+            "layout": { "line-cap": "round" },
+            "paint": { "line-color": "#123456", "line-width": 2 }
+          }]
+        }
+        """;
+
+        SymbologyWrite stored = SymbologyConversion.Read(style, GeometryKind.LineString);
+        JsonObject layer = (JsonObject)((JsonArray)
+            JsonNode.Parse(stored.Canonical)!["layers"]!)[0]!;
+
+        Assert.Equal(4, layer["minzoom"]!.GetValue<double>());
+        Assert.Equal(14, layer["maxzoom"]!.GetValue<double>());
+        Assert.Equal("round", layer["layout"]!["line-cap"]!.GetValue<string>());
+        Assert.Null(layer["filter"]);
+    }
+
     private static JsonNode RoundTrip(string drawingInfo, string layer, GeometryKind geometry)
     {
         SymbologyWrite stored = SymbologyConversion.Read(drawingInfo, geometry);

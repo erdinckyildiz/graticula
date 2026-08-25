@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>3f754d0</code> · 2026-08-25 12:32</p>
+<p class="stamp">Generated from commit <code>009d827</code> · 2026-08-25 13:01</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">92 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">open questions</div><div class="kpi-n">90 answered · 2 blocking</div></div>
+<div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">open questions</div><div class="kpi-n">91 answered · 2 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">open debts</div><div class="kpi-n">129 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">1928</div><div class="kpi-l">tests</div><div class="kpi-n">238 source files, 90,403 lines</div></div>
+<div class="kpi good"><div class="kpi-v">1931</div><div class="kpi-l">tests</div><div class="kpi-n">238 source files, 90,440 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -255,7 +255,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-125</span><span class="owner">Council</span></div><p>Where does a layer&#x27;s extent in WGS 84 come from, for a document that must stay cheap?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-126</span><span class="owner">**[OWNER]**</span></div><p>Does add the server have to work in ArcGIS Pro, or is add the service enough?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council, and the group mapping **[OWNER]**</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-128</span><span class="owner">2026-08-20</span></div><p>Does a style layer&#x27;s filter need to be evaluated when drawing?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-129</span><span class="owner">2026-08-20</span></div><p>Which column is a layer&#x27;s time, when it has more than one date?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-130</span><span class="owner">2026-08-20</span></div><p>Should TIME accept a list or a periodicity?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-131</span><span class="owner">2026-08-20</span></div><p>What does a legend show for a style that classifies?</p></article>
@@ -417,7 +416,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">385</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:98.2%"></div></div><div class="bar-n">378</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:87.0%"></div></div><div class="bar-n">335</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:71.4%"></div></div><div class="bar-n">275</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.2%"></div></div><div class="bar-n">278</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:37.7%"></div></div><div class="bar-n">145</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:31.7%"></div></div><div class="bar-n">122</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:29.1%"></div></div><div class="bar-n">112</div></div>
@@ -428,6 +427,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>009d827</code><time>2026-08-25</time><span>The status page could not see nine question rows, one of them open</span></li>
 <li><code>3f754d0</code><time>2026-08-25</time><span>Q-01 closed by owner decision: .NET, and the comparison is waived rather than met</span></li>
 <li><code>8559ee8</code><time>2026-08-25</time><span>lang-slice&#x27;s first reason for not running died seven days ago</span></li>
 <li><code>0f419b0</code><time>2026-08-25</time><span>D-58 is unblocked, sized, and not started</span></li>
@@ -441,7 +441,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>31b21da</code><time>2026-08-25</time><span>The fixture that gave a source its layer count perturbed two other suites</span></li>
 <li><code>301c6c2</code><time>2026-08-25</time><span>A literal backslash-n reached the workflow and argparse saw two stray arguments</span></li>
 <li><code>7cf0125</code><time>2026-08-25</time><span>The console suite was written against one deployment&#x27;s furniture</span></li>
-<li><code>bd0e45a</code><time>2026-08-25</time><span>WMS drew nothing in CRS:84, and CRS:84 is the code that exists to prevent that</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
