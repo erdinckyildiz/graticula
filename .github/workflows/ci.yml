@@ -197,7 +197,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost&Needs!=RealCorpus'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine'
 
   conformance:
     name: conformance

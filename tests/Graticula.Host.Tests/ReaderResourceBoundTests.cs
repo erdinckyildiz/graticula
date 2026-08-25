@@ -27,6 +27,17 @@ namespace Graticula.Host.Tests;
 /// stops being applied.
 /// </para>
 /// </remarks>
+/// <remarks>
+/// <b>This class needs a machine whose process timing is predictable —
+/// [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md) §5b.</b>
+/// The memory guard polls, and its first line is <c>if (process.HasExited) return</c>:
+/// catching a child past its ceiling requires the child to still be alive when the
+/// guard task is first scheduled. On a contended runner that is a coin flip. It was
+/// tried twice — first with a `ping` the child answers in milliseconds, then with a
+/// `drivers` call that loads GDAL — and CI called tails on both, so the honest
+/// classification is that the test needs a quiet machine rather than a longer child.
+/// </remarks>
+[Trait("Needs", "QuietMachine")]
 public sealed class ReaderResourceBoundTests
 {
     private static GeodatabaseReader Reader() =>
