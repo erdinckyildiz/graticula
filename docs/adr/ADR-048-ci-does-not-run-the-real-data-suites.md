@@ -178,6 +178,54 @@ protection is that the value has to name a real property of the environment — 
 wear `Needs=RealCorpus` unless it needs a real corpus, and somebody reading the
 announcement can check.
 
+### 5c. Where this got to, and the four that are left
+
+**2026-08-25, end of the first day CI has ever run.** Four of five jobs are green —
+`registers`, `build and audit`, `unit`, `datastore`. `conformance` is at **381 of 385**,
+from 105 failures when the suite first executed.
+
+**Everything fixed on the way was an assumption about the machine**, and the list is worth
+keeping because it is what a CI that has never run actually contains:
+
+| What | Why it only failed in CI |
+|---|---|
+| `points.shp` read as a loose file, twice | `.gitignore` hides it; it reaches no clone |
+| Seven suites needing a real OSM extract | The machine had one |
+| A test asserting an absent table survived a drop | The table was there locally |
+| `PollerPoolTests` | A development server happened to be up |
+| Two timing suites | The runner is contended |
+| `GISSERVER_TEST_*` against `GRATICULA_TEST_*` | The variables are set by hand locally |
+| `SkiaSharp` with no native asset | Windows supplies one another way |
+| A setup-token grep matching four spaces | The local log indents four; CI indents ten |
+| A token beginning with `-` | argparse read it as an option |
+| `owner:root` and `/admin/members/root` | The administrator is called `ci` here |
+| A relative `server.log` | The test host runs from its own output directory |
+
+**Two of those did not merely fail — they accused the product.** The wildcard search reported
+*the wildcard cannot see less than a filter* and the privilege suite reported *a role holding
+every privilege could reset an administrator's password*. Both were hard-coded local fixtures
+inside assertions about behaviour, and both produced findings specific and plausible enough to
+be believed.
+
+**The four that are left, and what each is.**
+
+1. **`No_privilege_lets_a_role_reach_the_administrator_only_operations` expects `Forbidden`
+   and gets `NotFound`.** This one is a **question, not a fixture**: `SetMemberPasswordAsync`
+   checks `HoldsAdministratorAsync` first and refuses 403, then 404s an unknown member — so a
+   403 was expected. Whether the answer should be 404 anyway, on the same
+   *do-not-confirm-existence* reasoning this server applies to layer names, is a decision
+   nobody has taken. **Not forced green**, because making a security assertion pass by
+   editing the assertion is the one repair this repository must never make quietly.
+2. **`No layer has a stored style`.** A style is now `PUT` on the queryable service during
+   seeding and the call succeeds; the suite still finds none, so it is looking somewhere the
+   seeding does not reach. Unfinished rather than understood.
+3. **`No published layer has features to identify`** — WMS `GetFeatureInfo`.
+4. **The drawn map carries no pixel of the colour the tile face publishes.** Possibly the same
+   root as 2: a style that is stored but not reaching the renderer.
+
+**None of the four is recorded as passing, skipped, or excluded.** They fail, `conformance`
+is red, and that is the honest state on the day the pipeline first ran end to end.
+
 ## 6. Consequences
 
 **Positive.** CI can go green honestly. The exclusion is visible on every run,
