@@ -111,6 +111,42 @@ public static class WmsNames
     public static bool IsLatitudeFirst(WmsVersion version, int srid) =>
         version == WmsVersion.V130 && Graticula.Geometries.AxisOrder.IsLatitudeFirst(srid);
 
+    /// <summary>The name a client used for WGS 84 in longitude/latitude order.</summary>
+    public const string LongitudeFirstWgs84 = "CRS:84";
+
+    /// <summary>
+    /// Whether a request's coordinates are latitude first, given the name it used.
+    /// </summary>
+    /// <param name="version">Which WMS.</param>
+    /// <param name="crs">The <c>CRS</c> or <c>SRS</c> parameter, as the client wrote it.</param>
+    /// <param name="srid">What that name resolved to.</param>
+    /// <returns>Whether the first ordinate is latitude.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b><c>CRS:84</c> is 4326 and is not latitude first, and the srid alone cannot say
+    /// so.</b> `TrySrid` resolves the name to 4326 — correctly, it is the same reference —
+    /// and 4326 under 1.3.0 <em>is</em> latitude first, so deciding from the number alone
+    /// transposes a box that was never meant to be transposed.
+    /// </para>
+    /// <para>
+    /// <b>Measured 2026-08-25, and the symptom is the one this file already warns about.</b>
+    /// A `GetMap` over a layer's own advertised extent in `CRS:84` came back **entirely
+    /// transparent** — 589,824 pixels of nothing — while the same request in `EPSG:4326`
+    /// with the ordinates swapped drew it, and the ArcGIS `MapServer/export` face drew it
+    /// from the same data and the same style. An empty map that looks like a data problem
+    /// and is diagnosed as one.
+    /// </para>
+    /// <para>
+    /// <b>The irony is worth keeping.</b> `CapabilitiesDocument` advertises `CRS:84`
+    /// precisely so that clients who would rather not think about axis order need not, and
+    /// `TrySrid`'s own comment says answering it *is answering the thing they are trying to
+    /// avoid asking*. It was the one code where getting it wrong was certain.
+    /// </para>
+    /// </remarks>
+    public static bool IsLatitudeFirst(WmsVersion version, string? crs, int srid) =>
+        !string.Equals(crs?.Trim(), LongitudeFirstWgs84, StringComparison.OrdinalIgnoreCase)
+        && IsLatitudeFirst(version, srid);
+
     /// <summary>The image format a media type names, or null when it is not one we write.</summary>
     /// <param name="mediaType">The <c>FORMAT</c> parameter.</param>
     /// <returns>The format.</returns>

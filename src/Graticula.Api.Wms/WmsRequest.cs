@@ -402,7 +402,7 @@ public sealed class WmsRequest
             return false;
         }
 
-        if (!TryExtent(parameter("BBOX"), version, srid, out Envelope extent, out fault))
+        if (!TryExtent(parameter("BBOX"), version, crs, srid, out Envelope extent, out fault))
         {
             return false;
         }
@@ -700,7 +700,8 @@ public sealed class WmsRequest
     /// back empty — which looks exactly like a data problem and is diagnosed as one.
     /// </remarks>
     private static bool TryExtent(
-        string? value, WmsVersion version, int srid, out Envelope extent, out WmsFault? fault)
+        string? value, WmsVersion version, string? crs, int srid,
+        out Envelope extent, out WmsFault? fault)
     {
         extent = Envelope.Empty;
         fault = null;
@@ -734,7 +735,7 @@ public sealed class WmsRequest
         }
 
         (double minX, double minY, double maxX, double maxY) =
-            WmsNames.IsLatitudeFirst(version, srid)
+            WmsNames.IsLatitudeFirst(version, crs, srid)
                 ? (numbers[1], numbers[0], numbers[3], numbers[2])
                 : (numbers[0], numbers[1], numbers[2], numbers[3]);
 
@@ -745,7 +746,7 @@ public sealed class WmsRequest
                 "A bounding box needs a positive width and height. In WMS "
                 + $"{WmsNames.Text(version)} with {(version == WmsVersion.V130 ? "CRS" : "SRS")}="
                 + $"EPSG:{srid} the order is "
-                + (WmsNames.IsLatitudeFirst(version, srid)
+                + (WmsNames.IsLatitudeFirst(version, crs, srid)
                     ? "miny,minx,maxy,maxx — latitude first."
                     : "minx,miny,maxx,maxy — longitude first."));
 
