@@ -138,7 +138,8 @@ public sealed class PrivilegeEscalationConformanceTests : ArcGisClient
             Assert.Equal(
                 HttpStatusCode.Forbidden,
                 await AsStewardAsync(
-                    root, steward, HttpMethod.Put, "/admin/members/root/role",
+                    root, steward, HttpMethod.Put,
+                    $"/admin/members/{Administrator}/role",
                     """{"role":"user"}"""));
         }
         finally

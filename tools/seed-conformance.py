@@ -436,32 +436,44 @@ def main():
     ]):
         print(f"  hosted/{temporal}: 6 points with one date column", file=sys.stderr)
 
-    # <b>A stored style, so `drawingInfo` comes from a document rather than a
-    # default.</b> The gate suite compares what the feature face and the map face
-    # publish and needs them to be answering from something somebody stored.
+    # <b>A stored symbology, so `drawingInfo` is read rather than generated.</b> The
+    # gate suite looks for a layer whose `drawingInfoGenerated` is **false** and
+    # compares what the feature face and the map face publish for it; where the
+    # appearance is generated both faces generate the same thing and the comparison
+    # proves nothing.
+    #
+    # <b>The layer's `symbology`, not the service's `style` — and the first attempt
+    # used the wrong one.</b> `PUT /admin/services/{name}/style` stores the canonical
+    # MapLibre document a client fetches; `drawingInfoGenerated` is decided by
+    # `FeatureServerMetadataWriter.Drawing`, which reads the **layer's** symbology.
+    # The call succeeded, nothing was wrong with it, and the flag never moved.
+    #
+    # <b>An Esri `drawingInfo` rather than a MapLibre document</b>, because the
+    # endpoint takes either and this is the shorter of the two to get exactly right —
+    # the conversion is what is under test elsewhere, not here.
     server.call(
         "PUT",
-        f"/admin/services/{queryable}/style",
+        f"/admin/layers/{queryable}/symbology",
         body={
-            "version": 8,
-            "name": "conformance",
-            "layers": [
-                {
-                    "id": "fill",
-                    "type": "fill",
-                    "source": "graticula",
-                    "source-layer": queryable,
-                    "paint": {
-                        "fill-color": "#CCBB44",
-                        "fill-outline-color": "#443311",
+            "renderer": {
+                "type": "simple",
+                "symbol": {
+                    "type": "esriSFS",
+                    "style": "esriSFSSolid",
+                    "color": [204, 187, 68, 255],
+                    "outline": {
+                        "type": "esriSLS",
+                        "style": "esriSLSSolid",
+                        "color": [68, 51, 17, 255],
+                        "width": 1,
                     },
-                }
-            ],
+                },
+            },
         },
         expect=(200, 204),
     )
 
-    print(f"  hosted/{queryable}: a stored style", file=sys.stderr)
+    print(f"  hosted/{queryable}: a stored symbology", file=sys.stderr)
 
     # <b>The two free tables `AmbiguousLayerNameTests` needs are made with SQL, not
     # here — and the first attempt is worth recording.</b> Defining two layers and
