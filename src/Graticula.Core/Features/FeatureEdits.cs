@@ -31,13 +31,44 @@ public sealed record FeatureUpdate(
 /// <param name="ObjectId">Its id, or -1 when it never got one.</param>
 /// <param name="Succeeded">Whether it worked.</param>
 /// <param name="Error">Why not.</param>
-public readonly record struct EditResult(long ObjectId, bool Succeeded, string? Error)
+/// <param name="NoSuchFeature">
+/// Whether the failure is that the row was not there. <b>A distinct kind, because one
+/// caller answers it differently</b> — an OGC API Features verb addresses a single
+/// feature by URL, and an unknown URL is 404 rather than 400.
+/// </param>
+public readonly record struct EditResult(
+    long ObjectId, bool Succeeded, string? Error, bool NoSuchFeature = false)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);
 
     /// <summary>A failure, with a reason the caller can act on.</summary>
     public static EditResult Failed(long objectId, string error) => new(objectId, false, error);
+
+    /// <summary>
+    /// The row was not there.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its own kind of failure because one caller has to answer it differently.</b>
+    /// ArcGIS reports every failure the same way — a result with an error — and that is
+    /// right for a batch. OGC API Features addresses one feature by URL, and an unknown
+    /// URL is <c>404</c> rather than <c>400</c>: telling a client its request was
+    /// malformed when the feature simply is not there sends it looking for a mistake it
+    /// did not make.
+    /// </para>
+    /// <para>
+    /// <b>A flag rather than a matched string, and that is the point.</b> The first
+    /// version of the OGC delete read the writer's message looking for *no such* or *not
+    /// found*; the writer says <em>No feature with object id 5 exists</em>, so a missing
+    /// row answered 400 — a defect that would have come back the day somebody reworded
+    /// the sentence. The producer of the fact says what it is.
+    /// </para>
+    /// </remarks>
+    /// <param name="objectId">Which row was asked for.</param>
+    /// <returns>The result.</returns>
+    public static EditResult Missing(long objectId) =>
+        new(objectId, false, $"No feature with object id {objectId} exists.", true);
 }
 
 /// <summary>One <c>applyEdits</c> call.</summary>

@@ -39,7 +39,7 @@ namespace Graticula.Host;
 /// answering 403 would name a private layer to a stranger.
 /// </para>
 /// </remarks>
-internal static class OgcFeaturesEndpoints
+internal static partial class OgcFeaturesEndpoints
 {
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
@@ -61,6 +61,12 @@ internal static class OgcFeaturesEndpoints
             .Governed(SharingGovernedExtensions.ByFiltering);
         app.MapGet($"{Root}/collections/{{collectionId}}/items/{{featureId}}", ItemAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>The write surface — [Q-44](../../docs/open-questions.md), owner decision
+        // 2026-08-25.</b> Its own file because it is its own concern, and because a read
+        // surface and a write surface sharing one file is how a reviewer stops being able
+        // to see which routes mutate.
+        MapWrites(app);
     }
 
     /// <summary>The link a REST directory page offers to this surface.</summary>

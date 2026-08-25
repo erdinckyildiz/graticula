@@ -245,8 +245,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     {
         if (!zmFlags.TryGetValue(update.ObjectId, out int zmFlag))
         {
-            return EditResult.Failed(
-                update.ObjectId, $"No feature with object id {update.ObjectId} exists.");
+            return EditResult.Missing(update.ObjectId);
         }
 
         // ADR-008 §4.5a, made concrete. zmFlag is 0 for 2D, 1 for M, 2 for Z,
@@ -298,7 +297,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
             return affected > 0
                 ? EditResult.Ok(update.ObjectId)
-                : EditResult.Failed(update.ObjectId, $"No feature with object id {update.ObjectId} exists.");
+                : EditResult.Missing(update.ObjectId);
         }
         catch (PostgresException e)
         {
@@ -328,7 +327,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // feature it never saw. ArcGIS reports it the same way.
             return affected > 0
                 ? EditResult.Ok(objectId)
-                : EditResult.Failed(objectId, $"No feature with object id {objectId} exists.");
+                : EditResult.Missing(objectId);
         }
         catch (PostgresException e)
         {

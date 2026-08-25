@@ -199,6 +199,55 @@ server has.
   path per collection makes the definition grow with the catalogue — at 100–1,000
   services that is a document every client downloads and nobody reads.
 
+## 5b. The write surface — amended 2026-08-25 by owner decision
+
+**[Q-44](../open-questions.md) asked whether the write half tracks Part 4, ships an
+extension of ours, or both.** The owner's answer was *"gerçekte nasıl ise öyle olmalı"* —
+it should be however it really is — and how it really is has one shape: plain HTTP verbs
+on the item addresses this surface already publishes.
+
+| | |
+|---|---|
+| `POST /collections/{id}/items` | create; **201** with a `Location` |
+| `PUT /collections/{id}/items/{featureId}` | replace the whole feature; **204** |
+| `PATCH /collections/{id}/items/{featureId}` | partial update, `application/merge-patch+json`; **204** |
+| `DELETE /collections/{id}/items/{featureId}` | **204** |
+
+**The row's dilemma largely dissolved on inspection.** *Implement the draft* and *ship our
+own additive extension* are nearly the same code, because there is no second sensible
+mapping: the collection is a container and its items have URLs. What actually moves in
+Part 4 is the conformance-class naming and the patch encoding, not the verbs.
+
+**So the shape is built and no Part 4 conformance class is advertised.** The claim is
+separable from the capability, and [CLAUDE.md](../../CLAUDE.md) §5 makes a public
+specification the citation for anything a specification defines: this was built to the
+shape rather than read clause by clause, so declaring the class would be the over-claim
+[Q-101](../open-questions.md) closed on, one specification along. A conformance test
+asserts the *absence* of the claim, so it cannot appear without somebody deciding it
+should.
+
+**One writer underneath, which is the substance.** Every edit becomes an `EditBatch` and
+goes through `IFeatureWriter` — the path ArcGIS `applyEdits` takes, with the same
+rollback rule, the same per-service request and edit ceilings (Q-113), the same
+privileges (`features:edit` to create, `features:fullEdit` to change or delete, which is
+[D-20](../architecture-debt.md)'s mapping) and the same audit shape. Two faces, one
+transaction story.
+
+**GeoJSON is longitude/latitude in WGS 84 and the layer usually is not.** RFC 7946 fixes
+the reference, and the writer stamps the layer's SRID onto the bytes it is given without
+transforming, so a body written straight through would store degrees as metres. The write
+path projects, and the conformance suite asserts the round trip rather than the status
+code — falsified by removing the projection: the test failed.
+
+**Two refusals worth naming.** A body that carries the identity property is refused rather
+than ignored, because silently dropping the one property that decides which row this is
+would let a client believe it had moved a feature's identity. And a feature that is not
+there answers **404** rather than 400 — which it did not, at first: the code read the
+writer's message looking for *no such*, the writer says *No feature with object id 5
+exists*, and a missing row was reported as a malformed request. `EditResult.Missing` now
+carries the fact structurally, so it cannot come back the day somebody rewords the
+sentence.
+
 ## 6. Consequences
 
 **Positive.** The surface ADR-005 chose exists. A client written this decade can
