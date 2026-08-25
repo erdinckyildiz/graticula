@@ -612,6 +612,40 @@ else's table), `gdbVersion` (no version tree), `historicMoment` (no history),
 Each appears on the query page **present and disabled with its reason**, rather
 than missing.
 
+## 4b. The capability report is checked against the server — 2026-08-25
+
+**[Q-101](../open-questions.md) asked whether the report is a vocabulary somebody
+maintains or something derived from the code that implements the keys.** It named the
+failure exactly: *a hand-maintained vocabulary drifts from the provider it describes and
+then lies in exactly the situation it exists to prevent.*
+
+**It had already drifted, and this repository recorded that in its own comments.**
+`supportsPagination` and `supportsOrderBy` sat `false` for weeks while both worked, and
+the rule adopted afterwards was *changing a flag and changing the parser are the same
+commit* — a rule enforced by memory. `QueryCapabilityConformanceTests` exercises every
+parameter and reads none of the flags, so a flag flipped in either direction passed the
+whole suite.
+
+**Generated is the right shape and checked is what this earns today.**
+`AdvertisedCapabilityTests` reads each published flag and drives the request it
+describes, in both directions: a `true` flag whose parameter is refused is an
+over-claim — a button that returns an error — and a `false` flag whose parameter works is
+an under-claim, which is quieter and not harmless, because a client reading
+`supportsPagination=false` asks for the whole layer at once or gives up on the large
+ones. Falsified by flipping `supportsPagination` to `false`: the suite failed and named
+it.
+
+**Nine keys are driven and three are not, and the three are listed with their
+reasons.** A second test fails when a key appears in the document and in neither list, so
+the loop cannot quietly stop being closed — which is the same defect one level up.
+
+**Generation is not foreclosed and is not owed yet.** v1 has one provider
+([v1-scope](../v1-scope.md) §3a), so a vocabulary whose value is comparing providers has
+nothing to compare; the value that exists today is a client knowing what it may send, and
+that is what the check defends. When a second provider arrives, generating the report
+from the code that implements the keys becomes the cheaper answer and this section is
+where to start.
+
 ## 5. Counterarguments to this decision
 
 - **Refusing queries is a worse user experience than answering them slowly.**
