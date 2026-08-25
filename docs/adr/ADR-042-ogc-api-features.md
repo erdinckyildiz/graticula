@@ -248,6 +248,31 @@ exists*, and a missing row was reported as a malformed request. `EditResult.Miss
 carries the fact structurally, so it cannot come back the day somebody rewords the
 sentence.
 
+## 5c. Part 3 — CQL2 is not built, decided 2026-08-25 by the owner
+
+**[Q-132](../open-questions.md) asked whether CQL2 filtering gets built. It does not, for
+now, and the trigger is recorded rather than the intention.**
+
+**Part 1's filtering stays**: equality on one property at a time, plus `bbox` and
+`datetime`. That is enough for a form and not for a query, which is what the row said and
+is still true.
+
+**The argument against is not cost, it is the third front end.** This server already
+carries two complete filter languages onto one AST — ArcGIS `where` and the WFS `fes`
+filter — and [ADR-008](ADR-008-query-engine.md) §4a's expression tree is what makes that
+affordable. A third grammar with two encodings and a spatial and temporal function set is
+not unaffordable; it is unjustified while nothing is asking for it, which is
+[CLAUDE.md](../../CLAUDE.md) §6's question answered honestly rather than answered with a
+standard's name.
+
+**What reopens it**: a client that sends CQL2 and cannot use `where` or `fes` — which
+means an OGC-native client rather than an ArcGIS or WFS one — or a CITE Part 3 run
+becoming part of what this project claims. Both are observable; neither has happened.
+
+**And the claim stays absent until then.** `OgcNames.ConformsTo` lists no Part 3 class,
+which is the same discipline §5b applies to Part 4: the capability and the claim are
+separable, and this server advertises only what somebody has checked.
+
 ## 6. Consequences
 
 **Positive.** The surface ADR-005 chose exists. A client written this decade can
