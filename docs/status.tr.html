@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>8559ee8</code> · 2026-08-25 12:28</p>
+<p class="stamp">Şu commit’ten üretildi: <code>3f754d0</code> · 2026-08-25 12:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">51</div><div class="kpi-l">açık soru</div><div class="kpi-n">83 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">açık soru</div><div class="kpi-n">90 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">açık borç</div><div class="kpi-n">129 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -280,6 +280,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-44</span><span class="owner">Council</span></div><p>What is the write surface?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-53</span><span class="owner">Council</span></div><p>Do we ever support data warehouses (Snowflake, Databricks, Redshift)?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-61</span><span class="owner">Council</span></div><p>How are per-user datastore quotas enforced, and what happens at the limit?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-64</span><span class="owner">Council</span></div><p>How is a memory leak distinguished from a legitimately growing cache, with no baseline?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
@@ -427,6 +428,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>3f754d0</code><time>2026-08-25</time><span>Q-01 closed by owner decision: .NET, and the comparison is waived rather than met</span></li>
 <li><code>8559ee8</code><time>2026-08-25</time><span>lang-slice&#x27;s first reason for not running died seven days ago</span></li>
 <li><code>0f419b0</code><time>2026-08-25</time><span>D-58 is unblocked, sized, and not started</span></li>
 <li><code>d2796d0</code><time>2026-08-25</time><span>D-29 closes, and the ordering its trigger warned about happened exactly as predicted</span></li>
@@ -440,7 +442,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>301c6c2</code><time>2026-08-25</time><span>A literal backslash-n reached the workflow and argparse saw two stray arguments</span></li>
 <li><code>7cf0125</code><time>2026-08-25</time><span>The console suite was written against one deployment&#x27;s furniture</span></li>
 <li><code>bd0e45a</code><time>2026-08-25</time><span>WMS drew nothing in CRS:84, and CRS:84 is the code that exists to prevent that</span></li>
-<li><code>9f6ecb8</code><time>2026-08-25</time><span>The stored style went to the service and the flag reads the layer</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

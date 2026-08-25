@@ -1814,6 +1814,86 @@ def the_former_product_name():
     return problems
 
 
+def a_question_the_status_page_cannot_see():
+    """A row in the questions register that the generated page silently drops.
+
+    **Found 2026-08-25, and it had been true for as long as the page existed.**
+    `tools/status-page.py` matched question ids with `^Q-\\d+$` while this file
+    has always used `^Q-[\\w-]+$`. Nine rows carry a suffix -- Q-58a, Q-58b,
+    Q-58c, Q-06a, Q-06b, Q-17a, Q-17b, Q-17c, Q-24-old -- so the page dropped
+    every one of them without a word. Eight are answered and cost only their
+    place in the history. **Q-58c is open**, is in the register, and the open
+    count the board printed was short by exactly it.
+
+    **The failure is not the pattern, it is that there were two of them.** One
+    rule -- *what is a question row* -- read by two tools that never compared
+    notes, and the reader nobody could see was the one that drifted. CLAUDE.md
+    §2 records the same shape between `conditions.py` and the status page, which
+    is why that rule now has a single implementation. This check is the cheaper
+    version of the same fix: let the two disagree, and fail the build when they
+    do.
+
+    So it compares *sets of ids*, not counts. A count that matches by accident --
+    one row dropped, one row added -- would pass a tally and still be wrong.
+    """
+    questions = os.path.join(conditions.ROOT, "docs", "open-questions.md")
+
+    try:
+        text = io.open(questions, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"open-questions.md could not be read: {problem}"]
+
+    in_register = set()
+
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+        if cells and re.match(r"^Q-[\w-]+$", cells[0]):
+            in_register.add(cells[0])
+
+    if not in_register:
+        return ["no question rows were parsed from open-questions.md, so this check "
+                "is reading nothing."]
+
+    # <b>The page's own reader, imported rather than imitated.</b> Re-implementing
+    # it here would create the third reader of the same rule and reproduce the
+    # defect this check exists to catch.
+    try:
+        import importlib.util
+
+        where = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status-page.py")
+        spec = importlib.util.spec_from_file_location("status_page", where)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        on_page = {row["id"] for row in module.questions()}
+    except Exception as problem:
+        return [f"tools/status-page.py could not be asked what it reads: {problem}"]
+
+    missing = sorted(in_register - on_page)
+    invented = sorted(on_page - in_register)
+    complaints = []
+
+    for question in missing:
+        complaints.append(
+            f"{question} is a row in docs/open-questions.md that tools/status-page.py does not "
+            "read, so it appears on no board and is counted in no total. Two readers of one "
+            "rule disagreed once before, between conditions.py and the status page; the fix "
+            "is to make the page's pattern match the register's, not to renumber the question."
+        )
+
+    for question in invented:
+        complaints.append(
+            f"{question} is on the status page and is not a row in docs/open-questions.md. "
+            "The page is generated from the register, so this means the page's parser is "
+            "reading something that is not a question row."
+        )
+
+    return complaints
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -1858,7 +1938,8 @@ def main() -> int:
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()
                 + a_serving_assembly_that_reaches_for_the_network()
-                + source_the_repository_would_not_receive())
+                + source_the_repository_would_not_receive()
+                + a_question_the_status_page_cannot_see())
 
     if problems:
         for line in problems:

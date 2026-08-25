@@ -435,7 +435,16 @@ def questions():
         # from the middle of the question. One rule, one implementation: the
         # duplicate is what went stale, not the rule.
         cells = cells_of(line)
-        if not cells or not re.match(r"^Q-\d+$", cells[0]):
+        # <b>The register's own pattern, not a narrower one.</b> This read
+        # <code>^Q-\d+$</code> until 2026-08-25, so every suffixed id was dropped
+        # from this page silently: Q-58c is open, is in the register, was never
+        # once drawn here, and the open count this page prints was short by it.
+        # tools/registers-check.py has always used <code>^Q-[\w-]+$</code>, so
+        # the two implementations of *what is a question row* disagreed and only
+        # the invisible one was wrong. Same shape as conditions.py vs this file
+        # in CLAUDE.md §2: one rule, two readers, and the count nobody could
+        # reproduce was the one that drifted.
+        if not cells or not re.match(r"^Q-[\w-]+$", cells[0]):
             continue
 
         body = cells[1] if len(cells) > 1 else ""
