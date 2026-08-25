@@ -221,9 +221,18 @@ public sealed class DataSourceScreenTests : ConsoleTest
     {
         await OpenSourcesAsync();
 
-        // The row with layers on it — the fixture server always has one, since the datastore holds the
-        // demo layers and cannot be removed.
-        await ClickAsync("#sources tr:not(:first-child) [data-source-remove]");
+        // <b>The row that has layers on it, chosen by its layer count rather than by
+        // its position — 2026-08-25.</b> This clicked `tr:not(:first-child)`, which is
+        // "the second row" and was the datastore on the machine this was written on. In
+        // CI the second row was a registration with nothing published from it, so the
+        // removal succeeded, nothing was refused, and the test reported that the console
+        // had not announced a refusal it was never asked to make.
+        //
+        // <b>And the datastore can never be the answer</b>: `console.js` omits its
+        // Remove button by name, so a selector that lands on it matches nothing at all.
+        // The button carries `data-source-layers`, which is the fact this test is about.
+        await ClickAsync(
+            "#sources [data-source-remove][data-source-layers]:not([data-source-layers=\"0\"])");
 
         await WaitForAsync(
             """

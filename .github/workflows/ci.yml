@@ -349,7 +349,7 @@ jobs:
             --password="$GRATICULA_TEST_PASSWORD" \
             --setup-token="$SETUP_TOKEN" \
             --prefix=ci \
-            --github-env="$GITHUB_ENV"
+            --datastore-connection="Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis" \n            --raster="$PWD/tests/Graticula.Raster.Tiff.Tests/corpus/gray-byte-deflate.tif" \n            --github-env="$GITHUB_ENV"
 
       # <b>Two tables nothing publishes, for the ambiguous-name suite.</b>
       #

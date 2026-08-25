@@ -325,7 +325,30 @@ public abstract class ConsoleTest : IAsyncLifetime
     {
         HashSet<string> found = new(StringComparer.Ordinal);
 
-        foreach (string? folder in (string?[])[null, "hosted", "turkiye"])
+        // <b>The folders the server has, not the ones this machine happened to
+        // have — 2026-08-25.</b> This listed `turkiye` by name, which is a folder on
+        // the machine the suite was written on and a 404 anywhere else: the first CI
+        // run to reach the console suite reported *GET /rest/services/turkiye returned
+        // 404* as a failure of reachability. The root listing already names its
+        // folders, so asking is both correct and shorter than a list that has to be
+        // maintained by whoever adds one.
+        List<string?> folders = [null];
+
+        JsonElement root = await ReadAsync("/rest/services");
+
+        if (root.TryGetProperty("folders", out JsonElement named)
+            && named.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement folder in named.EnumerateArray())
+            {
+                if (folder.GetString() is { Length: > 0 } value)
+                {
+                    folders.Add(value);
+                }
+            }
+        }
+
+        foreach (string? folder in folders)
         {
             JsonElement catalogue = await ReadAsync(
                 folder is null ? "/rest/services" : $"/rest/services/{folder}");
@@ -413,6 +436,47 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// one would pass here and fail in CI, where the fixtures are seeded under different
     /// names.
     /// </remarks>
+    /// <summary>A published service's address, as the console addresses it.</summary>
+    /// <remarks>
+    /// <b><see cref="AnyLayerAsync"/> answers a layer's name, and a page URL wants
+    /// `folder/service` — 2026-08-25.</b> Substituting one for the other builds
+    /// `/server/#/service/ci_buildings` where the route is
+    /// `/server/#/service/hosted/ci_buildings`, and the page renders nothing at all,
+    /// which reads as *this service's page shows no sharing scope*. The admin listing
+    /// carries both halves; this puts them together once so the next caller does not
+    /// have to know that it must.
+    /// </remarks>
+    protected async Task<string> AnyServiceAddressAsync()
+    {
+        JsonElement listing = await ReadAsync("/admin/layers");
+
+        JsonElement layers = listing.ValueKind == JsonValueKind.Array
+            ? listing
+            : listing.TryGetProperty("layers", out JsonElement named)
+                ? named
+                : default;
+
+        if (layers.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        foreach (JsonElement layer in layers.EnumerateArray())
+        {
+            if (layer.TryGetProperty("service", out JsonElement service)
+                && service.GetString() is { Length: > 0 } name)
+            {
+                string folder = layer.TryGetProperty("folder", out JsonElement inside)
+                    ? inside.GetString() ?? string.Empty
+                    : string.Empty;
+
+                return folder.Length > 0 ? $"{folder}/{name}" : name;
+            }
+        }
+
+        return string.Empty;
+    }
+
     protected async Task<string> AnyLayerAsync()
     {
         JsonElement listing = await ReadAsync("/admin/layers");

@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using System.Linq;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Graticula.Console.Tests;
@@ -33,7 +35,16 @@ public sealed class ServiceScopeTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/service/hosted/look_imagery", token);
+        // <b>Whichever image service the catalogue holds — 2026-08-25.</b> This
+        // opened `hosted/look_imagery` by name, which exists on the machine the suite
+        // was written on and nowhere else; the page simply never rendered a scope and
+        // the failure read as *a service's page shows no sharing scope*, which is an
+        // accusation about the console produced by a service that was not there.
+        HashSet<string> imagery = await ImageServicesAsync();
+
+        Assert.NotEmpty(imagery);
+
+        await OpenAsync($"/server/#/service/{imagery.OrderBy(n => n, StringComparer.Ordinal).First()}", token);
 
         await WaitForAsync(
             "!!document.getElementById('serviceScope')"
@@ -76,7 +87,17 @@ public sealed class ServiceScopeTests : ConsoleTest
             "No feature service in the catalogue, so there is no page to open. This fails "
             + "rather than skips: a green run with its subject absent is worse than no test.");
 
-        await OpenAsync("/server/#/service/hosted/look_buildings", token);
+        // <b>The first feature service the catalogue lists</b>, for the same reason
+        // as the image case above — and this test already asks the catalogue what it
+        // holds two lines earlier, so naming one was a fixture riding beside a
+        // discovery that was already there.
+        string address = await AnyServiceAddressAsync();
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(address),
+            "No published service has an address to open.");
+
+        await OpenAsync($"/server/#/service/{address}", token);
 
         await WaitForAsync(
             "!!document.getElementById('serviceScope')"

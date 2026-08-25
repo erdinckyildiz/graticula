@@ -121,16 +121,28 @@ public sealed class MemberRemovalPageTests : ConsoleTest
         })();
         """);
 
+        // <b>Somebody other than the operator, and then that somebody is declared the
+        // only administrator — 2026-08-25.</b> This read the *first* Remove button and
+        // declared its member the only administrator, which works on a members list
+        // that does not begin with the signed-in account. Where it does, the first
+        // button is your own: the console refuses that with *cannot remove yourself*
+        // before it ever reaches the administrator check, and this test waited for a
+        // message it had made unreachable.
+        //
+        // The two facts have to agree — the member clicked must be the member declared —
+        // so both are taken from the same selector rather than from two places that
+        // happen to line up.
+        string selector = await SomebodyElseAsync();
+
         string who = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#members tr button[data-member-remove]')"
-            + ".dataset.memberRemove") ?? string.Empty;
+            $"document.querySelector(\"{selector}\").dataset.memberRemove") ?? string.Empty;
 
         Assert.False(who.Length == 0, "the Remove button names no member");
 
         // <b>This member, and nobody else, can administer.</b>
         await Browser.EvaluateAsync<bool>($"(() => {{ administrators = ['{who}']; return true; }})()");
 
-        await ClickAsync("#members tr button[data-member-remove]");
+        await ClickAsync(selector);
 
         await WaitForAsync(
             "document.getElementById('toast')?.textContent.includes('only administrator')",
@@ -190,7 +202,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             $"(() => {{ administrators = ['{who}', 'somebody-else']; return true; }})()");
 
-        await ClickAsync("#members tr button[data-member-remove]");
+        await ClickAsync(await SomebodyElseAsync());
 
         await WaitForAsync(
             "getComputedStyle(document.getElementById('removeMember')).display !== 'none'",
@@ -238,7 +250,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
         })();
         """);
 
-        await ClickAsync("#members tr button[data-member-remove]");
+        await ClickAsync(await SomebodyElseAsync());
 
         await WaitForAsync(
             "getComputedStyle(document.getElementById('removeMember')).display !== 'none'",
@@ -303,7 +315,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
         })();
         """);
 
-        await ClickAsync("#members tr button[data-member-remove]");
+        await ClickAsync(await SomebodyElseAsync());
 
         await WaitForAsync(
             "getComputedStyle(document.getElementById('removeMember')).display !== 'none'",
@@ -322,5 +334,40 @@ public sealed class MemberRemovalPageTests : ConsoleTest
             "none",
             await Browser.EvaluateAsync<string>(
                 "getComputedStyle(document.getElementById('removeMember')).display"));
+    }
+
+    /// <summary>A Remove button for a member who is not the one signed in.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Four tests in this file clicked the first Remove button on the screen —
+    /// 2026-08-25.</b> On a members list that begins with the signed-in administrator
+    /// that button is <em>yours</em>, and removing yourself is refused before the panel
+    /// opens, which is exactly what the first test in this file asserts. So four tests
+    /// waited ten seconds for a panel that was correctly never going to open and
+    /// reported it as <em>the removal panel never opened</em> — an accusation against
+    /// the console, produced by clicking the one row it must refuse.
+    /// </para>
+    /// <para>
+    /// <b>It passed where it was written because that members list did not begin with
+    /// the operator.</b> Position is not a property of a member; who they are is. Found
+    /// by the first CI run to reach this suite.
+    /// </para>
+    /// </remarks>
+    private async Task<string> SomebodyElseAsync()
+    {
+        string me = await Browser.EvaluateAsync<string>("signedInAs") ?? string.Empty;
+
+        Assert.False(me.Length == 0, "the page does not know who is signed in");
+
+        string selector =
+            $"#members tr button[data-member-remove]:not([data-member-remove='{me}'])";
+
+        await WaitForAsync(
+            $"document.querySelector(\"{selector}\")",
+            "The Members screen offers a Remove button only for the account that is "
+            + "signed in, and removing yourself is refused before the panel opens — so "
+            + "this test needs a second member to exist.");
+
+        return selector;
     }
 }

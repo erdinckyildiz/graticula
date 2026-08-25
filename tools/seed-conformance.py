@@ -353,6 +353,14 @@ def main():
         help="Prepended to every created name, so a seeded developer machine "
              "keeps its own fixtures.",
     )
+    # <b>Two fixtures the console suite needs and this script cannot invent.</b>
+    # A connection string it may register a second time, and a raster on the
+    # server's own filesystem. Both are optional: without them the fixtures they
+    # feed are skipped rather than the run failing, because every other suite here
+    # is happy without them.
+    parser.add_argument("--datastore-connection", default=None)
+    parser.add_argument("--raster", default=None)
+
     parser.add_argument("--github-env", default=None,
                         help="Append the variables to this file as well.")
 
@@ -370,6 +378,8 @@ def main():
     print("  signed in", file=sys.stderr)
 
     prefix = options.prefix
+    datastore_connection = options.datastore_connection
+    raster_path = options.raster
     existing = server.layers()
 
     # ---- the queryable layer: polygons, several features, an integer field ----
@@ -394,6 +404,122 @@ def main():
         for i in range(8)
     ]):
         print(f"  hosted/{queryable}: 8 polygons", file=sys.stderr)
+
+    # ---- what the console suite needs, which is people and a second source ----
+    #
+    # <b>The browser suite is written against a working deployment, and CI's had one
+    # administrator and one data source — 2026-08-25.</b> Nine of its tests failed on
+    # that alone: a Members screen with nobody to remove offers no Remove button, a
+    # group has nobody to add, and a sources table with one row has no second row to
+    # click. None of that is a defect in the console; it is a console with nothing in
+    # it.
+
+    # <b>Two members, and one of them an administrator.</b> Removing the only
+    # administrator is refused — correctly — so a suite that tests the removal panel
+    # needs a second one to make the refusal reachable rather than universal.
+    for who, role in ((f"{prefix}_second_admin", "administrator"),
+                      (f"{prefix}_ordinary", "user")):
+        server.call(
+            "POST",
+            "/admin/members",
+            body={"name": who, "role": role, "userType": "unrestricted"},
+            expect=(200, 201, 409),
+        )
+
+    print(f"  members: {prefix}_second_admin (administrator), {prefix}_ordinary (user)",
+          file=sys.stderr)
+
+    # <b>A second data source, so the sources table has a second row.</b> It points at
+    # the same database the datastore uses, which is the honest thing for a fixture:
+    # the screen under test lists registrations, and one registration of a reachable
+    # database is a registration.
+    if datastore_connection:
+        _, made = server.call(
+            "POST",
+            "/admin/datasources",
+            body={"name": f"{prefix}_second_source",
+                  "connectionString": datastore_connection},
+            expect=(200, 201, 409),
+        )
+
+        print(f"  a second data source: {prefix}_second_source", file=sys.stderr)
+
+        # <b>And a layer on it, because the screen under test is about a source that
+        # cannot be removed.</b> `DataSourceScreenTests` clicks Remove and expects the
+        # console to refuse and say which layers are in the way. The datastore has no
+        # Remove button at all — `console.js` omits it by name — so the only source that
+        # can carry that test is a registered one with something published from it.
+        #
+        # Which table does not matter, so the first one the source reports with a
+        # geometry column is taken. It is the same database the datastore uses, so the
+        # tables are the ones seeded above; publishing one through this registration is
+        # a second reference to a table, which is exactly what a registered source is.
+        # <b>The id, whether it was just created or was already there.</b> A second run
+        # answers 409 with an error rather than a record, so reading the id out of the
+        # response worked exactly once and then silently skipped everything below it —
+        # which is how the second source sat at zero layers through three seedings.
+        source = (made or {}).get("id") if isinstance(made, dict) else None
+
+        if not source:
+            _, sources = server.call("GET", "/admin/datasources", expect=(200,))
+
+            source = next(
+                (row["id"] for row in (sources or {}).get("dataSources", [])
+                 if row.get("name") == f"{prefix}_second_source"),
+                None)
+
+        if source:
+            _, seen = server.call(
+                "GET", f"/admin/datasources/{source}/capability", expect=(200,))
+
+            # <b>An already-published table is fine, and looking for an unclaimed one
+            # was the wrong instinct.</b> Every table in this database is claimed by
+            # the layers seeded above, and the two free ones this workflow makes are
+            # created *after* seeding — so the first version found nothing and silently
+            # left the source empty. Publishing a second layer over the same table
+            # through a different registration is not a workaround: it is what a
+            # registered source is, and it gives this one the layer count the screen
+            # under test is about.
+            for table in (seen or {}).get("tables", []):
+                if not table.get("geometryColumn") or not table.get("identityCandidates"):
+                    continue
+
+                server.call(
+                    "POST",
+                    "/admin/layers",
+                    body={
+                        "name": f"{prefix}_on_second",
+                        "dataSourceId": source,
+                        "schemaName": table["schemaName"],
+                        "tableName": table["tableName"],
+                        "geometryColumn": table["geometryColumn"],
+                        "identityColumn": table["identityCandidates"][0],
+                        "objectIdColumn": table.get("objectIdColumn"),
+                        "srid": table["srid"],
+                        "geometryType": table.get("geometryType") or "Polygon",
+                        "sharing": "organization",
+                    },
+                    expect=(200, 201, 409),
+                )
+
+                print(f"  a layer on {prefix}_second_source, so it is a source in use",
+                      file=sys.stderr)
+                break
+
+    # <b>An image service, from a raster this repository already carries.</b>
+    # `ServiceScopeTests` asserts that a private service says so on its own page and
+    # needs an *image* service to do it, because the feature and image catalogues are
+    # separate and asserting one would pass with the other broken. The corpus tif is
+    # 3 kB and tracked.
+    if raster_path:
+        server.call(
+            "POST",
+            "/admin/coverages",
+            body={"name": f"{prefix}_imagery", "folder": "hosted", "path": raster_path},
+            expect=(200, 201, 409),
+        )
+
+        print(f"  an image service: hosted/{prefix}_imagery", file=sys.stderr)
 
     # ---- three fixtures the gate suites need and nothing else creates ----
     #
