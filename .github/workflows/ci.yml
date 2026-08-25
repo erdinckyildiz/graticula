@@ -140,8 +140,41 @@ jobs:
 
       # PostgresFixture creates a private schema per test class and migrates it
       # itself, so nothing has to bootstrap the platform store here.
+      #
+      # <b>Three classes are excluded and the next step says which — ADR-048.</b>
+      # They read `public.planet_osm_polygon` and `public.planet_osm_line`, an
+      # osm2pgsql schema that is a real extract on a developer machine and nothing
+      # here. They fail rather than skip when it is absent, which is correct and is
+      # why they cannot simply run. Seeding a stand-in was tried on 2026-08-25 and
+      # abandoned: the suites want 500 single-ring polygons, multi-ring ones, a
+      # `name` column, a second table and an index in the query plan, and building
+      # that is inventing a fake OSM database so a gate can go green on data it was
+      # written not to trust.
       - name: platform store and providers
-        run: dotnet test tests/Graticula.Platform.Postgres.Tests -c Release --no-build
+        run: |
+          dotnet test tests/Graticula.Platform.Postgres.Tests -c Release --no-build \
+            --filter 'Corpus!=RealData'
+
+      # <b>Said out loud, because a gate that is silent about what it skipped
+      # claims more than it proved.</b> §67's warning, applied to ourselves: the
+      # cheapest way for CI to become a lie is for an exclusion to be added once
+      # and never mentioned again.
+      - name: say what CI did not run
+        if: always()
+        run: |
+          echo "Excluded from this job: every class traited Corpus=RealData."
+          echo
+          grep -rl 'Trait("Corpus", "RealData")' tests/ \
+            | sed 's/^/  /'
+          echo
+          echo "They compare this server against PostGIS on a real OpenStreetMap"
+          echo "extract. CI has none, so they are not run here and CI does not"
+          echo "prove what they prove. Run them on a machine with the corpus:"
+          echo
+          echo "  dotnet test tests/Graticula.Platform.Postgres.Tests \\"
+          echo "    --filter 'Corpus=RealData'"
+          echo
+          echo "ADR-048 and Q-117."
 
       # Host.Tests needs the overlay worker, which the host build copies into an
       # 'overlay' directory beside itself. If that copy step ever breaks, these

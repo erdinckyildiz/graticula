@@ -27,7 +27,16 @@ namespace Graticula.Platform.Postgres.Tests;
 /// that has no reference implementation to compare against.
 /// </para>
 /// </remarks>
+/// <remarks>
+/// <b>Excluded from CI, deliberately and out loud — [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md).</b>
+/// This class reads <c>public.planet_osm_polygon</c>, a real OpenStreetMap extract on
+/// a developer machine and nothing at all in CI. It fails rather than skips when the
+/// table is absent, which is the right behaviour and is why CI cannot simply run it.
+/// The trait is what CI filters on, and the workflow prints what it excluded so a
+/// green run never claims more than it proved.
+/// </remarks>
 [Trait("Category", "Integration")]
+[Trait("Corpus", "RealData")]
 public sealed class ArcGisWindingAgainstPostgisTests : PostgresFixture
 {
     private readonly ITestOutputHelper _output;

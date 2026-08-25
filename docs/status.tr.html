@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>796e039</code> · 2026-08-25 07:13</p>
+<p class="stamp">Şu commit’ten üretildi: <code>520d122</code> · 2026-08-25 07:22</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">47</div><div class="kpi-l">ADR</div><div class="kpi-n">2 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">105/195</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 0 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">53</div><div class="kpi-l">açık soru</div><div class="kpi-n">81 yanıtlandı · 3 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">açık borç</div><div class="kpi-n">127 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">9 açık</span></div><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">121 madde</span></div><p><b>90 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>27 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">123 madde</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>27 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -160,6 +160,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-038 · How a geodatabase becomes one serv</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-047 · The outbound licence is Elastic Li</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-035 · Role privileges are editable, exce</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
@@ -231,6 +232,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">045</td><td>The server keeps a log you can ask questions of</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">046</td><td>Admission control bounds the queue, not the wait</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
 <tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">1/3</td></tr>
+<tr><td class="id">048</td><td>CI does not run the real-data suites, and says so on every run</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the exclusion · MEDIUM for whether announcing it is enough</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -427,6 +429,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>520d122</code><time>2026-08-25</time><span>The first CI run this repository ever completed found a test that only passes here</span></li>
 <li><code>796e039</code><time>2026-08-25</time><span>D-63: every cause the owner could act on is eliminated, and none of them was it</span></li>
 <li><code>9add79b</code><time>2026-08-25</time><span>Q-135 answered by taking one of its options and watching it fail</span></li>
 <li><code>816c26d</code><time>2026-08-25</time><span>The reading log and the peer comparison are kept outside this repository</span></li>
@@ -440,7 +443,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>68e5669</code><time>2026-08-24</time><span>Question round: 20 closed of 74, six rows corrected, two debts opened</span></li>
 <li><code>6e95aac</code><time>2026-08-24</time><span>Q-102 says the server has nowhere to declare itself, and it has three</span></li>
 <li><code>e91f952</code><time>2026-08-24</time><span>Q-35 still required three engines verified before anything could be answered</span></li>
-<li><code>18a1ade</code><time>2026-08-24</time><span>Q-100 says proj.db is not in this deployment, and it is</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
