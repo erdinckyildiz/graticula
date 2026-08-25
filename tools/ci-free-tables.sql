@@ -8,7 +8,10 @@
 -- <b>Made with SQL rather than through the API, and that is the whole point.</b> The
 -- first attempt defined two layers and unpublished them — which does leave the tables
 -- behind, and also leaves two empty services in the directory answering 404 for their
--- layers, because nothing deletes a service ([D-157](../docs/architecture-debt.md)).
+-- layers ([D-157](../docs/architecture-debt.md)). **Not because nothing deletes a
+-- service** -- `DELETE /admin/featureservices/{name}` does, and that half of D-157 was
+-- corrected on 2026-08-25 -- but because unpublishing does not, and a fixture that has
+-- to remember a second call is a fixture that eventually forgets it.
 -- A fixture that creates a defect in order to test something else is worse than no
 -- fixture. These rows never reach the catalogue.
 --

@@ -6800,6 +6800,25 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>Whether that was the last one — [D-157](../../docs/architecture-debt.md).</b>
+        // An emptied service stays in the directory, answers its own document, and 404s
+        // every layer inside it. Measured rather than read from the route table: the
+        // service is listed, `/FeatureServer` answers 200, `/FeatureServer/0` answers
+        // 404. The route that removes it exists — `DELETE /admin/featureservices/{name}`
+        // — and D-157 said it did not, which is the half of that row that was wrong.
+        // What was missing is that nobody arriving here is told, and this is the last
+        // moment anything can tell them.
+        IReadOnlyList<AdminLayer> left =
+            await catalog.ListLayersAsync(cancellation).ConfigureAwait(false);
+
+        bool emptied = !left.Any(l =>
+            string.Equals(l.Service, going.ServiceName, StringComparison.Ordinal)
+            && string.Equals(l.Folder, going.Folder, StringComparison.Ordinal));
+
+        string address = going.Folder is { Length: > 0 } inside
+            ? $"{inside}/{going.ServiceName}"
+            : going.ServiceName;
+
         await Results.Json(new
         {
             name,
@@ -6808,6 +6827,21 @@ internal static class AdminEndpoints
             // Said out loud, because "delete" on a layer that reads somebody
             // else's database could reasonably be feared to mean more.
             note = "The registration was removed. The table in the data source was not touched.",
+
+            service = new
+            {
+                name = address,
+                isEmpty = emptied,
+                note = emptied
+                    ? $"'{address}' now holds no layers. It stays in the services directory and "
+                      + "answers its own document, and every layer address inside it answers "
+                      + "404 — so a client browsing the catalogue finds a service that promises "
+                      + "something and delivers nothing, and the name stays taken. Remove it "
+                      + $"with DELETE /admin/featureservices/{going.ServiceName}"
+                      + (going.Folder is { Length: > 0 } folder ? $"?folder={folder}" : string.Empty)
+                      + ", which takes `drop=true` if the hosted tables should go with it."
+                    : $"'{address}' still holds other layers and is unchanged.",
+            },
 
             // <b>And what there is no other way to do — D-34.</b> There is no move, no rename
             // and no reorder, so an operator correcting a placement arrives here whether they
