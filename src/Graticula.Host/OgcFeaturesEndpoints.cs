@@ -655,7 +655,7 @@ internal static class OgcFeaturesEndpoints
         // said the collection had no time while its own `datetime` filter worked on
         // it — and a client reads the document to decide whether to ask.
         Graticula.Api.Wms.TimeDimension? time = await WmsEndpoints
-            .TimeOfAsync(source, layer, described, cancellation).ConfigureAwait(false);
+            .TimeOfAsync(source, layer, described, contexts, cancellation).ConfigureAwait(false);
 
         return new CollectionMetadata(
             layer.Definition.Name,

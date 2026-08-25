@@ -53,8 +53,14 @@ internal static class WmsEndpoints
     /// </remarks>
     public static readonly TimeSpan TimeExtentLifetime = TimeSpan.FromMinutes(5);
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (TimeDimension Dimension, DateTimeOffset Measured)>
-        TimeExtents = new();
+    // <b>The measurement lives on `ServiceContexts` since 2026-08-25 — D-160.</b> It was a
+    // `static` dictionary here, read and written and never removed from: the lifetime
+    // above decides whether to re-measure over the top, and nothing was asking whether an
+    // entry should still exist. A republished layer gets a new id (D-34 makes
+    // republishing the ordinary way to correct a name), so the count grew with every
+    // publication a deployment had ever made. `ServiceContexts.Forget` is already called
+    // by the unpublish and refresh paths and already cleared everything else the request
+    // path remembers; this is now one of the things it clears.
 
     /// <summary>The link a REST directory page offers to this surface.</summary>
     /// <remarks>
@@ -416,7 +422,8 @@ internal static class WmsEndpoints
             Drawable(described.Extent),
             Geographic: null,
             Queryable: true,
-            await TimeOfAsync(source, layer, described, cancellation).ConfigureAwait(false));
+            await TimeOfAsync(source, layer, described, contexts, cancellation)
+                .ConfigureAwait(false));
     }
 
     /// <summary>
@@ -522,23 +529,27 @@ internal static class WmsEndpoints
     /// <param name="source">The layer's feature source.</param>
     /// <param name="layer">The layer.</param>
     /// <param name="described">Its columns and extent.</param>
+    /// <param name="contexts">Where the measurement is remembered — D-160.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>The dimension, or null when the layer has no single date column.</returns>
     public static async Task<TimeDimension?> TimeOfAsync(
         IFeatureSource source,
         PublishedLayer layer,
         LayerDescription described,
+        ServiceContexts contexts,
         CancellationToken cancellation)
     {
+        ArgumentNullException.ThrowIfNull(contexts);
+
         if (TimeDimension.FieldOf(described.Fields, layer.TimeField) is not { } field)
         {
             return null;
         }
 
-        if (TimeExtents.TryGetValue(layer.Id, out (TimeDimension Dimension, DateTimeOffset Measured) held)
-            && DateTimeOffset.UtcNow - held.Measured < TimeExtentLifetime)
+        if (contexts.RememberedTime(layer.Id, TimeExtentLifetime, DateTimeOffset.UtcNow)
+            is { } held)
         {
-            return held.Dimension;
+            return held;
         }
 
         TimeDimension dimension = new(field, null, null);
@@ -594,7 +605,7 @@ internal static class WmsEndpoints
             return null;
         }
 
-        TimeExtents[layer.Id] = (dimension, DateTimeOffset.UtcNow);
+        contexts.RememberTime(layer.Id, dimension, DateTimeOffset.UtcNow);
         return dimension;
     }
 

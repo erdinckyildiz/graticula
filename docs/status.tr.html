@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ca6b9f3</code> · 2026-08-25 16:11</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c9e91c0</code> · 2026-08-25 16:21</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">45</div><div class="kpi-l">açık soru</div><div class="kpi-n">97 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">açık borç</div><div class="kpi-n">132 ödendi · 4 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">açık borç</div><div class="kpi-n">133 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1968</div><div class="kpi-l">test</div><div class="kpi-n">240 kaynak dosya, 91,760 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1972</div><div class="kpi-l">test</div><div class="kpi-n">240 kaynak dosya, 91,846 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -312,7 +312,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-158</td><td>The strongest external evidence this project has is re-earned by somebody remembering.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">132 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">133 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -405,20 +405,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">400</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:95.5%"></div></div><div class="bar-n">382</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:83.8%"></div></div><div class="bar-n">335</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.0%"></div></div><div class="bar-n">288</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:36.2%"></div></div><div class="bar-n">145</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:31.5%"></div></div><div class="bar-n">126</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">112</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">97</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">24</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">404</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:94.6%"></div></div><div class="bar-n">382</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:82.9%"></div></div><div class="bar-n">335</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:71.3%"></div></div><div class="bar-n">288</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:35.9%"></div></div><div class="bar-n">145</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:31.2%"></div></div><div class="bar-n">126</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">112</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">97</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.9%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.9%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">18</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c9e91c0</code><time>2026-08-25</time><span>D-155: the tile cache key now carries the generation of the code that built the tile</span></li>
 <li><code>ca6b9f3</code><time>2026-08-25</time><span>D-157: the route it said did not exist does, and the sentence that was missing is written</span></li>
 <li><code>6153196</code><time>2026-08-25</time><span>Q-101 closes: the capability report is now checked against the server that answers</span></li>
 <li><code>05d31ee</code><time>2026-08-25</time><span>Q-115 closes: the cap bounds five of six operations, and the other two are bounded on the way out</span></li>
@@ -432,7 +433,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3f754d0</code><time>2026-08-25</time><span>Q-01 closed by owner decision: .NET, and the comparison is waived rather than met</span></li>
 <li><code>8559ee8</code><time>2026-08-25</time><span>lang-slice&#x27;s first reason for not running died seven days ago</span></li>
 <li><code>0f419b0</code><time>2026-08-25</time><span>D-58 is unblocked, sized, and not started</span></li>
-<li><code>d2796d0</code><time>2026-08-25</time><span>D-29 closes, and the ordering its trigger warned about happened exactly as predicted</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

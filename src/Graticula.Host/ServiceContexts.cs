@@ -119,6 +119,37 @@ internal sealed class ServiceContexts
     /// </remarks>
     private readonly ConcurrentDictionary<Key, LayerDescription> _known = new();
 
+    /// <summary>
+    /// Each layer's measured time extent, and when it was measured.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Here rather than in the WMS face — [D-160](../../docs/architecture-debt.md).</b>
+    /// It lived as a <c>static</c> dictionary in <c>WmsEndpoints</c>, keyed by layer id,
+    /// read and written and <em>never</em> removed from: the five-minute staleness check
+    /// answers *may I trust this* and nothing was asking *should this still be here*. A
+    /// republished layer gets a new id ([D-34](../../docs/architecture-debt.md) makes
+    /// republishing the ordinary way to correct a name), so the count grew with the
+    /// number of publications a deployment had ever made and the entries for layers that
+    /// no longer exist were unreachable and immortal.
+    /// </para>
+    /// <para>
+    /// <b>Moving it here is the whole fix.</b> <see cref="Forget"/> is already called by
+    /// the unpublish and refresh paths and already clears both other memories; putting
+    /// this one beside them means it is cleared by code that was already clearing
+    /// everything else, rather than by a second thing somebody has to remember.
+    /// </para>
+    /// <para>
+    /// <b>Keyed by layer id rather than by <see cref="Key"/>.</b> The other two are keyed
+    /// by table, because two layers over one table have one shape. A time extent is a
+    /// property of the *layer*: two layers over the same table can declare different time
+    /// columns ([Q-129](../../docs/open-questions.md)), so sharing the entry would give
+    /// one of them the other's extent.
+    /// </para>
+    /// </remarks>
+    private readonly ConcurrentDictionary<Guid, (Graticula.Api.Wms.TimeDimension Extent, DateTimeOffset Measured)>
+        _times = new();
+
     private readonly IServiceSources _connections;
     private readonly TimeProvider _clock;
 
@@ -142,6 +173,35 @@ internal sealed class ServiceContexts
     /// <summary>How many shapes are currently remembered.</summary>
     /// <remarks>Reported by <c>/admin/health</c> so the cache is observable.</remarks>
     public int Count => _entries.Count;
+
+    /// <summary>How many time extents are currently remembered.</summary>
+    /// <remarks>
+    /// <b>Reported so the cache is observable, which is what D-160 was about.</b>
+    /// [Q-64](../../docs/open-questions.md) wants growth without corresponding load to be
+    /// the signal that separates a leak from a warm cache, and a structure nobody can
+    /// count poisons that measurement before it is taken.
+    /// </remarks>
+    public int TimeCount => _times.Count;
+
+    /// <summary>A layer's remembered time extent, if it is still fresh.</summary>
+    /// <param name="layerId">The layer.</param>
+    /// <param name="lifetime">How long a measurement is trusted.</param>
+    /// <param name="now">The clock.</param>
+    /// <returns>The extent, or null to measure again.</returns>
+    public Graticula.Api.Wms.TimeDimension? RememberedTime(Guid layerId, TimeSpan lifetime, DateTimeOffset now) =>
+        _times.TryGetValue(
+            layerId, out (Graticula.Api.Wms.TimeDimension Extent, DateTimeOffset Measured) held)
+        && now - held.Measured < lifetime
+            ? held.Extent
+            : null;
+
+    /// <summary>Remembers a layer's measured time extent.</summary>
+    /// <param name="layerId">The layer.</param>
+    /// <param name="extent">What was measured.</param>
+    /// <param name="now">When.</param>
+    public void RememberTime(
+        Guid layerId, Graticula.Api.Wms.TimeDimension extent, DateTimeOffset now) =>
+        _times[layerId] = (extent, now);
 
     /// <summary>
     /// The feature source and described shape for a layer.
@@ -280,12 +340,18 @@ internal sealed class ServiceContexts
         {
             _entries.Clear();
             _known.Clear();
+            _times.Clear();
             return;
         }
 
         Key key = Key.Of(layer);
 
         _entries.TryRemove(key, out _);
+
+        // <b>D-160: the time extent goes with them.</b> It used to live in the WMS face
+        // and outlive every layer it described, because nothing on this path knew it
+        // existed.
+        _times.TryRemove(layer.Id, out _);
 
         // <b>Both, and the second one is the point.</b> An operator who has just altered a
         // table and asked the server to forget it must not have the old shape served back

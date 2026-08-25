@@ -4531,6 +4531,15 @@ internal static class AdminEndpoints
             count = contexts.Count,
             lifetimeSeconds = (int)ServiceContexts.Lifetime.TotalSeconds,
 
+            // <b>D-160, and it is here so that [Q-64](../../docs/open-questions.md) has
+            // something to subtract.</b> Each layer's measured time extent used to live
+            // in the WMS face as a static dictionary nothing ever removed from, so it
+            // grew with every publication a deployment had ever made. It is cleared with
+            // the shapes now, and counted here for the same reason they are: a cache
+            // nobody can see is a cache nobody suspects, and growth with no corresponding
+            // load is the only signal that separates a leak from a warm cache.
+            timeExtents = contexts.TimeCount,
+
             // <b>Two numbers, because they answer different questions during an
             // outage.</b> D-127: `count` is how much is fresh and `servableWhileBlind` is
             // how much can still be answered from memory. The gap between them used to be
