@@ -32,6 +32,53 @@ public sealed class BoundedArchiveTests
     private static string Corpus =>
         Path.Combine(AppContext.BaseDirectory, "corpus", "shapefile");
 
+    /// <summary>
+    /// The bytes of a real <c>.shp</c>, taken out of the corpus zip rather than from a
+    /// loose file beside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the first CI run this repository has ever completed, 2026-08-25.</b>
+    /// This test read <c>corpus/shapefile/points.shp</c> directly, which exists on the
+    /// machine it was written on and reaches no clone: `.gitignore`'s <c>*.shp</c> hides
+    /// it, and the rule beside it says the loose shapefiles were <em>deliberately left
+    /// out</em> because the zips are the tracked artefact. So the corpus was right and
+    /// the test was reaching around it. 274 passed, this one failed, and nothing local
+    /// could have told us.
+    /// </para>
+    /// <para>
+    /// <b>Fixed by reading the zip, not by committing the loose file.</b> Tracking it
+    /// would reverse a decision somebody took on purpose as a side effect of repairing a
+    /// test — and the zip is already here, already read by six other tests in this class,
+    /// and is what the product actually receives from a caller.
+    /// </para>
+    /// <para>
+    /// This is [D-62](../../docs/architecture-debt.md)'s shape in data rather than in
+    /// source, and [Q-117](../../docs/open-questions.md)'s question answered by
+    /// demonstration: what CI proves about a repository somebody else clones is exactly
+    /// this, and no local run can prove it.
+    /// </para>
+    /// </remarks>
+    private static byte[] ShapefileBytesFromCorpus()
+    {
+        string path = Path.Combine(Corpus, "points.zip");
+
+        Assert.True(File.Exists(path), $"The corpus file {path} is missing.");
+
+        using FileStream file = File.OpenRead(path);
+        using ZipArchive archive = new(file, ZipArchiveMode.Read);
+
+        ZipArchiveEntry entry = Assert.Single(
+            archive.Entries,
+            e => e.FullName.EndsWith(".shp", StringComparison.OrdinalIgnoreCase));
+
+        using Stream member = entry.Open();
+        using MemoryStream copy = new();
+        member.CopyTo(copy);
+
+        return copy.ToArray();
+    }
+
     private static bool TryRead(
         string name,
         out IReadOnlyList<ArchiveMember> members,
@@ -210,7 +257,7 @@ public sealed class BoundedArchiveTests
             }
 
             using Stream real = zip.CreateEntry("points.shp").Open();
-            real.Write(File.ReadAllBytes(Path.Combine(Corpus, "points.shp")));
+            real.Write(ShapefileBytesFromCorpus());
         }
 
         buffer.Position = 0;

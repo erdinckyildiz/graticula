@@ -1105,6 +1105,110 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def a_corpus_file_a_test_reads_but_a_clone_does_not_get():
+    """A test naming a corpus file that an ignore rule keeps out of a clone.
+
+    **Found by the first CI run this repository ever completed, 2026-08-25.**
+    `BoundedArchiveTests` read `corpus/shapefile/points.shp` by name. That file
+    exists on the machine the test was written on and reaches no clone --
+    `.gitignore`'s `*.shp` hides it, and the rule beside it records that the loose
+    shapefiles were **deliberately** left out because the zips are the tracked
+    artefact. 274 tests passed and that one failed, and no local run could have
+    told anybody: locally the file is there.
+
+    **This is [D-62](../docs/architecture-debt.md) in data rather than in source,
+    and the check written for D-62 could not see it.** That one asks git which of
+    the repository's own `.cs`, `.csproj`, `.js`, `.css` and `.html` files an
+    ignore rule hides. A corpus file is none of those.
+
+    **Why this is narrow rather than *nothing under tests/ may be ignored*.** Some
+    of it is meant to be ignored -- the loose shapefiles beside the zips are scratch
+    that somebody chose not to commit, and a check that demanded they be tracked
+    would be arguing with a decision instead of protecting one. So the rule is not
+    about ignoring; it is about **reaching**: a file a test names must be a file a
+    clone receives.
+    """
+    corpus = re.compile(
+        r"""Path\.Combine\(\s*Corpus\s*,\s*"([^"]+)"\s*\)"""
+        r"""|"(corpus/[^"]+)\"""")
+
+    tests = os.path.join(conditions.ROOT, "tests")
+
+    if not os.path.isdir(tests):
+        return ["tests/ is not there, so this check is reading nothing."]
+
+    wanted = {}
+
+    for base, _, names in os.walk(tests):
+        if any(part in base for part in ("bin", "obj")):
+            continue
+
+        for name in names:
+            if not name.endswith(".cs"):
+                continue
+
+            path = os.path.join(base, name)
+
+            try:
+                text = io.open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+
+            # <b>Read the directory the file's own `Corpus` points at.</b> Several
+            # test classes define one and they do not agree, so resolving it per
+            # file is the only reading that is not a guess.
+            # <b>Both spellings, because the first version only knew one and reported
+            # four files at the wrong path.</b> `Corpus =>` and `Corpus =` are the same
+            # declaration to a reader and different regexes to a checker, and the tiff
+            # tests use the second — so their corpus resolved to the project root,
+            # every file looked untracked, and the check accused a directory that was
+            # correct. A guard that names the wrong file sends somebody hunting.
+            root = re.search(
+                r"""Corpus\s*=[>]?\s*Path\.Combine\(\s*AppContext\.BaseDirectory\s*,\s*"""
+                r"""((?:"[^"]+"\s*,?\s*)+)\)""", text)
+
+            folders = re.findall(r'"([^"]+)"', root.group(1)) if root else []
+
+            for found in corpus.finditer(text):
+                named = found.group(1) or found.group(2)
+
+                if named.startswith("corpus/"):
+                    parts = named.split("/")
+                else:
+                    parts = folders + [named]
+
+                if not parts:
+                    continue
+
+                wanted.setdefault(
+                    os.path.join(os.path.dirname(path), *parts),
+                    os.path.relpath(path, conditions.ROOT).replace(os.sep, "/"))
+
+    if not wanted:
+        return ["no corpus file was found named in any test, so this check is reading "
+                "nothing. A check that cannot fail is worse than no check."]
+
+    problems = []
+
+    for target, named_in in sorted(wanted.items()):
+        shown = os.path.relpath(target, conditions.ROOT).replace(os.sep, "/")
+
+        try:
+            tracked = subprocess.run(
+                ["git", "-C", conditions.ROOT, "ls-files", "--error-unmatch", shown],
+                capture_output=True, text=True).returncode == 0
+        except OSError:
+            continue
+
+        if not tracked:
+            problems.append(
+                f"{named_in} reads {shown}, which git does not track — so it is on this "
+                "machine and in no clone. A test that passes only where it was written "
+                "proves nothing about the repository somebody else gets. D-62, Q-117.")
+
+    return problems
+
+
 def an_outbound_licence_claim_that_is_stale():
     """A document saying this project is Apache-2.0, or that it is open source.
 
@@ -1528,6 +1632,7 @@ def main() -> int:
                 + an_open_question_that_asks_without_saying_why()
                 + an_answered_question_still_filed_as_open()
                 + an_outbound_licence_claim_that_is_stale()
+                + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + source_the_repository_would_not_receive())
 
     if problems:
