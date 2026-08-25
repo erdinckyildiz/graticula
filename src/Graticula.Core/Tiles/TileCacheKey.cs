@@ -103,8 +103,24 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
     /// badly. The z/x split gives at most 4096 children per directory at the
     /// zooms that matter.
     /// </para>
+    /// <para>
+    /// <b>And the pipeline's generation sits under the layer, not above it —
+    /// <see cref="TilePipeline"/>, D-155.</b> The fingerprint below describes the layer
+    /// and nothing described the code, so an upgrade that changed how a tile is drawn
+    /// served the old bytes until each entry expired. The segment makes a pipeline change
+    /// structurally invalidating in the same way a schema change already was: old entries
+    /// become unreachable rather than stale, and there is no sweep to remember.
+    /// </para>
+    /// <para>
+    /// <b>Second, not first, and that ordering is load-bearing.</b>
+    /// <c>FileSystemTileCache.Purge</c> matches index keys by the layer id as a prefix
+    /// and deletes <c>{root}/{layerId}</c> as a directory. A version segment in front of
+    /// the id would make every purge match nothing and delete nothing, silently — an
+    /// unpublish would leave its tiles behind and republishing the name over a different
+    /// table would serve them.
+    /// </para>
     /// </remarks>
     public string Path() => string.Create(
         CultureInfo.InvariantCulture,
-        $"{LayerId:N}/{Fingerprint}/{Address.Z}/{Address.X}/{Address.Y}.mvt");
+        $"{LayerId:N}/v{TilePipeline.Version}/{Fingerprint}/{Address.Z}/{Address.X}/{Address.Y}.mvt");
 }

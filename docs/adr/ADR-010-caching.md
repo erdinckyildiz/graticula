@@ -499,7 +499,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §3 | Per-service quota | **built**, a quarter of the total |
 | §3 | Writes fail soft | **built**, and tested by blocking the directory |
 | §3 (N2) | Lookup needs no index | **built** — the path derives from the key |
-| §4 | Key is plan identity + schema fingerprint | **built** |
+| §4 | Key is plan identity + schema fingerprint | **built, and the first half was not — corrected 2026-08-25.** The key was `(layer, fingerprint, z/x/y)` and the fingerprint's five inputs are all properties of the *data*, so nothing in it tracked the code that drew the tile: an upgrade kept every key it had ([D-155](../architecture-debt.md)). The path now carries `TilePipeline.Version`, and a test fails the build when the tiling source changes and that number does not — so raising it is a decision somebody takes, which is §8's requirement that a full rebuild be deliberate and visible |
 | §4 | Uniform authorization checked before lookup | **built** |
 | §5.1 | Purge on unpublish and on refresh | **built** |
 | §6b | Cache state readable | **built**, `/admin/health` and per layer |

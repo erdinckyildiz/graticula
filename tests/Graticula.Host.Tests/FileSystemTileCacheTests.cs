@@ -394,7 +394,13 @@ public sealed class FileSystemTileCacheTests : IDisposable
         Guid layer = Guid.Parse("0f9c9f61-0f27-4a51-9e26-1e1a1b2c3d4e");
         string path = new TileCacheKey(layer, "abcd1234", new TileAddress(7, 65, 42)).Path();
 
-        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/abcd1234/7/65/42.mvt", path);
+        // <b>The `v1` segment is D-155, and it sits under the layer id deliberately.</b>
+        // `Purge` matches index keys by the layer id as a prefix and deletes
+        // `{root}/{layerId}` as a directory, so a version in front would make every
+        // purge match nothing and delete nothing — silently. Written out rather than
+        // interpolated, so that raising the generation fails here too and whoever raises
+        // it sees what the paths become.
+        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/v1/abcd1234/7/65/42.mvt", path);
     }
 
     [Fact]
