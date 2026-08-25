@@ -463,19 +463,16 @@ def main():
 
     print(f"  hosted/{queryable}: a stored style", file=sys.stderr)
 
-    # <b>Two hosted tables nothing publishes.</b> `AmbiguousLayerNameTests` publishes
-    # the same name twice from two different tables and needs two the catalogue does
-    # not already claim. Unpublishing leaves the table behind — which is the property
-    # `D-34` records and the unpublish response says out loud — so defining two and
-    # removing their registrations is the cheapest way to make them.
-    for spare in (f"{prefix}_spare_one", f"{prefix}_spare_two"):
-        if spare not in existing:
-            define(server, spare, "Polygon", [{"name": "name", "type": "Text"}])
-
-        server.call("DELETE", f"/admin/layers/{spare}", expect=(200, 204, 404))
-
-    print("  two hosted tables left unpublished, for the ambiguous-name fixture",
-          file=sys.stderr)
+    # <b>The two free tables `AmbiguousLayerNameTests` needs are made with SQL, not
+    # here — and the first attempt is worth recording.</b> Defining two layers and
+    # then unpublishing them does leave their tables behind, which is true and is what
+    # D-34 records. What it also leaves behind is **two empty services in the
+    # directory whose layers answer 404**, because there is no way to delete a
+    # service: `/admin/layers/{name}` unpublishes and nothing removes the container.
+    # The conformance suite caught it immediately — *"is still in the services
+    # directory"* — so the fixture was creating the defect it then tripped over.
+    # That gap is [D-157](../docs/architecture-debt.md); the tables now come from
+    # `tools/ci-free-tables.sql`, which touches no catalogue at all.
 
     # ---- a layer whose answer does not fit in one write ----
     #

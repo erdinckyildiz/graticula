@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>eee36d4</code> · 2026-08-25 08:27</p>
+<p class="stamp">Generated from commit <code>6df8080</code> · 2026-08-25 09:19</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">92 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">53</div><div class="kpi-l">open questions</div><div class="kpi-n">81 answered · 3 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">open debts</div><div class="kpi-n">127 repaid · 4 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">127 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">1920</div><div class="kpi-l">tests</div><div class="kpi-n">238 source files, 90,366 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">9 open</span></div><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">123 items</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>27 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">124 items</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -321,6 +321,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-144</td><td>Nothing bounds how long one request may hold a database permit.</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-155</td><td>The tile cache key carries no version of the thing that built the tile, so a pipeline change invalidates nothing.</td><td class="muted-t">The first release that changes the bytes a tile is made of and is deployed onto a cache with entries in it.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-157</td><td>Unpublishing the last layer of a service leaves the service, and nothing can remove it.</td><td class="muted-t">When a deployment can empty a service — which today means the first operator who unpublishes to correct a mistake,…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">127 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -429,20 +430,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>6df8080</code><time>2026-08-25</time><span>The last conformance failures were fixtures nothing created, and one more accusation</span></li>
+<li><code>1b91f1d</code><time>2026-08-25</time><span>The memory-ceiling test needs a quiet machine, not a longer child</span></li>
+<li><code>8fb3dbb</code><time>2026-08-25</time><span>Two more assumptions about the machine, one of them an accusation</span></li>
+<li><code>9317e05</code><time>2026-08-25</time><span>Eight of the eighteen conformance failures were a job nobody had ever configured</span></li>
+<li><code>28e0bfa</code><time>2026-08-25</time><span>The memory-ceiling test was a coin flip, and CI called tails on the second run</span></li>
+<li><code>2fd041a</code><time>2026-08-25</time><span>A setup token that begins with a hyphen is not an option</span></li>
+<li><code>57fedfe</code><time>2026-08-25</time><span>The conformance suite learned nothing about its own fixtures, and could not decode a PNG</span></li>
+<li><code>d11187b</code><time>2026-08-25</time><span>Three kinds of environment assumption become one rule -- ADR-048 Â§5b</span></li>
 <li><code>eee36d4</code><time>2026-08-25</time><span>The setup-token search could not see what its own error message printed</span></li>
 <li><code>e1d1123</code><time>2026-08-25</time><span>Two more environment assumptions, and the second one moves rather than skips</span></li>
 <li><code>8976075</code><time>2026-08-25</time><span>The drop-refusal test asserted an absent table was still absent</span></li>
 <li><code>b835083</code><time>2026-08-25</time><span>ADR-048 tagged three classes and there were seven</span></li>
 <li><code>bf880a8</code><time>2026-08-25</time><span>Regenerate the board for ADR-048</span></li>
 <li><code>1e2b532</code><time>2026-08-25</time><span>CI does not run the real-data suites, and now says so on every run -- ADR-048</span></li>
-<li><code>520d122</code><time>2026-08-25</time><span>The first CI run this repository ever completed found a test that only passes here</span></li>
-<li><code>796e039</code><time>2026-08-25</time><span>D-63: every cause the owner could act on is eliminated, and none of them was it</span></li>
-<li><code>9add79b</code><time>2026-08-25</time><span>Q-135 answered by taking one of its options and watching it fail</span></li>
-<li><code>816c26d</code><time>2026-08-25</time><span>The reading log and the peer comparison are kept outside this repository</span></li>
-<li><code>8437c04</code><time>2026-08-25</time><span>An opening sentence for a repository that is about to be read by strangers</span></li>
-<li><code>8300ee8</code><time>2026-08-25</time><span>Remove a session token from 532 commits of history, and say why the entry exists</span></li>
-<li><code>88bc47b</code><time>2026-08-25</time><span>Label the remote by its former working title rather than as a live name</span></li>
-<li><code>fd4edb8</code><time>2026-08-25</time><span>ADR-047 said no commit had been pushed, and commits have been pushed since 2026-08-12</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

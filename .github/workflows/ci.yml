@@ -298,6 +298,15 @@ jobs:
       # above uses a placeholder because it seals nothing; this one seals data
       # source credentials, and a fixed key in a public workflow would be a
       # credential in the repository.
+      # <b>Two tables nothing publishes, for the ambiguous-name suite.</b> After
+      # migrate, because the hosted schema is the server's to create, and before the
+      # server starts so the catalogue sees them from its first read.
+      - name: two free tables
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
+            -f tools/ci-free-tables.sql
+
       - name: start the server
         run: |
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
