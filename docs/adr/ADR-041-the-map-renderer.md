@@ -284,6 +284,22 @@ as a bug.
 
 ## 6. Consequences
 
+- **A classified style draws a classified legend, on both faces —
+  [Q-131](../open-questions.md), 2026-08-25.** That row stayed open on a premise that
+  turned out to be false: it said enumerating the classes *means reading the data*, and
+  a legend is asked for once per layer per client, so the cost decided the answer. Both
+  expressions this server evaluates enumerate themselves — a `match` writes its labels
+  and a `step` writes its breaks — so the classes are already in the document the legend
+  is compiled from and cost no query. `GetLegendGraphic` now returns a strip with a row
+  per class, WIDTH and HEIGHT sizing a swatch rather than the image; ArcGIS's
+  `/MapServer/legend` returns one entry per class with its own `label`, which is the
+  shape that response always had and nothing was filling in. **What it will not do is
+  stated where the code is**: a style classifying on two different columns is a grid
+  rather than a strip and gets the single swatch, and a continuous `interpolate` ramp is
+  not enumerable. **Measured end to end**: a `match` on `kind` with two named classes
+  drew 96 × 68 pixels in three rows — 230,120,60 then 60,120,230 then the 204 grey
+  fallback — against 20 × 20 for a layer with no classification.
+
 **Positive.** The first face on this server that a WMS-only client can use, which is
 most of the estate GeoServer holds. [competitive-position.md](../competitive-position.md)
 §6a's claim that this capability is what would make *"better capabilities than

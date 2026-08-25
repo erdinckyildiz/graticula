@@ -531,10 +531,51 @@ internal static class MapServerEndpoints
                 ? SymbologyPlan.Compile(stored)
                 : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
 
-            using IMapCanvas canvas = canvases.Create(Swatch, Swatch);
+            // <b>One entry per class, which is what this response's shape always
+            // wanted.</b> [Q-131](../../docs/open-questions.md) closed by finding that
+            // the classes are in the style rather than in the data: a `match` writes
+            // its labels and a `step` its breaks, so enumerating them costs no query
+            // on an endpoint a client calls to draw a table of contents. A layer whose
+            // style does not classify still gets exactly what it got before -- one
+            // swatch, with an empty label, because there the swatch *is* the layer.
+            List<MapServerMetadataWriter.LegendEntry> entries = [];
 
-            Graticula.Api.Wms.LegendGraphic.Draw(
-                canvas, plan, layer.GeometryType, Rgba.Transparent);
+            if (plan.LegendClasses() is { } axis)
+            {
+                foreach (StyleExpression.ClassCase each in axis.Cases)
+                {
+                    if (entries.Count == Graticula.Api.Wms.LegendGraphic.MaximumRows)
+                    {
+                        break;
+                    }
+
+                    using IMapCanvas swatch = Graticula.Api.Wms.LegendGraphic.DrawClass(
+                        canvases,
+                        plan,
+                        layer.GeometryType,
+                        (Swatch, Swatch),
+                        Rgba.Transparent,
+                        axis.Field,
+                        each.Value);
+
+                    entries.Add(new MapServerMetadataWriter.LegendEntry(
+                        each.Label, swatch.Encode(MapImageFormat.Png, 90)));
+                }
+            }
+            else
+            {
+                using IMapCanvas swatch = Graticula.Api.Wms.LegendGraphic.DrawClass(
+                    canvases,
+                    plan,
+                    layer.GeometryType,
+                    (Swatch, Swatch),
+                    Rgba.Transparent,
+                    null,
+                    null);
+
+                entries.Add(new MapServerMetadataWriter.LegendEntry(
+                    string.Empty, swatch.Encode(MapImageFormat.Png, 90)));
+            }
 
             layers.Add(MapServerMetadataWriter.LegendLayer(
                 new FeatureServerMetadataWriter.ServiceLayer(
@@ -543,7 +584,7 @@ internal static class MapServerEndpoints
                     layer.GeometryType,
                     layer.Definition.Srid,
                     described.Extent),
-                canvas.Encode(MapImageFormat.Png, 90),
+                entries,
                 Swatch,
                 Swatch));
         }

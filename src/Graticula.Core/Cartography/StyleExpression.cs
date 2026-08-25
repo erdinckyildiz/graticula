@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json.Nodes;
 
 namespace Graticula.Cartography;
@@ -48,6 +49,45 @@ public abstract record StyleExpression
     /// <param name="context">The feature and the map.</param>
     /// <returns>The value, which may be null.</returns>
     public abstract object? Evaluate(in Context context);
+
+    /// <summary>
+    /// One classified axis a style makes: a column, and the classes it sorts
+    /// features into.
+    /// </summary>
+    /// <remarks>
+    /// <b>Q-131, and it exists because that row's premise was wrong.</b> The row said
+    /// enumerating a classified legend's entries *means reading the data*. It does
+    /// not, for either expression this server evaluates: a <c>match</c> carries its
+    /// labels and a <c>step</c> carries its breaks, both written out in the style
+    /// document itself. The data would only be needed for a classification the style
+    /// does not enumerate, and there is no such expression here.
+    /// </remarks>
+    /// <param name="Field">The column classified on.</param>
+    /// <param name="Cases">The classes, in the order the style writes them.</param>
+    public readonly record struct Classification(string Field, IReadOnlyList<ClassCase> Cases);
+
+    /// <summary>One class of a classification.</summary>
+    /// <remarks>
+    /// <b><c>Value</c> is what to put in the column to land in this class</b>, not
+    /// the class's appearance. A legend resolves the whole plan against a feature
+    /// carrying that value, so a swatch is drawn by the same code that draws the map
+    /// and cannot describe it differently.
+    /// </remarks>
+    /// <param name="Label">What to call it, ready to draw.</param>
+    /// <param name="Value">A value that selects it, or null for the fallback class.</param>
+    public readonly record struct ClassCase(string Label, object? Value);
+
+    /// <summary>Every classification this expression makes over a feature attribute.</summary>
+    /// <remarks>
+    /// <b>A walk, like <see cref="Fields"/>, and for the same reason.</b> A style's
+    /// classification can be nested — an opacity <c>step</c> inside a colour
+    /// <c>match</c>'s branch — so the answer is a list rather than one axis, and what
+    /// to do with several is the caller's decision rather than this type's.
+    /// </remarks>
+    /// <param name="into">Where to add them.</param>
+    public virtual void Classes(ICollection<Classification> into)
+    {
+    }
 
     /// <summary>Every attribute name this expression reads.</summary>
     /// <remarks>
@@ -359,6 +399,12 @@ public abstract record StyleExpression
             Colour.Fields(into);
             Opacity.Fields(into);
         }
+
+        public override void Classes(ICollection<Classification> into)
+        {
+            Colour.Classes(into);
+            Opacity.Classes(into);
+        }
     }
 
 
@@ -426,6 +472,41 @@ public abstract record StyleExpression
                 output.Fields(into);
             }
         }
+
+        public override void Classes(ICollection<Classification> into)
+        {
+            // <b>Only a match on a column classifies.</b> `["match", ["zoom"], …]` is
+            // a scale rule rather than a classification, and putting zoom levels in a
+            // legend would describe the map's behaviour instead of its data.
+            if (Input is Attribute column)
+            {
+                List<ClassCase> cases = new(Cases.Count + 1);
+
+                foreach ((object?[] labels, _) in Cases)
+                {
+                    // Several labels may share one output — `["a", "b"], colour` —
+                    // and they are one class with one swatch, so they read as one
+                    // entry with both names on it.
+                    string name = string.Join(", ", labels.Select(l => Text(l) ?? "null"));
+
+                    cases.Add(new ClassCase(name, labels.Length > 0 ? labels[0] : null));
+                }
+
+                // <b>The fallback is a class and is drawn as one.</b> It is what every
+                // feature the style did not name looks like, and leaving it out of the
+                // legend is how a reader concludes those features are not there.
+                cases.Add(new ClassCase("Other", null));
+
+                into.Add(new Classification(column.Name, cases));
+            }
+
+            Fallback.Classes(into);
+
+            foreach ((_, StyleExpression output) in Cases)
+            {
+                output.Classes(into);
+            }
+        }
     }
 
     private sealed record Step(
@@ -467,6 +548,56 @@ public abstract record StyleExpression
                 output.Fields(into);
             }
         }
+
+        public override void Classes(ICollection<Classification> into)
+        {
+            if (Input is Attribute column && Stops.Count > 0)
+            {
+                List<ClassCase> cases = new(Stops.Count + 1)
+                {
+                    // <b>Negative infinity, not the first stop minus one.</b> A break
+                    // at 0.5 makes *minus one* land in the right class by luck and a
+                    // break at -1000 does not; the class below the first stop has no
+                    // lower bound and the value that selects it should say so.
+                    new ClassCase(
+                        $"< {Round(Stops[0].Stop)}", double.NegativeInfinity),
+                };
+
+                for (int i = 0; i < Stops.Count; i++)
+                {
+                    double from = Stops[i].Stop;
+
+                    // Half-open, because that is what `step` means: a feature exactly
+                    // on a break belongs to the class the break opens.
+                    string name = i + 1 < Stops.Count
+                        ? $"{Round(from)} – {Round(Stops[i + 1].Stop)}"
+                        : $"≥ {Round(from)}";
+
+                    cases.Add(new ClassCase(name, from));
+                }
+
+                into.Add(new Classification(column.Name, cases));
+            }
+
+            First.Classes(into);
+
+            foreach ((_, StyleExpression output) in Stops)
+            {
+                output.Classes(into);
+            }
+        }
+
+        /// <summary>A break as a reader would write it.</summary>
+        /// <remarks>
+        /// <b>`R` is right for comparing and wrong for reading.</b> It writes a class
+        /// break of 1000 as `1000` and one of 0.1 + 0.2 as `0.30000000000000004`,
+        /// which in a legend is noise. Whole numbers lose the point; the rest keep
+        /// three places.
+        /// </remarks>
+        private static string Round(double stop) =>
+            stop == Math.Floor(stop) && Math.Abs(stop) < 1e15
+                ? stop.ToString("F0", CultureInfo.InvariantCulture)
+                : stop.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private sealed record Interpolate(

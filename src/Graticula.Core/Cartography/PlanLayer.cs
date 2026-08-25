@@ -47,6 +47,15 @@ public abstract class PlanLayer
     /// <param name="into">Where to add them.</param>
     public abstract void Fields(ISet<string> into);
 
+    /// <summary>Every classification this layer's expressions make.</summary>
+    /// <remarks>
+    /// <b>The same walk as <see cref="Fields"/>, over the same expressions.</b> A
+    /// legend that classifies needs the classes, and they are in the style — see
+    /// <see cref="StyleExpression.Classification"/> for why that is worth saying.
+    /// </remarks>
+    /// <param name="into">Where to add them.</param>
+    public abstract void Classes(ICollection<StyleExpression.Classification> into);
+
     /// <summary>Reads a colour, treating anything unreadable as invisible.</summary>
     /// <remarks>
     /// <b>Invisible rather than black.</b> A style whose colour expression produced
@@ -97,6 +106,14 @@ public abstract class PlanLayer
             outline?.Fields(into);
             outlineWidth?.Fields(into);
         }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            colour.Classes(into);
+            outline?.Classes(into);
+            outlineWidth?.Classes(into);
+        }
     }
 
     /// <summary>A stroked line.</summary>
@@ -123,6 +140,14 @@ public abstract class PlanLayer
             colour.Fields(into);
             width.Fields(into);
             dash?.Fields(into);
+        }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            colour.Classes(into);
+            width.Classes(into);
+            dash?.Classes(into);
         }
 
         /// <summary>
@@ -190,6 +215,15 @@ public abstract class PlanLayer
             outline?.Fields(into);
             outlineWidth?.Fields(into);
         }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            colour.Classes(into);
+            radius.Classes(into);
+            outline?.Classes(into);
+            outlineWidth?.Classes(into);
+        }
     }
 
     /// <summary>A label.</summary>
@@ -233,6 +267,18 @@ public abstract class PlanLayer
             size.Fields(into);
             haloColour?.Fields(into);
             haloWidth?.Fields(into);
+        }
+
+        /// <summary>Nothing: a label layer draws no swatch, so it classifies none.</summary>
+        /// <remarks>
+        /// <b>Deliberately empty rather than inherited.</b> A label layer's colour can
+        /// carry a `match` — halo one colour for one class and another for the rest —
+        /// and a legend built from it would show rows for classes whose *swatches* are
+        /// identical, because a legend swatch has no text on it to colour.
+        /// </remarks>
+        /// <param name="into">Unused.</param>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
         }
     }
 

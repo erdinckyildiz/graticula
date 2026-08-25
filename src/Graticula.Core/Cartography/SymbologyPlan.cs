@@ -79,6 +79,62 @@ public sealed class SymbologyPlan
     }
 
     /// <summary>
+    /// The one classified axis this plan's legend can show, or empty for none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Answered from the style, which is [Q-131](../../../docs/open-questions.md)'s
+    /// correction.</b> That row assumed enumerating a classified legend meant reading
+    /// the data. Both expressions this server evaluates write their classes out — a
+    /// <c>match</c> its labels, a <c>step</c> its breaks — so the answer is in the
+    /// document the legend is already compiled from, and costs no query.
+    /// </para>
+    /// <para>
+    /// <b>One axis, and no axis at all when the style classifies on more than one
+    /// column.</b> A legend is a strip of rows; two independent classifications are a
+    /// grid, and flattening them would draw a row per value of one column with the
+    /// other silently at its fallback — a picture that is confidently wrong rather
+    /// than absent. When several classifications share a column, the longest wins,
+    /// because a legend that omits a class is worse than one that repeats a swatch.
+    /// </para>
+    /// </remarks>
+    /// <returns>The axis, or null when there is not exactly one to draw.</returns>
+    public StyleExpression.Classification? LegendClasses()
+    {
+        List<StyleExpression.Classification> found = [];
+
+        foreach (PlanLayer layer in Layers)
+        {
+            layer.Classes(found);
+        }
+
+        if (found.Count == 0)
+        {
+            return null;
+        }
+
+        StyleExpression.Classification longest = found[0];
+
+        foreach (StyleExpression.Classification each in found)
+        {
+            if (!string.Equals(each.Field, longest.Field, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (each.Cases.Count > longest.Cases.Count)
+            {
+                longest = each;
+            }
+        }
+
+        // <b>A classification of one class is not one.</b> A `match` with a single
+        // label and a fallback draws two rows that mean *this value* and *everything
+        // else*, which is worth showing; anything less is the single swatch.
+        return longest.Cases.Count > 1 ? longest : null;
+    }
+
+    /// <summary>
     /// Compiles a stored canonical document.
     /// </summary>
     /// <param name="document">The canonical symbology document.</param>

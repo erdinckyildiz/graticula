@@ -1023,12 +1023,16 @@ internal static class WmsEndpoints
             ? SymbologyPlan.Compile(stored)
             : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
 
-        using IMapCanvas canvas = canvases.Create(request.Width, request.Height);
-
-        LegendGraphic.Draw(
-            canvas,
+        // <b>WIDTH and HEIGHT size a swatch, not the image.</b> A classified style
+        // draws a row per class and the image is as tall as it needs to be — see
+        // LegendGraphic, and Q-131 for why that is answerable without touching the
+        // data. A layer with no classification still gets exactly the image it always
+        // got: one swatch, at the size the client asked for.
+        using IMapCanvas canvas = LegendGraphic.Draw(
+            canvases,
             plan,
             layer.GeometryType,
+            (request.Width, request.Height),
             request.Transparent ? Rgba.Transparent : Rgba.White);
 
         byte[] image = canvas.Encode(request.Format, 90);

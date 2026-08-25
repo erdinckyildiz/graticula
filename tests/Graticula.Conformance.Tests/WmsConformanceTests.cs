@@ -512,6 +512,43 @@ public sealed class WmsConformanceTests : ArcGisClient
         Assert.Equal<byte>([0x89, 0x50, 0x4E, 0x47], image[..4]);
     }
 
+    /// <summary>
+    /// A layer whose stored style classifies gets a legend with a row per class.
+    /// </summary>
+    /// <remarks>
+    /// <b>The end-to-end half of [Q-131](../../docs/open-questions.md), and the half
+    /// the unit tests cannot claim.</b> They compile a style string in memory; this
+    /// one goes through the store: a `uniqueValue` renderer was PUT at seed time,
+    /// converted to the canonical document, kept, compiled on the request and drawn.
+    /// A defect anywhere along that chain shows up here and nowhere else.
+    /// </remarks>
+    [Fact]
+    public async Task A_classified_style_makes_a_legend_taller_than_one_swatch()
+    {
+        string? layer = await NamedPublishedAsync("_many");
+
+        // Not a silent pass: the seed is supposed to publish this layer, and a suite
+        // that shrugs when its fixture is missing reports green on nothing.
+        Assert.NotNull(layer);
+
+        (_, byte[] image) = await RawAsync(
+            $"/wms?service=WMS&version=1.3.0&request=GetLegendGraphic"
+            + $"&layer={Uri.EscapeDataString(layer!)}&format=image/png&width=20&height=20");
+
+        // The PNG header carries the dimensions: width at byte 16, height at 20, both
+        // big-endian. Reading them beats decoding the image for one number.
+        int width = (image[16] << 24) | (image[17] << 16) | (image[18] << 8) | image[19];
+        int height = (image[20] << 24) | (image[21] << 16) | (image[22] << 8) | image[23];
+
+        Assert.True(
+            height >= 60,
+            $"Three classes should be three rows; the legend is {height} pixels tall.");
+
+        Assert.True(
+            width > 20,
+            $"A classified legend needs room for its labels; this one is {width} wide.");
+    }
+
     // ---------- refusals ----------
 
     [Theory]
@@ -604,6 +641,28 @@ public sealed class WmsConformanceTests : ArcGisClient
     }
 
     // ---------- helpers ----------
+
+    /// <summary>The first published layer whose name ends the way the seed names it.</summary>
+    /// <remarks>
+    /// <b>By suffix rather than by full name.</b> The seed prefixes every layer with
+    /// a configurable string, so a test that hard-codes the whole name is a test about
+    /// one machine's environment variables.
+    /// </remarks>
+    /// <param name="suffix">What the seeded layer's name ends with.</param>
+    /// <returns>The layer's WMS name, or null when the seed did not publish it.</returns>
+    private async Task<string?> NamedPublishedAsync(string suffix)
+    {
+        foreach (XElement layer in await PublishedAsync())
+        {
+            if (Child(layer, "Name") is { Length: > 0 } name
+                && name.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                return name;
+            }
+        }
+
+        return null;
+    }
 
     private async Task<string?> AnyPublishedAsync()
     {

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using Graticula.Geometries;
@@ -204,14 +205,17 @@ public static class MapServerMetadataWriter
 
     /// <summary>One layer's legend, for <c>/MapServer/legend</c>.</summary>
     /// <param name="layer">The layer.</param>
-    /// <param name="swatch">The swatch, PNG bytes.</param>
-    /// <param name="width">Its width.</param>
-    /// <param name="height">Its height.</param>
+    /// <param name="entries">One per class, or one with an empty label.</param>
+    /// <param name="width">A swatch's width.</param>
+    /// <param name="height">A swatch's height.</param>
     /// <returns>The entry.</returns>
     public static object LegendLayer(
-        FeatureServerMetadataWriter.ServiceLayer layer, byte[] swatch, int width, int height)
+        FeatureServerMetadataWriter.ServiceLayer layer,
+        IReadOnlyList<LegendEntry> entries,
+        int width,
+        int height)
     {
-        ArgumentNullException.ThrowIfNull(swatch);
+        ArgumentNullException.ThrowIfNull(entries);
 
         return new
         {
@@ -220,30 +224,35 @@ public static class MapServerMetadataWriter
             layerType = "Feature Layer",
             minScale = 0,
             maxScale = 0,
-            legend = new[]
-            {
-                new
-                {
-                    // <b>The label is empty, and that is the honest answer.</b> One
-                    // swatch per layer means the swatch *is* the layer, so a label
-                    // would repeat the layer name beside it. A classified style needs
-                    // one entry per class with its own label, which is
-                    // [Q-131](../../docs/open-questions.md).
-                    label = string.Empty,
-                    url = string.Empty,
 
-                    // <b>Inline, not a second request.</b> ArcGIS offers both; a
-                    // client that has to fetch a URL per layer makes one request per
-                    // layer to draw a table of contents, and the swatches are a few
-                    // hundred bytes each.
-                    imageData = Convert.ToBase64String(swatch),
-                    contentType = "image/png",
-                    height,
-                    width,
-                },
-            },
+            // <b>One entry per class since 2026-08-25, which is
+            // [Q-131](../../docs/open-questions.md)'s answer on this face.</b> The
+            // label was empty here for as long as there was one swatch per layer,
+            // because the swatch *was* the layer and a label would have repeated the
+            // layer name beside it. A classified style has as many entries as classes
+            // and each carries its own name -- which is the shape this response
+            // already had and nothing was filling in.
+            legend = entries.Select(entry => new
+            {
+                label = entry.Label,
+                url = string.Empty,
+
+                // <b>Inline, not a second request.</b> ArcGIS offers both; a client
+                // that has to fetch a URL per entry makes one request per entry to
+                // draw a table of contents, and the swatches are a few hundred bytes
+                // each.
+                imageData = Convert.ToBase64String(entry.Image),
+                contentType = "image/png",
+                height,
+                width,
+            }).ToArray(),
         };
     }
+
+    /// <summary>One legend entry: a class's name and its picture.</summary>
+    /// <param name="Label">What to call it, empty when the swatch is the whole layer.</param>
+    /// <param name="Image">The PNG bytes.</param>
+    public readonly record struct LegendEntry(string Label, byte[] Image);
 
     /// <summary>One <c>identify</c> hit.</summary>
     /// <param name="layerId">Which layer it came from.</param>

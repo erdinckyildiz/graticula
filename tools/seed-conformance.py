@@ -661,6 +661,51 @@ def main():
         print(f"  hosted/{large}: 600 polygons, for the admission-control body",
               file=sys.stderr)
 
+    # <b>A classified symbology, because nothing else here has one.</b> The other
+    # stored style is a `simple` renderer, so every legend this suite could ask for
+    # drew one swatch and Q-131's answer -- a row per class -- had no end-to-end case
+    # at all. `kind` is already two values on this layer, which is what a unique-value
+    # renderer wants and what makes the legend three rows: the two named classes and
+    # the fallback.
+    server.call(
+        "PUT",
+        f"/admin/layers/{large}/symbology",
+        body={
+            "renderer": {
+                "type": "uniqueValue",
+                "field1": "kind",
+                "defaultSymbol": {
+                    "type": "esriSFS",
+                    "style": "esriSFSSolid",
+                    "color": [204, 204, 204, 255],
+                },
+                "uniqueValueInfos": [
+                    {
+                        "value": "residential",
+                        "label": "Residential",
+                        "symbol": {
+                            "type": "esriSFS",
+                            "style": "esriSFSSolid",
+                            "color": [230, 120, 60, 255],
+                        },
+                    },
+                    {
+                        "value": "commercial",
+                        "label": "Commercial",
+                        "symbol": {
+                            "type": "esriSFS",
+                            "style": "esriSFSSolid",
+                            "color": [60, 120, 230, 255],
+                        },
+                    },
+                ],
+            },
+        },
+        expect=(200, 204),
+    )
+
+    print(f"  hosted/{large}: a symbology that classifies on `kind`", file=sys.stderr)
+
     # ---- the tile service: a layer with a cache lifetime ----
     tiles = f"{prefix}_parcels"
 
