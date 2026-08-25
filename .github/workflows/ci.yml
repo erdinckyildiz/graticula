@@ -224,6 +224,19 @@ jobs:
       GRATICULA_TEST_USER: "ci"
       GRATICULA_TEST_PASSWORD: "conformance-run-password"
 
+      # <b>Three more, and their absence cost eight failures on the first CI run
+      # that reached this suite — 2026-08-25.</b> Every one of them is read by a
+      # class that FAILS rather than skips when it is unset, deliberately, because
+      # a suite that goes quiet when its subject is missing is a suite that proves
+      # nothing. So the refusals were correct and the job was underspecified.
+      #
+      # `_PG` lets the data-source lifecycle tests point a registration at a real
+      # database; the `datastore` job already sets the same string.
+      # `_LOG` is where the server writes, so the suites that assert a token never
+      # reaches the log have something to read.
+      GRATICULA_TEST_PG: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis"
+      GRATICULA_TEST_LOG: "server.log"
+
     steps:
       - uses: actions/checkout@v4
 

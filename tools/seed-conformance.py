@@ -395,6 +395,41 @@ def main():
     ]):
         print(f"  hosted/{queryable}: 8 polygons", file=sys.stderr)
 
+    # ---- a layer whose answer does not fit in one write ----
+    #
+    # <b>`AdmissionControlConformanceTests` needs this and CI had nothing to give
+    # it — 2026-08-25.</b> That suite refuses rather than skips when
+    # `GRATICULA_TEST_LARGE` is unset, and its own notes say why the queryable layer
+    # will not do: eight rows answer in 2.3 kilobytes, which is **one write**, so a
+    # test about a response being cut in half would pass identically under the
+    # behaviour it exists to rule out.
+    #
+    # <b>Six hundred squares with three text fields, which is a few hundred
+    # kilobytes.</b> Enough to span several writes and still cheap to seed — this
+    # step already takes seconds and the point is a body, not a benchmark.
+    large = f"{prefix}_many"
+
+    ensure_layer(server, existing, large, "Polygon", [
+        {"name": "name", "type": "Text"},
+        {"name": "note", "type": "Text"},
+        {"name": "kind", "type": "Text"},
+    ])
+
+    if ensure_features(server, f"hosted/{large}", large, [
+        square(ORIGIN_X + ((i % 25) * 300), ORIGIN_Y + ((i // 25) * 300), 120, {
+            "name": f"Parcel {i:04d}",
+
+            # Padding with a purpose: the body has to be large enough that the
+            # server writes it in more than one go, and short attributes would need
+            # far more rows to get there.
+            "note": f"seeded for admission control, row {i:04d}, " + ("x" * 120),
+            "kind": "residential" if i % 3 else "commercial",
+        })
+        for i in range(600)
+    ]):
+        print(f"  hosted/{large}: 600 polygons, for the admission-control body",
+              file=sys.stderr)
+
     # ---- the tile service: a layer with a cache lifetime ----
     tiles = f"{prefix}_parcels"
 
@@ -560,6 +595,7 @@ def main():
         "GRATICULA_TEST_EDITABLE": f"hosted/{editable}",
         "GRATICULA_TEST_MULTILAYER": f"hosted/{multi}",
         "GRATICULA_TEST_GROUPED": f"hosted/{multi}",
+        "GRATICULA_TEST_LARGE": f"hosted/{large}",
     }
 
     for key, value in variables.items():
