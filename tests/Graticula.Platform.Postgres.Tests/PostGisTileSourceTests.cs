@@ -28,7 +28,16 @@ namespace Graticula.Platform.Postgres.Tests;
 /// the tile bytes are examined at all.
 /// </para>
 /// </remarks>
+/// <remarks>
+/// <b>Excluded from CI, deliberately and out loud — [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md).</b>
+/// This class reads a real OpenStreetMap extract, which a developer machine has and
+/// CI does not. It fails rather than skips when the table is absent, which is the
+/// right behaviour and is why CI cannot simply run it. The trait is what CI filters
+/// on, and the workflow prints what it excluded so a green run never claims more
+/// than it proved.
+/// </remarks>
 [Trait("Category", "Integration")]
+[Trait("Corpus", "RealData")]
 public sealed class PostGisTileSourceTests : PostgresFixture
 {
     /// <summary>A dense Istanbul tile: 792 buildings, confirmed against the table.</summary>

@@ -1105,6 +1105,74 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def a_real_data_test_without_the_trait_ci_filters_on():
+    """A test that needs a real extract and is not marked as needing one.
+
+    **[ADR-048](../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md), and
+    this check exists because the first attempt at it tagged instances instead of
+    the class.** Three classes were traited on 2026-08-25 because those three were
+    named in a CI failure. There were **seven**. The other four failed on the next
+    run -- 24 tests -- and one of them was missed for a reason worth keeping: the
+    search was for `planet_osm_polygon`, and `PostGisTileSourceTests` reads
+    `public.osm_buildings`. Tagging what you were shown rather than what you were
+    looking for is [D-46](../docs/architecture-debt.md) exactly.
+
+    **The rule reads the sentence these classes already say.** They all refuse in
+    the same words -- *"... is not loaded"* -- because they fail rather than skip
+    when the extract is absent, which is deliberate. So the sentence is the
+    signal: a class that says it needs real data must carry the trait CI filters
+    on, or CI will run it and it will fail.
+
+    **It cannot go stale**, because it derives from the code rather than from a
+    list. A new suite that reads a real extract is caught the moment it is written,
+    which is earlier than the CI run that would otherwise find it.
+    """
+    tests = os.path.join(conditions.ROOT, "tests")
+
+    if not os.path.isdir(tests):
+        return ["tests/ is not there, so this check is reading nothing."]
+
+    problems = []
+    seen = 0
+
+    for base, _, names in os.walk(tests):
+        if any(part in base for part in ("bin", "obj")):
+            continue
+
+        for name in names:
+            if not name.endswith(".cs"):
+                continue
+
+            path = os.path.join(base, name)
+
+            try:
+                text = io.open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+
+            if "is not loaded" not in text:
+                continue
+
+            seen += 1
+
+            if 'Trait("Corpus", "RealData")' in text:
+                continue
+
+            shown = os.path.relpath(path, conditions.ROOT).replace(os.sep, "/")
+
+            problems.append(
+                f'{shown} refuses with "is not loaded", so it needs a real extract — and it '
+                'does not carry [Trait("Corpus", "RealData")], which is what CI filters on. '
+                "CI will run it and it will fail. ADR-048.")
+
+    if seen < 5:
+        problems.append(
+            f"only {seen} real-data test classes were found, so this check is reading almost "
+            "nothing. A check that cannot fail is worse than no check.")
+
+    return problems
+
+
 def a_corpus_file_a_test_reads_but_a_clone_does_not_get():
     """A test naming a corpus file that an ignore rule keeps out of a clone.
 
@@ -1633,6 +1701,7 @@ def main() -> int:
                 + an_answered_question_still_filed_as_open()
                 + an_outbound_licence_claim_that_is_stale()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
+                + a_real_data_test_without_the_trait_ci_filters_on()
                 + source_the_repository_would_not_receive())
 
     if problems:

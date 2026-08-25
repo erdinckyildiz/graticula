@@ -17,7 +17,7 @@
 `startup_failure`s ([D-63](../architecture-debt.md), [Q-135](../open-questions.md)).
 The first complete run failed, and one of the two causes is this ADR's subject.
 
-Three classes in `Graticula.Platform.Postgres.Tests` compare this server against
+**Seven classes** in `Graticula.Platform.Postgres.Tests` compare this server against
 PostGIS on **a real OpenStreetMap extract** — `public.planet_osm_polygon` and
 `public.planet_osm_line`, an osm2pgsql schema. On a developer machine that is 6.5
 million real polygons. In CI there is nothing, and the classes **fail rather than
@@ -98,11 +98,26 @@ They now run on exactly one machine, which is the position
 | The suites need an osm2pgsql schema, not just polygons | Failures on 2026-08-25 against a 240-polygon stand-in: `Expected: 500 / Actual: 180`, `relation "public.planet_osm_line" does not exist`, `column "name" does not exist`, and an assertion on `Index` in the query plan |
 | They fail rather than skip on purpose | Their own message: *"These tests exercise the read path against real data and fail rather than skip; load the corpus with experiments/_env, or exclude this class by name."* |
 | A generated corpus has silently weakened these suites before | `tests/shared/GeometryCorpus.cs`: adding `cicorpus` to a developer database made two suites switch to sixty generated polygons **and stay green** |
-| The filter is correct in both directions | Measured 2026-08-25: `Corpus!=RealData` runs 341 tests, all passing; `Corpus=RealData` runs 21, all passing against the local extract |
+| The filter is correct in both directions | Measured 2026-08-25: `Corpus!=RealData` runs 341 tests, all passing; `Corpus=RealData` runs 21, all passing against the local extract. **And that measurement did not prove what it looked like it proved** — see below |
+
+**The first version of this decision tagged three classes and there were seven.** The three
+were the ones a CI failure happened to name. The other four failed on the next run — 24
+tests — and the miss has a cause worth keeping: the search was for `planet_osm_polygon`,
+and `PostGisTileSourceTests` reads `public.osm_buildings`. **Tagging what you were shown
+rather than what you were looking for is [D-46](../architecture-debt.md) exactly**, and the
+local measurement above could not catch it, because on a machine that *has* the extract
+every class passes whether it is traited or not. A filter's completeness is only visible
+where the data is missing.
+
+**So the trait set is derived rather than listed.** All seven classes refuse in the same
+words — *"… is not loaded"* — because they fail rather than skip by design, and
+`a_real_data_test_without_the_trait_ci_filters_on` reads that sentence: a class that says
+it needs a real extract must carry the trait CI filters on. A new suite is caught when it
+is written rather than by the CI run that would otherwise find it.
 
 ## 5. Decision
 
-**The three classes carry `[Trait("Corpus", "RealData")]`, CI runs
+**All seven classes carry `[Trait("Corpus", "RealData")]`, CI runs
 `--filter 'Corpus!=RealData'`, and the job prints what it excluded on every run.**
 
 - The trait names what the test **needs**, not which job it belongs to, so a class
@@ -124,7 +139,7 @@ derived rather than typed, and reversible in one line per class.
 
 **Negative.**
 
-- **21 tests now run in exactly one place**, and they are among the most valuable
+- **24 tests now run in exactly one place**, and they are among the most valuable
   in the repository. If that machine goes away, so does the check.
 - **This is a partial answer to [Q-117](../open-questions.md)** and should not be
   read as the whole one. That question asks what CI proves about a repository
