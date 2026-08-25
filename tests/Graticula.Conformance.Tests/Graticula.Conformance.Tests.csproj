@@ -16,6 +16,20 @@
          among the src projects, which is where the port rule applies — a test that
          reads an image is not a second implementation reaching past IMapCanvas. -->
     <PackageReference Include="SkiaSharp" />
+
+    <!-- <b>And the native library, which was missing until 2026-08-25.</b> `SkiaSharp`
+         alone is the managed binding; without a native asset package the loader looks for
+         `libSkiaSharp.so` beside the framework and finds nothing, which is a
+         `TypeInitializationException` on first use rather than a build error. It never
+         showed on Windows, where the Windows native asset arrives with the SDK's own
+         runtime pack, and it took the first CI run this repository ever completed to say
+         so.
+
+         `NoDependencies` rather than the ordinary Linux package, matching what
+         [ADR-041](../../docs/adr/ADR-041-the-map-renderer.md) chose for the server: it
+         carries its own font and graphics stack, so a runner — or an air-gapped image —
+         needs no system packages. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
   </ItemGroup>
 
   <ItemGroup>

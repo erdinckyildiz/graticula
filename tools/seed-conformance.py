@@ -545,11 +545,21 @@ def main():
     )
 
     variables = {
-        "GISSERVER_TEST_QUERYABLE": f"hosted/{queryable}",
-        "GISSERVER_TEST_TILE_SERVICE": f"hosted/{tiles}",
-        "GISSERVER_TEST_EDITABLE": f"hosted/{editable}",
-        "GISSERVER_TEST_MULTILAYER": f"hosted/{multi}",
-        "GISSERVER_TEST_GROUPED": f"hosted/{multi}",
+        # <b>`GRATICULA_`, and it was `GISSERVER_` until 2026-08-25.</b>
+        # [ADR-032](../docs/adr/ADR-032-the-product-is-named-graticula.md) renamed the
+        # product on 2026-08-17 and this file was missed, so this script announced five
+        # variables under the old name and the suite read five under the new one. Nothing
+        # errored: the tests simply learned nothing about what had been seeded and
+        # refused with *"no published layer has features to identify"*, which reads like
+        # a seeding failure and was a naming one.
+        #
+        # Found by the first CI run this repository ever completed. Locally the variables
+        # are set by hand, so the mismatch had no way to show.
+        "GRATICULA_TEST_QUERYABLE": f"hosted/{queryable}",
+        "GRATICULA_TEST_TILE_SERVICE": f"hosted/{tiles}",
+        "GRATICULA_TEST_EDITABLE": f"hosted/{editable}",
+        "GRATICULA_TEST_MULTILAYER": f"hosted/{multi}",
+        "GRATICULA_TEST_GROUPED": f"hosted/{multi}",
     }
 
     for key, value in variables.items():
