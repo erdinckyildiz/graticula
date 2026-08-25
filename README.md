@@ -1,9 +1,25 @@
 # Graticula
 
-An enterprise GIS application server, designed from first principles and given
-away to run. Source-available under the Elastic License 2.0: read it, run it,
-change it, ship it — the one thing you may not do is sell it to other people as a
-hosted service.
+**A GIS server that speaks ArcGIS, WFS, WMS and OGC API Features over PostGIS —
+and writes down why it is built the way it is.**
+
+Point QGIS, a browser, or ArcGIS Pro at a service URL and they work, because it
+answers the protocols they already speak rather than asking them to learn a new
+one. *At a service URL* is doing real work in that sentence: Pro's **New ArcGIS
+Server** connection probes a SOAP catalogue this server does not answer, so
+browsing the server from inside Pro does not work yet and pasting a layer's URL
+does — [Q-126](docs/open-questions.md), open, with the owner having asked for it.
+That is the kind of thing this repository says out loud instead of letting you
+find it. What is not ordinary is the second half of the repository: every
+decision here has an ADR with the alternatives it beat, every assumption has a
+status, every compromise has a trigger that repays it, and every number is
+measured rather than asserted. If you disagree with a choice, the argument it lost
+is written down and you can pick it up.
+
+**It is source-available under the Elastic License 2.0.** Read it, run it, change
+it, sell it, embed it in something you sell — the one thing you may not do is
+offer it to other people as a hosted or managed service. That is the whole
+restriction ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)).
 
 A *graticule* is the net of meridians and parallels drawn on a map — the grid every
 question about a place is eventually expressed on. `Graticula` is the Medieval Latin
