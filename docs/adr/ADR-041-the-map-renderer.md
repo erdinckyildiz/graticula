@@ -133,7 +133,13 @@ the triangle filling is not.
   alternative managed library, ImageSharp.Drawing, ships under the Six Labors Split
   License — free to us as an open-source project, **payable by a commercial user who
   redistributes us**, which would attach to this product a constraint
-  [CLAUDE.md](../../CLAUDE.md) §7 says it does not have.
+  ~~[CLAUDE.md](../../CLAUDE.md) §7 says it does not have~~ **§7 said it did not
+  have — corrected 2026-08-25,
+  [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md). The conclusion is
+  unchanged and the argument is now stronger: this project is no longer open
+  source, so the Six Labors free tier would not have applied to it at all.**
+  SkiaSharp was chosen and ImageSharp.Drawing was not, so nothing is owed either
+  way.
 - **Measured in production by a peer at scale** — §4.
 
 **Argument against.** A native binary, per-RID, in the process that answers public

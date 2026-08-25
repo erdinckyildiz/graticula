@@ -186,7 +186,10 @@ The original comparison, retained:
 **`VERIFY` — the precise terms of the ArcGIS Maps SDK for JavaScript are not
 confirmed here**, and D-06 already records that dependency licensing is
 deliberately unexamined. What is certain is that it is not open source, and that
-matters twice over: this product is Apache-2.0 and must be redistributable by
+matters twice over: ~~this product is Apache-2.0 and~~ **this product is Elastic
+License 2.0 — corrected 2026-08-25,
+[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) — and still** must be
+redistributable by
 anyone who forks it, and its users are specifically people who **cannot or will
 not enter into Esri licensing** ([product-context.md](../product-context.md)).
 Shipping an admin console that requires them to is close to self-defeating.

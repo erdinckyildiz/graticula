@@ -2,7 +2,18 @@
 
 Required by §55.
 
-**Outbound licence: Apache-2.0** (Q-73, 2026-08-13). See `LICENSE` and `NOTICE`.
+**Outbound licence: Elastic License 2.0** — owner decision 2026-08-25,
+[ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md), replacing the
+Apache-2.0 taken on 2026-08-13 under Q-73. See `LICENSE` and `NOTICE`.
+
+**What changed for this file, and what did not.** The outbound licence decides what
+*we* promise; it does not touch what our dependencies require, so every attribution
+and bill-of-materials obligation below is unchanged. What it does change is the
+compatibility question: ELv2 adds a restriction, and a copyleft dependency linked into
+the artefact would forbid adding one. **Measured 2026-08-25: nothing linked here is
+copyleft** — every referenced package is MIT, BSD-2, BSD-3, Apache-2.0 or the
+PostgreSQL Licence, and GDAL's fourteen-component bill below is permissive throughout.
+GEOS (LGPL) and PostGIS (GPL-2.0-or-later) are a separate process and are not linked.
 Every inbound dependency must be compatible with redistribution under Apache-2.0.
 **This makes one class of dependency newly disqualifying: GPL and AGPL components
 cannot be linked into anything we ship**, because we cannot sublicense them under
@@ -33,7 +44,7 @@ memory. That distinction is the whole point of the gate: a licence somebody
 wrote down is a claim, and a licence in the artefact being redistributed is the
 fact.
 
-| Package | Version | Licence | Verified from | Compatible with Apache-2.0 outbound |
+| Package | Version | Licence | Verified from | Compatible with ELv2 outbound |
 |---|---|---|---|---|
 | Npgsql | 9.0.2 | **PostgreSQL** (BSD-style, permissive) | nuspec `<license type="expression">` | **Yes.** Permissive, attribution only |
 | Konscious.Security.Cryptography.Argon2 | 1.3.1 | **MIT** | nuspec | **Yes** |

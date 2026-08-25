@@ -2,7 +2,14 @@ Graticula
 Copyright 2026 Erdinç Yıldız and the Graticula contributors
 
 This product includes software developed as part of the Graticula project,
-licensed under the Apache License, Version 2.0. See LICENSE.
+licensed under the Elastic License 2.0. See LICENSE.
+
+Graticula is source-available rather than open source, by owner decision on
+2026-08-25 — ADR-047. You may read it, run it, change it and pass it on. The one
+thing you may not do is offer it to third parties as a hosted or managed service
+that gives them a substantial set of its features. That is the whole of the
+restriction, and it is stated here as plainly as in the licence because a reader
+who has to infer it from a licence name has been told nothing.
 
 Third-party dependencies retain their own licences. The obligations they
 create — including attribution, source-availability and driver bill-of-material

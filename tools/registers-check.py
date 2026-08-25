@@ -1105,6 +1105,86 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def an_outbound_licence_claim_that_is_stale():
+    """A document saying this project is Apache-2.0, or that it is open source.
+
+    **[ADR-047](../docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md), and it
+    was eight sites rather than one.** The outbound licence changed on 2026-08-25
+    from Apache-2.0 to the Elastic License 2.0, and the old one was not merely
+    *mentioned* in those documents -- four of them **reasoned from it**. ADR-019
+    argued from having no licence to meter, ADR-020 from a redistribution warranty,
+    ADR-027 from what an outbound licence can carry, ADR-025 declined a contributor
+    agreement on the ground that relicensing was *already declined*, and
+    `CONTRIBUTING.md` promised contributors the decision was **open source,
+    permanently**. That last one is a promise to people, not a note to ourselves.
+
+    **This is [D-130](../docs/architecture-debt.md)'s shape with a new cause**, and
+    the reason it gets a check rather than a sweep is that the sweep is what keeps
+    being late.
+
+    **What it reads and why the exemptions are shaped this way.** Struck text is how
+    this repository records what it used to say, so it is removed first -- across the
+    whole document, because these corrections span lines. `reviews/` and `research/`
+    are records of what was believed on a date and are never rewritten.
+    `phase-0-exit-plan.md` records the 2026-08-13 choice as a completed task, which is
+    history rather than a claim. ADR-047 itself must be able to name the licence it
+    replaced.
+
+    **Dependencies keep their own licences** -- Apache-2.0 is correct in
+    `DEPENDENCY-LICENSES.md` for xunit, NetTopologySuite and GDAL's MRF component, so
+    the pattern requires the claim to be about *this* project.
+    """
+    exempt = ("reviews", "research", "phase-0-exit-plan.md",
+              "ADR-047-the-outbound-licence-is-elastic-2.md")
+
+    ours = re.compile(
+        r"(?:we are|this product is|this project is|the project is|outbound licence:|"
+        r"licensed under the)\s+(?:the\s+)?\**(Apache[- ]2\.0|Apache License)",
+        re.I)
+
+    promise = re.compile(
+        r"(?:licensing|licence|license)[^.]{0,60}\bis\s+open[- ]source\b"
+        r"|\bopen[- ]source\b[^.]{0,20},\s*permanently", re.I)
+
+    problems = []
+
+    for base, _, names in os.walk(conditions.ROOT):
+        if any(part in base for part in (".git", "REFERENCES", "node_modules", "obj", "bin")):
+            continue
+
+        for name in names:
+            if not name.endswith((".md", ".html")):
+                continue
+
+            shown = os.path.relpath(os.path.join(base, name), conditions.ROOT)
+            shown = shown.replace(os.sep, "/")
+
+            if any(part in shown for part in exempt):
+                continue
+
+            try:
+                text = io.open(os.path.join(base, name), encoding="utf-8").read()
+            except OSError:
+                continue
+
+            living = re.sub(r"~~.*?~~", "", text, flags=re.S)
+            flowed = re.sub(r"\s*\n\s*", " ", living)
+
+            for found in ours.finditer(flowed):
+                problems.append(
+                    f'{shown} says "{found.group(0)[:60]}". The outbound licence has been '
+                    "the Elastic License 2.0 since 2026-08-25 (ADR-047). Four documents "
+                    "reasoned from the old one, so this is not a cosmetic correction. D-130.")
+
+            for found in promise.finditer(flowed):
+                problems.append(
+                    f'{shown} says "{found.group(0)[:60]}". This project is '
+                    "source-available, not open source (ADR-047), and CONTRIBUTING.md "
+                    "promised contributors otherwise until 2026-08-25. D-130.")
+
+    return problems
+
+
 def an_answered_question_still_filed_as_open():
     """A question whose own row opens with its answer, still under an Open heading.
 
@@ -1447,6 +1527,7 @@ def main() -> int:
                 + a_debt_row_with_an_empty_cell()
                 + an_open_question_that_asks_without_saying_why()
                 + an_answered_question_still_filed_as_open()
+                + an_outbound_licence_claim_that_is_stale()
                 + source_the_repository_would_not_receive())
 
     if problems:

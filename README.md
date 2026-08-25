@@ -1,7 +1,9 @@
 # Graticula
 
 An enterprise GIS application server, designed from first principles and given
-away. Apache-2.0.
+away to run. Source-available under the Elastic License 2.0: read it, run it,
+change it, ship it — the one thing you may not do is sell it to other people as a
+hosted service.
 
 A *graticule* is the net of meridians and parallels drawn on a map — the grid every
 question about a place is eventually expressed on. `Graticula` is the Medieval Latin
@@ -191,5 +193,9 @@ the findings, and they shaped the production types directly:
 
 ## Licence
 
-Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE) and
+**Elastic License 2.0** — source-available, not open source, by owner decision on
+2026-08-25 ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)). Use it
+for anything, including commercially and including for money; do not offer it to third
+parties as a hosted or managed service. That is the whole restriction. See
+[LICENSE](LICENSE), [NOTICE](NOTICE) and
 [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).

@@ -28,13 +28,34 @@ Signed-off-by: Your Name <your.email@example.com>
 terms, that you wrote the change or have the right to submit it, and that you
 are contributing it under the project's licence.
 
-**Why the DCO and not a Contributor Licence Agreement.** A CLA asks you to sign
-paperwork assigning rights to a project that promises you nothing in return, and
-its usual purpose is to keep open the option of relicensing your work
-commercially. This project has no such option to keep open: the licensing
-decision is open source, permanently, and there is no commercial closed-source
-distribution planned (`CLAUDE.md` §7). A CLA would therefore buy the project
-nothing and cost every contributor a signature — so there is not one.
+**Why the DCO and not a Contributor Licence Agreement — and the reason has
+changed.** A CLA asks you to sign paperwork assigning rights to a project that
+promises you nothing in return, and its usual purpose is to keep open the option
+of relicensing your work.
+
+~~This project has no such option to keep open: the licensing decision is open
+source, permanently, and there is no commercial closed-source distribution
+planned (`CLAUDE.md` §7).~~ **That sentence was written on 2026-08-15 and is no
+longer true. On 2026-08-25 the project relicensed from Apache-2.0 to the Elastic
+License 2.0** ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)),
+so the option a CLA preserves is one this project has now used once. It is left
+struck rather than deleted, because a promise about permanence that did not hold
+is exactly the thing a contributor is entitled to see.
+
+**Nobody relied on it.** The relicensing happened before this repository was
+public and before a single outside contribution existed, so no contributor's work
+was moved under terms they did not choose. That is luck about timing, not a
+property of the process.
+
+**There is still no CLA, and the reason is now narrower.** Asking for a signature
+assigning rights to a project that promises you nothing in return is a bad trade
+in a gift, and it is measurably a deterrent to the drive-by contributions this
+project can expect. What you are giving up by there being no CLA is stated rather
+than hidden: your contribution is under the project's licence at the time you
+make it, and if the licence changes again your work cannot be moved without your
+agreement. **Whether that stays the right trade is reopened**, not settled —
+[ADR-025](docs/adr/ADR-025-governance-and-maintenance.md) chose the DCO on the
+strength of a premise that has since failed.
 
 ## How this repository works, and why it will look strange
 

@@ -188,9 +188,17 @@ Everything beyond that must be justified by evidence, and must remain optional.
 These came from the project owner and are inputs, not open questions. See
 [product-context.md](docs/product-context.md).
 
-- **Licensing:** open source, copyleft (GPL/AGPL) acceptable. No commercial
-  closed-source distribution constraint. LGPL and MIT dependencies are
-  unproblematic; obligations are still tracked in
+- **Licensing:** ~~open source, copyleft (GPL/AGPL) acceptable. No commercial
+  closed-source distribution constraint.~~ **Reversed 2026-08-25 by owner decision —
+  [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md). The outbound
+  licence is the Elastic License 2.0 and the project is *source-available*, not open
+  source.** Anyone may read, run, modify, distribute and charge money for it; nobody
+  may offer it to third parties as a hosted or managed service. **`open source` is no
+  longer a true description of this project** and `tools/registers-check.py` fails the
+  build if it comes back — the old sentence stood in four documents that reasoned
+  *from* it, which is the propagation shape [D-130](docs/architecture-debt.md) records.
+  LGPL and MIT dependencies remain unproblematic and nothing linked here is copyleft
+  (measured, ADR-047 §4); obligations are still tracked in
   [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
 - **Scale target:** 100–1,000 services. Larger figures are stress models, not
   requirements. Do not make small deployments painful to serve hypothetical

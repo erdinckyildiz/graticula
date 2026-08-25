@@ -82,10 +82,20 @@ have a commercial edition, or to move to a foundation that requires assignment,
 contributions gathered under a DCO cannot be relicensed without tracking down
 every contributor.
 
-**Argument against.** **The option a CLA preserves is one this project has
+**Argument against.** ~~**The option a CLA preserves is one this project has
 already declined.** `CLAUDE.md` §7 records that licensing is open source with no
 commercial closed-source distribution constraint — the flexibility is worth
-nothing here. What remains is the cost: asking a contributor to sign paperwork
+nothing here.~~
+
+**This argument failed on 2026-08-25 and is struck rather than deleted.**
+[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) relicensed the project
+from Apache-2.0 to the Elastic License 2.0 — so the option this paragraph called
+*already declined* was exercised ten days after the paragraph was written. **The
+flexibility a CLA preserves was not worth nothing; it was worth exactly the move
+that has just been made**, and it cost nothing only because there were no outside
+contributors to track down.
+
+**What survives is the other half**, and it was always the stronger one: the cost of asking a contributor to sign paperwork
 assigning rights to a project that promises them nothing in return. That is a
 bad trade in a gift, and it is measurably a deterrent to drive-by contributions,
 which are the only kind this project can currently expect.
@@ -119,7 +129,7 @@ and what this one has already decided.
 
 | Claim | Evidence |
 |---|---|
-| The relicensing option a CLA preserves is already declined | `CLAUDE.md` §7: open source, copyleft acceptable, no commercial closed-source distribution constraint |
+| ~~The relicensing option a CLA preserves is already declined~~ **Falsified 2026-08-25** | ~~`CLAUDE.md` §7: open source, copyleft acceptable, no commercial closed-source distribution constraint~~ **[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) took that option ten days later. The row is kept because a piece of evidence that turned out to be wrong is worth more here than a tidy table** |
 | Nothing is exposed today, so the trigger is publication rather than a date | `gh repo view`: `"isPrivate": true`, Apache-2.0. [D-19](../architecture-debt.md): no published image, no release |
 | The DCO is sufficient for a permissively licensed project not seeking assignment | The Linux kernel, Git and Docker all use it in place of a CLA; it is a public, versionless statement a contributor makes rather than an agreement they sign |
 | 90 days is the disclosure norm rather than a number chosen here | Standard coordinated-disclosure practice across the industry; adopted rather than invented so that a reporter already knows the shape of it |
