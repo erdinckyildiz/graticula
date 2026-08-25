@@ -289,10 +289,20 @@ jobs:
       # The first-start token is printed once, to the log, and is single-use.
       # There is no other way in: everything is refused until an administrator
       # exists, which is the point of the design (ADR-015).
+      # <b>Any indentation, not exactly four spaces.</b> This matched `^ {4}` until
+      # 2026-08-25 and the first CI run this repository ever completed failed on it:
+      # the token line is indented four spaces in a local `server.log` and ten in
+      # CI's, so the pattern that was written against one worked on one. The step's
+      # own `tail -50` printed the token it had just failed to find, which is the
+      # tell -- a search that cannot see what its own error message shows.
+      #
+      # The token is the only line in the log that is whitespace then a single run
+      # of 20+ token characters: every other indented line is a sentence and has
+      # spaces in it. Verified against a real log rather than reasoned about.
       - name: take the setup token from the log
         run: |
           for attempt in $(seq 1 60); do
-            token=$(grep -oE '^ {4}[A-Za-z0-9._-]{20,}$' server.log | head -1 | tr -d ' ') || true
+            token=$(grep -oE '^[[:space:]]+[A-Za-z0-9._-]{20,}[[:space:]]*$' server.log               | head -1 | tr -d '[:space:]') || true
             if [ -n "$token" ]; then
               echo "SETUP_TOKEN=$token" >> "$GITHUB_ENV"
               echo "found the setup token after ${attempt}s"
