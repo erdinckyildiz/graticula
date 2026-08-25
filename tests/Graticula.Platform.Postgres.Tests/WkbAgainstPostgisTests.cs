@@ -37,7 +37,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// than it proved.
 /// </remarks>
 [Trait("Category", "Integration")]
-[Trait("Corpus", "RealData")]
+[Trait("Needs", "RealCorpus")]
 public sealed class WkbAgainstPostgisTests : PostgresFixture
 {
     private const string Table = "public.planet_osm_polygon";

@@ -36,7 +36,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// than it proved.
 /// </remarks>
 [Trait("Category", "Integration")]
-[Trait("Corpus", "RealData")]
+[Trait("Needs", "RealCorpus")]
 public sealed class WkbWriterAgainstPostgisTests : PostgresFixture
 {
     private async Task RequireCorpusAsync()

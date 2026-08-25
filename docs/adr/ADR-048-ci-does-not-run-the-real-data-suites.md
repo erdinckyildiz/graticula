@@ -117,8 +117,8 @@ is written rather than by the CI run that would otherwise find it.
 
 ## 5. Decision
 
-**All seven classes carry `[Trait("Corpus", "RealData")]`, CI runs
-`--filter 'Corpus!=RealData'`, and the job prints what it excluded on every run.**
+**All seven classes carry `[Trait("Needs", "RealCorpus")]`, CI runs
+`--filter 'Needs!=RealCorpus'`, and the job prints what it excluded on every run.**
 
 - The trait names what the test **needs**, not which job it belongs to, so a class
   that stops needing real data stops being excluded by deleting one line.
@@ -149,6 +149,34 @@ class is: `Corpus=RealData` runs nowhere in CI, `Needs=RunningHost` runs elsewhe
 is recorded here rather than in a new ADR because the condition was about a *pattern of
 skipping*, and this is the opposite: a test that was failing for an environmental reason
 now runs in the environment that suits it. The condition stands for the next one.
+
+### 5b. The third one made it a rule, which §7 said it should
+
+**`DecoyVerificationCostTests` needs a machine whose timings mean something.** It compares
+two Argon2id verifications and asserts they are within 1.4× of each other, because the gap
+between them is what would tell an attacker whether a username exists. On a shared runner
+it came back **23.3 ms against 14.4 ms** — the minimum of fifteen samples, so not a stray —
+and hashing there is about five times slower than on the machine whose parameters the class
+chose deliberately. A timing assertion on a contended virtual machine measures the
+neighbours.
+
+**Three is a pattern, and §7 condition 1 said a pattern needs a rule rather than another
+ADR.** So there is one axis rather than three ad-hoc traits:
+
+> **A test that needs something CI cannot provide carries `[Trait("Needs", "…")]` naming
+> what it needs. CI filters on `Needs`. The announcement lists them by need, and says for
+> each whether it runs somewhere else in CI or nowhere at all.**
+
+`Corpus=RealData` was renamed to `Needs=RealCorpus` to join it. The three values today are
+**`RealCorpus`** (runs nowhere in CI), **`QuietMachine`** (runs nowhere in CI) and
+**`RunningHost`** (runs in the conformance job). The distinction is the thing the
+announcement exists to keep visible: two of these are gaps in what CI proves and one is
+just a job boundary.
+
+**What this rule does not do is bound the list.** Nothing stops a fourth value, and the
+protection is that the value has to name a real property of the environment — a test cannot
+wear `Needs=RealCorpus` unless it needs a real corpus, and somebody reading the
+announcement can check.
 
 ## 6. Consequences
 

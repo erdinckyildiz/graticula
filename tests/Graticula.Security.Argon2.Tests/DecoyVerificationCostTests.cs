@@ -32,6 +32,17 @@ namespace Graticula.Security.Argon2.Tests;
 /// whole test is under a second.
 /// </para>
 /// </remarks>
+/// <remarks>
+/// <b>This class needs a machine whose timings mean something —
+/// [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md) §5b.</b>
+/// It compares two Argon2id verifications and asserts they are within 1.4× of each
+/// other, because the gap between them is what would tell an attacker whether a
+/// username exists. On a shared CI runner the same measurement came back 23.3 ms
+/// against 14.4 ms — minimum of fifteen samples, so not a stray — and hashing there
+/// is about five times slower than on the machine the parameters were chosen for.
+/// A timing assertion on a contended virtual machine measures the neighbours.
+/// </remarks>
+[Trait("Needs", "QuietMachine")]
 public sealed class DecoyVerificationCostTests
 {
     private static readonly Argon2Parameters Middling =

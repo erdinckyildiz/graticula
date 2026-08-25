@@ -37,7 +37,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// than it proved.
 /// </remarks>
 [Trait("Category", "Integration")]
-[Trait("Corpus", "RealData")]
+[Trait("Needs", "RealCorpus")]
 public sealed class PostGisTileSourceTests : PostgresFixture
 {
     /// <summary>A dense Istanbul tile: 792 buildings, confirmed against the table.</summary>

@@ -36,7 +36,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// green run never claims more than it proved.
 /// </remarks>
 [Trait("Category", "Integration")]
-[Trait("Corpus", "RealData")]
+[Trait("Needs", "RealCorpus")]
 public sealed class ArcGisWindingAgainstPostgisTests : PostgresFixture
 {
     private readonly ITestOutputHelper _output;

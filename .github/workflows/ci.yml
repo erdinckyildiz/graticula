@@ -89,7 +89,9 @@ jobs:
         run: dotnet test tests/Graticula.Platform.Tests -c Release --no-build
 
       - name: argon2
-        run: dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build
+        run: |
+          dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \
+            --filter 'Needs!=QuietMachine'
 
   datastore:
     name: datastore
@@ -153,7 +155,7 @@ jobs:
       - name: platform store and providers
         run: |
           dotnet test tests/Graticula.Platform.Postgres.Tests -c Release --no-build \
-            --filter 'Corpus!=RealData'
+            --filter 'Needs!=RealCorpus'
 
       # <b>Said out loud, because a gate that is silent about what it skipped
       # claims more than it proved.</b> §67's warning, applied to ourselves: the
@@ -162,26 +164,27 @@ jobs:
       - name: say what CI did not run
         if: always()
         run: |
-          echo "Excluded from this job: every class traited Corpus=RealData"
-          echo "or Needs=RunningHost."
+          echo "Every class that names something CI cannot give it, and what:"
           echo
-          grep -rlE 'Trait\("(Corpus", "RealData|Needs", "RunningHost)"\)' tests/ \
-            | sed 's/^/  /'
+          grep -rhoE 'Trait\("Needs", "[A-Za-z]+"\)' tests/ | sort -u | sed 's/^/  /'
           echo
-          echo "Corpus=RealData compare this server against PostGIS on a real"
-          echo "OpenStreetMap extract. CI has none, so they are not run anywhere"
-          echo "here and CI does not prove what they prove. Run them on a machine"
-          echo "with the corpus:"
+          grep -rlE 'Trait\("Needs", "[A-Za-z]+"\)' tests/ | sort | sed 's/^/  /'
           echo
-          echo "  dotnet test tests/Graticula.Platform.Postgres.Tests \\"
-          echo "    --filter 'Corpus=RealData'"
+          echo "RealCorpus   compares this server against PostGIS on a real"
+          echo "             OpenStreetMap extract. CI has none, so these run"
+          echo "             nowhere here and CI does not prove what they prove."
+          echo "QuietMachine timing assertions. A shared runner measures its"
+          echo "             neighbours, so these run nowhere here either."
+          echo "RunningHost  needs a server, not just a database. NOT skipped —"
+          echo "             run in the conformance job, which starts one."
+          echo
+          echo "Run the two that CI cannot, on a machine that can:"
+          echo
+          echo "  dotnet test <project> --filter 'Needs=RealCorpus'"
+          echo "  dotnet test <project> --filter 'Needs=QuietMachine'"
           echo
           echo
-          echo "Needs=RunningHost are NOT skipped by CI — they run in the"
-          echo "conformance job, which starts a server. They are excluded here"
-          echo "because this job has a database and no host."
-          echo
-          echo "ADR-048 and Q-117."
+          echo "ADR-048 §5b and Q-117."
 
       # Host.Tests needs the overlay worker, which the host build copies into an
       # 'overlay' directory beside itself. If that copy step ever breaks, these
@@ -194,7 +197,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus'
 
   conformance:
     name: conformance

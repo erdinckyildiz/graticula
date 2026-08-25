@@ -1155,14 +1155,14 @@ def a_real_data_test_without_the_trait_ci_filters_on():
 
             seen += 1
 
-            if 'Trait("Corpus", "RealData")' in text:
+            if 'Trait("Needs", "RealCorpus")' in text:
                 continue
 
             shown = os.path.relpath(path, conditions.ROOT).replace(os.sep, "/")
 
             problems.append(
                 f'{shown} refuses with "is not loaded", so it needs a real extract — and it '
-                'does not carry [Trait("Corpus", "RealData")], which is what CI filters on. '
+                'does not carry [Trait("Needs", "RealCorpus")], which is what CI filters on. '
                 "CI will run it and it will fail. ADR-048.")
 
     if seen < 5:

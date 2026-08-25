@@ -42,7 +42,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// than it proved.
 /// </remarks>
 [Trait("Category", "Integration")]
-[Trait("Corpus", "RealData")]
+[Trait("Needs", "RealCorpus")]
 public sealed class BoundedCountTests : PostgresFixture
 {
     private readonly ITestOutputHelper _output;
