@@ -30,6 +30,15 @@ namespace Graticula.Host.Tests;
 /// subject missing.
 /// </para>
 /// </remarks>
+/// <remarks>
+/// <b>This class needs a Graticula host to be running, not just a database —
+/// [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md) §5a.</b>
+/// It reads <c>pg_stat_activity</c> looking for the sessions the background pollers
+/// hold, so with no host there are no sessions and every assertion here is about an
+/// absence. It passed locally because a development server happened to be up, and
+/// failed on the first CI run this repository ever completed.
+/// </remarks>
+[Trait("Needs", "RunningHost")]
 public sealed class PollerPoolTests
 {
     private const string ConnectionVariable = "GRATICULA_TEST_PG";

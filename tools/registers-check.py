@@ -1196,8 +1196,13 @@ def a_corpus_file_a_test_reads_but_a_clone_does_not_get():
     about ignoring; it is about **reaching**: a file a test names must be a file a
     clone receives.
     """
+    # <b>`Corpus` and `Corpus()`, because the second one was missed.</b>
+    # `ProjectionResolutionTests` builds its path in a method rather than a
+    # property, so this pattern did not see it and CI found the file two runs
+    # later. A checker that only knows one spelling of the thing it checks is a
+    # checker that reports clean on the case it was written for.
     corpus = re.compile(
-        r"""Path\.Combine\(\s*Corpus\s*,\s*"([^"]+)"\s*\)"""
+        r"""Path\.Combine\(\s*Corpus\(?\)?\s*,\s*"([^"]+)"\s*\)"""
         r"""|"(corpus/[^"]+)\"""")
 
     tests = os.path.join(conditions.ROOT, "tests")
@@ -1232,8 +1237,9 @@ def a_corpus_file_a_test_reads_but_a_clone_does_not_get():
             # every file looked untracked, and the check accused a directory that was
             # correct. A guard that names the wrong file sends somebody hunting.
             root = re.search(
-                r"""Corpus\s*=[>]?\s*Path\.Combine\(\s*AppContext\.BaseDirectory\s*,\s*"""
-                r"""((?:"[^"]+"\s*,?\s*)+)\)""", text)
+                r"""Corpus\s*(?:\(\)\s*)?=[>]?\s*(?:.*?return\s*)?Path\.Combine\("""
+                r"""\s*(?:AppContext\.BaseDirectory|at!\.FullName)\s*,\s*"""
+                r"""((?:"[^"]+"\s*,?\s*)+)\)""", text, re.S)
 
             folders = re.findall(r'"([^"]+)"', root.group(1)) if root else []
 

@@ -154,16 +154,39 @@ public sealed class ProjectionResolutionTests
         using (System.IO.Compression.ZipArchive zip = new(
             file, System.IO.Compression.ZipArchiveMode.Create))
         {
-            foreach (string part in new[] { "points.shp", "points.shx", "points.dbf" })
+            // <b>Copied out of the corpus zip, not from loose files beside it.</b> This
+            // read `points.shp`, `points.shx` and `points.dbf` directly until 2026-08-25,
+            // and `.gitignore` hides all three: they are on the machine this was written
+            // on and reach no clone. The first CI run this repository completed failed
+            // here, having already failed the same way in `BoundedArchiveTests` — the same
+            // defect in two places, which is [D-46](../../docs/architecture-debt.md), and
+            // the second one was found by a machine rather than by asking *what else
+            // carries this?*
+            //
+            // The zip is the tracked artefact and it holds exactly these three members,
+            // minus the `.prj` — which is the point of this test.
+            string source = Path.Combine(corpus, "points.zip");
+
+            Assert.True(
+                File.Exists(source),
+                $"The corpus archive is missing at {source}. It is built by "
+                + "tools/make-shapefile-corpus.py.");
+
+            using (FileStream held = File.OpenRead(source))
+            using (System.IO.Compression.ZipArchive from = new(
+                held, System.IO.Compression.ZipArchiveMode.Read))
             {
-                string from = Path.Combine(corpus, part);
+                foreach (string part in new[] { "points.shp", "points.shx", "points.dbf" })
+                {
+                    System.IO.Compression.ZipArchiveEntry? member = from.GetEntry(part);
 
-                Assert.True(File.Exists(from), $"The corpus is missing {part} at {from}.");
+                    Assert.True(member is not null, $"{source} has no member {part}.");
 
-                using Stream into = zip.CreateEntry(part).Open();
-                using FileStream reading = File.OpenRead(from);
+                    using Stream into = zip.CreateEntry(part).Open();
+                    using Stream reading = member!.Open();
 
-                await reading.CopyToAsync(into);
+                    await reading.CopyToAsync(into);
+                }
             }
         }
 

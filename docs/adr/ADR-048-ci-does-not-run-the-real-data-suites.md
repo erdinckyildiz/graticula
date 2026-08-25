@@ -132,6 +132,24 @@ is written rather than by the CI run that would otherwise find it.
 server's geometry handling against PostGIS on real data. That comparison runs on a
 developer machine and nowhere else.
 
+### 5a. A second exclusion, and it is a different kind
+
+**`PollerPoolTests` needs a running host rather than real data**, and the distinction
+matters: it reads `pg_stat_activity` for the sessions the background pollers hold, so
+with no server every assertion is about an absence. It passed locally because a
+development server happened to be up — an environment assumption nobody made on purpose.
+
+**It is not skipped. It is moved.** `[Trait("Needs", "RunningHost")]`, excluded from
+the `datastore` job which has a database and no host, and **run in `conformance`**, which
+starts one. Excluding a test in one job and never running it in another is how an
+exclusion becomes a deletion, and the announcement step says which of the two kinds each
+class is: `Corpus=RealData` runs nowhere in CI, `Needs=RunningHost` runs elsewhere in CI.
+
+**This is the second exclusion, and §7 condition 1 said that reopens the decision.** It
+is recorded here rather than in a new ADR because the condition was about a *pattern of
+skipping*, and this is the opposite: a test that was failing for an environmental reason
+now runs in the environment that suits it. The condition stands for the next one.
+
 ## 6. Consequences
 
 **Positive.** CI can go green honestly. The exclusion is visible on every run,

@@ -162,25 +162,39 @@ jobs:
       - name: say what CI did not run
         if: always()
         run: |
-          echo "Excluded from this job: every class traited Corpus=RealData."
+          echo "Excluded from this job: every class traited Corpus=RealData"
+          echo "or Needs=RunningHost."
           echo
-          grep -rl 'Trait("Corpus", "RealData")' tests/ \
+          grep -rlE 'Trait\("(Corpus", "RealData|Needs", "RunningHost)"\)' tests/ \
             | sed 's/^/  /'
           echo
-          echo "They compare this server against PostGIS on a real OpenStreetMap"
-          echo "extract. CI has none, so they are not run here and CI does not"
-          echo "prove what they prove. Run them on a machine with the corpus:"
+          echo "Corpus=RealData compare this server against PostGIS on a real"
+          echo "OpenStreetMap extract. CI has none, so they are not run anywhere"
+          echo "here and CI does not prove what they prove. Run them on a machine"
+          echo "with the corpus:"
           echo
           echo "  dotnet test tests/Graticula.Platform.Postgres.Tests \\"
           echo "    --filter 'Corpus=RealData'"
+          echo
+          echo
+          echo "Needs=RunningHost are NOT skipped by CI — they run in the"
+          echo "conformance job, which starts a server. They are excluded here"
+          echo "because this job has a database and no host."
           echo
           echo "ADR-048 and Q-117."
 
       # Host.Tests needs the overlay worker, which the host build copies into an
       # 'overlay' directory beside itself. If that copy step ever breaks, these
       # fail with a message saying exactly that rather than with 503s.
+      #
+      # <b>`Needs=RunningHost` is excluded here and run in `conformance` instead
+      # — ADR-048 §5a.</b> This job has a database and no server; those tests read
+      # `pg_stat_activity` for the sessions a running host holds. They are not
+      # dropped, they are moved to the job that can satisfy them.
       - name: host and geometry worker
-        run: dotnet test tests/Graticula.Host.Tests -c Release --no-build
+        run: |
+          dotnet test tests/Graticula.Host.Tests -c Release --no-build \
+            --filter 'Needs!=RunningHost'
 
   conformance:
     name: conformance
@@ -302,6 +316,15 @@ jobs:
 
       - name: conformance
         run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
+
+      # <b>The tests the datastore job could not run, in the job that can — ADR-048
+      # §5a.</b> A server is up by now, so its background pollers hold the sessions
+      # `PollerPoolTests` looks for. Excluding a test in one job and never running
+      # it in another is how an exclusion becomes a deletion.
+      - name: the tests that need a running host
+        run: |
+          dotnet test tests/Graticula.Host.Tests -c Release --no-build \
+            --filter 'Needs=RunningHost'
 
       # <b>The console, in a real browser, in this job because this is the job with
       # a server.</b> D-59: four console defects in two days, every one found by the
