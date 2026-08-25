@@ -5209,6 +5209,19 @@ function showLayer(name, page, pending = null) {
       <h4>Contents</h4>
       <div id="contents" class="val">reading the layer document…</div>
 
+      <h4>Time</h4>
+      <div class="setting"><span class="q">Which column is this layer's time:</span>
+        <input type="text" id="timeField" placeholder="derive it from the schema"
+          value="${h(l.timeField || "")}"></div>
+      <p class="hint">Leave it empty and the server uses the layer's one date column, or
+        publishes no time dimension when it has none or several. Name a column when the
+        table has more than one date and only one of them is when the thing happened —
+        <code>observed_at</code> rather than <code>created_at</code>.</p>
+      <div class="row" style="margin-top:10px">
+        <button data-time="${h(name)}">Set</button>
+        <button data-time="${h(name)}" data-clear="1" class="ghost">Derive it</button>
+      </div>
+
       <h4>Identity</h4>
       <dl class="facts">
         <dt>Source table</dt><dd>${h(l.table)}</dd>
@@ -7973,6 +7986,23 @@ async function handleClick(event) {
       });
       toast(r.note, true);
     } catch (e) { toast(e.message); }
+    return;
+  }
+
+  if (d.time) {
+    const field = d.clear ? null : $("timeField").value.trim();
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.time)}/time-field`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field: field || null }),
+      });
+
+      // The server's note says whether the declaration holds against the columns the
+      // layer actually has, which is the half a publisher cannot see from here.
+      toast(r.note, r.declarationHolds);
+    } catch (e) { toast(e.message); }
+    await loadLayers();
     return;
   }
 

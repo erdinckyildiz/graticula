@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(34);
+    public static SchemaVersion ComponentSchemaVersion => new(35);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -69,6 +69,7 @@ public static class PlatformMigrations
         JobClaimIdentityV32,
         OwnerKeysV33,
         DeadLayerColumnDefaultsV34,
+        LayerTimeFieldV35,
     ]);
 
 
@@ -2313,5 +2314,41 @@ public static class PlatformMigrations
             and (max_request_bytes is null or max_request_bytes > 0)
             and (max_edits_per_transaction is null or max_edits_per_transaction > 0)
           )
+        """);
+
+    /// <summary>
+    /// Which column carries a layer's phenomenon time, when the schema cannot say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-129](../../../docs/open-questions.md), recorded the moment the derivation
+    /// was chosen and paid before anybody animated the wrong column.</b> The time
+    /// dimension was derived: exactly one <c>Date</c> column, or no dimension at all.
+    /// A table with <c>created_at</c> and <c>observed_at</c> published nothing, which
+    /// is honest and useless; a table with only <c>created_at</c> published a
+    /// dimension over the wrong column, which is worse — an animation of when rows
+    /// were inserted, indistinguishable from an animation of when things happened.
+    /// </para>
+    /// <para>
+    /// <b>Null keeps the derivation, which is why this is additive.</b> Every layer
+    /// that has a single date column goes on working with nothing set, and the
+    /// declaration is only needed where the schema is ambiguous. The column is not
+    /// validated here against the layer's fields: a registered table's schema can
+    /// drift under us (A-023), so a constraint the database could enforce today is
+    /// one it could not enforce tomorrow. The check belongs where the fields are
+    /// read, and that is the admin endpoint and the dimension itself.
+    /// </para>
+    /// </remarks>
+    private static Migration LayerTimeFieldV35 => Migration.Expand(
+        new SchemaVersion(35),
+        "Declare which column is a layer's time, when its schema has more than one (Q-129).",
+
+        "alter table layer add column time_field text",
+
+        // A column name, not a document. PostgreSQL's own identifier limit is 63
+        // bytes and a value longer than that cannot name anything that exists.
+        """
+        alter table layer add constraint layer_time_field_is_a_name
+          check (time_field is null or (length(time_field) between 1 and 63))
         """);
 }

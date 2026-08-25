@@ -590,7 +590,7 @@ internal static class WmsEndpoints
         LayerDescription described,
         CancellationToken cancellation)
     {
-        if (TimeDimension.FieldOf(described.Fields) is not { } field)
+        if (TimeDimension.FieldOf(described.Fields, layer.TimeField) is not { } field)
         {
             return null;
         }
@@ -817,7 +817,7 @@ internal static class WmsEndpoints
             }
         }
 
-        AttributePredicate? predicate = TimePredicate(time, described);
+        AttributePredicate? predicate = TimePredicate(time, described, layer.TimeField);
 
         ParsedWhere? where = null;
 
@@ -857,10 +857,10 @@ internal static class WmsEndpoints
     /// an animation, which reads as duplicated data.
     /// </remarks>
     private static AttributePredicate.Conjunction? TimePredicate(
-        TimeWindow? asked, LayerDescription described)
+        TimeWindow? asked, LayerDescription described, string? declared)
     {
         if (asked is not { } window
-            || TimeDimension.FieldOf(described.Fields) is not { } field)
+            || TimeDimension.FieldOf(described.Fields, declared) is not { } field)
         {
             return null;
         }

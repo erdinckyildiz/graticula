@@ -158,6 +158,7 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="Service">The service it is in, without the folder.</param>
 /// <param name="Folder">That service's folder, or null for the root.</param>
 /// <param name="LayerIndex">Its number within the service — the last URL segment.</param>
+/// <param name="TimeField">The column declared as this layer's time, or null to derive it (Q-129).</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -171,7 +172,8 @@ public readonly record struct AdminLayer(
     bool Hosted,
     string Service,
     string? Folder,
-    int LayerIndex)
+    int LayerIndex,
+    string? TimeField = null)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>
@@ -527,6 +529,23 @@ public interface IAdminCatalog
     /// </remarks>
     Task<bool> SetCacheLifetimeAsync(
         string name, int? seconds, CancellationToken cancellationToken);
+
+    /// <summary>Declares which column carries a layer's time, or clears the declaration.</summary>
+    /// <param name="name">The layer.</param>
+    /// <param name="field">The column, or null to go back to deriving it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether a layer of that name was found.</returns>
+    /// <remarks>
+    /// <b>[Q-129](../../../docs/open-questions.md), and the column is not checked
+    /// here.</b> A registered table's schema drifts under us (A-023), so a
+    /// declaration that is valid at the moment it is written can stop being valid
+    /// without anybody touching this row. The endpoint checks it against the layer's
+    /// fields and says so; the dimension checks it again on every read and falls back
+    /// to the derivation. Storing it unchecked is what lets a publisher declare a
+    /// column ahead of a schema change instead of after it.
+    /// </remarks>
+    Task<bool> SetTimeFieldAsync(
+        string name, string? field, CancellationToken cancellationToken);
 
     /// <summary>Creates an empty service.</summary>
     /// <param name="name">Its name within the folder.</param>

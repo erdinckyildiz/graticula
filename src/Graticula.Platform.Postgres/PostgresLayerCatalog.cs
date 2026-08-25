@@ -63,6 +63,10 @@ public sealed class PostgresLayerCatalog
         -- followed only when it happens to be harmless is not being followed.
         s.request_deadline_seconds,
 
+        -- The declared time column (Q-129, migration 35), on the end per the rule
+        -- above and read by name below like the three before it.
+        l.time_field,
+
         -- <b>Which groups this service is shared with — ADR-036.</b> Aggregated rather than joined,
         -- for the reason the caller's own groups are: a join would multiply every layer row by every
         -- group and make the reader deduplicate. Empty for all but a `group`-scoped service, and the
@@ -403,7 +407,10 @@ public sealed class PostgresLayerCatalog
                     reader.GetInt32(reader.GetOrdinal("statement_timeout_ms"))),
 
             // ADR-036: the owning service's group shares, so the read path decides in one place.
-            reader.GetFieldValue<Guid[]>(reader.GetOrdinal("shared_with_groups")));
+            reader.GetFieldValue<Guid[]>(reader.GetOrdinal("shared_with_groups")),
+
+            // Q-129, by name for the reason `symbology` is read by name.
+            Nullable(reader, "time_field"));
     }
 
     /// <summary>The group layers held by the services named.</summary>

@@ -284,6 +284,25 @@ as a bug.
 
 ## 6. Consequences
 
+- **A layer may declare which column is its time —
+  [Q-129](../open-questions.md), 2026-08-25, migration 35.** §5 derived the dimension
+  from the schema: exactly one `Date` column, or none. That is right for a layer with
+  one date and wrong in both directions otherwise — a table with `created_at` and
+  `observed_at` published nothing, which is honest and useless, and a table with only
+  `created_at` published an animation of when rows were inserted, which is
+  indistinguishable from an animation of when things happened. `PUT
+  /admin/layers/{name}/time-field` takes the answer from whoever published the layer,
+  since nobody else has it, and the console asks for it on the layer's General page.
+  **The derivation stays and is still what almost every request uses**: null is the
+  ordinary value, so nothing changes for a layer nobody has told. **The declaration is
+  checked rather than trusted** — a registered table's schema drifts under us (A-023),
+  so a column that is gone or is no longer a date falls back to the derivation instead
+  of taking a working layer off the air; the endpoint says whether it holds at the
+  moment somebody is reading. **Measured end to end**: two date columns and no
+  declaration published no `Dimension`; declaring `observed_at` published
+  `2024-03-01T00:00:00Z/2024-12-01T00:00:00Z/PT1S`, and `TIME` over a two-month window
+  drew 714 bytes against 1,973 for the whole extent.
+
 - **A classified style draws a classified legend, on both faces —
   [Q-131](../open-questions.md), 2026-08-25.** That row stayed open on a premise that
   turned out to be false: it said enumerating the classes *means reading the data*, and

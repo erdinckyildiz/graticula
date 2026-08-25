@@ -386,6 +386,21 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetTimeFieldAsync(
+        string name, string? field, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set time_field = @field, updated_at = now() where name = @name");
+
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("field", (object?)field ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<Guid?> CreateServiceAsync(
         string name,
         string? folder,
@@ -518,7 +533,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         const string Sql = """
             select l.id, l.name, d.name, l.schema_name, l.table_name, s.sharing,
                    s.owner_principal_id, p.name, l.object_id_column, s.status,
-                   d.is_datastore, s.name, s.folder, l.layer_index
+                   d.is_datastore, s.name, s.folder, l.layer_index,
+
+                   -- Q-129, on the end: the console shows a declaration that is set and
+                   -- a control that shows nothing is a control nobody trusts.
+                   l.time_field
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -547,7 +566,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.GetBoolean(10),
                 reader.GetString(11),
                 reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.GetInt32(13)));
+                reader.GetInt32(13),
+                reader.IsDBNull(14) ? null : reader.GetString(14)));
         }
 
         return layers;

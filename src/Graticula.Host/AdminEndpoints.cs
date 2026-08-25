@@ -227,6 +227,14 @@ internal sealed record ServiceCapabilitiesRequest(
 /// </param>
 internal sealed record CacheLifetimeRequest(int? Seconds);
 
+/// <summary>Which column carries a layer's phenomenon time.</summary>
+/// <param name="Field">
+/// The column, or null to go back to deriving it. <b>Null is not "no time"</b>: a
+/// layer with one date column still publishes a dimension over it, which is what
+/// every layer did before [Q-129](../../docs/open-questions.md).
+/// </param>
+internal sealed record TimeFieldRequest(string? Field);
+
 /// <summary>A member to create.</summary>
 /// <param name="Name">Their sign-in name.</param>
 /// <param name="DisplayName">What to show, or null for the name.</param>
@@ -369,6 +377,7 @@ internal static class AdminEndpoints
         app.MapGet("/admin/jobs/{id:guid}", DescribeJobAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
+        app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -2042,6 +2051,134 @@ internal static class AdminEndpoints
                      + "cache downstream — the same number is sent as Cache-Control max-age. "
                      + "Nothing was purged: changing freshness does not make a cached tile wrong.",
             },
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Declares which column carries a layer's time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-129](../../docs/open-questions.md), and it is a publisher's fact.</b>
+    /// The dimension was derived from the schema — one <c>Date</c> column or no
+    /// dimension — which is right for a table with one date and wrong in both
+    /// directions for a table with two. `created_at` and `observed_at` published
+    /// nothing, which is honest and useless; a table with only `created_at`
+    /// published an animation of when rows were inserted, which looks exactly like
+    /// an animation of when things happened. Nobody but the person who published
+    /// the layer knows which column is which.
+    /// </para>
+    /// <para>
+    /// <b>Checked here and stored anyway when it does not hold.</b> The response
+    /// says whether the column is there and is a date, because this is the moment
+    /// somebody is reading. It is still stored: a registered table's schema drifts
+    /// under us (A-023), so a publisher may reasonably declare a column ahead of a
+    /// migration, and refusing would make this endpoint depend on a describe that
+    /// can fail for reasons that have nothing to do with the declaration.
+    /// </para>
+    /// <para>
+    /// <b><c>content:publishFeatures</c>, like the symbology.</b> Which column is
+    /// time is a statement about what the data means, and that belongs with whoever
+    /// published it.
+    /// </para>
+    /// </remarks>
+    private static async Task SetTimeFieldAsync(
+        HttpContext context,
+        string name,
+        TimeFieldRequest request,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? field = request.Field?.Trim();
+
+        field = field is { Length: > 0 } ? field : null;
+
+        if (field is { Length: > 63 })
+        {
+            await Refuse(
+                context, 400,
+                $"'{field}' is {field.Length} characters. A column name is at most 63, which is "
+                + "PostgreSQL's own limit, so this cannot be naming a column that exists.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        // D-109: an ambiguous name is refused rather than resolved by sort order.
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            await AuditAsync(
+                context, audit, "layer.timeField", name, Detail(new { found = false }),
+                succeeded: false, cancellation).ConfigureAwait(false);
+
+            return;
+        }
+
+        if (!await catalog.SetTimeFieldAsync(name, field, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The shape this layer is serving from is cached.</b> Nothing here changes
+        // the columns, but the dimension is measured per layer and held for five
+        // minutes, so a declaration made now would otherwise take that long to show
+        // up in a capabilities document.
+        contexts.Forget(layer);
+
+        bool holds = true;
+        string? resolved = null;
+
+        // <b>Best effort, and a failure here is not a failure of the declaration.</b>
+        // The source may be unreachable; the declaration is already stored and the
+        // read path checks it again on every request.
+        try
+        {
+            (_, Graticula.Features.LayerDescription described) =
+                await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            holds = Graticula.Api.Wms.TimeDimension.DeclarationHolds(described.Fields, field);
+            resolved = Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, field);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            holds = true;
+        }
+
+        await AuditAsync(
+            context, audit, "layer.timeField", name,
+            Detail(new { field, holds }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            timeField = field,
+            declarationHolds = holds,
+            dimensionOver = resolved,
+            note = field is null
+                ? "This layer's time dimension is derived again: its one date column, or no "
+                  + "dimension when it has none or several."
+                : holds
+                    ? $"`{field}` carries this layer's time. WMS `TIME` and the OGC API "
+                      + "`datetime` filter both use it, and the capabilities document publishes "
+                      + "its extent."
+                    : $"Stored, but `{field}` is not a date column on this layer today, so the "
+                      + "dimension falls back to the derived one. Declaring a column before the "
+                      + "schema has it is allowed; if that was not the intention, check the "
+                      + "spelling against the layer's fields.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -5280,6 +5417,9 @@ internal static class AdminEndpoints
                 l.Folder,
                 l.LayerIndex,
                 url = l.Address,
+
+                // Q-129: which column this layer's time comes from, when somebody said.
+                timeField = l.TimeField,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

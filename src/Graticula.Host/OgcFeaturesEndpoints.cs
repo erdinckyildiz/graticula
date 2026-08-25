@@ -734,7 +734,9 @@ internal static class OgcFeaturesEndpoints
 
         if (request.HasDateTime)
         {
-            if (Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields) is not { } field)
+            // Q-129: the layer's declared column when it has one, the derivation when not.
+            if (Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, layer.TimeField)
+                is not { } field)
             {
                 problem = OgcProblem.BadRequest(
                     $"`{layer.Definition.Name}` has no time to filter by. A collection is "

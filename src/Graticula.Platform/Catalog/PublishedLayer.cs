@@ -37,7 +37,8 @@ public sealed class PublishedLayer
         ServiceCostCeilings? cost = null,
         string? symbology = null,
         TimeSpan? statementTimeout = null,
-        IEnumerable<Guid>? sharedWith = null)
+        IEnumerable<Guid>? sharedWith = null,
+        string? timeField = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -62,7 +63,30 @@ public sealed class PublishedLayer
         ParentIndex = parentIndex;
         CacheLifetime = cacheLifetime;
         Symbology = symbology;
+        TimeField = timeField;
     }
+
+    /// <summary>
+    /// The column that carries this layer's phenomenon time, or null to derive it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-129](../../../docs/open-questions.md), and null is the ordinary
+    /// answer.</b> With nothing declared the dimension is derived from the schema —
+    /// exactly one <c>Date</c> column, or no dimension — which is right for the
+    /// layers that have one date and silent for the layers that have several. This
+    /// says which one, for the layers where the schema cannot.
+    /// </para>
+    /// <para>
+    /// <b>It is not trusted without looking.</b> A registered table's schema drifts
+    /// under us (A-023), so a column declared last month may be gone or may no longer
+    /// be a date. The dimension checks the declaration against the fields it was
+    /// handed and falls back to the derivation when it does not hold — which is the
+    /// same answer the layer had before anything was declared, rather than an error
+    /// on a map request nobody can act on.
+    /// </para>
+    /// </remarks>
+    public string? TimeField { get; }
 
     /// <summary>
     /// This layer's canonical symbology document, or null for the generated one.
