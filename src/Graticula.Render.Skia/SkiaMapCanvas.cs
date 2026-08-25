@@ -96,8 +96,67 @@ public sealed class SkiaMapCanvas : IMapCanvas
         // machine with fonts that succeeds and the label is right; on an image with
         // none it fails and says so once, which is the difference between a deployment
         // that knows it needs a face and one that ships boxes to its users.
-        _font = new SKFont(SKTypeface.Default);
+        _font = new SKFont(Bundled.Value ?? SKTypeface.Default);
     }
+
+    /// <summary>
+    /// The face that travels with this assembly, or null when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-161](../../docs/architecture-debt.md), owner decision 2026-08-25.</b> Q-15's
+    /// air-gap checklist ended on fonts, and the answer was to carry Latin, Turkish,
+    /// Greek and Cyrillic and leave CJK to a mount.
+    /// </para>
+    /// <para>
+    /// <b>It is the file the tile face already ships, which is why no second family was
+    /// added.</b> [ADR-027](../../docs/adr/ADR-027-glyphs-and-sprites.md) chose DejaVu
+    /// Sans for the glyph endpoint and <c>tools/make-glyphs.py</c> renders its SDF glyphs
+    /// from exactly this TTF. A second family would have meant two licences, two bills of
+    /// materials and — worse — a WMS map drawn in one typeface beside a vector tile of the
+    /// same layer labelled in another. Measured: it carries Turkish, Greek, Cyrillic and
+    /// Arabic, and does not carry Han.
+    /// </para>
+    /// <para>
+    /// <b>Loaded once for the process, not once per canvas.</b> A map draws through many
+    /// canvases and parsing a 600 KB face for each would be the cost this decision was
+    /// supposed to be cheap enough to avoid.
+    /// </para>
+    /// <para>
+    /// <b>Falls back rather than throwing.</b> If the resource cannot be read — a trimmed
+    /// build, a repacked assembly — a server that refuses to draw any map at all is worse
+    /// than one that draws Latin from the system face. The substitution path underneath
+    /// still reports what it cannot draw, so the failure stays loud.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// The bundled face's family name, or null when the resource could not be read.
+    /// </summary>
+    /// <remarks>
+    /// <b>Exposed so a test can assert the face is *there*, not merely that a label
+    /// drew.</b> The first version of that test asserted pixels and silence, and passed
+    /// with the resource removed — because the machine it ran on has Turkish, Greek and
+    /// Cyrillic system fonts, so the label drew from those and nothing was reported. A
+    /// test that cannot tell the bundled face from the machine's is a test about the
+    /// machine, and D-161's whole point is what happens on a machine with neither.
+    /// </remarks>
+    public static string? BundledFace => Bundled.Value?.FamilyName;
+
+    private static readonly Lazy<SKTypeface?> Bundled = new(() =>
+    {
+        try
+        {
+            using System.IO.Stream? resource = typeof(SkiaMapCanvas).Assembly
+                .GetManifestResourceStream(
+                    "Graticula.Render.Skia.fonts.DejaVuSans.ttf");
+
+            return resource is null ? null : SKTypeface.FromStream(resource);
+        }
+        catch (Exception e) when (e is System.IO.IOException or NotSupportedException)
+        {
+            return null;
+        }
+    });
 
     /// <inheritdoc/>
     public int Width { get; }

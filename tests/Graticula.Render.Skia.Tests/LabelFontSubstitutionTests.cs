@@ -113,6 +113,85 @@ public sealed class LabelFontSubstitutionTests
             "A Turkish label drew nothing at all.");
     }
 
+    [Theory]
+    [InlineData("Kırşehir", "Turkish")]
+    [InlineData("Αθήνα", "Greek")]
+    [InlineData("Москва", "Cyrillic")]
+    public void The_bundled_face_draws_the_scripts_this_product_promises(string label, string script)
+    {
+        // <b>[D-161](../../docs/architecture-debt.md), owner decision 2026-08-25.</b> The
+        // face travels with the assembly, so these three draw on an image with no system
+        // fonts at all — which is the air-gapped case Q-15 ended on. Asserted through the
+        // substitution hook rather than only through pixels: pixels alone would pass on a
+        // machine that happens to have the script installed, which is a fact about the
+        // runner and not about what this product carries.
+        // <b>The face is asserted to be present, not inferred from pixels.</b> This test
+        // passed with the resource removed until this line existed: the machine it runs
+        // on has Turkish, Greek and Cyrillic system fonts, so the label drew from those
+        // and nothing was reported. D-161's whole point is the machine with neither.
+        Assert.Equal("DejaVu Sans", SkiaMapCanvas.BundledFace);
+
+        List<string> said = [];
+        SkiaMapCanvas.Missing = missing => said.Add(missing);
+
+        try
+        {
+            using IMapCanvas canvas = new SkiaMapCanvasFactory().Create(200, 50);
+
+            canvas.Clear(Rgba.Transparent);
+            canvas.DrawLabel(label, new MapSymbol.Label(Ink, 20, Rgba.Transparent, 0), 100, 32);
+
+            Assert.True(
+                said.Count == 0,
+                $"{script} reached the substitution path, so the bundled face did not draw "
+                + "it and the deployment is relying on the machine's fonts for a script "
+                + "this product says it carries.");
+
+            Assert.True(
+                InkedPixels(canvas.Encode(MapImageFormat.Png, 90)) > 0,
+                $"A {script} label drew nothing.");
+        }
+        finally
+        {
+            SkiaMapCanvas.Missing = null;
+        }
+    }
+
+    [Fact]
+    public void Cjk_is_not_promised_and_says_so_when_absent()
+    {
+        // <b>The other half of the decision, asserted so it stays a decision.</b> The
+        // owner chose Latin, Turkish, Greek and Cyrillic; the file that was already here
+        // carries Arabic as well, measured, and does not carry Han. So CJK is the one
+        // script this product does not promise. That is only defensible while the
+        // absence is loud,
+        // so this pins the shape rather than the outcome: on a machine with CJK fonts
+        // the substitution succeeds and nothing is said, and on one without it is named.
+        // What must never happen is boxes with silence, and `FontFor` cannot produce
+        // that: it either finds a face or calls the hook.
+        List<string> said = [];
+        SkiaMapCanvas.Missing = missing => said.Add(missing);
+
+        try
+        {
+            using IMapCanvas canvas = new SkiaMapCanvasFactory().Create(200, 60);
+
+            canvas.Clear(Rgba.Transparent);
+            canvas.DrawLabel("東京", new MapSymbol.Label(Ink, 28, Rgba.Transparent, 0), 100, 40);
+
+            bool drew = InkedPixels(canvas.Encode(MapImageFormat.Png, 90)) > 0;
+
+            Assert.True(
+                drew || said.Count > 0,
+                "A CJK label was neither drawn nor reported, which is the silent-boxes "
+                + "failure D-161 exists to keep impossible.");
+        }
+        finally
+        {
+            SkiaMapCanvas.Missing = null;
+        }
+    }
+
     [Fact]
     public void A_glyph_no_face_has_is_reported_rather_than_drawn_as_a_box()
     {

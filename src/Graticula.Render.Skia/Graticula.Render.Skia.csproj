@@ -24,6 +24,31 @@
     <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The bundled face — D-161, owner decision 2026-08-25: carry Latin, Turkish,
+    Greek and Cyrillic; leave CJK to a mount.
+
+    The same file the tile face already uses, and that is the point. ADR-027
+    chose DejaVu Sans for the glyph endpoint and tools/make-glyphs.py renders
+    its SDF glyphs from exactly this TTF. Adding a second family would have
+    meant two licences, two bills of materials, two answers to "which scripts
+    does this product draw" — and a WMS map drawn in one typeface beside a
+    vector tile of the same layer labelled in another. One font, both faces.
+
+    Measured rather than assumed: this file carries Turkish, Greek, Cyrillic and
+    Arabic, and does not carry Han. Its licence is already recorded in
+    DEPENDENCY-LICENSES.md and its text ships in tools/fonts/LICENSE-DejaVu.txt.
+
+    Embedded rather than copied beside the assembly. A file on disk is a file a
+    deployment can lose, and the failure would be silent in exactly the way this
+    exists to prevent: the renderer would fall back to the system face and draw
+    boxes again, on a build that claims to carry a font.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\tools\fonts\DejaVuSans.ttf"
+                      LogicalName="Graticula.Render.Skia.fonts.DejaVuSans.ttf" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="SkiaSharp" />
     <!-- The Linux payloads. NoDependencies carries its own font and graphics

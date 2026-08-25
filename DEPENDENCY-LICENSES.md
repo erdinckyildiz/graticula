@@ -56,7 +56,7 @@ fact.
 | **SkiaSharp.NativeAssets.Linux** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
 | **SkiaSharp.NativeAssets.Linux.NoDependencies** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
 | **BitMiracle.LibTiff.NET** | 2.4.660 | **BSD-3-Clause**, with **IJG JPEG** and **libtiff** BSD-style notices bundled | the project's own licence page, cited from its nuspec `licenseUrl` | **Yes**, and the three notices go in `NOTICE` |
-| **DejaVu Sans** (font, redistributed) | 2.37 | **Bitstream Vera** (permissive) + public-domain DejaVu changes | the licence text shipped in [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) | **Yes**, with one obligation that is not the usual one — see below |
+| **DejaVu Sans** (font, redistributed) | 2.37 | **Bitstream Vera** (permissive) + public-domain DejaVu changes | the licence text shipped in [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) | **Yes**, with one obligation that is not the usual one — see below. **Redistributed twice since 2026-08-25**: as the SDF glyphs under `glyphs/` (ADR-027) and now embedded in `Graticula.Render.Skia` as the drawn face ([D-161](docs/architecture-debt.md)). One file, one licence, one obligation — the renderer was given the font the tile face already used rather than a second family |
 
 > **AMENDED 2026-08-21. Four packages were shipping and not in this table.**
 > The gate ran on 2026-08-15 and passed on six packages; SkiaSharp and its two
