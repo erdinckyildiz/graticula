@@ -83,6 +83,11 @@ desktop.ini
 benchmarks/_tmp/
 TestResults/
 
-# A session token written by a manual test
+# A session token written by a manual test.
+#
+# It was committed on 2026-08-15 and removed the same day, which took it off the
+# tip and left it in the pack. Taking it out of 532 commits of history was a
+# precondition of making this repository public -- ADR-047 condition 2. Named here
+# so the second time costs nothing.
 tok
 grp_service.html
