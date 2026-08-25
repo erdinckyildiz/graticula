@@ -29,6 +29,12 @@ public sealed class GeographicExtentsTests
     /// </remarks>
     private sealed class CountingProjector : IProjector
     {
+
+        // <b>Never asked here.</b> `GeographicExtents` moves geometry; the datum question is
+        // Q-141's notice, on a different path.
+        public Task<ProjectionProvenance> DescribeAsync(
+            int fromSrid, int toSrid, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not ask about datums");
         public int Calls { get; private set; }
 
         public List<int> From { get; } = [];
@@ -165,6 +171,12 @@ public sealed class GeographicExtentsTests
 
     private sealed class RefusingProjector : IProjector
     {
+
+        // <b>Never asked here.</b> `GeographicExtents` moves geometry; the datum question is
+        // Q-141's notice, on a different path.
+        public Task<ProjectionProvenance> DescribeAsync(
+            int fromSrid, int toSrid, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not ask about datums");
         public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult(srid != 99999);
 
