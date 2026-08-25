@@ -154,6 +154,42 @@ takes a string so adding `group` later is a small change rather than a redesign.
 
 **Corrected 2026-08-18: this is a migration after all, and a cheap one.** The column is text, and `layer`, `service` and `system_service` each carry `check (sharing in ('private','organization','public'))` — measured against the live schema. Widening a check is expand-only and safe, so the cost is one migration rather than none; what was wrong was the claim that no schema change is needed, which is what anybody estimating [Q-112](../open-questions.md) would have planned from.
 
+### 3b-iii. The invariant: no step may widen what a narrower element allowed
+
+**Added 2026-08-25 by [Q-105](../open-questions.md), which asked whether this becomes a
+stated property with a test or stays an outcome each new surface has to arrive at
+independently.** It is now a property.
+
+Read the four scopes as an ordering by reach — `private` ⊂ `group` ⊂ `organization` ⊂
+`public` — and the rule is that **the decision is monotone in it**: a caller who may read
+an item at some scope may read the same item at any wider one. Nothing that composes,
+inherits or defaults may break that.
+
+**This is not the deny-wins rule the reference uses**, and the difference is worth
+keeping straight. Honua composes a service policy with a layer policy and resolves
+conflicts by denying; §3b-i deliberately has no such composition, because sharing lives on
+the service and a layer has none of its own. So there is nothing here to resolve — which
+is precisely why the rule needed writing down: an invariant with no current violation is
+the kind nobody notices is missing until a surface arrives that would violate it.
+
+**One thing widens, and it is named rather than excluded.** `admin:viewAllContent` turns
+a denial into an allowance, which is legitimate; condition 3 already required it to be
+auditable, and `LayerAccess.Reason.AdministrativeOverride` is how. The invariant is
+therefore two claims: nothing widens, *except* the override, and when the override widens
+the answer says so — an administrator reading something they could have read anyway is
+reported as an ordinary read, so the record is signal rather than noise.
+
+**`AuthorizationOnlyNarrowsTests` checks it exhaustively**, over every scope, every kind
+of caller and both group arrangements, and a fourth test fails if a new
+`SharingScope` is added without joining the ordering — which is how `group` would have
+slipped past a test written when there were three. Falsified by making `group` scope open
+to anyone: the property failed, naming the anonymous caller.
+
+**What is still only structural.** The other place a widening could enter is the layer's
+own dead `sharing` column being read again; that is guarded by
+`DeadColumnsStayDeadTests` rather than here, because it is a fact about SQL rather than
+about the decision.
+
 ### 3b-ii. Who may change what — the split the owner likes, without the split that causes it
 
 *Added 2026-08-17, after the owner described the ArcGIS Enterprise arrangement they
