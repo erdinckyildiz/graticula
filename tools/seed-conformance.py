@@ -497,7 +497,21 @@ def main():
                         "objectIdColumn": table.get("objectIdColumn"),
                         "srid": table["srid"],
                         "geometryType": table.get("geometryType") or "Polygon",
-                        "sharing": "organization",
+
+                        # <b>In `hosted` and private, and both were wrong at first.</b>
+                        # Published without a folder it landed at the **root**, where
+                        # `ArcGisDiscoveryTests` asserts every service is a
+                        # `FeatureServer` — a published layer also answers as a
+                        # `MapServer`, so the root listing gained a type that assertion
+                        # forbids. And shared with the organisation it changed what a
+                        # stranger counts at each scope, which
+                        # `ContentScopeConformanceTests` measures exactly.
+                        #
+                        # A fixture that exists to give a data source a layer count has
+                        # no business being visible to anybody: private, beside the
+                        # others.
+                        "folder": "hosted",
+                        "sharing": "private",
                     },
                     expect=(200, 201, 409),
                 )
