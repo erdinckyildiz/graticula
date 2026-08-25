@@ -513,9 +513,9 @@ function drawGroupOverview(one) {
     <dt>Created</dt><dd>${day(one.createdAt)}</dd>
     <dt>Members</dt><dd>${num((one.members || []).length)}</dd>
     <dt>Services</dt><dd>${num(items.length)}</dd>
-    <dt>Visible to</dt><dd>${one.visibility === "public"
-      ? `anybody`
-      : one.visibility === "organization" ? `any signed-in member` : `its members only`}</dd>
+    <dt>Visible to</dt><dd>${one.visibility === "organization"
+      ? `any signed-in member`
+      : `its members only`}</dd>
     <dt>Joining</dt><dd>${one.joinPolicy === "self" ? `anyone who can see it` : `by invitation`}</dd>
     <dt>Contributing</dt><dd>${one.contribute === "members"
       ? `any member`
@@ -746,11 +746,9 @@ function drawGroupSettings(one) {
       ${pick("gsVisibility", one.visibility || "members", [
         ["members", "Only its members"],
         ["organization", "All signed-in members"],
-        ["public", "Everybody — not built yet", true],
       ])}<span class="u"></span></div>
     <p class="hint">Seeing that a group exists is not being able to read what is in it. What is shared
-      with this group stays readable by its members and nobody else, whatever this says.
-      <b>Everybody</b> would mean an anonymous caller, and there is nowhere for that to happen yet.</p>
+      with this group stays readable by its members and nobody else, whatever this says.</p>
 
     <div class="setting wide"><label class="q" for="gsJoin">How people come to be in it:</label>
       ${pick("gsJoin", one.joinPolicy || "invitation", [

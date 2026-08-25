@@ -3841,10 +3841,10 @@ internal static class AdminEndpoints
 
         if (outcome != GroupChange.Done)
         {
-            // Which of the two unbuilt settings was asked for, so the refusal names the right control.
-            string? offender = outcome == GroupChange.NotBuilt && visibility == GroupVisibility.Public
-                ? "public"
-                : request.JoinPolicy;
+            // <b>One unbuilt setting left, so the refusal has one thing to name.</b> There were
+            // two until 2026-08-25, when `public` stopped being a visibility this product offers
+            // (owner decision, Q-119) rather than one it stored and refused.
+            string? offender = request.JoinPolicy;
 
             await RefuseGroupChangeAsync(context, name, outcome, offender).ConfigureAwait(false);
             return;
@@ -3885,7 +3885,6 @@ internal static class AdminEndpoints
     private static string Wire(GroupVisibility visibility) => visibility switch
     {
         GroupVisibility.Organization => "organization",
-        GroupVisibility.Public => "public",
         _ => "members",
     };
 
@@ -3909,11 +3908,22 @@ internal static class AdminEndpoints
         {
             case null or "" or "members": return true;
             case "organization": visibility = GroupVisibility.Organization; return true;
-            case "public": visibility = GroupVisibility.Public; return true;
+
+            // <b>`public` is named in the refusal because clients still send it.</b> It was a
+            // stored-and-refused value until 2026-08-25 and is now not a value at all (owner
+            // decision, Q-119, migration 36); a caller that sends it deserves to be told what
+            // happened rather than that the word is unrecognised.
+            case "public":
+                error = "'public' is no longer a group visibility. It meant 'discoverable by "
+                    + "anybody, including an anonymous caller', and there was nowhere for that "
+                    + "to happen — the group listing needs a signed-in caller — so it was "
+                    + "enforced exactly as 'organization' while claiming more. Use "
+                    + "'organization', which is what it did.";
+                return false;
 
             default:
-                error = $"'{said}' is not a group visibility. Use 'members' (the default), "
-                    + "'organization' or 'public'. It says who may find the group, not who may read "
+                error = $"'{said}' is not a group visibility. Use 'members' (the default) or "
+                    + "'organization'. It says who may find the group, not who may read "
                     + "what is shared with it — that is always its members and nobody else.";
                 return false;
         }

@@ -540,8 +540,15 @@ public sealed class GroupDirectoryTests : PostgresFixture
     /// groups. <b>Readable and only unwritable</b>: a row a future build writes still reads correctly.
     /// </remarks>
     [Fact]
-    public async Task Public_visibility_is_refused_until_there_is_somewhere_to_be_public()
+    public async Task Public_is_not_a_visibility_this_product_offers()
     {
+        // <b>Owner decision 2026-08-25, migration 36, Q-119.</b> It used to be stored and
+        // refused on write — the same shape `request` still has — and it is now not a value
+        // at all: `GroupVisibility` has two members, so a build that tried to set it would
+        // not compile. What is left to assert is the *stored* side, because a row can
+        // survive a partial restore, and it must read as `organization` rather than as
+        // `members`: `organization` is what `public` was always enforced as, and demoting it
+        // further would narrow what an operator chose without telling them.
         await MigrateAsync();
 
         PostgresGroupDirectory groups = new(DataSource);
@@ -553,17 +560,16 @@ public sealed class GroupDirectoryTests : PostgresFixture
         try
         {
             Assert.Equal(
-                GroupChange.NotBuilt,
+                GroupChange.Done,
                 await groups.SetSettingsAsync(
                     owner, false, "zz_gv_public", null, null, null,
-                    GroupVisibility.Public, GroupJoinPolicy.Invitation, GroupContribute.Managers,
-                    deleteLocked: false, CancellationToken.None));
+                    GroupVisibility.Organization, GroupJoinPolicy.Invitation,
+                    GroupContribute.Managers, deleteLocked: false, CancellationToken.None));
 
-            // Refused before it wrote, like `request` — the other policies are untouched.
             GroupSummary after = (await groups.ListAsync(owner, true, CancellationToken.None))
                 .Single(g => g.Name == "zz_gv_public");
 
-            Assert.Equal(GroupVisibility.Members, after.Visibility);
+            Assert.Equal(GroupVisibility.Organization, after.Visibility);
         }
         finally
         {

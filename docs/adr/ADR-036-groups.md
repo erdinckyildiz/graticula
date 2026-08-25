@@ -548,6 +548,36 @@ icons arrive, which is the change §4g adopted the tabs for. *Add item* is the w
 built around. It also reads from the group's side: what the button does is put something *into* this
 group.
 
+## 4b. A group is visible to its members or to the organisation — amended 2026-08-25
+
+**Owner decision, closing [Q-119](../open-questions.md): there is no public group.**
+`GroupVisibility` has two values, migration 36 tightens the constraint, and the console
+offers two controls where it offered three.
+
+**The third value never worked and the setting said it did.** *Everybody, including an
+anonymous caller* needs somewhere an anonymous caller can look, and `/admin/groups`
+refuses one outright — so `public` and `organization` were enforced identically by the
+same disjunct while the console promised more. That is [D-67](../architecture-debt.md)'s
+shape: a setting stored and unenforced. It was already refused on write for exactly that
+reason; what changed is that a refusal is a thing an operator meets and a missing option
+is not.
+
+**The alternatives were both a new anonymous read path.** Either a discovery surface
+outside `/admin` that lists public groups to anybody, or letting an unauthenticated caller
+into the admin listing filtered to public groups only. Both add an unauthenticated reader
+to a product whose sharing model answers *404* rather than *403* precisely so that nobody
+learns what exists — and neither is owed by anything anybody is asking for.
+
+**Demoted rather than narrowed.** Migration 36 moves any stored `public` to
+`organization`, not to `members`: a group somebody made discoverable is a group they
+wanted found, and `organization` is what it was actually being enforced as. The migration
+should demote nothing, and runs anyway, because *should* is a claim about deployments
+nobody here has seen and a check constraint that fails on upgrade is a server that will
+not start.
+
+**A caller that still sends `public` is told what happened** rather than that the word is
+unrecognised — clients outlive settings.
+
 ## 5. Consequences
 
 - **The sharing check gains a fourth value** on `layer`, `service` and `system_service`. Expand-only.

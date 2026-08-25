@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(35);
+    public static SchemaVersion ComponentSchemaVersion => new(36);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -70,6 +70,7 @@ public static class PlatformMigrations
         OwnerKeysV33,
         DeadLayerColumnDefaultsV34,
         LayerTimeFieldV35,
+        GroupVisibilityWithoutPublicV36,
     ]);
 
 
@@ -2350,5 +2351,52 @@ public static class PlatformMigrations
         """
         alter table layer add constraint layer_time_field_is_a_name
           check (time_field is null or (length(time_field) between 1 and 63))
+        """);
+
+    /// <summary>
+    /// A group is visible to its members or to the organisation. There is no third.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-08-25, closing [Q-119](../../../docs/open-questions.md).</b> The
+    /// third value meant *discoverable by anybody, including an anonymous caller*, and
+    /// there was nowhere for that to happen: `/admin/groups` refuses an anonymous caller,
+    /// so `public` and `organization` were enforced identically while the console said
+    /// otherwise. The question was where a public group gets discovered; the answer is
+    /// that it does not, because there is no such thing here.
+    /// </para>
+    /// <para>
+    /// <b>Nothing in any store holds it, and the update runs anyway.</b>
+    /// `PostgresGroupDirectory` has refused `public` on write since the setting shipped —
+    /// readable and unwritable, the same shape `request` still has — so this should
+    /// demote nothing. It is written because *should* is a claim about every deployment
+    /// that exists, including the ones nobody here has seen, and a constraint that fails
+    /// on upgrade is a server that will not start.
+    /// </para>
+    /// <para>
+    /// <b>Demoted to `organization` rather than to `members`.</b> A group somebody made
+    /// discoverable is a group they wanted found; narrowing it to its own members would
+    /// change what an operator chose, quietly. `organization` is what `public` was
+    /// actually being enforced as, so this makes the stored value match the behaviour
+    /// rather than changing the behaviour.
+    /// </para>
+    /// <para>
+    /// <b>Expand rather than contract, deliberately.</b> It tightens a check constraint
+    /// and drops no column and no data, so a reader from before this migration still
+    /// works: it would accept a value the store can no longer contain, which costs
+    /// nothing. Contract is for a change that makes an older reader wrong.
+    /// </para>
+    /// </remarks>
+    private static Migration GroupVisibilityWithoutPublicV36 => Migration.Expand(
+        new SchemaVersion(36),
+        "A group is visible to members or to the organisation; 'public' is gone (Q-119).",
+
+        "update sharing_group set visibility = 'organization' where visibility = 'public'",
+
+        "alter table sharing_group drop constraint if exists sharing_group_visibility_known",
+
+        """
+        alter table sharing_group add constraint sharing_group_visibility_known
+          check (visibility in ('members', 'organization'))
         """);
 }

@@ -400,22 +400,13 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             return GroupChange.NotBuilt;
         }
 
-        // <b>And `public` too, for the same reason and after almost getting the opposite
-        // treatment.</b> `organization` and `public` are enforced identically — the listing's disjunct
-        // does not distinguish them — because `/admin/groups` refuses an anonymous caller outright, so
-        // there is nowhere for *everybody, including anonymous callers* to mean anything. Accepting it
-        // would report a discovery this server does not perform, which is exactly what the line above
-        // refuses `request` for. Two identical situations treated differently on one screen is the
-        // inconsistency an operator notices; [Q-119](../../docs/open-questions.md) holds the decision
-        // about where a public group is actually discovered, and it is a decision about anonymous
-        // surfaces rather than about groups.
-        //
-        // <b>Readable, and only unwritable</b> — same shape as `request`. Nothing in the store today
-        // holds `public`, and if a future build writes one, this one still reads it correctly.
-        if (visibility == GroupVisibility.Public)
-        {
-            return GroupChange.NotBuilt;
-        }
+        // <b>`public` used to be refused here too, and is now gone from the type.</b> Owner
+        // decision 2026-08-25, migration 36, [Q-119](../../docs/open-questions.md): it meant
+        // *discoverable by anybody, including an anonymous caller*, `/admin/groups` refuses an
+        // anonymous caller, and so it was enforced exactly as `organization` while the console
+        // promised more. A value stored and unhonoured is D-67; the cheapest way to stop
+        // promising something is to stop offering it, and the compiler now enforces that
+        // rather than this method.
 
         (Guid id, GroupStanding standing) = await FindAsync(name, acting, cancellationToken)
             .ConfigureAwait(false);
@@ -675,7 +666,6 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     private static string Wire(GroupVisibility visibility) => visibility switch
     {
         GroupVisibility.Organization => "organization",
-        GroupVisibility.Public => "public",
         _ => "members",
     };
 
@@ -698,7 +688,13 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     private static GroupVisibility ReadVisibility(string stored) => stored switch
     {
         "organization" => GroupVisibility.Organization,
-        "public" => GroupVisibility.Public,
+
+        // <b>A stored `public` reads as `organization`, not as `members`.</b> Migration 36
+        // demotes every row, so this should never fire — and if a row survives a partial
+        // restore, `organization` is what `public` was always *enforced* as. The comment
+        // above says an unrecognised value reads as the closed end; this one is recognised
+        // and its behaviour is known, which is a different case.
+        "public" => GroupVisibility.Organization,
         _ => GroupVisibility.Members,
     };
 

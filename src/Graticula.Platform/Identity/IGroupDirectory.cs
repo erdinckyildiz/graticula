@@ -39,10 +39,16 @@ public enum GroupVisibility
     Members,
 
     /// <summary>Any signed-in member of the organisation can find it.</summary>
+    /// <remarks>
+    /// <b>The widest a group gets, since 2026-08-25 — owner decision, migration 36,
+    /// [Q-119](../../../docs/open-questions.md).</b> There was a third value meaning
+    /// *anybody, including an anonymous caller*, and nowhere for it to happen:
+    /// `/admin/groups` refuses an anonymous caller, so it was enforced exactly as this
+    /// one while the console promised more. A setting the server stores and does not
+    /// honour is D-67, and the cheapest way to stop promising something is to stop
+    /// offering it.
+    /// </remarks>
     Organization,
-
-    /// <summary>Anybody, including an anonymous caller.</summary>
-    Public,
 }
 
 /// <summary>How somebody comes to be in a group — ADR-036 §4g.</summary>
