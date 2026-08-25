@@ -430,6 +430,51 @@ cannot be unbounded, not to ration ordinary work.
 
 ---
 
+## 3b. Amended 2026-08-25 — the cap bounds five of six, and the other two are bounded on the way out
+
+**§3's argument is that each linear operation is one pass over the coordinates, so the
+vertex cap bounds the work exactly.** [Q-115](../open-questions.md) asked whether that
+class of operation needs a time bound as well. The argument had never been costed, so it
+was — and it is true of five cases and false of two, for two different reasons.
+
+**Measured at the cap, on input built to be hostile to each operation:**
+
+| operation | worst input | at 500,000 vertices |
+|---|---|---|
+| `ConvexHull` | spiral, no interior point | **351 ms**, 91 MB |
+| `ConvexHull` | circle, every point on the hull | **591 ms**, 98 MB |
+| `Densify` | every segment split | **85 ms**, 76 MB |
+| `Densify` | nothing to split | **19 ms**, 8 MB |
+| `Generalize` | everything removable | **32 ms**, 0 MB |
+| `Generalize` | **nothing removable** | **≈3 hours**, extrapolated |
+
+**Densify's cost is its output, and its output is a caller's number.** A two-vertex line
+one kilometre long at `maxSegmentLength=0.001` produces 1,000,001 vertices and 47 MB; the
+input cap sees two vertices and waves it through, and `0.000001` was equally accepted.
+The bound is therefore on the output and is computable in advance:
+`GeometryOperations.DensifiedVertexCount` walks the same coordinates the operation would
+and the endpoint refuses before a byte is allocated. Saturating arithmetic, so a count
+too large for a `long` cannot wrap into a small one and pass the check.
+
+**Generalize is quadratic on input chosen to defeat it.** Douglas-Peucker splits at the
+farthest vertex and rescans the range; on a run where nothing may be dropped that is
+`O(n²)`. Measured: 237 ms at 2,000 vertices, 708 at 4,000, 2,751 at 8,000, 10,169 at
+16,000, 46,241 at 32,000 — a clean quadratic. The same operation on a circle of 32,000
+vertices is 47 ms. So the work is counted rather than timed: 64 comparisons per vertex,
+against the ~19 per vertex a well-behaved run of half a million costs, and the quadratic
+case needs five orders of magnitude more than the budget.
+
+**Counted, not timed, and that is Q-115's own reasoning.** Nothing in
+`GeometryOperations` takes a `CancellationToken`, so a clock would abandon the response
+while the CPU kept burning — a bound that stops nothing and looks like protection. A
+count refuses deterministically, on the same input, on any machine, before the work
+starts for densify and 1.28 million comparisons into it for generalize.
+
+**What did not change.** No operation gained a time bound, no algorithm gained a
+cancellation token, and the overlay half keeps the worker process and its deadline. §3's
+argument stands for the five cases it covers; what it did not cover is now covered by a
+different kind of bound rather than by a clock.
+
 ## 4. Decision — projection uses the datastore's PROJ
 
 **Not a .NET projection library.** The datastore is mandatory

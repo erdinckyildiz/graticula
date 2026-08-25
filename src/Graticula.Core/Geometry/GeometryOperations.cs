@@ -173,6 +173,143 @@ public static class GeometryOperations
     }
 
     /// <summary>
+    /// How many vertices <see cref="Densify"/> would produce, without producing them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-115](../../../docs/open-questions.md), and it is the answer that question
+    /// was looking for.</b> That row asked whether the linear operations need a time
+    /// bound. Five of them are bounded by the vertex cap exactly as
+    /// [ADR-022](../../../docs/adr/ADR-022-geometry-server.md) §3 argues — one pass over
+    /// the coordinates, so input size bounds work. <b>Densify is not one of them.</b>
+    /// Its cost is bounded by its <em>output</em>, and its output is a function of a
+    /// caller-supplied number: a two-vertex line one kilometre long densified at
+    /// <c>0.001</c> produces 1,000,001 vertices and 47 MB, measured, and nothing stops
+    /// the same call at <c>0.000001</c>.
+    /// </para>
+    /// <para>
+    /// <b>So the bound is on the output and it is computable in advance.</b> That is
+    /// what makes this the fix rather than a timeout: counting the pieces is one pass
+    /// over the same coordinates the operation would walk, it needs no cancellation
+    /// through the algorithm, and it refuses before a byte is allocated instead of
+    /// abandoning a response while the CPU keeps burning — which Q-115 named as the
+    /// reason a timeout would be worse than nothing.
+    /// </para>
+    /// <para>
+    /// <b>Saturating rather than overflowing.</b> A tiny segment length over a long
+    /// line is easily more vertices than a <c>long</c> holds; the count stops at
+    /// <see cref="long.MaxValue"/> so a caller cannot wrap it into a small number and
+    /// pass the very check this exists to fail.
+    /// </para>
+    /// </remarks>
+    /// <param name="geometry">The geometry.</param>
+    /// <param name="maxSegmentLength">The longest segment to leave alone.</param>
+    /// <returns>The vertex count the densified geometry would have.</returns>
+    public static long DensifiedVertexCount(Geometry geometry, double maxSegmentLength)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSegmentLength);
+
+        long total = 0;
+
+        foreach (XySequence run in Runs(geometry))
+        {
+            total = Add(total, CountRun(run, maxSegmentLength));
+
+            if (total == long.MaxValue)
+            {
+                return total;
+            }
+        }
+
+        return total;
+
+        static long CountRun(XySequence run, double maxSegmentLength)
+        {
+            if (run.Count < 2)
+            {
+                return run.Count;
+            }
+
+            long count = 1;
+
+            for (int i = 0; i < run.Count - 1; i++)
+            {
+                double dx = run.X(i + 1) - run.X(i);
+                double dy = run.Y(i + 1) - run.Y(i);
+                double length = Math.Sqrt((dx * dx) + (dy * dy));
+
+                double pieces = length <= maxSegmentLength
+                    ? 1
+                    : Math.Ceiling(length / maxSegmentLength);
+
+                count = Add(count, pieces >= long.MaxValue ? long.MaxValue : (long)pieces);
+
+                if (count == long.MaxValue)
+                {
+                    return count;
+                }
+            }
+
+            return count;
+        }
+
+        static long Add(long a, long b) => a > long.MaxValue - b ? long.MaxValue : a + b;
+    }
+
+    /// <summary>Every coordinate run a geometry is made of.</summary>
+    /// <remarks>
+    /// <b>The same walk <see cref="Rebuild"/> does, read-only.</b> Counting through a
+    /// second description of what a geometry contains is how a count comes to disagree
+    /// with the thing it is counting.
+    /// </remarks>
+    private static IEnumerable<XySequence> Runs(Geometry geometry)
+    {
+        switch (geometry)
+        {
+            case LineString line when !line.IsEmpty:
+                yield return line.Coordinates;
+                break;
+
+            case Polygon polygon when !polygon.IsEmpty:
+                yield return polygon.Shell.Coordinates;
+
+                foreach (LinearRing hole in polygon.Holes)
+                {
+                    yield return hole.Coordinates;
+                }
+
+                break;
+
+            case MultiLineString lines:
+                foreach (LineString part in lines.Parts)
+                {
+                    if (!part.IsEmpty)
+                    {
+                        yield return part.Coordinates;
+                    }
+                }
+
+                break;
+
+            case MultiPolygon polygons:
+                foreach (Polygon part in polygons.Parts)
+                {
+                    foreach (XySequence run in Runs(part))
+                    {
+                        yield return run;
+                    }
+                }
+
+                break;
+
+            default:
+                // A point, a multipoint, or an empty anything: densify adds nothing.
+                break;
+        }
+    }
+
+    /// <summary>
     /// Removes vertices that are within the given distance of the line they
     /// sit on.
     /// </summary>
@@ -203,6 +340,36 @@ public static class GeometryOperations
 
         return Rebuild(geometry, s => GeneralizeRun(s, maxDeviation));
     }
+
+    /// <summary>
+    /// How many point-to-chord comparisons one run may cost, as a multiple of its length.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-115](../../../docs/open-questions.md), and this is the half the vertex cap
+    /// does not cover.</b> Douglas-Peucker is <c>O(n log n)</c> on data and
+    /// <c>O(n²)</c> on input chosen to defeat it — a run where no vertex may be dropped
+    /// splits in the middle every time and rescans the whole range. Measured on a
+    /// zigzag: 237 ms at 2,000 vertices, 708 at 4,000, 2,751 at 8,000, 10,169 at 16,000
+    /// and 46,241 at 32,000, which is a clean quadratic and extrapolates to roughly
+    /// <b>three hours of CPU</b> at the 500,000-vertex cap the server allows. The same
+    /// operation on a circle of 32,000 vertices costs 47 ms.
+    /// </para>
+    /// <para>
+    /// <b>Sixty-four times the vertex count, which is generous on purpose.</b> A
+    /// well-behaved run costs about <c>n log₂ n</c> comparisons — nineteen per vertex at
+    /// half a million — so this is more than three times the headroom real data needs,
+    /// and the quadratic case needs a hundred thousand times it. The line is drawn where
+    /// nothing legitimate is near it and nothing pathological is under it.
+    /// </para>
+    /// <para>
+    /// <b>Counted rather than timed.</b> A clock would have to be checked from inside
+    /// the loop and would abandon the work while the CPU kept going, which is the
+    /// failure Q-115 named. A counter refuses deterministically, on the same input, on
+    /// any machine.
+    /// </para>
+    /// </remarks>
+    public const int GeneralizeComparisonsPerVertex = 64;
 
     // ---------- walking a geometry ----------
 
@@ -353,6 +520,9 @@ public static class GeometryOperations
         keep[0] = true;
         keep[n - 1] = true;
 
+        // Q-115: what this run is allowed to spend. See GeneralizeComparisonsPerVertex.
+        long budget = (long)n * GeneralizeComparisonsPerVertex;
+
         bool closed = Math.Abs(run.X(0) - run.X(n - 1)) < double.Epsilon
                       && Math.Abs(run.Y(0) - run.Y(n - 1)) < double.Epsilon;
 
@@ -392,12 +562,12 @@ public static class GeometryOperations
 
             split = far;
             keep[far] = true;
-            Simplify(run, 0, far, maxDeviation, keep);
-            Simplify(run, far, n - 1, maxDeviation, keep);
+            Simplify(run, 0, far, maxDeviation, keep, ref budget);
+            Simplify(run, far, n - 1, maxDeviation, keep, ref budget);
         }
         else
         {
-            Simplify(run, 0, n - 1, maxDeviation, keep);
+            Simplify(run, 0, n - 1, maxDeviation, keep, ref budget);
         }
 
         int kept = 0;
@@ -455,7 +625,8 @@ public static class GeometryOperations
     }
 
     /// <summary>Douglas–Peucker, iterative so a long run cannot overflow the stack.</summary>
-    private static void Simplify(XySequence run, int first, int last, double tolerance, bool[] keep)
+    private static void Simplify(
+        XySequence run, int first, int last, double tolerance, bool[] keep, ref long budget)
     {
         Stack<(int First, int Last)> pending = new();
         pending.Push((first, last));
@@ -467,6 +638,24 @@ public static class GeometryOperations
             if (b <= a + 1)
             {
                 continue;
+            }
+
+            // <b>Charged before the scan, not after.</b> Checking afterwards would let
+            // one range of half a million comparisons run to completion past a budget
+            // it had already exhausted, which is most of the cost in the case this
+            // exists to stop.
+            budget -= b - a - 1;
+
+            if (budget < 0)
+            {
+                throw new GeometryWorkException(
+                    "Simplifying this geometry at this tolerance costs more comparisons than "
+                    + "this server will spend on one request. Douglas-Peucker is fast on data "
+                    + "and quadratic on a shape where no vertex may be dropped; a run of "
+                    + $"{run.Count:N0} vertices is allowed "
+                    + $"{(long)run.Count * GeneralizeComparisonsPerVertex:N0} comparisons, which "
+                    + "is more than three times what ordinary data needs. Send a larger "
+                    + "tolerance, or fewer vertices.");
             }
 
             double worst = -1;
@@ -494,6 +683,8 @@ public static class GeometryOperations
             pending.Push((at, b));
         }
     }
+
+
 
     private static double PerpendicularDistance(
         double px, double py, double ax, double ay, double bx, double by)
@@ -683,4 +874,36 @@ public static class GeometryOperations
     /// <summary>The z of the cross product: &gt;0 is a left turn.</summary>
     private static double Cross(double ox, double oy, double ax, double ay, double bx, double by) =>
         ((ax - ox) * (by - oy)) - ((ay - oy) * (bx - ox));
+}
+
+/// <summary>
+/// An operation that would cost more than this server spends on one request.
+/// </summary>
+/// <remarks>
+/// <b>Its own type because it is not a bad argument — [Q-115](../../../docs/open-questions.md).</b>
+/// The geometry is valid, the tolerance is valid, and the two together are more work
+/// than the input's size suggests. A caller reading <c>ArgumentException</c> would look
+/// for the parameter that is wrong, and none of them is.
+/// </remarks>
+public sealed class GeometryWorkException : Exception
+{
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What was too expensive, and what to send instead.</param>
+    public GeometryWorkException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    public GeometryWorkException()
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What was too expensive.</param>
+    /// <param name="innerException">The cause.</param>
+    public GeometryWorkException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
 }

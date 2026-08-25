@@ -1707,6 +1707,35 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        // <b>The cap on the way out, not only on the way in — [Q-115](../../docs/open-questions.md).</b>
+        // Every other operation here is one pass over the coordinates, so the input cap
+        // bounds the work exactly, which is ADR-022 §3's argument and is true of them.
+        // Densify is the exception: its cost is its *output*, and its output is a
+        // function of a number the caller chooses. Measured: a two-vertex line one
+        // kilometre long at `maxSegmentLength=0.001` produces 1,000,001 vertices and
+        // 47 MB, and nothing stopped the same call at 0.000001. The input cap sees two
+        // vertices and waves it through.
+        //
+        // <b>Counted before anything is allocated, which is why this is a refusal
+        // rather than a timeout.</b> A clock would abandon the response while the CPU
+        // kept burning; the count is one pass over the same coordinates the operation
+        // would walk, and it is exact.
+        long produced = geometries.Sum(g => GeometryOperations.DensifiedVertexCount(g, step));
+
+        if (produced > MaximumVertices)
+        {
+            await Fail(
+                context,
+                $"`maxSegmentLength` of {step.ToString(CultureInfo.InvariantCulture)} would "
+                + $"produce {produced:N0} vertices from this input, and this operation returns "
+                + $"at most {MaximumVertices:N0}. Densify adds vertices in proportion to segment "
+                + "length divided by this value, so a small value on a long geometry grows "
+                + "without bound. Send a larger `maxSegmentLength`, or fewer geometries.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         await Respond(context, "densify", new
         {
             geometries = geometries
@@ -1739,10 +1768,28 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        object[] simplified;
+
+        // <b>[Q-115](../../docs/open-questions.md): the work is bounded and the refusal
+        // is the caller's to read.</b> Douglas-Peucker is quadratic on a shape where no
+        // vertex may be dropped — measured at three hours of CPU for one request at the
+        // vertex cap — so `GeometryOperations` counts its comparisons and stops. The
+        // message names the tolerance rather than the algorithm, because that is the
+        // parameter the caller can change.
+        try
+        {
+            simplified = [.. geometries
+                .Select(g => ToJson(GeometryOperations.Generalize(g, tolerance), srid))];
+        }
+        catch (GeometryWorkException e)
+        {
+            await Fail(context, e.Message).ConfigureAwait(false);
+            return;
+        }
+
         await Respond(context, "generalize", new
         {
-            geometries = geometries
-                .Select(g => ToJson(GeometryOperations.Generalize(g, tolerance), srid)).ToArray(),
+            geometries = simplified,
             note = "Douglas-Peucker. Every surviving vertex is an original one, and a ring keeps "
                  + "enough coordinates to still enclose something. This does NOT repair topology "
                  + "\u2014 that is ArcGIS 'simplify', which this server does not offer rather than "
