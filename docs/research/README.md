@@ -19,7 +19,7 @@ Planned topics, in priority order:
 | `postgis-thin-servers.md` | pg_tileserv, pg_featureserv, Martin, Tegola, TiTiler — **written, first pass** |
 | `cloud-native-formats.md` | COG, STAC, PMTiles, FlatGeobuf, GeoParquet |
 | `client-side-platforms.md` | GeoLibre and the serverless GIS argument — see below |
-| `honua-server.md` | The closest direct peer found — **written, first pass.** Read the clean-room boundary at the top before going further |
+| ~~`honua-server.md`~~ | ~~The closest direct peer found — **written, first pass.**~~ **Removed 2026-08-16** by the change that opened reading the reference ([ADR-030](../adr/ADR-030-reading-the-reference-implementation.md)), which rewrote the citations that leaned on it so they stand without it. This row said *written* for nine days after the file stopped existing. Its successors — the reading log and the capability comparison — were themselves kept out of this repository on 2026-08-25; see the placeholders at [reference-reading-log.md](reference-reading-log.md) and [peer-capability-comparison.md](peer-capability-comparison.md) for what that cost and why |
 | `dependency-thread-safety.md` | GDAL, GEOS, PROJ threading rules — **written, resolves A-013** |
 | `geometry-projection-libs.md` | GEOS, JTS, NTS, PROJ — maturity, binding quality — **written, first pass** |
 | `duckdb-geoparquet.md` | DuckDB as a compute layer, GeoParquet as a provider format — **written**; the compute-layer proposal is deferred by ADR-008 §4.3, not rejected |
