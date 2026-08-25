@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ae182f9</code> · 2026-08-24 23:59</p>
+<p class="stamp">Şu commit’ten üretildi: <code>816c26d</code> · 2026-08-25 06:56</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">47</div><div class="kpi-l">ADR</div><div class="kpi-n">2 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/195</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">54</div><div class="kpi-l">açık soru</div><div class="kpi-n">80 yanıtlandı · 3 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">53</div><div class="kpi-l">açık soru</div><div class="kpi-n">81 yanıtlandı · 3 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">27</div><div class="kpi-l">açık borç</div><div class="kpi-n">127 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">10 açık</span></div><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-135</b> — What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">9 açık</span></div><p><b>Q-119</b> — Where does an anonymous caller discover a public group, and until there is such a place, do public and organization differ?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-137</b> — Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-142</b> — Do group layers belong in the service/layer model the console now draws?</p><p><b>Q-143</b> — Does a layer&#x27;s cache lifetime follow sharing, capabilities and limits onto the service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">121 madde</span></div><p><b>90 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>27 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -260,7 +260,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-130</span><span class="owner">2026-08-20</span></div><p>Should TIME accept a list or a periodicity?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-131</span><span class="owner">2026-08-20</span></div><p>What does a legend show for a style that classifies?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-132</span><span class="owner">2026-08-20</span></div><p>Does OGC API Features Part 3 — CQL2 filtering — get built?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-135</span><span class="owner">Owner</span></div><p>What unblocks GitHub Actions on this account — raising the spending limit, or making the repository public?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-136</span><span class="owner">Owner</span></div><p>Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-137</span><span class="owner">Owner</span></div><p>Should a store with users and no administrator be able to re-arm setup, and if so on whose say-so?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-138</span><span class="owner">Owner</span></div><p>Which geodatabase does the import path get tested against, and on whose licence?</p></article>
@@ -428,20 +427,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>ae182f9</code><time>2026-08-24</time><span>D-156 closes the day it opened: the SRID override now has the guard its policy asks for</span></li>
-<li><code>4cf7038</code><time>2026-08-24</time><span>D-144 and Q-139: measured, and the register had the unbounded half backwards</span></li>
-<li><code>1d24274</code><time>2026-08-24</time><span>Question round: 20 closed of 74, six rows corrected, two debts opened</span></li>
-<li><code>e52b0c0</code><time>2026-08-24</time><span>Q-102 says the server has nowhere to declare itself, and it has three</span></li>
-<li><code>a4309b4</code><time>2026-08-24</time><span>Q-35 still required three engines verified before anything could be answered</span></li>
-<li><code>bb2b315</code><time>2026-08-24</time><span>Q-100 says proj.db is not in this deployment, and it is</span></li>
-<li><code>ff10a99</code><time>2026-08-24</time><span>Q-15 was a slogan for twelve days; here is the checklist it asked for</span></li>
-<li><code>099670b</code><time>2026-08-24</time><span>Q-19 and Q-87 are deferred with DuckDB, which v1 removed</span></li>
-<li><code>21b3ba4</code><time>2026-08-24</time><span>Guard the failure that hid nine answers: a verdict inside a row filed as open</span></li>
-<li><code>327fccb</code><time>2026-08-24</time><span>Q-89 was answered on 2026-08-20 in the column nobody counts</span></li>
-<li><code>d90cf08</code><time>2026-08-24</time><span>Q-123&#x27;s question cell was four days behind its own resolution cell</span></li>
-<li><code>9e73ebe</code><time>2026-08-24</time><span>Q-36 has already been half-answered by the build, and nobody wrote that down</span></li>
-<li><code>045c332</code><time>2026-08-24</time><span>Regenerate the board at 57 open questions and 27 open debts</span></li>
-<li><code>101f96c</code><time>2026-08-24</time><span>Q-46 was answered by removing its premise: a fast operation is not a job</span></li>
+<li><code>816c26d</code><time>2026-08-25</time><span>The reading log and the peer comparison are kept outside this repository</span></li>
+<li><code>8437c04</code><time>2026-08-25</time><span>An opening sentence for a repository that is about to be read by strangers</span></li>
+<li><code>8300ee8</code><time>2026-08-25</time><span>Remove a session token from 532 commits of history, and say why the entry exists</span></li>
+<li><code>88bc47b</code><time>2026-08-25</time><span>Label the remote by its former working title rather than as a live name</span></li>
+<li><code>fd4edb8</code><time>2026-08-25</time><span>ADR-047 said no commit had been pushed, and commits have been pushed since 2026-08-12</span></li>
+<li><code>309706d</code><time>2026-08-25</time><span>The outbound licence is Elastic License 2.0 -- ADR-047, owner decision</span></li>
+<li><code>dc630b0</code><time>2026-08-24</time><span>D-156 closes the day it opened: the SRID override now has the guard its policy asks for</span></li>
+<li><code>ceefaa2</code><time>2026-08-24</time><span>D-144 and Q-139: measured, and the register had the unbounded half backwards</span></li>
+<li><code>68e5669</code><time>2026-08-24</time><span>Question round: 20 closed of 74, six rows corrected, two debts opened</span></li>
+<li><code>6e95aac</code><time>2026-08-24</time><span>Q-102 says the server has nowhere to declare itself, and it has three</span></li>
+<li><code>e91f952</code><time>2026-08-24</time><span>Q-35 still required three engines verified before anything could be answered</span></li>
+<li><code>18a1ade</code><time>2026-08-24</time><span>Q-100 says proj.db is not in this deployment, and it is</span></li>
+<li><code>33d8fcd</code><time>2026-08-24</time><span>Q-15 was a slogan for twelve days; here is the checklist it asked for</span></li>
+<li><code>d9d144d</code><time>2026-08-24</time><span>Q-19 and Q-87 are deferred with DuckDB, which v1 removed</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
