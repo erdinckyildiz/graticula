@@ -329,15 +329,43 @@ public sealed class PostGisImporterTests : PostgresFixture
     {
         // The one thing this must never do is drop a table in a registered
         // customer database because a catalogue row said so.
-        InvalidOperationException refused = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PostGisImporter(DataSource)
-                .DropAsync("public", "planet_osm_polygon", CancellationToken.None));
+        //
+        // <b>The table it tries to drop is made here, and until 2026-08-25 it was
+        // `public.planet_osm_polygon`.</b> That is a real OpenStreetMap extract on the
+        // machine this was written on and nothing at all in CI, so the survival check
+        // asserted that an absent table was still absent — passing locally, failing on
+        // the first CI run this repository ever completed. The refusal is portable and
+        // the check on it was not, which is the narrower version of the problem
+        // [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md)
+        // handles by excluding whole classes. This class does not need excluding; it
+        // needed a table of its own.
+        await using (NpgsqlCommand make = DataSource.CreateCommand(
+            "create table if not exists public.zz_not_ours (id integer)"))
+        {
+            await make.ExecuteNonQueryAsync();
+        }
 
-        Assert.Contains("hosted", refused.Message, StringComparison.Ordinal);
+        try
+        {
+            InvalidOperationException refused =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => new PostGisImporter(DataSource)
+                        .DropAsync("public", "zz_not_ours", CancellationToken.None));
 
-        // And the table is still there.
-        Assert.True(await ScalarAsync<bool>(
-            "select to_regclass('public.planet_osm_polygon') is not null"));
+            Assert.Contains("hosted", refused.Message, StringComparison.Ordinal);
+
+            // And the table is still there — which is the half that could not be
+            // checked before, because nothing guaranteed there was a table to survive.
+            Assert.True(await ScalarAsync<bool>(
+                "select to_regclass('public.zz_not_ours') is not null"));
+        }
+        finally
+        {
+            await using NpgsqlCommand drop = DataSource.CreateCommand(
+                "drop table if exists public.zz_not_ours");
+
+            await drop.ExecuteNonQueryAsync();
+        }
     }
 
     [Fact]
