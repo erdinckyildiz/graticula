@@ -419,6 +419,18 @@ public static class Program
             return await MigrateAsync(app.Services, args.Contains("--apply")).ConfigureAwait(false);
         }
 
+        // <b>[Q-137](../../docs/open-questions.md), owner decision 2026-08-25.</b> A store
+        // that has accounts and nobody who can administer them is recovered by a command on
+        // the machine rather than by re-arming setup — which would print a credential to the
+        // log every time the last administrator's grant disappeared, and that is a state an
+        // attacker would like to arrange. It refuses on a store that already has one.
+        if (args is ["tools", "admincreator", ..])
+        {
+            return await Tools.AdminCreator
+                .RunAsync(app.Services, args, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
         if (!settings.RequireHttps)
         {
             // Every startup, not once. ADR-014 §2a: a quiet option is one that

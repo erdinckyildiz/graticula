@@ -439,6 +439,73 @@ group layer has no owner to transfer.
 - **A member cannot remove themselves.** Not a safety rule about the server; a rule about the
   request, because the session doing the work would be revoked halfway through it.
 
+## 6d. Decision — a store with no administrator is recovered by a command, not by re-arming setup
+
+*Added 2026-08-25 by owner decision, closing [Q-137](../open-questions.md) and
+[D-14](../architecture-debt.md).* The owner's words were *"öyle bir şeyin olamaması lazım.
+eğer ki olabiliyorsa uygulama içerisine bir cmd koyalım. kurulum yerine. bir tane
+admincreator"* — that state should not be reachable, and where it still is, the answer is a
+command inside the application rather than a re-armed setup.
+
+**The state.** A platform store with accounts and nobody holding `administrator` keeps
+serving reads and can do nothing administrative. §6's bootstrap does not fire, because
+`AnyUserExistsAsync` is true. It was found by running the ADR-018 upgrade against a store
+set up before it.
+
+**Why not the obvious answer.** Issuing a fresh setup token on that path would print a
+credential to the log every time the last administrator's grant disappeared — and *the last
+administrator's grant disappeared* is a state an attacker would like to arrange. The
+credential's blast radius becomes wherever logs are shipped, which is a place §6's threat
+model never considered.
+
+**What the command needs, and why that is the whole argument.** `dotnet Graticula.Host.dll
+tools admincreator` needs a shell on the host and the platform store's connection string.
+That is the same access the recovery `INSERT` already required, so it grants nothing to
+anybody who did not already have it. What it adds is that the recovery is a supported
+operation — with the password policy, the audit trail and the refusals below — rather than
+a statement somebody writes at three in the morning against a schema they are reading for
+the first time.
+
+**It refuses on a healthy store**, and says so rather than succeeding quietly. A recovery
+tool that also works where recovery is not needed is a way to mint an administrator, and
+the fact that its user could have done it in SQL anyway is not a reason to make it one
+call. This is the security property of the whole thing, and it is what
+`A_store_that_already_has_an_administrator_is_refused` covers.
+
+**The password is the operator's and is one-use.** It comes from
+`GRATICULA_ADMIN_PASSWORD`, because an argument lands in shell history and in the process
+table; `--password` is still accepted, because a recovery at three in the morning should
+not fail on ergonomics, and the refusal text says what that costs. The floor is §6a's 8 —
+`AuthEndpoints.MinimumPasswordLength`, referenced rather than restated, after a first draft
+carried its own 12 and contradicted §6a in the same repository. The common-password list
+applies. And the credential is written `must_change`, like every other password this server
+issues (§6b), so the account signs in and reaches nothing but `POST /rest/auth/password`
+until its owner sets their own — which makes the copy in the shell history stop working the
+moment it is used once.
+
+**It repairs as well as creates.** A partial restore can leave the account and lose the
+grant; refusing that case would send somebody to SQL for the thing this exists to take away
+from them. A grant that does not take is reported with its own exit code rather than
+swallowed, because an account that can sign in and do nothing looks like success from the
+shell.
+
+**Measured against a real store, 2026-08-25**, not only against fakes. A throwaway schema
+at migration 36 holding two principals and no administrator: the four refusals produced
+exit 2, 2, 2 and 3; the success path created `admin` with the `administrator` grant and
+`unrestricted` type; signing in as it returned **200**; a second run refused with exit 3.
+**One thing was found that way and could not have been found otherwise** — the first
+draft's success message sent the operator to the members screen, and the members screen
+answers **403** while the issued password is still in place. The message now names
+`POST /rest/auth/password`, and `The_success_message_names_the_route_that_answers` fails if
+it stops.
+
+**What is unchanged.** §6's bootstrap still runs only on a genuinely empty store, and
+ADR-035 §4b's guards still refuse every API route that could produce this state. The
+command is for the three roads that remain: a migration, a partial restore, and direct
+access to the platform store.
+
+---
+
 ## 7. What this hands to other decisions
 
 - **RLS delegation (§1a)** gets a stable principal name and an
