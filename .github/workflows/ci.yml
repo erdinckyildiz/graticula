@@ -88,6 +88,25 @@ jobs:
       - name: platform
         run: dotnet test tests/Graticula.Platform.Tests -c Release --no-build
 
+      # <b>Three suites the workflow never named — added 2026-08-25.</b> `ci.yml` lists
+      # its suites by hand, and a hand-typed list drifts from the directory beside it:
+      # `Api.Wfs`, `Raster.Tiff` and `Render.Skia` were written after the list and never
+      # joined it, so **179 tests had no CI at all** while D-63's own cost cell said the
+      # workflow *runs all eight suites*. `Raster.Tiff` appeared in this file exactly
+      # once, as a path to a corpus file, which is the kind of coincidence that makes a
+      # grep look reassuring.
+      #
+      # `a_test_project_ci_never_runs` now fails the build if a fourth appears, because
+      # the list is the thing that drifts and the directory is the thing that is true.
+      - name: wfs
+        run: dotnet test tests/Graticula.Api.Wfs.Tests -c Release --no-build
+
+      - name: raster
+        run: dotnet test tests/Graticula.Raster.Tiff.Tests -c Release --no-build
+
+      - name: renderer
+        run: dotnet test tests/Graticula.Render.Skia.Tests -c Release --no-build
+
       - name: argon2
         run: |
           dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \

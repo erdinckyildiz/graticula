@@ -1105,6 +1105,68 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def a_test_project_ci_never_runs():
+    """A test project the workflow does not run, and does not say it skips.
+
+    **179 tests, found 2026-08-25 while closing [D-63](../docs/architecture-debt.md).**
+    `ci.yml` names its suites one `dotnet test` line at a time, and three projects
+    written after that list was made never joined it: `Api.Wfs` (112 tests),
+    `Raster.Tiff` (49) and `Render.Skia` (18). All three pass. None had ever been
+    run by CI, and D-63's cost cell said in its own words that the workflow *runs
+    all eight suites*.
+
+    **`Raster.Tiff` appeared in `ci.yml` exactly once** -- as a path to a corpus
+    file, added the same morning for an unrelated fixture. A grep for the project
+    name found it and looked reassuring, which is why this asks about the `dotnet
+    test` line rather than about the string.
+
+    **The directory is the truth and the list is the copy**, which is
+    [D-46](../docs/architecture-debt.md)'s shape: a hand-maintained enumeration
+    beside the thing it enumerates. So the check reads `tests/` and requires each
+    project to be run -- or to say, in the workflow, that it is deliberately not.
+    """
+    workflows = os.path.join(conditions.ROOT, ".github", "workflows")
+    tests = os.path.join(conditions.ROOT, "tests")
+
+    if not os.path.isdir(tests) or not os.path.isdir(workflows):
+        return ["tests/ or .github/workflows/ is not there, so this check reads nothing."]
+
+    ran = ""
+
+    for name in sorted(os.listdir(workflows)):
+        if name.endswith((".yml", ".yaml")):
+            try:
+                ran += io.open(os.path.join(workflows, name), encoding="utf-8").read()
+            except OSError:
+                continue
+
+    projects = [
+        name for name in sorted(os.listdir(tests))
+        if name.endswith(".Tests")
+        and os.path.isfile(os.path.join(tests, name, name + ".csproj"))]
+
+    if len(projects) < 5:
+        return [f"only {len(projects)} test projects were found, so this check is reading "
+                "nothing. A check that cannot fail is worse than no check."]
+
+    problems = []
+
+    for project in projects:
+        # <b>The `dotnet test` line, not the name.</b> A project's name can appear in a
+        # workflow for reasons that have nothing to do with running it -- a corpus path
+        # did exactly that -- and a check fooled by a mention is a check that reports
+        # clean on the case it exists for.
+        if re.search(r"dotnet test\s+tests/" + re.escape(project) + r"\b", ran):
+            continue
+
+        problems.append(
+            f"tests/{project} is never run by any workflow. Add a `dotnet test` step, or "
+            "say in the workflow why it is excluded -- an untested project that nobody "
+            "declared untested is coverage the build claims and does not have. D-63, D-46.")
+
+    return problems
+
+
 def a_real_data_test_without_the_trait_ci_filters_on():
     """A test that needs a real extract and is not marked as needing one.
 
@@ -1708,6 +1770,7 @@ def main() -> int:
                 + an_outbound_licence_claim_that_is_stale()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
+                + a_test_project_ci_never_runs()
                 + source_the_repository_would_not_receive())
 
     if problems:

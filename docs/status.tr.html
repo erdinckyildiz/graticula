@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>f10423c</code> · 2026-08-25 09:29</p>
+<p class="stamp">Şu commit’ten üretildi: <code>31b21da</code> · 2026-08-25 11:16</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">açık borç</div><div class="kpi-n">127 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">1920</div><div class="kpi-l">test</div><div class="kpi-n">238 kaynak dosya, 90,366 satır</div></div>
+<div class="kpi good"><div class="kpi-v">1928</div><div class="kpi-l">test</div><div class="kpi-n">238 kaynak dosya, 90,403 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -416,20 +416,26 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">378</div></div>
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:99.7%"></div></div><div class="bar-n">377</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:88.6%"></div></div><div class="bar-n">335</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.8%"></div></div><div class="bar-n">275</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:38.4%"></div></div><div class="bar-n">145</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:32.3%"></div></div><div class="bar-n">122</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:29.6%"></div></div><div class="bar-n">112</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.1%"></div></div><div class="bar-n">95</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.3%"></div></div><div class="bar-n">24</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.8%"></div></div><div class="bar-n">22</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.8%"></div></div><div class="bar-n">18</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">17</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">385</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:98.2%"></div></div><div class="bar-n">378</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:87.0%"></div></div><div class="bar-n">335</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:71.4%"></div></div><div class="bar-n">275</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:37.7%"></div></div><div class="bar-n">145</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:31.7%"></div></div><div class="bar-n">122</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:29.1%"></div></div><div class="bar-n">112</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.7%"></div></div><div class="bar-n">95</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:6.2%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.7%"></div></div><div class="bar-n">22</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">18</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>31b21da</code><time>2026-08-25</time><span>The fixture that gave a source its layer count perturbed two other suites</span></li>
+<li><code>301c6c2</code><time>2026-08-25</time><span>A literal backslash-n reached the workflow and argparse saw two stray arguments</span></li>
+<li><code>7cf0125</code><time>2026-08-25</time><span>The console suite was written against one deployment&#x27;s furniture</span></li>
+<li><code>bd0e45a</code><time>2026-08-25</time><span>WMS drew nothing in CRS:84, and CRS:84 is the code that exists to prevent that</span></li>
+<li><code>9f6ecb8</code><time>2026-08-25</time><span>The stored style went to the service and the flag reads the layer</span></li>
+<li><code>298e9f6</code><time>2026-08-25</time><span>Where the first day of CI got to: 381 of 385, and the four that are left</span></li>
 <li><code>f10423c</code><time>2026-08-25</time><span>The free-tables step ran before the schema it writes into existed</span></li>
 <li><code>377418e</code><time>2026-08-25</time><span>My fixture created the defect it then tripped over -- D-157</span></li>
 <li><code>6df8080</code><time>2026-08-25</time><span>The last conformance failures were fixtures nothing created, and one more accusation</span></li>
@@ -438,12 +444,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9317e05</code><time>2026-08-25</time><span>Eight of the eighteen conformance failures were a job nobody had ever configured</span></li>
 <li><code>28e0bfa</code><time>2026-08-25</time><span>The memory-ceiling test was a coin flip, and CI called tails on the second run</span></li>
 <li><code>2fd041a</code><time>2026-08-25</time><span>A setup token that begins with a hyphen is not an option</span></li>
-<li><code>57fedfe</code><time>2026-08-25</time><span>The conformance suite learned nothing about its own fixtures, and could not decode a PNG</span></li>
-<li><code>d11187b</code><time>2026-08-25</time><span>Three kinds of environment assumption become one rule -- ADR-048 Â§5b</span></li>
-<li><code>eee36d4</code><time>2026-08-25</time><span>The setup-token search could not see what its own error message printed</span></li>
-<li><code>e1d1123</code><time>2026-08-25</time><span>Two more environment assumptions, and the second one moves rather than skips</span></li>
-<li><code>8976075</code><time>2026-08-25</time><span>The drop-refusal test asserted an absent table was still absent</span></li>
-<li><code>b835083</code><time>2026-08-25</time><span>ADR-048 tagged three classes and there were seven</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
