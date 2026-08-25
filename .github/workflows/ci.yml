@@ -319,13 +319,19 @@ jobs:
 
       - name: seed the fixtures
         run: |
+          # <b>`--opt=value`, because a setup token can begin with a hyphen.</b>
+          # It is base64url, so `-` and `_` are in its alphabet, and one starting
+          # `-BQMpKt…` made argparse read it as an option and refuse -- *expected one
+          # argument*. The separated form works for every token that happens not to
+          # start with `-`, which is most of them, which is why this survived until a
+          # run produced one that did. The first CI run to get this far found it.
           python tools/seed-conformance.py \
-            --url "$GRATICULA_TEST_URL" \
-            --name "$GRATICULA_TEST_USER" \
-            --password "$GRATICULA_TEST_PASSWORD" \
-            --setup-token "$SETUP_TOKEN" \
-            --prefix ci \
-            --github-env "$GITHUB_ENV"
+            --url="$GRATICULA_TEST_URL" \
+            --name="$GRATICULA_TEST_USER" \
+            --password="$GRATICULA_TEST_PASSWORD" \
+            --setup-token="$SETUP_TOKEN" \
+            --prefix=ci \
+            --github-env="$GITHUB_ENV"
 
       - name: conformance
         run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
