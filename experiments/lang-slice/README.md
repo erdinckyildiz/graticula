@@ -19,14 +19,34 @@ This experiment carried a condition written into it from the start:
 That condition was invoked deliberately. Three things moved after the experiment
 was specified, all in the same direction:
 
-- **In-process MVT encoding became mandatory.** `ST_AsMVT` is PostGIS-only and
+- ~~**In-process MVT encoding became mandatory.** `ST_AsMVT` is PostGIS-only and
   Oracle and SQL Server are first-class (Q-50a), so CPU returned to the hot path
-  and geometry access — Go's weakest criterion — gained weight.
+  and geometry access — Go's weakest criterion — gained weight.~~
+  **This reason is dead, and has been since 2026-08-18 — struck 2026-08-25.**
+  [Q-67](../../docs/open-questions.md) made tiles hosted-only and
+  [Q-88](../../docs/open-questions.md) cut v1 to PostGIS entirely, so there is no
+  tile source that lacks `ST_AsMVT` and the premise this bullet rests on no longer
+  exists. It was left standing in the file that carried it for seven days, which is
+  [D-130](../../docs/architecture-debt.md)'s propagation shape rather than a new
+  mistake.
 - **The single-binary story was restored for both candidates** by the rule that
   the serving container ships no GDAL (Q-28), neutralising Go's strongest
   advantage.
 - **A direct peer built this exact workload in .NET** with 4,608 commits behind
   it, which is evidence of adequacy even though it is not a benchmark.
+
+**So one of the three has failed and the other two are weaker than they read.** The
+second — a single-binary story restored for both candidates — rests on
+[A-016](../../docs/architecture-assumptions.md), which
+[ADR-001](../../docs/adr/ADR-001-core-language.md) §7 itself lists `UNVALIDATED`.
+The third is a competitor's commit count, which §6 calls *not a benchmark* in its
+own words.
+
+**That does not make the decision wrong and it does make the file honest.** What is
+open is not *should this have been Go* — it is whether the choice has the evidence
+[CLAUDE.md](../../CLAUDE.md) §7 asked for, which is
+[Q-01](../../docs/open-questions.md) and is a question about a rule rather than
+about a language.
 
 ## What replaced it, and why that is better
 
