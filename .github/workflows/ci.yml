@@ -235,7 +235,12 @@ jobs:
       # `_LOG` is where the server writes, so the suites that assert a token never
       # reaches the log have something to read.
       GRATICULA_TEST_PG: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis"
-      GRATICULA_TEST_LOG: "server.log"
+      # <b>Absolute, because the test host runs from its own output directory.</b>
+      # A relative "server.log" resolved to
+      # `tests/Graticula.Conformance.Tests/bin/Release/net9.0/server.log`, which is
+      # not where the server writes it, and the suite refused with the file name it
+      # had been given. The server starts from the workspace root.
+      GRATICULA_TEST_LOG: "${{ github.workspace }}/server.log"
 
     steps:
       - uses: actions/checkout@v4

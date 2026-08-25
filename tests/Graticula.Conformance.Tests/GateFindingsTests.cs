@@ -412,12 +412,28 @@ public sealed class GateFindingsTests : ArcGisClient
         static long Total(string body) =>
             JsonDocument.Parse(body).RootElement.GetProperty("total").GetInt64();
 
+        // <b>The configured user, not `root` — 2026-08-25.</b> This asked for
+        // `owner:root` and asserted the answer was not empty, which is true on a
+        // machine whose administrator is called `root` and false everywhere else. In
+        // CI the administrator is `ci`, so the filter correctly found nothing and the
+        // test reported it as *the wildcard cannot see less than a filter* — an
+        // accusation against the search, from an assumption about a name.
+        //
+        // Found on the first CI run to reach this suite, and it is the same shape as
+        // everything else that run found: a fixture the machine happened to have.
+        string owner = Environment.GetEnvironmentVariable(ArcGisClient.UserVariable)
+            ?? throw new InvalidOperationException(
+                $"{ArcGisClient.UserVariable} is not set, so this test cannot know whose "
+                + "content to search for. It compares a wildcard against a filter and "
+                + "needs a name the filter will actually match.");
+
         (_, string wildcard) = await FetchAsync("/sharing/rest/search?q=*&f=json");
-        (_, string owned) = await FetchAsync("/sharing/rest/search?q=owner%3Aroot&f=json");
+        (_, string owned) = await FetchAsync(
+            $"/sharing/rest/search?q=owner%3A{Uri.EscapeDataString(owner)}&f=json");
 
         Assert.True(
             Total(wildcard) >= Total(owned) && Total(owned) > 0,
-            $"`q=*` found {Total(wildcard)} and `q=owner:root` found {Total(owned)}. "
+            $"`q=*` found {Total(wildcard)} and `q=owner:{owner}` found {Total(owned)}. "
             + "The wildcard cannot see less than a filter.");
     }
 
