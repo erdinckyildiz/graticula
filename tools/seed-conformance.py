@@ -395,6 +395,88 @@ def main():
     ]):
         print(f"  hosted/{queryable}: 8 polygons", file=sys.stderr)
 
+    # ---- three fixtures the gate suites need and nothing else creates ----
+    #
+    # <b>Every one of these is a suite that FAILS rather than skips when its subject
+    # is missing — 2026-08-25.</b> That is deliberate and correct: a conformance test
+    # that goes quiet when there is nothing to check proves nothing. What it means is
+    # that the fixtures have to exist, and until the first CI run reached this suite
+    # nobody had found out that they did not.
+
+    # <b>A temporal layer: exactly one Date column.</b> `Q-129` records that the time
+    # dimension is derived from the schema — one `Date` column or no dimension at all —
+    # so a layer with two dates would publish nothing and a layer with none is what
+    # every other fixture here already is.
+    temporal = f"{prefix}_observations"
+
+    ensure_layer(server, existing, temporal, "Point", [
+        {"name": "station", "type": "Text"},
+        {"name": "reading", "type": "Integer"},
+        {"name": "observed", "type": "Date"},
+    ])
+
+    if ensure_features(server, f"hosted/{temporal}", temporal, [
+        {
+            "geometry": {
+                "x": ORIGIN_X + (i * 700),
+                "y": ORIGIN_Y + (i * 700),
+                "spatialReference": {"wkid": 3857},
+            },
+            "attributes": {
+                "station": f"Station {i}",
+                "reading": 10 + i,
+
+                # Whole seconds and distinct, because the suite asks for an exact
+                # instant and asserts the feature carrying it comes back. Epoch
+                # milliseconds is what the ArcGIS surface takes.
+                "observed": 1755000000000 + (i * 86400000),
+            },
+        }
+        for i in range(6)
+    ]):
+        print(f"  hosted/{temporal}: 6 points with one date column", file=sys.stderr)
+
+    # <b>A stored style, so `drawingInfo` comes from a document rather than a
+    # default.</b> The gate suite compares what the feature face and the map face
+    # publish and needs them to be answering from something somebody stored.
+    server.call(
+        "PUT",
+        f"/admin/services/{queryable}/style",
+        body={
+            "version": 8,
+            "name": "conformance",
+            "layers": [
+                {
+                    "id": "fill",
+                    "type": "fill",
+                    "source": "graticula",
+                    "source-layer": queryable,
+                    "paint": {
+                        "fill-color": "#CCBB44",
+                        "fill-outline-color": "#443311",
+                    },
+                }
+            ],
+        },
+        expect=(200, 204),
+    )
+
+    print(f"  hosted/{queryable}: a stored style", file=sys.stderr)
+
+    # <b>Two hosted tables nothing publishes.</b> `AmbiguousLayerNameTests` publishes
+    # the same name twice from two different tables and needs two the catalogue does
+    # not already claim. Unpublishing leaves the table behind — which is the property
+    # `D-34` records and the unpublish response says out loud — so defining two and
+    # removing their registrations is the cheapest way to make them.
+    for spare in (f"{prefix}_spare_one", f"{prefix}_spare_two"):
+        if spare not in existing:
+            define(server, spare, "Polygon", [{"name": "name", "type": "Text"}])
+
+        server.call("DELETE", f"/admin/layers/{spare}", expect=(200, 204, 404))
+
+    print("  two hosted tables left unpublished, for the ambiguous-name fixture",
+          file=sys.stderr)
+
     # ---- a layer whose answer does not fit in one write ----
     #
     # <b>`AdmissionControlConformanceTests` needs this and CI had nothing to give
@@ -596,6 +678,7 @@ def main():
         "GRATICULA_TEST_MULTILAYER": f"hosted/{multi}",
         "GRATICULA_TEST_GROUPED": f"hosted/{multi}",
         "GRATICULA_TEST_LARGE": f"hosted/{large}",
+        "GRATICULA_TEST_TEMPORAL": f"hosted/{temporal}",
     }
 
     for key, value in variables.items():

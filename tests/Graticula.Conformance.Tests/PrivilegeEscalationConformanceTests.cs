@@ -37,6 +37,21 @@ public sealed class PrivilegeEscalationConformanceTests : ArcGisClient
 {
     private const string StewardRole = "zz_conformance_steward";
     private const string StewardName = "zz_conformance_steward_one";
+    /// <summary>
+    /// Whose account the reserved operations are attempted against.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read rather than assumed.</b> The administrator is whoever the run was
+    /// configured with — `root` on a developer machine, `ci` in the workflow — and the
+    /// point of these cases is that a role holding every privilege still cannot touch
+    /// an administrator. Naming one turns the test into a claim about a fixture.
+    /// </remarks>
+    private static string Administrator =>
+        Environment.GetEnvironmentVariable(ArcGisClient.UserVariable)
+        ?? throw new InvalidOperationException(
+            $"{ArcGisClient.UserVariable} is not set, so this suite cannot know which "
+            + "account is the administrator these operations are reserved to.");
+
     private const string Password = "Conformance!2026xyz";
 
     /// <summary>
@@ -89,10 +104,20 @@ public sealed class PrivilegeEscalationConformanceTests : ArcGisClient
                     "/admin/members",
                     $$"""{"name":"zz_second_admin","role":"administrator","userType":"unrestricted"}"""),
 
+                // <b>The configured administrator, not `root` — 2026-08-25.</b> These
+                // two named `root`, which is what the administrator is called on the
+                // machine this was written on. In CI it is `ci`, so both requests were
+                // **404 rather than 403** and the suite reported it as *a role holding
+                // every privilege could reset an administrator's password* — an
+                // accusation about authorization, produced by a member that did not
+                // exist. The same shape as the wildcard search test fixed in the same
+                // hour, and the same lesson: a hard-coded fixture inside an assertion
+                // about behaviour turns an absent row into a security finding.
                 ("reset an administrator's password", HttpMethod.Put,
-                    "/admin/members/root/password", null),
+                    $"/admin/members/{Administrator}/password", null),
 
-                ("remove an administrator", HttpMethod.Delete, "/admin/members/root", null),
+                ("remove an administrator", HttpMethod.Delete,
+                    $"/admin/members/{Administrator}", null),
             ];
 
             foreach ((string what, HttpMethod method, string path, string? body) in reserved)
