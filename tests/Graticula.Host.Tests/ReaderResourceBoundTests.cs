@@ -82,8 +82,18 @@ public sealed class ReaderResourceBoundTests
             NullLogger<GeodatabaseReader>.Instance,
             1L << 20);
 
+        // <b>`drivers`, not `ping`, and the difference is a race — 2026-08-25.</b>
+        // The guard samples immediately and then every 250 ms, but its first line is
+        // `if (process.HasExited) return;`: a child that answers before the guard task
+        // is scheduled cannot be caught. `ping` answers in single-digit milliseconds, so
+        // this was a coin flip that came up heads on every developer machine and on the
+        // first CI run, and tails on the second.
+        //
+        // `drivers` loads GDAL and enumerates 296 of them, which takes hundreds of
+        // milliseconds — long enough for the first sample to land while the child is
+        // alive, and far past a one-megabyte ceiling either way.
         InvalidOperationException killed = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => tight.AskAsync(new { op = "ping" }, TimeSpan.FromSeconds(30)));
+            () => tight.AskAsync(new { op = "drivers" }, TimeSpan.FromSeconds(30)));
 
         Assert.Contains("MB", killed.Message, StringComparison.Ordinal);
         Assert.Contains("killed", killed.Message, StringComparison.OrdinalIgnoreCase);
