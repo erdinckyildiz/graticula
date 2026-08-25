@@ -1105,6 +1105,92 @@ def a_debt_row_with_an_empty_cell():
     return problems
 
 
+def a_serving_assembly_that_reaches_for_the_network():
+    """Production code constructing an outbound connection.
+
+    **[Q-15](../docs/open-questions.md), the half that had nothing holding it.**
+    That question's checklist established on 2026-08-25 that this server makes no
+    outbound connection but the one to PostgreSQL -- zero `HttpClient`, zero
+    `WebRequest`, zero raw `Socket` in `src/` -- and then said the uncomfortable
+    part out loud: **three of the four air-gap properties are true because of
+    decisions taken for other reasons, so nothing protects them.** A dependency
+    that reaches for the network, or a renderer that downloads a face, would break
+    air-gap without breaking a test.
+
+    **This is what protects one of them.** Air-gapped operation is a property of
+    the artefact, and a property nobody checks is a property that lasts until
+    somebody needs a quick lookup.
+
+    **`src/` only, and tests are not an oversight.** A conformance suite drives
+    this server over HTTP by design -- that is a client reaching in, not the server
+    reaching out, and forbidding it would forbid the tests that prove the surface
+    works. `tools/` is likewise excluded: `pro-probe.py` and the CITE runs exist to
+    talk to things.
+
+    **What it cannot see.** A dependency that opens a socket inside its own code is
+    invisible here, which is why this is one guard and not the answer -- and it is
+    why [DEPENDENCY-LICENSES.md](../DEPENDENCY-LICENSES.md) enumerates the native
+    payload rather than trusting a summary.
+    """
+    src = os.path.join(conditions.ROOT, "src")
+
+    if not os.path.isdir(src):
+        return ["src/ is not there, so this check is reading nothing."]
+
+    reaching = re.compile(
+        r"\bnew\s+HttpClient\b"
+        r"|\bnew\s+System\.Net\.Http\.HttpClient\b"
+        r"|\bWebRequest\.Create\b"
+        r"|\bnew\s+Socket\s*\("
+        r"|\bnew\s+TcpClient\b"
+        r"|\bnew\s+ClientWebSocket\b"
+        r"|\bAddHttpClient\b")
+
+    problems = []
+    read = 0
+
+    for base, _, names in os.walk(src):
+        if any(part in base for part in ("bin", "obj", "wwwroot")):
+            continue
+
+        for name in names:
+            if not name.endswith(".cs"):
+                continue
+
+            path = os.path.join(base, name)
+
+            try:
+                text = io.open(path, encoding="utf-8").read()
+            except OSError:
+                continue
+
+            read += 1
+
+            # Struck-through prose and comments describe; they do not connect.
+            living = "\n".join(
+                line for line in text.splitlines()
+                if not line.lstrip().startswith(("//", "///", "*")))
+
+            found = reaching.search(living)
+
+            if not found:
+                continue
+
+            shown = os.path.relpath(path, conditions.ROOT).replace(os.sep, "/")
+
+            problems.append(
+                f'{shown} constructs `{found.group(0).strip()}`. This server makes no outbound '
+                "connection but the one to PostgreSQL, and Q-15's checklist rests on that being "
+                "true rather than on it having been true. An air-gapped deployment cannot reach "
+                "whatever this is for.")
+
+    if read < 50:
+        problems.append(
+            f"only {read} source files were read, so this check is looking at almost nothing.")
+
+    return problems
+
+
 def a_test_project_ci_never_runs():
     """A test project the workflow does not run, and does not say it skips.
 
@@ -1771,6 +1857,7 @@ def main() -> int:
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()
+                + a_serving_assembly_that_reaches_for_the_network()
                 + source_the_repository_would_not_receive())
 
     if problems:
