@@ -559,6 +559,15 @@ public sealed class WmsConformanceTests : ArcGisClient
     [InlineData("crs=NOTACRS", "InvalidCRS")]
     [InlineData("bbox=1,2,3", "InvalidParameterValue")]
     [InlineData("time=notatime", "InvalidDimensionValue")]
+
+    // <b>[Q-130](../../docs/open-questions.md): a list and a periodicity are refused, and
+    // `InvalidDimensionValue` is what WMS 1.3.0 says to refuse them with.</b> `GetMap`
+    // returns one map, and the capabilities document advertises an interval with a
+    // resolution rather than an enumeration — so a client sending either is asking for
+    // something this server never offered. Answering with the first value would draw a
+    // map of a moment nobody asked about, which looks exactly like the one they did.
+    [InlineData("time=2024-01-01T00:00:00Z,2024-02-01T00:00:00Z", "InvalidDimensionValue")]
+    [InlineData("time=2024-01-01T00:00:00Z/2024-12-01T00:00:00Z/P1D", "InvalidDimensionValue")]
     public async Task A_bad_parameter_is_refused_with_the_code_that_names_it(
         string replacement, string expected)
     {
