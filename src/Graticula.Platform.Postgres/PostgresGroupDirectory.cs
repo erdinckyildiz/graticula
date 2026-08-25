@@ -59,7 +59,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                      (select m.membership from sharing_group_member m
                        where m.group_id = g.id and m.principal_id = @who), ''),
                    g.summary, g.visibility, g.join_policy, g.contribute, g.delete_locked,
-                   g.created_at,
+                   g.created_at, g.member_list, g.members_may_leave,
                    g.owner_principal_id = @who as owns
               from sharing_group g
               left join principal p on p.id = g.owner_principal_id
@@ -116,7 +116,9 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                 ReadJoinPolicy(reader.GetString(reader.GetOrdinal("join_policy"))),
                 ReadContribute(reader.GetString(reader.GetOrdinal("contribute"))),
                 reader.GetBoolean(reader.GetOrdinal("delete_locked")),
-                reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("created_at"))));
+                reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("created_at")),
+                ReadMemberList(reader.GetString(reader.GetOrdinal("member_list"))),
+                reader.GetBoolean(reader.GetOrdinal("members_may_leave"))));
         }
 
         return answer;
@@ -274,6 +276,89 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
+    /// <inheritdoc/>
+    public async Task<GroupChange> LeaveAsync(
+        Guid acting, string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>One statement, because the two facts have to be read together.</b> Asking whether
+        // the group allows leaving and then deleting the row is a race with an owner turning
+        // the setting on; the `where` carries both, so a group that became administrative
+        // between the two halves of a request keeps its member.
+        const string Sql = """
+            delete from sharing_group_member m
+             using sharing_group g
+             where g.id = m.group_id
+               and g.name = @name
+               and m.principal_id = @who
+               and g.members_may_leave
+               and g.owner_principal_id <> @who
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("who", acting);
+
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            return GroupChange.Done;
+        }
+
+        // <b>Nothing was deleted, and the caller is owed which of four reasons.</b> A single
+        // *no* would leave somebody re-clicking a button that will never work, and would tell
+        // a non-member that the group exists.
+        const string Why = """
+            select g.members_may_leave,
+                   g.owner_principal_id = @who as owns,
+                   exists (select 1 from sharing_group_member m
+                            where m.group_id = g.id and m.principal_id = @who) as inside
+              from sharing_group g
+             where g.name = @name
+            """;
+
+        await using NpgsqlCommand asking = _dataSource.CreateCommand(Why);
+        asking.Parameters.AddWithValue("name", name);
+        asking.Parameters.AddWithValue("who", acting);
+
+        await using NpgsqlDataReader reader =
+            await asking.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return GroupChange.Absent;
+        }
+
+        bool mayLeave = reader.GetBoolean(0);
+        bool owns = reader.GetBoolean(1);
+        bool inside = reader.GetBoolean(2);
+
+        // <b>Not a member reads as absent, not as refused.</b> Same rule as everywhere else
+        // here: somebody outside a group learns nothing about it, including that it is one
+        // they would not be allowed to leave.
+        if (!inside && !owns)
+        {
+            return GroupChange.Absent;
+        }
+
+        // <b>Two different refusals, because the way out of each is different.</b> An owner
+        // is told to transfer or delete; a member of an administrative group is told the group
+        // decides. `OwnerOnly` is reused for the first — it already means *this act belongs to
+        // the owner*, and here the owner is the one it does not belong to, which reads oddly
+        // in the enum and correctly at the endpoint that turns it into a sentence.
+        if (owns)
+        {
+            return GroupChange.OwnerOnly;
+        }
+
+        // <b>A member who may leave and was not removed left in the meantime.</b> The delete
+        // and this question are two statements, so a second request that arrived between them
+        // is a real outcome rather than an impossible one — and *you are not in it* is the
+        // truth either way.
+        return mayLeave ? GroupChange.Absent : GroupChange.Locked;
+    }
+
+    /// <inheritdoc/>
     public async Task<GroupChange> RemoveMemberAsync(
         Guid acting,
         bool administrator,
@@ -388,6 +473,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         GroupJoinPolicy joinPolicy,
         GroupContribute contribute,
         bool deleteLocked,
+        GroupMemberList memberList,
+        bool membersMayLeave,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -435,6 +522,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                    join_policy = @join,
                    contribute = @contribute,
                    delete_locked = @locked,
+                   member_list = @memberList,
+                   members_may_leave = @mayLeave,
                    updated_at = now()
              where id = @id
             """;
@@ -447,6 +536,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         command.Parameters.AddWithValue("visibility", Wire(visibility));
         command.Parameters.AddWithValue("join", Wire(joinPolicy));
         command.Parameters.AddWithValue("contribute", Wire(contribute));
+        command.Parameters.AddWithValue("memberList", Wire(memberList));
+        command.Parameters.AddWithValue("mayLeave", membersMayLeave);
         command.Parameters.AddWithValue("locked", deleteLocked);
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -678,6 +769,19 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
 
     private static string Wire(GroupContribute contribute) =>
         contribute == GroupContribute.Members ? "members" : "managers";
+
+    private static string Wire(GroupMemberList list) =>
+        list == GroupMemberList.Managers ? "managers" : "members";
+
+    /// <summary>Reads the member-list setting, narrowing anything it does not know.</summary>
+    /// <remarks>
+    /// <b>Unknown narrows, like every other reader here.</b> A row written by a newer build
+    /// carrying a value this one has never heard of must not be read as the wider of the two:
+    /// a downgrade that widens a disclosure is the failure mode, and there is no version of
+    /// *I do not understand this setting* that justifies showing more.
+    /// </remarks>
+    private static GroupMemberList ReadMemberList(string stored) =>
+        stored == "members" ? GroupMemberList.Members : GroupMemberList.Managers;
 
     // enum-default-is-deliberate: the narrowest value of each
     //

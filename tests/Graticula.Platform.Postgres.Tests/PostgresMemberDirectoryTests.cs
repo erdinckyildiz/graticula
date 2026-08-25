@@ -74,7 +74,7 @@ public sealed class PostgresMemberDirectoryTests : PostgresFixture
         Assert.NotNull(login);
         Assert.NotNull(login!.Value.Credential);
 
-        (string userType, IReadOnlyList<string> roles, _) =
+        (string userType, IReadOnlyList<string> roles, _, _) =
             await identity.GrantsOfAsync(made.Id, CancellationToken.None);
 
         Assert.Equal(UserTypes.Creator, userType);

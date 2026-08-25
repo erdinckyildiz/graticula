@@ -299,7 +299,8 @@ public sealed class AdminCreatorTests
         public Task<IReadOnlyList<string>> RolesOfAsync(
             Guid principalId, CancellationToken cancellationToken) => throw Not();
 
-        public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)>
+        public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups,
+                     IReadOnlyList<Guid> EditableGroups)>
             GrantsOfAsync(Guid principalId, CancellationToken cancellationToken) => throw Not();
 
         public Task GrantRoleAsync(

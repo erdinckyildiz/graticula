@@ -386,7 +386,8 @@ public sealed class PostgresIdentityStore : IIdentityStore
     }
 
     /// <inheritdoc/>
-    public async Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)> GrantsOfAsync(
+    public async Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups,
+                       IReadOnlyList<Guid> EditableGroups)> GrantsOfAsync(
         Guid principalId, CancellationToken cancellationToken)
     {
         // A left join, so a principal with no roles still yields its user type.
@@ -402,7 +403,18 @@ public sealed class PostgresIdentityStore : IIdentityStore
                    -- array per row and the reader takes it from the first.
                    (select coalesce(array_agg(m.group_id), '{}')
                       from sharing_group_member m
-                     where m.principal_id = p.id)
+                     where m.principal_id = p.id),
+
+                   -- <b>Shared update, and it is a second array rather than a second query.</b>
+                   -- ADR-036 §4a as amended 2026-08-25: a group whose `item_update` is `allItems`
+                   -- lets every member edit what is shared with it. Read here because this row is
+                   -- already being fetched on every authenticated request, and an edit-time lookup
+                   -- would put a round trip on the write path to answer a question the read path
+                   -- had the answer to.
+                   (select coalesce(array_agg(m.group_id), '{}')
+                      from sharing_group_member m
+                      join sharing_group g on g.id = m.group_id
+                     where m.principal_id = p.id and g.item_update = 'allItems')
             from principal p
             left join principal_role r on r.principal_id = p.id
             where p.id = @principal
@@ -418,6 +430,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
         string userType = UserTypes.Unrestricted;
         List<string> roles = [];
         Guid[] groups = [];
+        Guid[] editable = [];
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -432,9 +445,10 @@ public sealed class PostgresIdentityStore : IIdentityStore
             // whichever row arrives rather than from the first, so a principal with no roles still
             // gets their groups.
             groups = reader.GetFieldValue<Guid[]>(2);
+            editable = reader.GetFieldValue<Guid[]>(3);
         }
 
-        return (userType, roles, groups);
+        return (userType, roles, groups, editable);
     }
 
     /// <inheritdoc/>

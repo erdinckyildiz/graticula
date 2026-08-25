@@ -51,6 +51,133 @@ column *"takes a string so adding `group` later is a value rather than a migrati
 tables carry `check (sharing in ('private','organization','public'))`. That claim was corrected on
 2026-08-18 before this decision needed it; the cost is one expand-only migration.
 
+#### 4a-i. Amended 2026-08-25 — editing through a group is built, and it was already half-there
+
+*Owner decision, after being shown ArcGIS's group settings: shared update should exist here
+too.* §4a above said editing through a group **is not built**, and gave the reason plainly —
+the owner's requirement had not asked for it and §82's question had no answer. It asks now,
+and §4b had already put the capability on the group rather than on each share precisely so
+that this would be an addition rather than a redesign. It was.
+
+**What was actually wrong, and it is worse than *not built*.** `item_update` was written by
+the admin API, stored, read back, and shown in the group listing — and no code path
+consulted it. An operator could set a group to *all items* and watch every edit go on asking
+for `features:fullEdit` alone. A setting the server keeps and does not honour is
+[D-67](../architecture-debt.md), and it is the same shape as the `public` visibility removed
+by §4b two decisions ago: **the screen promised something the server never did.** That the
+capability was *designed* is what made it invisible — the design was cited as though it were
+the behaviour.
+
+**The rule.** A layer whose sharing scope is `group`, shared with a group whose
+`item_update` is `allItems`, is editable by that group's members — whatever privileges they
+hold, and only that layer. `ownItems` grants nothing: it means *the items you shared*, and
+their owner may already edit them by owning them. Stated rather than left as an omission,
+because a reader will otherwise wonder whether it was forgotten.
+
+**It satisfies `features:fullEdit`, not only `features:edit`.** The narrow/wide split exists
+because editor tracking is deferred ([Q-58](../open-questions.md)) and the server cannot tell
+whose feature is whose, so *change your own* is unenforceable and updates ask for the wider
+grant. A group with `allItems` is exactly the case where that distinction has no work to do:
+every member may change everything shared with the group, by the group's own setting.
+
+**Both faces decide it in one place.** ArcGIS `applyEdits` and OGC API Features Part 4 write
+through one `IFeatureWriter` (Q-44); they now authorise through one
+`Authorize.RequireEditAsync` as well. Two copies of an authorisation rule is how the same
+layer comes to be editable through one face and refused through the other, and that
+divergence surfaces months later on whichever face nobody tested.
+
+**One ordering changed on the OGC face.** Its three write endpoints checked the privilege
+*before* resolving the collection; the answer now depends on which groups the collection is
+shared with, so resolution comes first. It leaks nothing: `TargetAsync` answers 404 for a
+collection the caller cannot read, exactly as the read path does.
+
+**The read invariant is untouched, and [ADR-018](ADR-018-authorization-and-roles.md) §3b-iii
+now says so in its own words.** `LayerAccess.Evaluate` is unchanged; the editing set is a
+subset of the reading set by construction; the three wider scopes are unaffected, asserted
+for each by name.
+
+**Where the answer comes from, and why it costs nothing.** The subset is read in the same
+row as the caller's groups — one more aggregate on a query every authenticated request
+already runs — rather than looked up at edit time, which would have put a round trip on the
+write path to answer a question the read path had already answered.
+
+**Covered by `SharedUpdateTests` for the rule and `SharedUpdateGrantsTests` for the store.**
+The second matters more than it looks: the original defect was entirely in the gap between
+them, so a test of the rule alone would have passed for as long as the setting did nothing.
+Both were falsified — dropping the scope check failed three named scopes, and widening the
+store's filter to every group failed the store test.
+
+---
+
+#### 4a-ii. Amended 2026-08-25 — who may see the members, and whether a member may leave
+
+*Owner decision, from the same two ArcGIS screens as §4a-i, and their own words for the three
+they wanted: "Üye listesini kim görebilir, Shared update (paylaşılan düzenleme),
+Administrative group (üye ayrılamaz)". The third was §4a-i; these are the other two.*
+Migration 37.
+
+**Who may see the member list.** Two values — *any member* and *the owner and its managers* —
+and the first is the default, because it is what every group did before the setting existed.
+An administrator sees the list either way, as at every other group act: a group whose owner
+has left still has to be administrable, and a member list an administrator cannot read is one
+they cannot repair.
+
+**Neither value reaches outside the group, and that is what makes the setting safe to add.**
+It can only narrow what §4b's `visibility` already allows, so the two cannot contradict each
+other and there is no ordering to enforce between them. **An organisation-wide member list was
+considered and is not offered**: a group visible to the organisation is discoverable *by name*,
+and *who is in it* is a different disclosure from *it exists*.
+
+**Withheld, not filtered.** `members` comes back as `null` for a caller who may not see it,
+never as `[]`. A filtered list of nine that renders as zero reads as an empty group, which is a
+different false statement rather than none — the same reasoning §4d's `inside` flag already
+uses one line above.
+
+**Leaving had to be built before *cannot leave* could mean anything.** There was no way for a
+member to leave a group at all: removal was an owner's, a manager's or an administrator's act.
+Adding the flag alone would have shipped a checkbox governing nothing — which is precisely the
+defect §4a-i had just repaired, in the same file, on the same day. So
+`DELETE /admin/groups/{name}/membership` exists, it is the caller's own membership, and it
+asks for **no privilege**: requiring `groups:manageMembers` would mean somebody put into a
+group needs an administrator to get out of it, which is not a security property but a support
+ticket.
+
+**Its own route, not an exception inside the removal route.** `DELETE .../members/{member}` is
+guarded by *owner or manager*; folding self-removal into it would give that guard an
+exception, and an authorisation check with an exception is the one that gets read wrong.
+
+**Four outcomes, and two of them have to be identical.** *Done*; *this group forbids leaving*;
+*you own it — transfer or delete instead*; and **`Absent` for both *no such group* and *you
+were not in it***, because two different answers would let somebody enumerate the groups they
+are outside. The owner's refusal is separate from the administrative group's because the way
+out of each is different, and a refusal that does not name the way out is one somebody
+re-clicks.
+
+**The owner cannot leave even when the group allows it.** A group whose owner has walked out
+has nobody who can administer it — [D-14](../architecture-debt.md)'s shape one level down, and
+the answer is the same one: transfer or delete, both of which already exist.
+
+**`members_may_leave` defaults to true**, because false would make every group that already
+exists an administrative one on upgrade. An administrative group is a deliberate choice.
+
+**The refusal and the delete are one statement.** Asking whether the group allows leaving and
+then deleting the row is a race with an owner turning the setting on; the `where` carries both.
+
+**Measured end to end 2026-08-25**, against a running server with an owner and one member:
+`memberList=members` showed the member two people; `memberList=managers` gave that member
+`null` while the administrator still saw two; `membersMayLeave=false` refused the member with
+**409** and the owner with a different **409**; `membersMayLeave=true` let the member out with
+**200**, after which the group answered **404** to them and a second attempt answered **404**.
+`GroupMemberListAndLeavingTests` holds the store's half, and was falsified by dropping
+`members_may_leave` from the delete's `where`.
+
+**One thing that measurement caught.** The first draft of the script sent a password when
+creating the member; the server issues its own and returns it in the 201, so the sign-in
+failed silently and every member-side result was a **401** wearing the answer's clothes — the
+member-list check read as *withheld* when nothing had been tested at all.
+
+---
+
 ### 4b. The update capability is a property of the group, not of each share
 
 **This is Q-112's middle question and it carries the whole design.** Two shapes were available:
@@ -161,6 +288,12 @@ one member in it and one member out:
 
 And the assertion that keeps §4a honest: the same member's `addFeatures` → **403**. A group share
 confers reading and nothing else.
+
+> **Still true, and now conditional — 2026-08-25.** §4a-i makes a group whose `item_update` is
+> `allItems` confer editing as well. The group measured here has no such setting, so this row is
+> unchanged and the assertion still holds for it; what changed is that *a group share confers
+> reading and nothing else* is a statement about **this** group rather than about groups. The
+> conditional half is `SharedUpdateTests` and `SharedUpdateGrantsTests`.
 
 **Condition 2, measured** — a member holding `groups:manageMembers` tried to add somebody to a group
 they neither own nor manage and was refused, with the refusal naming why: *"The privilege to manage a
@@ -596,7 +729,9 @@ unrecognised — clients outlive settings.
 
 1. **DISCHARGED 2026-08-18**, measured in §4d: 404 / 404 / 200 / 200 across anonymous,
    non-member, member and administrator, with the member's `addFeatures` refused.
-   **A group share is proven to confer reading and nothing else.** A member of a group a service is
+   **A group share is proven to confer reading and nothing else** — for a group whose
+   `item_update` is not `allItems`, which since §4a-i (2026-08-25) is the qualification this
+   sentence needs and did not before. A member of a group a service is
    shared with can read it; the same member cannot edit it without `features:edit`; a non-member
    cannot read it. All three in one test, because the middle one is the assertion that keeps §4a
    honest.

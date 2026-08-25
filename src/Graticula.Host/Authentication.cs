@@ -141,7 +141,10 @@ internal sealed class Authentication
 
             Principal principal = session?.Principal ?? Principal.Anonymous;
 
-            (string userType, IReadOnlyList<string> roles, IReadOnlyList<Guid> groups) =
+            (string userType,
+             IReadOnlyList<string> roles,
+             IReadOnlyList<Guid> groups,
+             IReadOnlyList<Guid> editableGroups) =
                 await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
             // <b>What each role grants is read from the store now, not from a compiled table.</b>
@@ -158,7 +161,7 @@ internal sealed class Authentication
             return new RequestPrincipal(
                 principal,
                 session?.SessionId,
-                Authorization.Resolve(userType, roles, _grants, groups),
+                Authorization.Resolve(userType, roles, _grants, groups, editableGroups),
                 session?.MustChangePassword ?? false);
         }
         catch (Npgsql.NpgsqlException unreachable)

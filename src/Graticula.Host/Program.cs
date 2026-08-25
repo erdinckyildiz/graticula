@@ -2643,16 +2643,38 @@ public static class Program
             return;
         }
 
+        /*
+          <b>Shared update: a group can carry the edit, and it carries the whole of it.</b>
+          [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended 2026-08-25 by owner
+          decision — a layer shared with a group whose `item_update` is `allItems` is editable
+          by that group's members. `item_update` has been stored and shown since groups
+          shipped and was consulted nowhere, which is the D-67 shape: a setting the server
+          keeps and does not honour.
+
+          <b>Why it satisfies `fullEdit` and not only `edit`.</b> The narrower privilege
+          exists because editor tracking is deferred (Q-58) and the server cannot tell whose
+          feature is whose — so *change your own* is unenforceable and updates ask for the
+          wider grant. A group with `allItems` is the case where that distinction has no work
+          to do: every member may change everything shared with the group, by the group's own
+          setting, so there is nothing for editor tracking to decide.
+
+          <b>Read access was settled long before this line.</b> `ServiceLookup` answered 404
+          for a layer this caller cannot see, so nothing here can widen reading — and
+          `EditableGroups` is a subset of `Groups` by construction, so a group that lands here
+          is one that already passed the read check.
+        */
         // Adds need less than updates and deletes do; asking for the wider
         // privilege on a batch that only adds would refuse a legitimate edit.
         if (adds is not null
-            && !await Authorize.RequireAsync(context, Privilege.FeaturesEdit).ConfigureAwait(false))
+            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
+                .ConfigureAwait(false))
         {
             return;
         }
 
         if ((updates is not null || deletes is not null)
-            && !await Authorize.RequireAsync(context, Privilege.FeaturesFullEdit).ConfigureAwait(false))
+            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesFullEdit, layer)
+                .ConfigureAwait(false))
         {
             return;
         }

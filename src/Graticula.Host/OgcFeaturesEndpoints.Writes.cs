@@ -357,15 +357,28 @@ internal static partial class OgcFeaturesEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.FeaturesEdit).ConfigureAwait(false))
-        {
-            return;
-        }
-
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
                 needsIdentity: false, cancellation).ConfigureAwait(false)
             is not { } target)
+        {
+            return;
+        }
+
+        /*
+          <b>After the target, not before it, and that is a change of order.</b> Shared update
+          — [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended 2026-08-25 — makes the
+          answer depend on which groups *this collection* is shared with, so the privilege
+          cannot be decided before the collection is resolved.
+
+          <b>It leaks nothing, because resolving comes with its own refusal.</b> `TargetAsync`
+          answers 404 for a collection this caller cannot read, exactly as the read path does,
+          so a caller who could not previously discover a collection still cannot. What
+          changed is only which of two identical-looking refusals arrives first.
+        */
+        if (!await Authorize
+                .RequireEditAsync(context, Privilege.FeaturesEdit, target.Layer)
+                .ConfigureAwait(false))
         {
             return;
         }
@@ -482,20 +495,32 @@ internal static partial class OgcFeaturesEndpoints
         bool replace,
         CancellationToken cancellation)
     {
-        // <b>The wider privilege, as on the ArcGIS face.</b> D-20 records that this
-        // server maps every update and delete to `features:fullEdit` because editor
-        // tracking does not exist, so *your own features* cannot be distinguished from
-        // everybody's.
-        if (!await Authorize.RequireAsync(context, Privilege.FeaturesFullEdit)
-                .ConfigureAwait(false))
-        {
-            return;
-        }
-
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
                 needsIdentity: true, cancellation).ConfigureAwait(false)
             is not { } target)
+        {
+            return;
+        }
+
+        /*
+          <b>After the target, not before it, and that is a change of order.</b> Shared update
+          — [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended 2026-08-25 — makes the
+          answer depend on which groups *this collection* is shared with, so the privilege
+          cannot be decided before the collection is resolved.
+
+          <b>It leaks nothing, because resolving comes with its own refusal.</b> `TargetAsync`
+          answers 404 for a collection this caller cannot read, exactly as the read path does,
+          so a caller who could not previously discover a collection still cannot. What
+          changed is only which of two identical-looking refusals arrives first.
+        */
+        // <b>The wider privilege, as on the ArcGIS face.</b> D-20 records that this
+        // server maps every update and delete to `features:fullEdit` because editor
+        // tracking does not exist, so *your own features* cannot be distinguished from
+        // everybody's.
+        if (!await Authorize
+                .RequireEditAsync(context, Privilege.FeaturesFullEdit, target.Layer)
+                .ConfigureAwait(false))
         {
             return;
         }
@@ -551,16 +576,28 @@ internal static partial class OgcFeaturesEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.FeaturesFullEdit)
-                .ConfigureAwait(false))
-        {
-            return;
-        }
-
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
                 needsIdentity: true, cancellation).ConfigureAwait(false)
             is not { } target)
+        {
+            return;
+        }
+
+        /*
+          <b>After the target, not before it, and that is a change of order.</b> Shared update
+          — [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended 2026-08-25 — makes the
+          answer depend on which groups *this collection* is shared with, so the privilege
+          cannot be decided before the collection is resolved.
+
+          <b>It leaks nothing, because resolving comes with its own refusal.</b> `TargetAsync`
+          answers 404 for a collection this caller cannot read, exactly as the read path does,
+          so a caller who could not previously discover a collection still cannot. What
+          changed is only which of two identical-looking refusals arrives first.
+        */
+        if (!await Authorize
+                .RequireEditAsync(context, Privilege.FeaturesFullEdit, target.Layer)
+                .ConfigureAwait(false))
         {
             return;
         }

@@ -190,6 +190,26 @@ own dead `sharing` column being read again; that is guarded by
 `DeadColumnsStayDeadTests` rather than here, because it is a fact about SQL rather than
 about the decision.
 
+**Shared update does not touch this invariant, and saying so is the point of this
+paragraph.** *Added 2026-08-25, when [ADR-036](ADR-036-groups.md) §4a was amended by owner
+decision so that a group whose `item_update` is `allItems` lets its members edit what is
+shared with it.* This section is about **reading**, and reading is unchanged:
+`LayerAccess.Evaluate` is the same function it was, `AuthorizationOnlyNarrowsTests` covers
+the same ordering, and nothing about the amendment can make an item readable that was not.
+
+**What moved is the other half of §3b's sentence.** *Sharing governs reading; editing is
+`features:edit`, which is a privilege* — the second clause is what changed, and only for
+one scope. Editing is now a privilege **or** membership of a group that carries the
+setting, for an item shared with *that* group. It is a widening of writing, deliberately
+taken, and it is confined to `group`: the three wider scopes are unaffected, which
+`SharedUpdateTests` asserts for each of them by name rather than arguing once.
+
+**Reading still gates it, structurally rather than by convention.** The set of groups that
+confer editing is a subset of the groups that confer reading — a group cannot be in one and
+not the other — so a caller who reaches an edit endpoint has already passed the read check,
+and the 404 that hides an unreadable layer still hides it. A reader who remembers *sharing
+governs reading* should finish this paragraph with their memory intact.
+
 ### 3b-ii. Who may change what — the split the owner likes, without the split that causes it
 
 *Added 2026-08-17, after the owner described the ArcGIS Enterprise arrangement they

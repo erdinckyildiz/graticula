@@ -73,6 +73,30 @@ public enum GroupJoinPolicy
     Self,
 }
 
+/// <summary>Who may see a group's member list.</summary>
+/// <remarks>
+/// <para>
+/// <b>Owner decision 2026-08-25, from ArcGIS's group settings — migration 37.</b> Until then
+/// the member list was shown to anybody inside the group, which is the wider of these two and
+/// remains the default.
+/// </para>
+/// <para>
+/// <b>Neither value reaches outside the group, deliberately.</b> This can only narrow what
+/// <see cref="GroupVisibility"/> already allows, so the two settings cannot contradict each
+/// other and there is no ordering to enforce between them. An organisation-wide member list
+/// was considered and is not offered: a group visible to the organisation is discoverable by
+/// name, and *who is in it* is a different disclosure from *it exists*.
+/// </para>
+/// </remarks>
+public enum GroupMemberList
+{
+    /// <summary>Every member of the group. The default, and what the group always did.</summary>
+    Members,
+
+    /// <summary>Its owner and its managers only.</summary>
+    Managers,
+}
+
 /// <summary>Who may add services to a group — ADR-036 §4g.</summary>
 /// <remarks>
 /// <b>Not <see cref="GroupItemUpdate"/>.</b> That governs editing what is already shared and is fixed
@@ -131,6 +155,15 @@ public enum GroupStanding
 /// <param name="Contribute">Who may share services with it.</param>
 /// <param name="DeleteLocked">Whether it is protected from deletion.</param>
 /// <param name="CreatedAt">When it was made.</param>
+/// <param name="MemberList">
+/// Who may see the member list — owner decision 2026-08-25, migration 37. Neither value
+/// reaches outside the group, so this can only narrow what <paramref name="Visibility"/>
+/// already allows.
+/// </param>
+/// <param name="MembersMayLeave">
+/// Whether a member may leave of their own accord. False is ArcGIS's *administrative group*;
+/// the way out of one is for its owner or a manager to remove you.
+/// </param>
 public sealed record GroupSummary(
     Guid Id,
     string Name,
@@ -146,7 +179,9 @@ public sealed record GroupSummary(
     GroupJoinPolicy JoinPolicy = GroupJoinPolicy.Invitation,
     GroupContribute Contribute = GroupContribute.Managers,
     bool DeleteLocked = false,
-    DateTimeOffset CreatedAt = default);
+    DateTimeOffset CreatedAt = default,
+    GroupMemberList MemberList = GroupMemberList.Members,
+    bool MembersMayLeave = true);
 
 /// <summary>A service shared with a group, and whether it actually reaches the members.</summary>
 /// <param name="Name">Its qualified name.</param>
@@ -396,6 +431,8 @@ public interface IGroupDirectory
     /// write path for it at all, which is a stronger form of immutable than a refusal in one.
     /// </para>
     /// </remarks>
+    /// <param name="memberList">Who may see the member list.</param>
+    /// <param name="membersMayLeave">Whether a member may leave of their own accord.</param>
     Task<GroupChange> SetSettingsAsync(
         Guid acting,
         bool administrator,
@@ -407,7 +444,38 @@ public interface IGroupDirectory
         GroupJoinPolicy joinPolicy,
         GroupContribute contribute,
         bool deleteLocked,
+        GroupMemberList memberList,
+        bool membersMayLeave,
         CancellationToken cancellationToken);
+
+    /// <summary>A member leaves a group of their own accord.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>New on 2026-08-25, and it had to be, for the setting beside it to mean anything.</b>
+    /// The owner asked for ArcGIS's *administrative group* — one whose members cannot leave —
+    /// and there was no way to leave a group at all: removal was an owner's, a manager's or an
+    /// administrator's act. A flag forbidding something nobody could do would have been the
+    /// same defect the shared-update setting had for as long as it existed: stored, shown, and
+    /// honoured nowhere.
+    /// </para>
+    /// <para>
+    /// <b>The owner cannot leave</b>, and that is not the same refusal. A group whose owner has
+    /// walked out has nobody who can administer it, which is
+    /// [D-14](../../../docs/architecture-debt.md)'s shape one level down. Transfer or delete it
+    /// instead; both already exist.
+    /// </para>
+    /// </remarks>
+    /// <param name="acting">Who is leaving.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>
+    /// <see cref="GroupChange.Done"/>; <see cref="GroupChange.Absent"/> when there is no such
+    /// group or the caller is not in it — the same answer for both, so somebody outside a
+    /// group learns nothing about it; <see cref="GroupChange.OwnerOnly"/> when the caller owns
+    /// it, whose way out is to transfer or delete; and <see cref="GroupChange.Locked"/> when
+    /// the group forbids leaving.
+    /// </returns>
+    Task<GroupChange> LeaveAsync(Guid acting, string name, CancellationToken cancellationToken);
 
     /// <summary>Which members a group has, and what each is.</summary>
     /// <param name="name">The group.</param>

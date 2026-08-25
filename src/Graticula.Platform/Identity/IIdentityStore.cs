@@ -163,7 +163,8 @@ public interface IIdentityStore
     /// per request by one statement over `principal`; adding an aggregated subquery to it costs a
     /// join on a query that happens anyway, where a second port would cost a second round trip.
     /// </remarks>
-    Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)> GrantsOfAsync(
+    Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups,
+          IReadOnlyList<Guid> EditableGroups)> GrantsOfAsync(
         Guid principalId, CancellationToken cancellationToken);
 
     /// <summary>Grants a role. Idempotent.</summary>

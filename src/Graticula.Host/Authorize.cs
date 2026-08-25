@@ -29,6 +29,57 @@ namespace Graticula.Host;
 internal static class Authorize
 {
     /// <summary>
+    /// Requires a privilege, unless a group the caller belongs to confers editing this item.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Shared update — owner decision 2026-08-25,
+    /// [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended.</b> A layer shared with a
+    /// group whose <c>item_update</c> is <c>allItems</c> is editable by that group's members,
+    /// whatever privileges they hold. Everything else is unchanged: no group, or a group
+    /// without that setting, and this is <see cref="RequireAsync"/>.
+    /// </para>
+    /// <para>
+    /// <b>One helper rather than the same three lines on each face.</b> ArcGIS
+    /// <c>applyEdits</c> and OGC API Features Part 4 write through one
+    /// <see cref="Graticula.Features.IFeatureWriter"/> (Q-44); they have to decide who may
+    /// write the same way too, or the same layer is editable through one face and refused
+    /// through the other — which is the kind of divergence a conformance run finds months
+    /// later, on whichever face nobody tested.
+    /// </para>
+    /// <para>
+    /// <b>The refusal is still the privilege's.</b> When the group does not carry it, the
+    /// caller is told what privilege they lack and nothing about the item — D-03's rule is
+    /// unchanged, and mentioning the group would tell somebody who cannot edit that a group
+    /// exists which could.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="privilege">What is required when no group carries the edit.</param>
+    /// <param name="layer">The item being written to.</param>
+    /// <returns>Whether the caller may proceed; a refusal has been written when false.</returns>
+    public static async Task<bool> RequireEditAsync(
+        HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()
+            ?? throw new InvalidOperationException(
+                "No principal was resolved for this request. The authentication middleware must "
+                + "run before any endpoint, including for anonymous callers — 'no principal' is a "
+                + "wiring bug, not an unauthenticated request.");
+
+        if (LayerAccess.GroupConfersEditing(
+                layer.Sharing, current.Authorization, layer.SharedWith))
+        {
+            return true;
+        }
+
+        return await RequireAsync(context, privilege).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Whether the request may proceed; writes the refusal if not.
     /// </summary>
     /// <param name="context">The request.</param>

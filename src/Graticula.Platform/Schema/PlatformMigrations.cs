@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(36);
+    public static SchemaVersion ComponentSchemaVersion => new(37);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -71,6 +71,7 @@ public static class PlatformMigrations
         DeadLayerColumnDefaultsV34,
         LayerTimeFieldV35,
         GroupVisibilityWithoutPublicV36,
+        GroupMemberListAndLeavingV37,
     ]);
 
 
@@ -2398,5 +2399,61 @@ public static class PlatformMigrations
         """
         alter table sharing_group add constraint sharing_group_visibility_known
           check (visibility in ('members', 'organization'))
+        """);
+
+    /// <summary>
+    /// Who may see a group's member list, and whether a member may leave it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-08-25, from ArcGIS's own group settings.</b> Two of the three
+    /// the owner named; the third — shared update — needed no column, because
+    /// <c>item_update</c> had been stored since groups shipped and was honoured nowhere.
+    /// </para>
+    /// <para>
+    /// <b>`member_list` is capped by the group, not independent of it.</b> The two values are
+    /// *its members* and *its owner and managers*, and neither reaches outside the group — so
+    /// this setting can only ever narrow what `visibility` already allows. An
+    /// organisation-wide member list was considered and is not offered: a group visible to
+    /// the organisation is discoverable by name, and *who is in it* is a different disclosure
+    /// from *it exists*.
+    /// </para>
+    /// <para>
+    /// <b>`members_may_leave` defaults to true, and the capability it governs is new.</b>
+    /// Until this migration there was no way for a member to leave a group at all — removal
+    /// was an owner's, a manager's or an administrator's act — so the flag would have been a
+    /// setting on nothing. Shipping the checkbox without the door is exactly the shape
+    /// [D-67](../../../docs/architecture-debt.md) records and the shape `item_update` had.
+    /// True is the default because it is what every existing group's members could not do and
+    /// now can, which is an addition rather than a change: an administrative group is a
+    /// deliberate choice, and defaulting to *nobody may leave* would silently make every
+    /// group one.
+    /// </para>
+    /// <para>
+    /// <b>Expand: two columns with defaults, no data touched.</b> A reader from before this
+    /// migration ignores both and behaves exactly as it did.
+    /// </para>
+    /// </remarks>
+    private static Migration GroupMemberListAndLeavingV37 => Migration.Expand(
+        new SchemaVersion(37),
+        "Who may see a group's members, and whether a member may leave it.",
+
+        """
+        alter table sharing_group
+          add column if not exists member_list text not null default 'members'
+        """,
+
+        """
+        alter table sharing_group drop constraint if exists sharing_group_member_list_known
+        """,
+
+        """
+        alter table sharing_group add constraint sharing_group_member_list_known
+          check (member_list in ('members', 'managers'))
+        """,
+
+        """
+        alter table sharing_group
+          add column if not exists members_may_leave boolean not null default true
         """);
 }

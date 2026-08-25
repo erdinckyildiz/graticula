@@ -641,7 +641,8 @@ public sealed class Authorization
         IEnumerable<Privilege> privileges,
         bool administrator = false,
         IEnumerable<Privilege>? beforeCeiling = null,
-        IEnumerable<Guid>? groups = null)
+        IEnumerable<Guid>? groups = null,
+        IEnumerable<Guid>? editableGroups = null)
     {
         UserType = userType;
         Roles = [.. roles];
@@ -649,10 +650,39 @@ public sealed class Authorization
         IsAdministrator = administrator;
         _beforeCeiling = beforeCeiling is null ? [.. privileges] : [.. beforeCeiling];
         Groups = groups is null ? [] : [.. groups];
+        EditableGroups = editableGroups is null ? [] : [.. editableGroups];
     }
 
     /// <summary>Which groups this principal belongs to — ADR-036 §3's membership axis.</summary>
     public ImmutableHashSet<Guid> Groups { get; }
+
+    /// <summary>
+    /// The subset of <see cref="Groups"/> whose shared items every member may edit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Shared update — owner decision 2026-08-25, [ADR-036](../../../docs/adr/ADR-036-groups.md)
+    /// §4a as amended.</b> A group's <c>item_update</c> has been stored since groups shipped and
+    /// was honoured nowhere: the listing showed it and every edit went on asking for
+    /// <c>features:fullEdit</c> alone. That is the shape [D-67](../../../docs/architecture-debt.md)
+    /// records — a setting the server keeps and does not enforce — and it is the same shape the
+    /// removed <c>public</c> visibility had.
+    /// </para>
+    /// <para>
+    /// <b>A separate set rather than a flag on <see cref="Groups"/>, because they answer different
+    /// questions.</b> <see cref="Groups"/> decides whether the caller may <em>read</em> an item
+    /// shared with a group, which is ADR-018 §3b's invariant and is unchanged. This one decides
+    /// whether they may <em>write</em> to it, and it is always a subset: a group that confers
+    /// editing necessarily confers reading, and reversing that would let somebody edit a layer
+    /// they cannot see.
+    /// </para>
+    /// <para>
+    /// <b>Only <c>allItems</c> lands here.</b> <c>ownItems</c> means *the items you shared*, and
+    /// their owner may already edit them by owning them, so it grants nothing this set could carry.
+    /// That is worth stating rather than leaving as an omission somebody re-derives.
+    /// </para>
+    /// </remarks>
+    public ImmutableHashSet<Guid> EditableGroups { get; }
 
     /// <summary>
     /// Resolves the intersection of the user type's ceiling and the roles' grants.
@@ -722,9 +752,27 @@ public sealed class Authorization
         string userType,
         IEnumerable<string> roles,
         IRoleGrants grants,
-        IEnumerable<Guid> groups)
+        IEnumerable<Guid> groups) =>
+        Resolve(userType, roles, grants, groups, []);
+
+    /// <inheritdoc cref="Resolve(string, IEnumerable{string}, IRoleGrants, IEnumerable{Guid})"/>
+    /// <param name="userType">The caller's user type, which is the ceiling.</param>
+    /// <param name="roles">The roles they hold.</param>
+    /// <param name="grants">What each role grants in this deployment.</param>
+    /// <param name="groups">Which groups they belong to.</param>
+    /// <param name="editableGroups">
+    /// Which of <paramref name="groups"/> confer editing what is shared with them — the groups
+    /// whose <c>item_update</c> is <c>allItems</c>. See <see cref="EditableGroups"/>.
+    /// </param>
+    public static Authorization Resolve(
+        string userType,
+        IEnumerable<string> roles,
+        IRoleGrants grants,
+        IEnumerable<Guid> groups,
+        IEnumerable<Guid> editableGroups)
     {
         ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(editableGroups);
 
         ArgumentNullException.ThrowIfNull(userType);
         ArgumentNullException.ThrowIfNull(roles);
@@ -761,7 +809,8 @@ public sealed class Authorization
         }
 
         return new Authorization(
-            userType, granted, fromRoles.Intersect(ceiling), administrator, fromRoles, groups);
+            userType, granted, fromRoles.Intersect(ceiling), administrator, fromRoles, groups,
+            editableGroups);
     }
 
     /// <summary>The assigned user type.</summary>

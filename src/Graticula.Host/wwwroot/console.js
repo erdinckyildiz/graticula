@@ -511,7 +511,9 @@ function drawGroupOverview(one) {
         : `a member <span class="val">— you read what is shared with it</span>`}</dd>
     <dt>Owner</dt><dd>${h(one.owner || "—")}</dd>
     <dt>Created</dt><dd>${day(one.createdAt)}</dd>
-    <dt>Members</dt><dd>${num((one.members || []).length)}</dd>
+    <dt>Members</dt><dd>${one.members
+      ? num(one.members.length)
+      : `<span class="val">not shown — this group's list is for its owner and managers</span>`}</dd>
     <dt>Services</dt><dd>${num(items.length)}</dd>
     <dt>Visible to</dt><dd>${one.visibility === "organization"
       ? `any signed-in member`
@@ -523,10 +525,31 @@ function drawGroupOverview(one) {
     <dt>Confers</dt><dd>${one.itemUpdate === "allItems"
       ? `editing every service shared with it`
       : one.itemUpdate === "ownItems"
-        ? `editing the services a member shared themselves`
+        ? `reading only <span class="val">— a member already owns what they shared</span>`
         : `reading only`}<span class="val"> — fixed at creation</span></dd>
+    <dt>Member list</dt><dd>${one.memberList === "managers"
+      ? `its owner and managers <span class="val">— and an administrator</span>`
+      : `any member`}</dd>
+    <dt>Leaving</dt><dd>${one.membersMayLeave === false
+      ? `not by yourself <span class="val">— an administrative group; its owner or a manager
+         removes you</span>`
+      : `a member may leave on their own`}</dd>
     ${one.deleteLocked ? `<dt>Deletion</dt><dd>locked <span class="val">— including for an
       administrator</span></dd>` : ""}`;
+
+  // <b>The way out, shown only to somebody who has one.</b> `mayLeave` is worked out by the
+  // server rather than derived here from standing and a setting — the same rule `mayManage`
+  // follows, and for the same reason: two implementations of one authorisation question
+  // disagree eventually, and the screen is the copy that is wrong.
+  const out = $("groupLeaveRow");
+
+  if (out) {
+    out.innerHTML = one.mayLeave
+      ? `<button class="tiny danger" id="groupLeave">Leave this group</button>
+         <span class="hint" style="margin:0">You stop reading what is shared with it. Nothing
+           you own is deleted, and an owner or manager can add you back.</span>`
+      : ``;
+  }
 }
 
 /**
@@ -765,6 +788,22 @@ function drawGroupSettings(one) {
       ])}<span class="u"></span></div>
     <p class="hint" id="gsVisNote"></p>
 
+    <div class="setting wide"><label class="q" for="gsMemberList">Who can see who is in it:</label>
+      ${pick("gsMemberList", one.memberList || "members", [
+        ["members", "Any member"],
+        ["managers", "The owner and its managers"],
+      ])}<span class="u"></span></div>
+    <p class="hint">Neither answer reaches outside the group, so this can only narrow what the first
+      setting on this tab allows. An administrator sees the list either way.</p>
+
+    <div class="setting wide"><label class="q" for="gsLeave">Whether a member may leave:</label>
+      ${pick("gsLeave", one.membersMayLeave === false ? "no" : "yes", [
+        ["yes", "They may leave on their own"],
+        ["no", "Only the owner or a manager removes them"],
+      ])}<span class="u"></span></div>
+    <p class="hint">The second is what ArcGIS calls an administrative group. Nobody is trapped by it:
+      the owner and its managers can still remove anyone.</p>
+
     <div class="row" style="margin:var(--gap-4) 0">
       <button class="primary" id="gsSave" disabled>Save</button>
       <span class="val" id="gsDirty"></span>
@@ -808,7 +847,7 @@ function drawGroupSettings(one) {
   // Dirty tracking, so Save is disabled until there is something to save. The lock is deliberately
   // not part of it: it writes on its own, because a safety switch left unsaved is believed-on and off.
   const watch = ["gsTitle", "gsSummary", "gsDescription",
-                 "gsVisibility", "gsJoin", "gsContribute"];
+                 "gsVisibility", "gsJoin", "gsContribute", "gsMemberList", "gsLeave"];
 
   const reading = () => watch.map(id => $(id).value).join("\u0000");
   const was = reading();
@@ -992,6 +1031,12 @@ async function saveGroupSettings(patch, what) {
     joinPolicy: groupNow.joinPolicy || "invitation",
     contribute: groupNow.contribute || "managers",
     deleteLocked: !!groupNow.deleteLocked,
+
+    // <b>Sent every time, not only when they changed.</b> The endpoint takes the whole settings
+    // object, so a field left out is a field set to its default — which is how ticking the delete
+    // lock would quietly reopen a member list somebody had narrowed.
+    memberList: groupNow.memberList || "members",
+    membersMayLeave: groupNow.membersMayLeave !== false,
     ...patch,
   };
 
@@ -8514,6 +8559,33 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "groupLeave") {
+    if (!groupNow) return;
+
+    // <b>Confirmed, because it is not undoable by the person doing it.</b> Rejoining needs an
+    // owner or a manager, so a mis-click costs somebody else's attention rather than a click.
+    if (!confirm(
+      `Leave '${groupNow.name}'? You stop reading what is shared with it, and only its owner or `
+      + `a manager can add you back.`)) {
+      return;
+    }
+
+    t.disabled = true;
+
+    try {
+      const answer = await api(
+        `/admin/groups/${encodeURIComponent(groupNow.name)}/membership`, { method: "DELETE" });
+
+      toast(answer?.note || "You left the group.", true);
+      location.hash = "#/groups";
+    } catch (failure) {
+      t.disabled = false;
+      toast(failure.message);
+    }
+
+    return;
+  }
+
   if (t.id === "gsSave") {
     await saveGroupSettings({
       title: $("gsTitle").value.trim() || null,
@@ -8522,6 +8594,8 @@ async function handleClick(event) {
       visibility: $("gsVisibility").value,
       joinPolicy: $("gsJoin").value,
       contribute: $("gsContribute").value,
+      memberList: $("gsMemberList").value,
+      membersMayLeave: $("gsLeave").value === "yes",
     }, "Saved.");
     return;
   }

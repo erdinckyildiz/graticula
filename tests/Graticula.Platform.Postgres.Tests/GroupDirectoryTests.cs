@@ -302,7 +302,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
                     owner, false, "zz_gs_replace",
                     title: null, summary: null, description: null,
                     GroupVisibility.Organization, GroupJoinPolicy.Self, GroupContribute.Members,
-                    deleteLocked: false, CancellationToken.None));
+                    deleteLocked: false,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None));
 
             GroupSummary after = (await groups.ListAsync(owner, true, CancellationToken.None))
                 .Single(g => g.Name == "zz_gs_replace");
@@ -345,7 +347,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
         await groups.SetSettingsAsync(
             owner, false, "zz_gs_locked", null, null, null,
             GroupVisibility.Members, GroupJoinPolicy.Invitation, GroupContribute.Managers,
-            deleteLocked: true, CancellationToken.None);
+            deleteLocked: true,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None);
 
         try
         {
@@ -362,7 +366,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
             await groups.SetSettingsAsync(
                 owner, false, "zz_gs_locked", null, null, null,
                 GroupVisibility.Members, GroupJoinPolicy.Invitation, GroupContribute.Managers,
-                deleteLocked: false, CancellationToken.None);
+                deleteLocked: false,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None);
 
             await groups.RemoveAsync(owner, true, "zz_gs_locked", CancellationToken.None);
         }
@@ -395,7 +401,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
                 await groups.SetSettingsAsync(
                     owner, false, "zz_gs_request", null, null, null,
                     GroupVisibility.Organization, GroupJoinPolicy.Request, GroupContribute.Members,
-                    deleteLocked: false, CancellationToken.None));
+                    deleteLocked: false,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None));
 
             // <b>And it refused before it wrote anything.</b> A store that refused after the update
             // would leave the other three policies changed by a call that reported failure — which is
@@ -509,7 +517,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
                 await groups.SetSettingsAsync(
                     owner, false, "zz_gv_group", "Findable", null, null,
                     GroupVisibility.Organization, GroupJoinPolicy.Invitation,
-                    GroupContribute.Managers, deleteLocked: false, CancellationToken.None));
+                    GroupContribute.Managers, deleteLocked: false,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None));
 
             GroupSummary seen = (await groups.ListAsync(outsider, false, CancellationToken.None))
                 .Single(g => g.Name == "zz_gv_group");
@@ -564,7 +574,9 @@ public sealed class GroupDirectoryTests : PostgresFixture
                 await groups.SetSettingsAsync(
                     owner, false, "zz_gv_public", null, null, null,
                     GroupVisibility.Organization, GroupJoinPolicy.Invitation,
-                    GroupContribute.Managers, deleteLocked: false, CancellationToken.None));
+                    GroupContribute.Managers, deleteLocked: false,
+                    GroupMemberList.Members, membersMayLeave: true,
+                    CancellationToken.None));
 
             GroupSummary after = (await groups.ListAsync(owner, true, CancellationToken.None))
                 .Single(g => g.Name == "zz_gv_public");

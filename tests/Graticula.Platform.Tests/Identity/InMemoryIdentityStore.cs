@@ -186,7 +186,11 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
     /// <summary>Which groups a principal is in, for the tests that care — ADR-036.</summary>
     public Dictionary<Guid, HashSet<Guid>> GroupsOf { get; } = [];
 
-    public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups)>
+    /// <summary>Which of <see cref="GroupsOf"/> confer editing — ADR-036 §4a, shared update.</summary>
+    public Dictionary<Guid, HashSet<Guid>> EditableGroupsOf { get; } = [];
+
+    public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups,
+                 IReadOnlyList<Guid> EditableGroups)>
         GrantsOfAsync(Guid principalId, CancellationToken cancellationToken) =>
         Task.FromResult((
             UserTypes.TryGetValue(principalId, out string? t)
@@ -197,6 +201,9 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
                 : []),
             (IReadOnlyList<Guid>)(GroupsOf.TryGetValue(principalId, out HashSet<Guid>? inGroups)
                 ? [.. inGroups]
+                : []),
+            (IReadOnlyList<Guid>)(EditableGroupsOf.TryGetValue(principalId, out HashSet<Guid>? edits)
+                ? [.. edits]
                 : [])));
 
     public Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken) =>

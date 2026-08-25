@@ -156,6 +156,23 @@ internal sealed record GroupSettingsRequest
 
     /// <summary>Whether the group is protected from deletion.</summary>
     public required bool DeleteLocked { get; init; }
+
+    /// <summary>Who may see the member list — <c>members</c> or <c>managers</c>.</summary>
+    /// <remarks>
+    /// <b>Owner decision 2026-08-25.</b> Optional on the wire and defaulting to <c>members</c>,
+    /// which is what every group did before this setting existed: a client written against the
+    /// older shape keeps the behaviour it was written for rather than silently narrowing a
+    /// group it did not mean to narrow.
+    /// </remarks>
+    public string? MemberList { get; init; }
+
+    /// <summary>Whether a member may leave of their own accord.</summary>
+    /// <remarks>
+    /// <b>ArcGIS's *administrative group*, and it defaults to true.</b> False makes the group
+    /// one nobody can walk out of, which is a deliberate act; defaulting to false would make
+    /// every group administrative on upgrade, including every group that already exists.
+    /// </remarks>
+    public bool MembersMayLeave { get; init; } = true;
 }
 
 /// <summary>Whether a member is a manager of the group.</summary>
@@ -466,6 +483,13 @@ internal static class AdminEndpoints
 
         app.MapPut("/admin/groups/{name}/members/{member}", SetGroupMemberAsync);
         app.MapDelete("/admin/groups/{name}/members/{member}", RemoveGroupMemberAsync);
+
+        // <b>Leaving, which is not the same act as being removed — owner decision 2026-08-25.</b>
+        // Its own route because it is the caller's own membership and needs no privilege and no
+        // standing in the group beyond being in it; folding it into the route above would mean
+        // that route's *owner or manager* guard had an exception, and an authorisation check
+        // with an exception is the one that gets read wrong.
+        app.MapDelete("/admin/groups/{name}/membership", LeaveGroupAsync);
         app.MapPut("/admin/groups/{name}/items/{service}", ShareWithGroupAsync);
         app.MapDelete("/admin/groups/{name}/items/{service}", UnshareFromGroupAsync);
 
@@ -3525,8 +3549,11 @@ internal static class AdminEndpoints
 
             listing = all ? "every group on the server" : "groups you own or belong to",
 
-            note = "A group confers reading. What is shared with it is readable by its members and "
-                + "by nobody else — editing is still features:edit (ADR-036 §4a).",
+            note = "A group confers reading: what is shared with it is readable by its members "
+                + "and by nobody else. A group whose itemUpdate is allItems also confers "
+                + "editing what is shared with it, to every member, whatever privileges they "
+                + "hold (ADR-036 §4a-i, owner decision 2026-08-25). Any other group leaves "
+                + "editing to features:edit and features:fullEdit.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -3573,6 +3600,26 @@ internal static class AdminEndpoints
         // be administrable.
         bool inside = all || found.Standing != GroupStanding.Outside;
 
+        /*
+          <b>And who, among those inside, may see who else is — owner decision 2026-08-25.</b>
+          `memberList = managers` narrows the list to the group's owner and its managers.
+          Before this setting existed the list went to anybody inside, which is the wider of
+          the two values and stays the default.
+
+          <b>An administrator passes, as they do at every other group act.</b> A group whose
+          owner has left still has to be administrable, and a member list an administrator
+          cannot read is one they cannot repair.
+
+          <b>Withheld, not filtered.</b> The same reasoning as `inside` above: a filtered list
+          of nine members that renders as zero reads as an empty group, which is a different
+          false statement rather than none. `null` says *not yours to see*; `[]` would say
+          *nobody is in it*.
+        */
+        bool seesMembers = inside
+            && (all
+                || found.MemberList == GroupMemberList.Members
+                || found.Standing is GroupStanding.Owner or GroupStanding.Manager);
+
         await Results.Json(new
         {
             name = found.Name,
@@ -3600,10 +3647,19 @@ internal static class AdminEndpoints
             joinPolicy = Wire(found.JoinPolicy),
             contribute = Wire(found.Contribute),
             deleteLocked = found.DeleteLocked,
+            memberList = Wire(found.MemberList),
+            membersMayLeave = found.MembersMayLeave,
+
+            // <b>Whether *this* caller may walk out, worked out here rather than on the
+            // screen.</b> The page would otherwise derive it from three fields and get it
+            // wrong differently from the server — which is what `mayManage` above exists to
+            // prevent, for the same reason.
+            mayLeave = found.MembersMayLeave
+                && found.Standing is GroupStanding.Member or GroupStanding.Manager,
             createdAt = found.CreatedAt,
             standing = found.Standing.ToString().ToLowerInvariant(),
 
-            members = inside
+            members = seesMembers
                 ? (await groups.MembersAsync(found.Name, cancellation).ConfigureAwait(false))
                     .Select(m => new
                     {
@@ -3820,7 +3876,8 @@ internal static class AdminEndpoints
 
         if (!TryReadVisibility(request.Visibility, out GroupVisibility visibility, out string? bad)
             || !TryReadJoinPolicy(request.JoinPolicy, out GroupJoinPolicy join, out bad)
-            || !TryReadContribute(request.Contribute, out GroupContribute contribute, out bad))
+            || !TryReadContribute(request.Contribute, out GroupContribute contribute, out bad)
+            || !TryReadMemberList(request.MemberList, out GroupMemberList memberList, out bad))
         {
             await Refuse(context, 400, bad!).ConfigureAwait(false);
             return;
@@ -3837,6 +3894,8 @@ internal static class AdminEndpoints
             join,
             contribute,
             request.DeleteLocked,
+            memberList,
+            request.MembersMayLeave,
             cancellation).ConfigureAwait(false);
 
         if (outcome != GroupChange.Done)
@@ -3858,6 +3917,8 @@ internal static class AdminEndpoints
                 joinPolicy = request.JoinPolicy,
                 contribute = request.Contribute,
                 deleteLocked = request.DeleteLocked,
+                memberList = Wire(memberList),
+                membersMayLeave = request.MembersMayLeave,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -3966,6 +4027,105 @@ internal static class AdminEndpoints
                     + "them do with it afterwards is the group's item-update capability, which was "
                     + "fixed when the group was created.";
                 return false;
+        }
+    }
+
+    private static bool TryReadMemberList(
+        string? said, out GroupMemberList list, out string? error)
+    {
+        list = GroupMemberList.Members;
+        error = null;
+
+        switch (said?.Trim())
+        {
+            case null or "" or "members": return true;
+            case "managers": list = GroupMemberList.Managers; return true;
+
+            default:
+                error = $"'{said}' is not a member-list setting. Use 'members' (the default) or "
+                    + "'managers'. It says who may see who is in the group; neither value reaches "
+                    + "outside it, so this can only narrow what the group's visibility allows.";
+                return false;
+        }
+    }
+
+    /// <summary>A member leaves a group of their own accord.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-08-25, and it had to be built for the setting beside it to mean
+    /// anything.</b> The owner asked for ArcGIS's *administrative group* — one whose members
+    /// cannot leave — and there was no way to leave a group at all: removal was an owner's, a
+    /// manager's or an administrator's act. A flag forbidding something nobody could do would
+    /// have been the same defect the shared-update capability had for as long as it existed.
+    /// </para>
+    /// <para>
+    /// <b>No privilege is asked for, deliberately.</b> This is the caller's own membership.
+    /// Requiring <c>groups:manageMembers</c> would mean a member could be put into a group and
+    /// then need an administrator to get out of it, which is not a security property — it is a
+    /// support ticket.
+    /// </para>
+    /// </remarks>
+    private static async Task LeaveGroupAsync(
+        HttpContext context,
+        string name,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            return;
+        }
+
+        GroupChange outcome = await groups
+            .LeaveAsync(current.Principal.Id, name, cancellation)
+            .ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "group.leave", name, Detail(new { left = true }),
+            succeeded: outcome == GroupChange.Done, cancellation).ConfigureAwait(false);
+
+        switch (outcome)
+        {
+            case GroupChange.Done:
+                await Results.Json(new
+                {
+                    group = name,
+                    left = true,
+                    note = "You are no longer a member. What was shared with this group is no "
+                         + "longer readable through it.",
+                }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+
+            // <b>A group forbidding this is its own refusal, and it names the way out.</b>
+            case GroupChange.Locked:
+                await Refuse(
+                    context, 409,
+                    $"'{name}' is an administrative group: its members cannot leave it. Its "
+                    + "owner or a manager can remove you, or turn the setting off.")
+                    .ConfigureAwait(false);
+                return;
+
+            // <b>The owner is refused differently, because their way out is different.</b>
+            case GroupChange.OwnerOnly:
+                await Refuse(
+                    context, 409,
+                    $"You own '{name}', so leaving would be walking out of a group nobody can "
+                    + "administer. Transfer it or delete it.")
+                    .ConfigureAwait(false);
+                return;
+
+            // <b>Absent covers *no such group* and *you were not in it*, and must.</b> Two
+            // different answers would let somebody enumerate groups they are outside.
+            default:
+                await Refuse(
+                    context, 404,
+                    $"You are not a member of '{name}'.")
+                    .ConfigureAwait(false);
+                return;
         }
     }
 
@@ -4186,6 +4346,9 @@ internal static class AdminEndpoints
 
         _ => Refuse(context, 500, "Unhandled group outcome."),
     };
+
+    private static string Wire(GroupMemberList list) =>
+        list == GroupMemberList.Managers ? "managers" : "members";
 
     private static string Wire(GroupItemUpdate update) => update switch
     {

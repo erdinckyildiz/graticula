@@ -131,4 +131,72 @@ public static class LayerAccess
 
     /// <summary>Whether a reason permits the read.</summary>
     public static bool IsAllowed(this Reason reason) => reason != Reason.Denied;
+
+    /// <summary>
+    /// Whether a group the caller belongs to confers editing what is shared with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Shared update — owner decision 2026-08-25,
+    /// [ADR-036](../../../docs/adr/ADR-036-groups.md) §4a as amended.</b> §4a said a group confers
+    /// reading and that editing through one was not built, *because the owner's requirement did not
+    /// ask for it*. It asks now. §4b had already decided where the capability would live — on the
+    /// group rather than on each share — so this is the addition that decision was written to
+    /// allow, rather than a redesign.
+    /// </para>
+    /// <para>
+    /// <b>What was actually wrong before this.</b> <c>item_update</c> was stored, was editable
+    /// through the admin API, and was shown in the listing, and no code path consulted it. A
+    /// setting the server keeps and does not honour is [D-67](../../../docs/architecture-debt.md),
+    /// and it is the same shape the removed <c>public</c> visibility had: the screen promised
+    /// something the server never did.
+    /// </para>
+    /// <para>
+    /// <b>This widens writing and does not touch reading.</b> ADR-018 §3b's invariant is that
+    /// <em>sharing governs reading</em>, and it still does: <see cref="Evaluate"/> is unchanged,
+    /// and nothing here can make an item readable that was not. What moves is the other half —
+    /// editing was <em>only</em> a privilege, and for a layer shared with a group whose members
+    /// share update rights, it is now a privilege <em>or</em> that membership. Saying which half
+    /// moved is the point of writing it this way: a reader who remembers §3b should be able to see
+    /// immediately that their memory is still correct.
+    /// </para>
+    /// <para>
+    /// <b>Reading is required first, and the ordering is not decorative.</b> A caller who cannot
+    /// see the layer never reaches an edit endpoint — <c>ServiceLookup</c> answers 404 before the
+    /// privilege check — so this can only ever widen what somebody already reads. It is asserted
+    /// rather than assumed: <c>EditableGroups</c> is a subset of <c>Groups</c> by construction, so
+    /// a group here is a group that passed <see cref="Evaluate"/>.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to the item, not to the server.</b> This grants nothing globally. It answers *may
+    /// this caller edit <em>this</em> layer*, and a caller with no privileges who belongs to one
+    /// sharing-update group can edit exactly what that group holds.
+    /// </para>
+    /// </remarks>
+    /// <param name="scope">The item's sharing scope.</param>
+    /// <param name="authorization">The caller's grants.</param>
+    /// <param name="itemGroups">Which groups the item is shared with.</param>
+    /// <returns>Whether group membership alone permits editing this item.</returns>
+    public static bool GroupConfersEditing(
+        SharingScope scope,
+        Authorization authorization,
+        IReadOnlyCollection<Guid>? itemGroups)
+    {
+        ArgumentNullException.ThrowIfNull(authorization);
+
+        if (scope != SharingScope.Group || itemGroups is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (Guid group in itemGroups)
+        {
+            if (authorization.EditableGroups.Contains(group))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
