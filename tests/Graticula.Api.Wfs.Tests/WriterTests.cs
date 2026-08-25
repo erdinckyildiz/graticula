@@ -302,22 +302,29 @@ public sealed class WriterTests
     }
 
     [Fact]
-    public async Task A_bounding_box_is_written_only_where_it_can_be_written_truthfully()
+    public async Task A_bounding_box_carries_the_geographic_extent_and_never_the_layers_own()
     {
-        // ows:WGS84BoundingBox is WGS 84 by definition. A layer in another
-        // reference would need a projection to produce one, so the element is
-        // omitted rather than filled with the layer's own numbers under a WGS 84
-        // label. Q-125.
-        WfsFeatureType projected = Type() with { Extent = new Envelope(0, 0, 10, 10) };
-        WfsFeatureType geographic = Type(4326) with { Extent = new Envelope(25, 35, 45, 43) };
+        // <b>Rewritten 2026-08-25 when [Q-125](../../docs/open-questions.md) closed, and
+        // the half that mattered is kept.</b> This used to assert that a layer outside
+        // 4326 got no box at all, because projecting was recorded as a round trip per
+        // layer. It is one call per reference, so the box is written for every layer
+        // that has a geographic extent — and the thing that must still be impossible is
+        // writing a national grid's easting under a WGS 84 label, which is why the
+        // writer reads `Geographic` and this test hands it numbers that could not be
+        // confused with `Extent`.
+        WfsFeatureType projected = Type() with
+        {
+            Extent = new Envelope(3_600_000, 4_800_000, 3_610_000, 4_810_000),
+            Geographic = new Envelope(25, 35, 45, 43),
+        };
 
-        XElement without = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
-            stream, "https://example/wfs", "Graticula", [projected], CancellationToken.None));
+        WfsFeatureType unmapped = Type() with { Extent = new Envelope(0, 0, 10, 10) };
 
         XElement with = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
-            stream, "https://example/wfs", "Graticula", [geographic], CancellationToken.None));
+            stream, "https://example/wfs", "Graticula", [projected], CancellationToken.None));
 
-        Assert.Empty(without.Descendants(Ows + "WGS84BoundingBox"));
+        XElement without = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
+            stream, "https://example/wfs", "Graticula", [unmapped], CancellationToken.None));
 
         XElement box = with.Descendants(Ows + "WGS84BoundingBox").Single();
 
@@ -325,6 +332,12 @@ public sealed class WriterTests
         // way whatever the CRS's own axis order says.
         Assert.Equal("25 35", box.Element(Ows + "LowerCorner")!.Value);
         Assert.Equal("45 43", box.Element(Ows + "UpperCorner")!.Value);
+
+        // <b>The control, and it is the whole point of the second field.</b> A layer
+        // whose reference this deployment could not transform has an extent and no
+        // geographic one, and the element is omitted rather than filled from the
+        // numbers to hand. Omitting is allowed; lying is not.
+        Assert.Empty(without.Descendants(Ows + "WGS84BoundingBox"));
     }
 
     [Fact]

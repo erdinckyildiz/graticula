@@ -446,84 +446,24 @@ internal static class WmsEndpoints
     private static async Task GeographicallyAsync(
         IProjector projector, List<WmsLayer> layers, CancellationToken cancellation)
     {
-        Dictionary<int, List<int>> bySrid = [];
+        // <b>The batching moved to GeographicExtents on 2026-08-25 and the reason is
+        // Q-125.</b> WFS had concluded the same work was one round trip per layer and
+        // published no bounding box for any layer outside 4326 — while this method,
+        // one assembly along, had been doing it in one call per reference since the
+        // day the WMS document was written. Two surfaces, one question, and only the
+        // one that could omit the element got the wrong answer.
+        IReadOnlyList<Envelope?> geographic = await GeographicExtents
+            .InWgs84Async(
+                projector,
+                [.. layers.Select(l => (l.Srid, l.Extent))],
+                cancellation)
+            .ConfigureAwait(false);
 
         for (int i = 0; i < layers.Count; i++)
         {
-            if (layers[i].Extent is not { IsEmpty: false })
+            if (geographic[i] is { } box)
             {
-                continue;
-            }
-
-            if (layers[i].Srid == AxisOrder.Wgs84)
-            {
-                // Already there. Projecting 4326 to 4326 is a round trip to be told
-                // what we sent.
-                layers[i] = layers[i] with { Geographic = layers[i].Extent };
-                continue;
-            }
-
-            if (!bySrid.TryGetValue(layers[i].Srid, out List<int>? group))
-            {
-                group = [];
-                bySrid[layers[i].Srid] = group;
-            }
-
-            group.Add(i);
-        }
-
-        foreach ((int srid, List<int> indices) in bySrid)
-        {
-            List<Geometry> corners = [];
-
-            foreach (int index in indices)
-            {
-                Envelope box = layers[index].Extent!.Value;
-
-                corners.Add(new Graticula.Geometries.Point(box.MinX, box.MinY));
-                corners.Add(new Graticula.Geometries.Point(box.MaxX, box.MinY));
-                corners.Add(new Graticula.Geometries.Point(box.MaxX, box.MaxY));
-                corners.Add(new Graticula.Geometries.Point(box.MinX, box.MaxY));
-            }
-
-            IReadOnlyList<Geometry> projected;
-
-            try
-            {
-                (projected, _) = await projector
-                    .ProjectAsync(corners, srid, AxisOrder.Wgs84, cancellation)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                // <b>A CRS this deployment cannot transform leaves the layer without
-                // a geographic extent rather than without a capabilities
-                // document.</b> One unusual layer must not make the whole server
-                // look absent to every client that asks what it has.
-                continue;
-            }
-
-            for (int i = 0; i < indices.Count; i++)
-            {
-                Envelope whole = Envelope.Empty;
-
-                for (int corner = 0; corner < 4; corner++)
-                {
-                    int at = (i * 4) + corner;
-
-                    if (at >= projected.Count)
-                    {
-                        break;
-                    }
-
-                    Envelope point = projected[at].Envelope;
-                    whole = whole.IsEmpty ? point : whole.Union(point);
-                }
-
-                if (!whole.IsEmpty)
-                {
-                    layers[indices[i]] = layers[indices[i]] with { Geographic = Drawable(whole) };
-                }
+                layers[i] = layers[i] with { Geographic = Drawable(box) };
             }
         }
     }

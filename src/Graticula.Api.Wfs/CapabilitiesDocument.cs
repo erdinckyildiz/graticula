@@ -352,17 +352,22 @@ public static class CapabilitiesDocument
             await xml.WriteElementStringAsync(
                 "wfs", "DefaultCRS", WfsNames.Wfs, WfsNames.CrsUrn(type.Srid)).ConfigureAwait(false);
 
-            // <b>Written only when the layer is already in WGS 84.</b> This element
-            // is longitude/latitude in WGS 84 by definition, and converting an
-            // extent in a national grid needs a projection — which is a round trip
-            // per layer in a document meant to be cheap. Omitting it is allowed
-            // (minOccurs="0"); writing the layer's own numbers under a WGS 84 label
-            // would not be. A client loses the initial zoom for those layers and
-            // gets no wrong answer, which is the right way round.
-            // Q-125 carries the fix: project the extents once and remember them.
-            if (type.Srid == 4326 && type.Extent is { IsEmpty: false } extent)
+            // <b>Written for every layer that has a geographic extent — Q-125,
+            // 2026-08-25.</b> This element is longitude/latitude in WGS 84 by
+            // definition, so a layer in a national grid needs its extent projected.
+            // That used to be reason enough to omit it: the cost was recorded as a
+            // round trip per layer, in a document meant to be cheap. It is not a
+            // round trip per layer. `GeographicExtents` batches by source reference,
+            // so a thousand layers over a handful of references cost a handful of
+            // calls — which is what WMS had been doing all along, one assembly away,
+            // for an element its own schema makes mandatory.
+            //
+            // <b>Never the layer's own numbers.</b> Omitting the element is allowed
+            // (minOccurs="0"); writing a national grid's easting under a WGS 84 label
+            // is not, and is why this reads `Geographic` rather than `Extent`.
+            if (type.Geographic is { IsEmpty: false } geographic)
             {
-                await BoundingBoxAsync(xml, extent).ConfigureAwait(false);
+                await BoundingBoxAsync(xml, geographic).ConfigureAwait(false);
             }
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);

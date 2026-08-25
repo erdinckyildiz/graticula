@@ -36,6 +36,14 @@ namespace Graticula.Api.Wfs;
 /// <param name="GeometryProperty">What the geometry property is called in the schema.</param>
 /// <param name="Fields">Its attribute columns, geometry excluded.</param>
 /// <param name="Extent">Where its features are, or null when that is unknown.</param>
+/// <param name="Geographic">
+/// Its extent in WGS 84, longitude first, or null when there is none to publish.
+/// <b>Separate from <paramref name="Extent"/> because they are different
+/// numbers.</b> A layer in a national grid has both, and
+/// <c>ows:WGS84BoundingBox</c> is defined in terms of the second whatever the
+/// first is. Writing the layer's own numbers under a WGS 84 label is the defect
+/// this parameter exists to make impossible.
+/// </param>
 public sealed record WfsFeatureType(
     string Name,
     string Title,
@@ -44,7 +52,8 @@ public sealed record WfsFeatureType(
     GeometryKind GeometryType,
     string GeometryProperty,
     IReadOnlyList<FieldDescription> Fields,
-    Envelope? Extent)
+    Envelope? Extent,
+    Envelope? Geographic = null)
 {
     /// <summary>The prefix this server publishes every feature type under.</summary>
     public static string Prefix => WfsNames.Prefix;

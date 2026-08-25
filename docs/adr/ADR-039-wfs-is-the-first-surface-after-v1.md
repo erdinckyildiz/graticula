@@ -214,6 +214,22 @@ publish is worse than a page that says nothing. Asserted for every layer of ever
 
 ## 6. Consequences
 
+- **Every feature type now publishes `ows:WGS84BoundingBox` —
+  [Q-125](../open-questions.md), 2026-08-25.** §5 wrote it only for layers already in
+  4326, on the recorded ground that projecting an extent costs a round trip per layer
+  and this document must stay cheap. **The cost was wrong.** `IProjector` takes a list,
+  so extents batch by source reference: a thousand layers over a handful of references
+  cost a handful of calls. WMS had been doing exactly that since its own capabilities
+  document was written, one assembly away, because `EX_GeographicBoundingBox` is
+  mandatory there — the surface that *could* omit the element is the one that got the
+  wrong answer, and being allowed to skip the work is what stopped anybody costing it.
+  The batching is now `GeographicExtents`, used by both, and WMS's own copy is gone.
+  **What did not change is the rule the old behaviour was protecting**: the element
+  carries a *geographic* extent or nothing, never the layer's own easting under a WGS 84
+  label. `WfsFeatureType` therefore carries `Geographic` beside `Extent` rather than
+  overloading one field. Measured on eight 3857 layers: 0 boxes before, 8 after, and the
+  document answers in 23 ms.
+
 **Positive.** A non-Esri client can read this server for the first time. Q-57's identity asymmetry
 inverts in our favour. ADR-008's emitter seam gets built by a second caller demanding it, which is
 §82's own test of whether it was needed. And this is **face two over the feature engine**:

@@ -213,7 +213,12 @@ internal static class WfsEndpoints
         switch (request!.Operation)
         {
             case WfsOperation.GetCapabilities:
-                await CapabilitiesAsync(context, contexts, visible, cancellation)
+                await CapabilitiesAsync(
+                        context,
+                        contexts,
+                        context.RequestServices.GetRequiredService<IProjector>(),
+                        visible,
+                        cancellation)
                     .ConfigureAwait(false);
                 return;
 
@@ -381,20 +386,36 @@ internal static class WfsEndpoints
     private static async Task CapabilitiesAsync(
         HttpContext context,
         ServiceContexts contexts,
+        IProjector projector,
         IReadOnlyList<PublishedLayer> visible,
         CancellationToken cancellation)
     {
         List<WfsFeatureType> types = [];
 
+        // <b>Every layer described, not only the ones already in 4326 — Q-125.</b> The
+        // describe is what produces an extent at all, and it was skipped for anything
+        // this document could not have published a box for. That reasoning held only
+        // while projecting was believed to cost a round trip per layer.
         foreach (PublishedLayer layer in visible)
         {
-            // Described only where the extent could be published: the bounding box
-            // this document carries is WGS 84 by definition, and a layer in another
-            // reference would need a projection to produce one. See the writer,
-            // and Q-125 for the general case.
-            types.Add(await TypeOfAsync(
-                    contexts, layer, describe: layer.Definition.Srid == 4326, cancellation)
+            types.Add(await TypeOfAsync(contexts, layer, describe: true, cancellation)
                 .ConfigureAwait(false));
+        }
+
+        // <b>One call per distinct reference, not per layer.</b> The same routine WMS
+        // has used since its own capabilities document was written; see
+        // GeographicExtents for why there is now one of it rather than two.
+        IReadOnlyList<Graticula.Geometries.Envelope?> geographic =
+            await Graticula.Geometries.GeographicExtents
+                .InWgs84Async(
+                    projector,
+                    [.. types.Select(t => (t.Srid, t.Extent))],
+                    cancellation)
+                .ConfigureAwait(false);
+
+        for (int i = 0; i < types.Count; i++)
+        {
+            types[i] = types[i] with { Geographic = geographic[i] };
         }
 
         context.Response.ContentType = "text/xml; charset=utf-8";
