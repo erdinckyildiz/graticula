@@ -60,6 +60,18 @@ public sealed class ScreenOwnershipTests : ConsoleTest
         // JavaScript would be a second reading of the same tables, which is the shape of the
         // defect being checked. `console.js` is a classic script, so its top-level `const`
         // bindings are in the global lexical environment and an evaluation sees them.
+        // <b>Wait for the script before reading it — 2026-08-25.</b> `OpenAsync`
+        // returns when the page has been navigated to, not when `console.js` has
+        // defined its module-level constants, and evaluating a moment early throws
+        // `ReferenceError: SURFACES` rather than failing an assertion. It passed on a
+        // developer machine every time and failed in CI, which is what a race between
+        // a navigation and a script looks like when one side is a slower runner.
+        await WaitForAsync(
+            "typeof SURFACES !== 'undefined' && typeof SCREEN_SURFACE !== 'undefined'",
+            "`console.js` never defined SURFACES and SCREEN_SURFACE, so the page's own "
+            + "ownership tables cannot be read out of it. Either the script failed to "
+            + "load or it no longer declares them at module level.");
+
         string? json = await Browser.EvaluateAsync<string>(
             """
             JSON.stringify({

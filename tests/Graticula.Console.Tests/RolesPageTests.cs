@@ -117,6 +117,23 @@ public sealed class RolesPageTests : ConsoleTest
                 + "The server refuses the pair, so the screen has to complete it in front of the "
                 + "operator or the refusal is unanswerable.");
 
+            // <b>Read before the save, because the save re-renders — 2026-08-25.</b> This
+            // asked the page which boxes were ticked *after* clicking Save, and the comment
+            // above already calls it *the set it **would** carry*, which is a
+            // before-the-write notion. On a developer machine the read won the race with the
+            // re-render; in CI it lost and came back empty, so the assertion compared two
+            // privileges against nothing at all. Reading it here asserts the same fact and
+            // races nothing.
+            //
+            // And the set it would carry: both the privilege that was ticked and the one the
+            // screen ticked for it.
+            string ticked = await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#rolePrivileges input[data-privilege]')]"
+                + ".filter(b => b.checked).map(b => b.dataset.privilege).sort().join(',')")
+                ?? string.Empty;
+
+            Assert.Equal("content:create,content:publishFeatures", ticked);
+
             await ClickAsync("#roleSave");
 
             // <b>The write is asserted, not the row that would have followed it.</b> This harness
@@ -133,15 +150,6 @@ public sealed class RolesPageTests : ConsoleTest
             Assert.Contains(
                 $"PUT /admin/roles/{Probe}/privileges",
                 writes.Select(w => w.Replace("%2F", "/", StringComparison.Ordinal)));
-
-            // And the set it would carry: both the privilege that was ticked and the one the screen
-            // ticked for it.
-            string ticked = await Browser.EvaluateAsync<string>(
-                "[...document.querySelectorAll('#rolePrivileges input[data-privilege]')]"
-                + ".filter(b => b.checked).map(b => b.dataset.privilege).sort().join(',')")
-                ?? string.Empty;
-
-            Assert.Equal("content:create,content:publishFeatures", ticked);
 
             string[] errors = await PageErrorsAsync();
             Assert.Empty(errors);
