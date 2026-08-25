@@ -392,4 +392,14 @@ internal static partial class Log
                 + "pays one process start, which is warmed outside its deadline.")]
     public static partial void OverlayWorkersReclaimed(
         ILogger logger, int workers, long idleSeconds, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1050,
+        Level = LogLevel.Warning,
+        Message = "No font on this machine can draw U+{CodePoint} ({Sample}), so labels in that "
+                + "script are drawn as boxes. Q-15: this is the air-gap font gap, and it is a "
+                + "packaging decision rather than a fault — an image built with no system fonts "
+                + "carries Skia's own face, which is Latin. Said once per script. Install a face "
+                + "that covers it, or mount one into the image.")]
+    public static partial void NoFontForScript(ILogger logger, string codePoint, string sample);
 }

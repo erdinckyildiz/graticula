@@ -458,6 +458,18 @@ public static class Program
         // warning nobody re-reads.
         Log.AuthorizationIsPortalShaped(logger);
 
+        // <b>Q-15's font gap, wired to the log rather than to nothing.</b> The renderer
+        // asks the machine for a face that can draw a script its default one cannot, and
+        // when the machine has none it draws boxes — which used to happen with no error
+        // and no warning, so a deployment learned about it from a user looking at a map.
+        // The adapter is Tier 2 and knows about Skia and nothing else, so it raises a
+        // hook and this is the line that gives the hook somewhere to go.
+        Graticula.Render.Skia.SkiaMapCanvas.Missing = sample =>
+            Log.NoFontForScript(
+                logger,
+                char.ConvertToUtf32(sample, 0).ToString("X4", System.Globalization.CultureInfo.InvariantCulture),
+                sample);
+
         if (!await AnythingIsSharedAsync(app.Services, logger).ConfigureAwait(false))
         {
             Log.NothingIsShared(logger);

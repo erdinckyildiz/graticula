@@ -31,6 +31,20 @@ public sealed class SkiaMapCanvas : IMapCanvas
     private readonly SKPaint _fill;
     private readonly SKPaint _stroke;
     private readonly SKFont _font;
+
+    /// <summary>A font per script the default face cannot draw, or null for none found.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, SKFont?> _substitutes =
+        new();
+
+    /// <summary>
+    /// Called once per script this deployment has no face for.
+    /// </summary>
+    /// <remarks>
+    /// <b>A hook rather than a logger, because this assembly is a Tier 2 adapter.</b> It
+    /// knows about Skia and about nothing else; the host wires this to its own log at
+    /// startup. Null in a test, which is why the call site tolerates it.
+    /// </remarks>
+    public static Action<string>? Missing { get; set; }
     private readonly SKPath _path = new();
 
     private bool _disposed;
@@ -72,9 +86,16 @@ public sealed class SkiaMapCanvas : IMapCanvas
 
         // <b>The default typeface, resolved once.</b> On an image built with
         // NativeAssets.Linux.NoDependencies this is Skia's own; on a machine with
-        // fonts it is the system default. Either draws Latin text. Labels in a
-        // script the resolved face has no glyphs for come out as boxes, which is
-        // Q-15's air-gapped font question arriving with the renderer.
+        // fonts it is the system default. Either draws Latin text.
+        //
+        // <b>A script it has no glyphs for is no longer drawn as boxes —
+        // [Q-15](../../docs/open-questions.md), 2026-08-25.</b> That was the failure
+        // the air-gap checklist ended on: no error, no warning, a map that renders and
+        // is unreadable. `DrawLabel` now asks whether the resolved face can draw the
+        // text and, when it cannot, asks the font manager for one that can. On a
+        // machine with fonts that succeeds and the label is right; on an image with
+        // none it fails and says so once, which is the difference between a deployment
+        // that knows it needs a face and one that ships boxes to its users.
         _font = new SKFont(SKTypeface.Default);
     }
 
@@ -174,10 +195,12 @@ public sealed class SkiaMapCanvas : IMapCanvas
         ArgumentNullException.ThrowIfNull(symbol);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _font.Size = (float)symbol.Size;
+        SKFont font = FontFor(text);
 
-        float width = _font.MeasureText(text);
-        SKFontMetrics metrics = _font.Metrics;
+        font.Size = (float)symbol.Size;
+
+        float width = font.MeasureText(text);
+        SKFontMetrics metrics = font.Metrics;
 
         // Ascent is negative and descent positive, which is the typographic
         // convention: both are offsets from the baseline, downwards.
@@ -191,6 +214,112 @@ public sealed class SkiaMapCanvas : IMapCanvas
             y + metrics.Descent + grow);
     }
 
+    /// <summary>
+    /// A font that can draw this text, or the default one and a sentence about why not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-15](../../docs/open-questions.md)'s last item.</b> The air-gap checklist
+    /// came out clean on PROJ, on GDAL and on telemetry, and ended on fonts:
+    /// <c>SKTypeface.Default</c> draws a script it has no glyphs for as boxes, with no
+    /// error and no warning. A map that renders and cannot be read is worse than one
+    /// that refuses, because nothing anywhere says which it is.
+    /// </para>
+    /// <para>
+    /// <b>Asked per label and answered from a small cache</b>, because
+    /// <c>MatchCharacter</c> walks the machine's fonts and a map draws thousands of
+    /// labels. The key is the first character the default face cannot draw, so a map
+    /// full of Turkish labels asks once.
+    /// </para>
+    /// <para>
+    /// <b>What it does not do is bundle a face.</b> Choosing one is a size, a licence
+    /// and a promise about which scripts this product draws — a decision for whoever
+    /// packages the product, and it is recorded rather than taken here. What changes is
+    /// that an image with no suitable face now says so instead of drawing boxes.
+    /// </para>
+    /// </remarks>
+    /// <param name="text">The label.</param>
+    /// <returns>A font, which the caller must not dispose.</returns>
+    private SKFont FontFor(string text)
+    {
+        int missing = FirstUndrawable(_font.Typeface, text);
+
+        if (missing < 0)
+        {
+            return _font;
+        }
+
+        if (_substitutes.TryGetValue(missing, out SKFont? held))
+        {
+            return held ?? _font;
+        }
+
+        SKTypeface? found = SKFontManager.Default.MatchCharacter(missing);
+
+        if (found is null || FirstUndrawable(found, text) >= 0)
+        {
+            found?.Dispose();
+
+            // <b>Said once per script, not once per label.</b> A map with ten thousand
+            // Greek labels would otherwise write ten thousand lines and the operator
+            // would learn to filter them out.
+            _substitutes[missing] = null;
+
+            Missing?.Invoke(char.ConvertFromUtf32(missing));
+
+            return _font;
+        }
+
+        SKFont substitute = new(found);
+
+        if (!_substitutes.TryAdd(missing, substitute))
+        {
+            substitute.Dispose();
+            found.Dispose();
+
+            return _substitutes.TryGetValue(missing, out SKFont? raced) && raced is not null
+                ? raced
+                : _font;
+        }
+
+        return substitute;
+    }
+
+    /// <summary>The first code point this face cannot draw, or -1.</summary>
+    /// <remarks>
+    /// <b>Code points, not chars.</b> A surrogate pair is one glyph and asking about
+    /// half of it answers *no* for text the face draws perfectly well — which would send
+    /// every emoji and every CJK extension through the substitution path.
+    /// </remarks>
+    private static int FirstUndrawable(SKTypeface? face, string text)
+    {
+        if (face is null)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < text.Length;)
+        {
+            int codePoint = char.ConvertToUtf32(text, i);
+            i += char.IsSurrogatePair(text, i) ? 2 : 1;
+
+            // Whitespace and control characters are not drawn and every face reports
+            // them inconsistently; asking about them is how a plain Latin label ends up
+            // in the substitution path.
+            if (codePoint <= 0x20)
+            {
+                continue;
+            }
+
+            if (face.GetGlyph(codePoint) == 0)
+            {
+                return codePoint;
+            }
+        }
+
+        return -1;
+    }
+
     /// <inheritdoc/>
     public void DrawLabel(string text, MapSymbol.Label symbol, double x, double y)
     {
@@ -198,9 +327,11 @@ public sealed class SkiaMapCanvas : IMapCanvas
         ArgumentNullException.ThrowIfNull(symbol);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _font.Size = (float)symbol.Size;
+        SKFont font = FontFor(text);
 
-        float width = _font.MeasureText(text);
+        font.Size = (float)symbol.Size;
+
+        float width = font.MeasureText(text);
         float left = (float)x - (width / 2);
 
         // <b>Halo first, then the text over it.</b> Drawn the other way round the
@@ -213,11 +344,11 @@ public sealed class SkiaMapCanvas : IMapCanvas
             // inside the glyph, where it eats the letter rather than surrounding it.
             _stroke.StrokeWidth = (float)symbol.HaloWidth * 2;
             _stroke.PathEffect = null;
-            _canvas.DrawText(text, left, (float)y, SKTextAlign.Left, _font, _stroke);
+            _canvas.DrawText(text, left, (float)y, SKTextAlign.Left, font, _stroke);
         }
 
         _fill.Color = Colour(symbol.Colour);
-        _canvas.DrawText(text, left, (float)y, SKTextAlign.Left, _font, _fill);
+        _canvas.DrawText(text, left, (float)y, SKTextAlign.Left, font, _fill);
     }
 
     /// <inheritdoc/>
@@ -339,6 +470,12 @@ public sealed class SkiaMapCanvas : IMapCanvas
         _disposed = true;
 
         _path.Dispose();
+        foreach (SKFont? substitute in _substitutes.Values)
+        {
+            substitute?.Typeface?.Dispose();
+            substitute?.Dispose();
+        }
+
         _font.Dispose();
         _stroke.Dispose();
         _fill.Dispose();
