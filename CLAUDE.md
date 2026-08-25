@@ -203,8 +203,16 @@ These came from the project owner and are inputs, not open questions. See
 - **Scale target:** 100–1,000 services. Larger figures are stress models, not
   requirements. Do not make small deployments painful to serve hypothetical
   huge ones (§60).
-- **Language:** genuinely open. To be decided by evidence in
-  [ADR-001](docs/adr/ADR-001-core-language.md), including a prototype.
+- **Language:** ~~genuinely open. To be decided by evidence in
+  [ADR-001](docs/adr/ADR-001-core-language.md), including a prototype.~~
+  **Settled 2026-08-25 by owner decision: .NET.** *"ben Q-01'i kabul ettim .NET olarak."*
+  **The prototype this line required is not owed and will not be run**, and that is the
+  part being decided rather than a detail — [Q-01](docs/open-questions.md) stayed open for
+  thirteen days on the gap between a rule asking for a comparison and a product already
+  built in one of the two languages. The sentence is struck rather than deleted because a
+  requirement that was waived is worth being able to see, and because
+  [ADR-001](docs/adr/ADR-001-core-language.md) §0 is the record of what the evidence
+  actually was.
 
 ## 8. Documentation language
 

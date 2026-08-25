@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **`ACCEPTED WITH CONDITIONS`** — downgraded 2026-08-13, [independent review 3](../reviews/independent-review-3-synthesis.md) A1/P7. The comparison CLAUDE.md §7 required was not run, and §6's first reason for skipping it was voided the same day it was written. See §0 |
-| **Confidence** | **`LOW`** — was `MEDIUM`. The decision may well be right; the *evidence for it* is argument, and one of the three arguments is dead |
+| **Status** | **`ACCEPTED`** — 2026-08-25, by owner decision: *"ben Q-01'i kabul ettim .NET olarak"*. ~~`ACCEPTED WITH CONDITIONS` — downgraded 2026-08-13, [independent review 3](../reviews/independent-review-3-synthesis.md) A1/P7~~. **The condition was the comparison CLAUDE.md §7 asked for, and it is waived rather than met** — see §0a. The downgrade was right when it was made and the record of it stays |
+| **Confidence** | **`MEDIUM`** — 2026-08-25. ~~`LOW`~~. Raised because the owner accepted the decision knowing the comparison was never run, which removes the *unanswered question* but not the *missing measurement*: the evidence is still argument plus thirteen days of a working product, and that is what `MEDIUM` means here rather than `HIGH` |
 | **Decided** | 2026-08-12 |
 
 ---
@@ -61,6 +61,26 @@ stub, review finding P6).
 register. The register is authoritative and both are fixed.
 
 ---
+
+## 0a. Accepted 2026-08-25, and the comparison is waived rather than met
+
+**The owner closed [Q-01](../open-questions.md) as .NET**, knowing what §0 above says: the
+prototype [CLAUDE.md](../../CLAUDE.md) §7 required was never run, one of §6's three reasons for
+skipping it is dead, the second rests on an `UNVALIDATED` assumption and the third is a
+competitor's commit count.
+
+**So this is a waiver, and it is recorded as one.** Nothing here claims the comparison happened
+or that its absence stopped mattering. What changed is that the project stopped owing it: §7's
+sentence described a project with no code in it, and thirteen days later there are twelve test
+projects, 1,928 tests and a server that answers five protocol faces. Running two languages fairly
+against each other now would cost weeks and could not be acted on — switching would mean writing
+the product again — so the requirement was retired rather than satisfied.
+
+**What this does not license.** A waived condition is not a discharged one, and the honest reading
+of §9's revisit triggers is unchanged: if a proven polyglot boundary appears, or a measurement
+shows the runtime is the constraint, this decision is revisited on evidence rather than on the
+absence of it. **`experiments/lang-slice` stays as it is** — `SUPERSEDED, not run` — because a
+comparison that was deliberately skipped is a fact about this project worth keeping legible.
 
 ## 1. Context
 
