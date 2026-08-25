@@ -402,4 +402,25 @@ internal static partial class Log
                 + "carries Skia's own face, which is Latin. Said once per script. Install a face "
                 + "that covers it, or mount one into the image.")]
     public static partial void NoFontForScript(ILogger logger, string codePoint, string sample);
+
+    [LoggerMessage(
+        EventId = 1051,
+        Level = LogLevel.Warning,
+        Message = "Layer '{Layer}' is stored in EPSG:{StoredAs} and was served as "
+                + "EPSG:{ServedAs}, which crosses a datum. {Caution} Q-141: said once per "
+                + "layer and target reference, to you rather than to the client — the caller "
+                + "cannot install shift grids and a protobuf tile has nowhere to carry a "
+                + "caution. The same list is on /admin/health under datumShifts.")]
+    public static partial void DatumShiftServed(
+        ILogger logger, string layer, int storedAs, int servedAs, string caution);
+
+    [LoggerMessage(
+        EventId = 1052,
+        Level = LogLevel.Debug,
+        Message = "Could not determine whether serving '{Layer}' as EPSG:{ServedAs} crosses a "
+                + "datum. Debug rather than a warning: the request itself is answering "
+                + "normally, this is an aside about it, and the usual cause is the projection "
+                + "database being briefly unreachable — the next request asks again.")]
+    public static partial void DatumShiftUnknown(
+        ILogger logger, string layer, int servedAs, System.Exception exception);
 }

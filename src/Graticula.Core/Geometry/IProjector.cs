@@ -120,4 +120,41 @@ public interface IProjector
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the system is one this deployment can project into.</returns>
     Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What a transformation between two references would be, without moving anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-25 for [Q-141](../../../docs/open-questions.md), whose answer is that
+    /// the datum caution goes to the operator.</b> The FeatureServer's <c>outSR</c> and the
+    /// tile path both reproject in SQL — <c>st_transform</c> inside the query the datastore
+    /// runs — so neither passes through <see cref="ProjectAsync"/> and neither has ever seen
+    /// a provenance record. That is [D-32](../../../docs/architecture-debt.md)'s remaining
+    /// exposure, and it is a gap in *who gets told*, not in the mechanism: the decision about
+    /// whether a pair of references crosses a datum is already made and already cached.
+    /// </para>
+    /// <para>
+    /// <b>So this asks the question the geometry does not have to be present for.</b> The
+    /// caller has a layer and a target reference and wants to know whether serving one from
+    /// the other is exact by construction or a shift of unstated size. Asking through
+    /// <see cref="ProjectAsync"/> with an empty list already answers it — that is what this
+    /// makes explicit rather than incidental, and an empty list is not an obvious way to ask
+    /// a question.
+    /// </para>
+    /// <para>
+    /// <b>Same caching contract as <see cref="KnowsAsync"/>.</b> The answer depends only on
+    /// the two references' definitions, which change when somebody edits the projection
+    /// database. An implementation is expected to answer the second call without a round
+    /// trip, because a request-path caller will ask on every request.
+    /// </para>
+    /// </remarks>
+    /// <param name="fromSrid">The reference the data is in.</param>
+    /// <param name="toSrid">The reference it would be served in.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>
+    /// The provenance that <see cref="ProjectAsync"/> would report for this pair.
+    /// </returns>
+    Task<ProjectionProvenance> DescribeAsync(
+        int fromSrid, int toSrid, CancellationToken cancellationToken);
 }

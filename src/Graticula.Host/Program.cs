@@ -168,6 +168,11 @@ public static class Program
 
         builder.Services.AddSingleton<TileSingleFlight>();
 
+        // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
+        // *said once* is a property of the server rather than of a request, and it is
+        // read back by `/admin/health`.
+        builder.Services.AddSingleton<DatumShiftNotices>();
+
         // <b>ADR-007 §4.8's connection cap, which the ADR has required since 2026-08-12.</b>
         // Registered before `LayerConnections` because that is what consumes it: every read path
         // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.
@@ -3096,6 +3101,8 @@ public static class Program
         IAuditLog audit,
         ILoggerFactory loggerFactory,
         HostSettings settings,
+        IProjector projector,
+        DatumShiftNotices datumShifts,
         CancellationToken cancellation)
     {
         // <b>D-30: the clock starts before the catalogue read, not after.</b>
@@ -3242,6 +3249,39 @@ public static class Program
             {
                 Log.QueryParameterIgnored(queryLog, ignored, layer.Definition.Name, why);
             }
+        }
+
+        /*
+          <b>Q-141: the datum caution goes to the operator, once per layer and reference.</b>
+          `outSR` reprojects in SQL — `PostGisFeatureSource.OutputGeometry` wraps the column
+          in `st_transform` — so this path never touches `IProjector` and has never produced
+          a provenance record. That is [D-32](../../docs/architecture-debt.md)'s remaining
+          exposure on the FeatureServer, and it is a gap in who gets told rather than in the
+          mechanism.
+
+          <b>Here rather than in the provider.</b> The provider builds SQL and does not know
+          the layer's identity or the server's logger, and the four alternate shapes below
+          reproject too — `returnExtentOnly` with an `outSR` is the same transformation with
+          the same silence. One call above the branch covers all five.
+
+          <b>Awaited rather than fired and forgotten.</b> The first sighting per pair costs
+          one round trip to `spatial_ref_sys` and every one after it costs a dictionary
+          lookup, which is cheaper than the catalogue read this handler already pays. A
+          background task would need its own cancellation and its own failure route to buy
+          back a cost that is not there.
+        */
+        if (query!.OutSrid is { } servedAs)
+        {
+            await datumShifts
+                .NoteAsync(
+                    layer.Id,
+                    layer.Definition.Name,
+                    layer.Definition.Srid,
+                    servedAs,
+                    projector,
+                    queryLog,
+                    cancellation)
+                .ConfigureAwait(false);
         }
 
         // <b>Four shapes that are not a feature collection.</b> Each replaces

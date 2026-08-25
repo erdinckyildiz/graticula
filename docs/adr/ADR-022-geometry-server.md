@@ -580,6 +580,69 @@ than the missing thing.
 
 **10 of 22 supported, 9 refused with reasons, 3 newly discovered.** *(Superseded within the day: §2b took it to 16, §2c to 18.)*
 
+## 4b. Decision — the datum caution is told to the operator, not to the client
+
+*Added 2026-08-25 by owner decision, closing [Q-141](../open-questions.md) and the residual
+of [D-32](../architecture-debt.md).* The owner's words were *"Operatöre söyle — günlük ve
+/admin"*.
+
+**The question.** §4 chose the datastore's PROJ, and PROJ falls back to a ballpark
+transformation when the shift grids for the accurate path are absent — without failing.
+`GeometryServer`'s `project` has reported that since 2026-08-16, because it has a response
+to put a caution on. The FeatureServer's `outSR` and the tile path do the same
+transformation and report nothing: both reproject in SQL, inside the query the datastore
+runs, so neither passes through `IProjector` at all.
+
+**Q-141 listed three shapes and the answer is a fourth.** The service document, a
+non-standard member on `query`, or refusing the transform — each of them argues about *how
+to tell the client*, and the client is the wrong audience. A caller asking for `outSR=4326`
+cannot install shift grids, cannot choose a pipeline, and on the tile path cannot read a
+caution at all, because a protobuf tile has nowhere to carry one. **The person who can act
+is the one who administers the datastore.** This server already has two channels aimed at
+exactly them, so the caution goes to the log and to `/admin/health`.
+
+**What that buys, and it is the part worth stating.** It costs no compatibility risk. The
+other three each spent some: a non-standard member on the surface whose whole promise is
+that an unmodified ArcGIS client keeps working ([Q-17](../open-questions.md)), or a refusal
+that breaks every client asking for a transform today. This spends none, and reaches the
+tile path, which two of the three could not reach at all.
+
+**Once per layer and target reference.** D-32's failure has no error, no log line and no
+visual signature — the map looks right and is in the wrong place — so the first line is
+worth a great deal and the ten-thousandth is worth less than nothing. A warning that
+repeats on every request is one an operator filters out, and then the channel is gone. The
+pair is the unit because *this layer, served as that reference* is a sentence somebody can
+check grids against.
+
+**A pair that could not be read is recorded, not assumed fine.** A reference whose WKT
+names no datum is precisely the case to look at; treating *could not tell* as *no datum
+change* is how the failure stays invisible. 4326 to 3857 is one datum and is not recorded,
+which is what keeps the list worth reading.
+
+**The register is bounded and says when it stops.** Half its key space is the caller's — a
+client naming ten thousand SRIDs would otherwise grow it without limit — so it holds 256
+pairs and reports `truncated`. It stops recording rather than evicting: eviction would let
+the same notice be logged again later, which is the repetition this exists to avoid.
+
+**It cannot fail a request.** The lookup is wrapped, and a projection database that cannot
+be read leaves the pair unrecorded and the request answering normally. That is
+[D-152](../architecture-debt.md)'s shape — a cosmetic check that stopped the thing it was
+commenting on — and the notice is an aside on a request that is about to succeed.
+
+**Measured 2026-08-25 rather than asserted.** Against a layer stored in EPSG:5254
+(Turkish National Reference Frame) in a live server: `outSR=4326` logged one line naming
+both datums and appeared under `datumShifts` on `/admin/health`, which was empty before it;
+six identical queries produced one line; a layer stored in EPSG:3857 served as EPSG:4326
+produced none; and a vector tile request produced the 5254→3857 line with no query
+involved. `DatumShiftNoticesTests` is what keeps each of those true.
+
+**What is unchanged.** The transform is still performed. Refusing it was the third shape
+and it breaks every client that asks for one today; geometry-crs-policy §3's position is
+that a silent default is the problem and a documented one is not. The accuracy is still
+null, and still needs PROJ's operation database ([Q-100](../open-questions.md)).
+
+---
+
 ## 5. Decision — measurement is planar, and says so in every response
 
 Area and length treat coordinates as being on a plane. In Web Mercator that

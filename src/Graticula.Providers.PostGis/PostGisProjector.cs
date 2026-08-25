@@ -68,7 +68,7 @@ public sealed class PostGisProjector : IProjector
         {
             return (
                 [],
-                await ProvenanceAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false));
+                await DescribeAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false));
         }
 
         // <b>One statement for the whole batch, ordered by an explicit index.</b>
@@ -131,7 +131,7 @@ public sealed class PostGisProjector : IProjector
 
         return (
             projected,
-            await ProvenanceAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false));
+            await DescribeAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>Which PROJ did the work.</summary>
@@ -144,7 +144,16 @@ public sealed class PostGisProjector : IProjector
     /// engine version is the whole of what can honestly be said, and null is
     /// truthful where a number would not be.
     /// </remarks>
-    private async Task<ProjectionProvenance> ProvenanceAsync(
+    /// <inheritdoc cref="IProjector.DescribeAsync"/>
+    /// <remarks>
+    /// <b>Public since 2026-08-25, and it is the same method.</b> [Q-141](../../../docs/open-questions.md)
+    /// needed the datum answer on a path that never calls <see cref="ProjectAsync"/>, and this
+    /// was already computing it for the paths that do. Publishing what exists beats a second
+    /// implementation of the same WKT read, which would be the propagation shape
+    /// [D-130](../../../docs/architecture-debt.md) records with the added cost that the two
+    /// could disagree about the same pair of references.
+    /// </remarks>
+    public async Task<ProjectionProvenance> DescribeAsync(
         int fromSrid, int toSrid, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand("select postgis_proj_version()");

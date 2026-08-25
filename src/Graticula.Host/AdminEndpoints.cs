@@ -4364,6 +4364,7 @@ internal static class AdminEndpoints
         ITileCache tiles,
         TileSingleFlight flight,
         ConnectionBudget budget,
+        DatumShiftNotices datumShifts,
         CancellationToken cancellation)
     {
         string? storeError = null;
@@ -4511,6 +4512,24 @@ internal static class AdminEndpoints
         // [Q-141](../../docs/open-questions.md) asks about a datum caution, with the same
         // answer. Empty is the ordinary case and is not a failure.
         health["unopenableSources"] = layerCatalog.UnopenableSources;
+
+        // <b>Which layers this server has served across a datum — Q-141.</b> The
+        // caution is here and in the log rather than on the response, because the
+        // person who can install PROJ's shift grids is the one reading this page and
+        // not the client that asked. Empty is the ordinary case. `truncated` says the
+        // ceiling was reached, because a list that silently stops is worse than a
+        // short one that says so.
+        health["datumShifts"] = new
+        {
+            layers = datumShifts.Report(),
+            truncated = datumShifts.Truncated,
+            note = "Serving a layer in a reference on another datum is a transform "
+                 + "PROJ performs without failing, and if the shift grids for the "
+                 + "accurate path are missing it falls back to a ballpark one — the "
+                 + "result can be metres out with no error and no visual signature. "
+                 + "Said once per layer and target reference. See "
+                 + "docs/geometry-crs-policy.md §3.",
+        };
 
         health["admissionControl"] = new
         {

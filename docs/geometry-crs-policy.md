@@ -93,6 +93,18 @@ difference is legally significant, not cosmetic.
   not.
 - Default to PROJ's best available when nothing is pinned.
 
+**Where this stands, 2026-08-25.** Pinning is not built and the pipeline is still
+unnameable — `ST_Transform` does not surface it, and PROJ's operation database is not
+queryable from the datastore ([Q-100](open-questions.md)). What *is* built is the weaker
+statement this policy's second bullet is really asking for: **whether a datum was crossed
+at all**, which is the line between a transformation that is exact by construction and one
+that can be metres out. `GeometryServer`'s `project` carries it on the response; the
+FeatureServer's `outSR` and the tile path reproject in SQL and carry it to the operator
+instead — the log and `/admin/health`, once per layer and target reference
+([ADR-022](adr/ADR-022-geometry-server.md) §4b, closing
+[D-32](architecture-debt.md) and [Q-141](open-questions.md)). The client is not told,
+deliberately: it cannot install grids, and a protobuf tile has nowhere to carry a caution.
+
 Interacts with Q-15: the grids that make accurate transformation possible must
 be present in an air-gapped install, and their absence changes results rather
 than producing an error.

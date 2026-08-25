@@ -15,6 +15,7 @@ using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
 
@@ -536,6 +537,9 @@ internal static class VectorTileEndpoints
         LayerConnections connections,
         ITileCache cache,
         TileSingleFlight building,
+        IProjector projector,
+        DatumShiftNotices datumShifts,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -588,6 +592,30 @@ internal static class VectorTileEndpoints
                 .ConfigureAwait(false);
 
             IReadOnlyList<string> attributes = AttributesOf(layer, description);
+
+            /*
+              <b>Q-141: the operator hears about the datum, because nobody else can.</b> A
+              tile is Web Mercator by definition, so a layer stored in anything else is
+              transformed on every cold tile — and a protobuf tile has nowhere to carry a
+              caution even if the client could act on one. This is the half of
+              [D-32](../../docs/architecture-debt.md) that the three response-shaped answers
+              could not have reached at all.
+
+              <b>Before the cache is consulted, not after.</b> A warm tile is served without
+              transforming anything, and putting the notice on the miss would mean a
+              deployment whose tiles are all cached never hears about a layer it is
+              nonetheless serving across a datum. The dictionary makes the repeat free.
+            */
+            await datumShifts
+                .NoteAsync(
+                    layer.Id,
+                    layer.Definition.Name,
+                    layer.Definition.Srid,
+                    WebMercator,
+                    projector,
+                    loggerFactory.CreateLogger("tiles"),
+                    cancellation)
+                .ConfigureAwait(false);
 
             TileCacheKey key = new(
                 layer.Id,
