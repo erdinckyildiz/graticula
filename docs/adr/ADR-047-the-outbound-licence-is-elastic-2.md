@@ -111,7 +111,8 @@ receives a copy and nobody has received one.
 
 **Corrected 2026-08-25, an hour after this ADR was written.** The first version of this
 paragraph said *no commit has been pushed*, and that is false: this history has been
-pushed to `erdinckyildiz/gis-server` since 2026-08-12, most recently on 2026-08-24. The
+pushed since 2026-08-12 to the repository still carrying the former working title
+(`erdinckyildiz/gis-server` — ADR-032 renamed the product, not the remote), most recently on 2026-08-24. The
 claim that holds is the narrower one — **that repository is private, with 0 forks and 0
 stars**, and no release exists ([D-19](../architecture-debt.md)). So no third party has
 ever obtained a copy under Apache-2.0, and there is nobody holding rights this change
@@ -127,7 +128,7 @@ the correction matters because those are days apart rather than the same instant
 | No copyleft dependency blocks a restrictive outbound licence | Every referenced package is permissive: BitMiracle.LibTiff.NET BSD-3, Konscious.Argon2 MIT, MaxRev.Gdal.Core MIT, NetTopologySuite BSD-3/Apache-2.0, Npgsql PostgreSQL Licence, SkiaSharp MIT — `Directory.Packages.props` read 2026-08-25 |
 | GDAL's native payload carries no copyleft either | [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) enumerates all fourteen `LICENSE.TXT` components against the drivers actually built — *"all of them permissive, none of them copyleft"*, measured from the running build rather than assumed |
 | GEOS (LGPL) and PostGIS (GPL-2.0-or-later) do not constrain us | Both are a separate process, not linked. `NativeDependencyTests` holds the confinement in both directions |
-| Nothing has been **published** under Apache-2.0 | `gh repo view erdinckyildiz/gis-server` 2026-08-25: `isPrivate: true`, `forkCount: 0`, `stargazerCount: 0`, created 2026-08-12. Commits *have* been pushed there since 2026-08-12 — the first draft of this row said otherwise and was wrong — but a push to a private repository distributes to nobody, and there is no release ([D-19](../architecture-debt.md)) |
+| Nothing has been **published** under Apache-2.0 | `gh repo view` on the remote still named for the former working title 2026-08-25: `isPrivate: true`, `forkCount: 0`, `stargazerCount: 0`, created 2026-08-12. Commits *have* been pushed there since 2026-08-12 — the first draft of this row said otherwise and was wrong — but a push to a private repository distributes to nobody, and there is no release ([D-19](../architecture-debt.md)) |
 | The licence text is the canonical one | Taken byte-for-byte from `elastic/elasticsearch`'s `licenses/ELASTIC-LICENSE-2.0.txt`, not retyped |
 
 ## 5. Decision
