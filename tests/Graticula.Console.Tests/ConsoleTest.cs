@@ -718,6 +718,20 @@ public abstract class ConsoleTest : IAsyncLifetime
           // `api()` rejects on every refusal, so the second is the one that matters here.
           window.__pageErrors = [];
 
+          // <b>Which documents this tab has loaded, in order — D-173.</b> A page that
+          // navigates cancels everything in flight, and the cancellation is reported by
+          // the browser exactly like a request that failed. The console does navigate on
+          // purpose: its surface router calls `location.replace` on a *path*, and signing
+          // out replaces the page. `sessionStorage` survives a navigation within the tab
+          // where `window` does not, so this is the one record that outlives the document
+          // it describes — and a list longer than the opens a test performed is a
+          // navigation nobody asked for.
+          try {
+            const seen = JSON.parse(sessionStorage.getItem("__documents") || "[]");
+            seen.push(location.pathname + location.hash);
+            sessionStorage.setItem("__documents", JSON.stringify(seen.slice(-8)));
+          } catch (e) { /* a storage a browser refuses is not worth a failed page */ }
+
           window.addEventListener("error", e => {
             window.__pageErrors.push("error: " + (e.message || String(e.error)));
           });
@@ -1016,9 +1030,16 @@ public abstract class ConsoleTest : IAsyncLifetime
                         : name);
                     }
 
+                    let documents = 'unknown';
+
+                    try {
+                      documents = sessionStorage.getItem('__documents') || '[]';
+                    } catch (e) { documents = 'storage refused'; }
+
                     return 'readyState=' + document.readyState
                       + ' at=' + location.pathname
-                      + ' assets=[' + listed.join(', ') + ']';
+                      + ' assets=[' + listed.join(', ') + ']'
+                      + ' documents=' + documents;
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
