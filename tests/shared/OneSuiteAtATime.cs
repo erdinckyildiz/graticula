@@ -50,7 +50,9 @@ namespace Graticula.Testing;
 /// <b>The false failures cost more than the minute does.</b> Each passes in
 /// isolation, which is the shape that reads as flakiness and earns a retry rather
 /// than a cause. If a database-backed test fails here and passes alone, look for a
-/// server before looking at the test.
+/// server before looking at the test — and <c>QuietDatabaseTests</c> now asks that
+/// question for you, so a run with a server up says so instead of leaving it to be
+/// inferred from which tests happened to time out.
 /// </para>
 /// <para>
 /// <b>So the lock is where the contention is.</b> An exclusive handle on one file

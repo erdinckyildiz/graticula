@@ -89,8 +89,19 @@ public static class Program
           the pollers sharing this pool at all, and the repayable form is their own — recorded
           in the row rather than guessed at here.
         */
+        // <b>The pool names itself, like the pollers' one does — [D-166](../../docs/architecture-debt.md).</b>
+        // `pg_stat_activity.application_name` is the only place a DBA holding a lock, or a
+        // developer wondering why their tests time out, can tell this server's connections
+        // from anything else on the same database. The jobs pool has been named since it was
+        // split out; the pool every request uses was not, so *is a Graticula server holding
+        // this database* was a question nobody could answer from the database.
         builder.Services.AddSingleton(_ =>
-            new NpgsqlDataSourceBuilder(settings.PlatformStore).Build());
+            new NpgsqlDataSourceBuilder(
+                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                {
+                    ApplicationName = "graticula",
+                }.ConnectionString)
+                .Build());
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
             services.GetRequiredService<NpgsqlDataSource>(),
