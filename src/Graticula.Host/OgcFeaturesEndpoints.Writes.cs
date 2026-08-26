@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -108,6 +109,7 @@ internal static partial class OgcFeaturesEndpoints
         LayerConnections connections,
         IProjector projector,
         bool needsIdentity,
+        string capability,
         CancellationToken cancellation)
     {
         (PublishedLayer? layer, CollectionMetadata? collection, bool refused) =
@@ -140,6 +142,29 @@ internal static partial class OgcFeaturesEndpoints
                     + "be addressed individually. Editing needs an addressable feature: a "
                     + "created one has to be given a URL, and a replaced or deleted one has to "
                     + "be named."))
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        // <b>The service's capability ceiling, on this face too —
+        // [D-179](../../docs/architecture-debt.md).</b> The ArcGIS write path was repaired
+        // first and this one was found the same hour: four endpoints, the same setting, the
+        // same service, and no check. A ceiling enforced on one face and not the other is
+        // worse than one enforced on neither, because an operator who tests the face they
+        // know believes it worked everywhere. This is the common gate for POST, PUT, PATCH
+        // and DELETE, which is why the check is here rather than four times over.
+        if (layer.CapabilityCeiling is { } ceiling
+            && !ceiling.Contains(capability, StringComparer.Ordinal))
+        {
+            string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
+
+            await RefuseAsync(
+                context,
+                OgcProblem.Forbidden(
+                    $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
+                    + $"{capability} is refused here. The service is running and answering what "
+                    + "it does offer; an administrator can change this on its capabilities."))
                 .ConfigureAwait(false);
 
             return null;
@@ -359,7 +384,7 @@ internal static partial class OgcFeaturesEndpoints
     {
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
-                needsIdentity: false, cancellation).ConfigureAwait(false)
+                needsIdentity: false, capability: "Create", cancellation).ConfigureAwait(false)
             is not { } target)
         {
             return;
@@ -497,7 +522,7 @@ internal static partial class OgcFeaturesEndpoints
     {
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
-                needsIdentity: true, cancellation).ConfigureAwait(false)
+                needsIdentity: true, capability: "Update", cancellation).ConfigureAwait(false)
             is not { } target)
         {
             return;
@@ -578,7 +603,7 @@ internal static partial class OgcFeaturesEndpoints
     {
         if (await TargetAsync(
                 context, collectionId, catalog, contexts, connections, projector,
-                needsIdentity: true, cancellation).ConfigureAwait(false)
+                needsIdentity: true, capability: "Delete", cancellation).ConfigureAwait(false)
             is not { } target)
         {
             return;

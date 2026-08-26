@@ -42,6 +42,18 @@ public sealed record OgcProblem(int Status, string Title, string Detail)
     /// <returns>The problem.</returns>
     public static OgcProblem NotFound(string detail) => new(404, "Not Found", detail);
 
+    /// <summary>A request this deployment is configured not to answer.</summary>
+    /// <param name="detail">Which setting refused it, in the operator's words.</param>
+    /// <remarks>
+    /// <b>403 rather than 404, and the reason is [D-179](../../docs/architecture-debt.md).</b>
+    /// A capability the service has turned off is not an absent collection: the collection
+    /// is listed, readable and linked, and hiding it at the moment somebody writes to it
+    /// would be a different answer from the one the same server gives on its ArcGIS face.
+    /// ADR-018 makes a turned-off <em>face</em> a 404 so nothing leaks; this is a
+    /// capability inside a live face, which leaks nothing a client has not already read.
+    /// </remarks>
+    public static OgcProblem Forbidden(string detail) => new(403, "Forbidden", detail);
+
     /// <summary>The catalogue cannot be read and nothing is remembered.</summary>
     /// <remarks>
     /// <b>503 rather than 404, and the difference is the whole of
