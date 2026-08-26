@@ -19,6 +19,7 @@ drives the whole suite and returns the EARL report as RDF.
 | WFS 2.0, second run | same | 757 | **44 s** |
 | OGC API Features 1.0 | `ogccite/ets-ogcapi-features10` | 332 | **10 s** |
 | WMS 1.3 | `ogccite/ets-wms13` | 188 | **10 s**, then 7 s |
+| OGC API Features 1.0, every collection | same | 1,402 | **29 s** |
 
 **Container start is not in those numbers and is not free**: TEAM Engine needs
 about 30 s before it answers, once per container rather than once per run.
@@ -160,6 +161,57 @@ better refusal; it changed what an operator is told, which is worth its own line
 source's circuit breaker: normal requests kept returning PNG throughout. `SourceBreaker`
 distinguishes a database that *answered* from one that is unreachable, so a client cannot
 take a data source down with a malformed bounding box.
+
+---
+
+## 2d. Full scope on OGC API Features, which the default run was not
+
+**`noofcollections=-1` is the parameter, and it is what the 2026-08-23 baseline used.** The
+default is three collections; §1's ten-second figure was that. Every collection is **29 s**
+over 1,402 assertions.
+
+| Run | Passed | Failed | Untested |
+|---|---|---|---|
+| 2026-08-23 baseline, every collection | 1,268 | 6 | 78 |
+| 2026-08-26, every collection | 1,256 | **20** | 126 |
+
+**Six of the twenty are the baseline's six** — `numberReturned (300) does not match the
+number of features in all responses (50)`, a paging count that has been wrong since before
+today.
+
+**Fourteen are new, and all fourteen are against the two empty layers.** They are one
+defect, not four:
+
+```
+GET /ogc/features/v1/collections/LiveSensors/items?bbox=-180,-90,180,90&limit=10  ->  400
+```
+
+**Measured directly across five layers, all EPSG:3857:**
+
+| Layer | Rows | `bbox=-180,-90,180,90` |
+|---|---|---|
+| LiveSensors | 0 | **400** |
+| ci_editable | 0 | **400** |
+| ci_buildings | 8 | 200 |
+| ci_parcels | 12 | 200 |
+| tiles-buildings | 20,000 | 200 |
+
+Same request, same reference, and the answer depends on whether the table has rows.
+±90° is valid in CRS84 and is not representable in Web Mercator, so transforming the filter
+raises — and whether that raise is reached depends on the plan the table's contents produce.
+
+**This is [D-163](../../docs/architecture-debt.md) on the surface D-163 did not touch**, and
+it is [D-164](../../docs/architecture-debt.md). The map path's answer — draw nothing where
+PROJ cannot reach — is *wrong* here: a world bbox on a Web Mercator layer should return
+every feature, because everything is inside ±85°. The filter has to be clipped to what the
+target can represent, and `postgis_srs('EPSG','3857')` gives exactly that: (-180, -85.06) to
+(180, 85.06).
+
+**A detail worth keeping straight.** The 400 the suite sees is the message written this
+morning for the WMS path — *a coordinate in this request is outside the range its coordinate
+reference system allows*. Before that it would have read *this service is temporarily
+unavailable*. The defect is the same; only the honesty changed, and it is what made this
+diagnosable in one reading.
 
 ---
 
