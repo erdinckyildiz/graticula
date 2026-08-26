@@ -117,6 +117,52 @@ are in the 2026-08-23 baseline as well.
 
 ---
 
+## 2c. The six that remain, and what five of them are
+
+**Read the requests, not the assertion names.** Five of the six failing WMS assertions were
+built by the suite with **an empty `LAYERS` parameter** — one of them with `LAYERS=,,,,,,,`,
+eight empty entries — so they are requests for no layers at all:
+
+| Assertion | `LAYERS` sent |
+|---|---|
+| no-bgcolor | *(empty)* |
+| blue-bgcolor | *(empty)* |
+| exponential BBOX notation | `,,,,,,,` |
+| pixel-edge interpretation | *(empty)* |
+| TRANSPARENT=TRUE | *(empty)* |
+| bbox-outside-crs | `ci_buildings` |
+
+**So five of them say nothing about this server's GetMap.** The suite could not select a
+layer for them and sent none. Whatever the selection criterion is, it is not one this run
+established — and the same five are in the 2026-08-23 baseline, so *8 failures* there is
+partly the same artefact rather than eight conformance gaps. A hypothesis was tested and
+refused: giving every layer a second `BoundingBox` in `CRS:84` changed nothing — 184/6 both
+ways, `LAYERS` still empty — so it was reverted rather than kept as a change with no
+measured effect (§82).
+
+**Exponential BBOX notation works, checked directly**: `bbox=3.218E6,5.012E6,3.219E6,5.013E6`
+against a real layer returns 200 and a PNG. The assertion that carries that name is one of
+the five.
+
+**The sixth is real and is [D-163](../../docs/architecture-debt.md).** `bbox-outside-crs`
+sends a genuine layer with `BBOX=-10,90,10,110` in CRS:84 — latitudes up to 110°. The suite
+expects an image; this server answers a `ServiceException`.
+
+**And answering it revealed a second defect, which is fixed.** PostGIS raised
+`XX000: transform: latitude or longitude exceeded limits`, `PostgresException` derives from
+`NpgsqlException`, and the server said *this service is temporarily unavailable, retry in a
+few seconds* — for a request that will never succeed, sending whoever read it to check a
+database that was working. It now answers 400 and names the bounding box.
+**That did not change the suite's count**, because the suite wants a map rather than a
+better refusal; it changed what an operator is told, which is worth its own line.
+
+**A worry that was measured and is not real.** Five bad requests in a row did not open the
+source's circuit breaker: normal requests kept returning PNG throughout. `SourceBreaker`
+distinguishes a database that *answered* from one that is unreachable, so a client cannot
+take a data source down with a malformed bounding box.
+
+---
+
 ## 3. What this says about D-158
 
 The row's argument is that *a conformance claim ages into a conformance belief*,

@@ -38,6 +38,60 @@ public sealed class ErrorResponseTests
     }
 
     [Fact]
+    public void A_coordinate_outside_its_reference_is_the_callers_mistake_not_an_outage()
+    {
+        // <b>Found 2026-08-26 by the WMS 1.3 CITE suite.</b> A GetMap with CRS:84 and
+        // BBOX=-10,90,10,110 asks for latitudes up to 110°, which do not exist. PROJ refuses
+        // it, PostGIS raises XX000, and PostgresException derives from NpgsqlException — so
+        // it fell to the general branch and the server answered *this service is temporarily
+        // unavailable, retry in a few seconds*. Retrying never helps, and the sentence sends
+        // whoever reads it to check a database that is working perfectly. Same mistake as
+        // D-150, on a different road.
+        PostgresException outside = new(
+            messageText: "transform: latitude or longitude exceeded limits (-14)",
+            severity: "ERROR", invariantSeverity: "ERROR", sqlState: "XX000");
+
+        (int status, string message) = ErrorResponse.Classify(outside);
+
+        Assert.Equal(400, status);
+        Assert.Contains("outside the range", message, StringComparison.Ordinal);
+        Assert.Contains("retrying will not help", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("temporarily unavailable", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_older_reserved_srid_arm_still_wins_its_own_case()
+    {
+        // <b>Two arms now match XX000 and the order between them is load-bearing.</b> The
+        // SRID arm comes first and names the reference; the coordinate-range arm comes later
+        // and names the bounding box. A message mentioning SRID must still get the first,
+        // or a defect fixed in August 2026 returns as a side effect of this one.
+        PostgresException srid = new(
+            messageText: "Invalid reserved SRID 900913", severity: "ERROR",
+            invariantSeverity: "ERROR", sqlState: "XX000");
+
+        (int status, string message) = ErrorResponse.Classify(srid);
+
+        Assert.Equal(400, status);
+        Assert.Contains("projection database", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unrecognised_internal_error_keeps_the_old_answer()
+    {
+        // <b>The text match fails safe, and that is worth pinning.</b> XX000 is PostGIS's
+        // catch-all, so anything else in it must fall through to the general branch rather
+        // than be called a bad request — a wrong 400 hides a real fault.
+        PostgresException other = new(
+            messageText: "something else entirely", severity: "ERROR",
+            invariantSeverity: "ERROR", sqlState: "XX000");
+
+        (int status, _) = ErrorResponse.Classify(other);
+
+        Assert.NotEqual(400, status);
+    }
+
+    [Fact]
     public void A_statement_timeout_is_504_and_says_the_server_did_not_fail()
     {
         (int status, string message) = ErrorResponse.Classify(WithSqlState("57014"));

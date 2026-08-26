@@ -510,6 +510,36 @@ internal static class ErrorResponse
             + "needs republishing against the columns the table actually has.",
             NeedsAnAdministrator),
 
+        // <b>A coordinate outside its reference's domain is the caller's mistake, and it was
+        // answered as an outage — found 2026-08-26 by the WMS 1.3 CITE suite.</b> A `GetMap`
+        // with `CRS:84` and `BBOX=-10,90,10,110` asks for latitudes up to 110°, which do not
+        // exist. PROJ refuses it, PostGIS raises `XX000: transform: latitude or longitude
+        // exceeded limits`, and `PostgresException` derives from `NpgsqlException` — so it fell
+        // to the general branch and the server said *this service is temporarily unavailable,
+        // retry in a few seconds*. **Retrying will never help**, and the sentence sends whoever
+        // reads it to check a database that is working perfectly. That is the same mistake
+        // [D-150](../../docs/architecture-debt.md) records one arm above, arriving on a
+        // different road.
+        //
+        // <b>Matched on the message because PostGIS gives no code of its own.</b> `XX000` is
+        // `internal_error`, which PostGIS uses for everything it raises itself, so the state
+        // alone cannot tell a bad coordinate from a bad anything. Text matching is brittle and
+        // this one fails safe: if PostGIS rewords it, the arm stops matching and the answer
+        // goes back to what it was, which is wrong but no worse than today.
+        //
+        // <b>400 rather than 500, and it names the parameter.</b> The request is the thing that
+        // is wrong; nothing about the server or its data needs attention. On the WMS surface
+        // this becomes a `ServiceException`, which is what a conforming client reads.
+        PostgresException { SqlState: "XX000" } postgis
+            when postgis.MessageText.Contains("exceeded limits", StringComparison.Ordinal)
+                 && postgis.MessageText.Contains("transform", StringComparison.Ordinal) => new(
+            StatusCodes.Status400BadRequest,
+            "A coordinate in this request is outside the range its coordinate reference system "
+            + "allows — a latitude beyond ±90° or a longitude beyond ±180° in a geographic "
+            + "system, or a value outside the projection's domain. Check the bounding box and "
+            + "the reference it is stated in; retrying will not help.",
+            null),
+
         // <b>A lock wait is not an outage, and it was answered as one — D-150.</b> PostgreSQL
         // raises 55P03 when `lock_timeout` cuts a statement that is *waiting* rather than
         // running, and nothing here had an arm for it: `PostgresException` derives from

@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>ad55bb5</code> · 2026-08-26 09:20</p>
+<p class="stamp">Generated from commit <code>430ea96</code> · 2026-08-26 09:20</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">92 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">35</div><div class="kpi-l">open questions</div><div class="kpi-n">107 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">137 repaid · 3 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">open debts</div><div class="kpi-n">137 repaid · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2035</div><div class="kpi-l">tests</div><div class="kpi-n">243 source files, 94,177 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2038</div><div class="kpi-l">tests</div><div class="kpi-n">243 source files, 94,207 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">5 open</span></div><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">119 items</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>23 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">120 items</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -299,6 +299,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-158</td><td>The strongest external evidence this project has is re-earned by somebody remembering.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-163</td><td>A GetMap whose bounding box leaves the reference&#x27;s valid area is refused, and WMS says it should be drawn.</td><td class="muted-t">Before a client that pans is used against this server, which is every desktop and web map client — the case arises the…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">137 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -393,20 +394,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">429</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:91.1%"></div></div><div class="bar-n">391</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:79.7%"></div></div><div class="bar-n">342</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:67.1%"></div></div><div class="bar-n">288</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.8%"></div></div><div class="bar-n">145</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:32.2%"></div></div><div class="bar-n">138</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:26.3%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.6%"></div></div><div class="bar-n">97</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:6.1%"></div></div><div class="bar-n">26</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">432</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:90.5%"></div></div><div class="bar-n">391</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:79.2%"></div></div><div class="bar-n">342</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:66.7%"></div></div><div class="bar-n">288</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.6%"></div></div><div class="bar-n">145</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:31.9%"></div></div><div class="bar-n">138</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">113</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.5%"></div></div><div class="bar-n">97</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.8%"></div></div><div class="bar-n">25</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.6%"></div></div><div class="bar-n">24</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:4.0%"></div></div><div class="bar-n">17</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>430ea96</code><time>2026-08-26</time><span>Republish both Control Room artifacts after the WMS bounding-box fix</span></li>
 <li><code>ad55bb5</code><time>2026-08-26</time><span>An empty WMS layer still owes a bounding box, and two of ours did not have one</span></li>
 <li><code>d3cad9d</code><time>2026-08-26</time><span>Republish both Control Room artifacts after the CITE run</span></li>
 <li><code>6c555c7</code><time>2026-08-26</time><span>A CITE re-run costs a minute and found a filter operator that was never built</span></li>
@@ -420,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7155ab0</code><time>2026-08-25</time><span>Fix Graticula.Core.Tests, which Q-141 left not compiling</span></li>
 <li><code>70883a6</code><time>2026-08-25</time><span>Republish both Control Room artifacts after Q-141</span></li>
 <li><code>e22adf5</code><time>2026-08-25</time><span>Q-141 closes: the datum caution goes to the operator, and D-32 closes with it</span></li>
-<li><code>473bbca</code><time>2026-08-25</time><span>Republish both Control Room artifacts after Q-137</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
