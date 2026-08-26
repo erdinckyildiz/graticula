@@ -722,6 +722,24 @@ public abstract class ConsoleTest : IAsyncLifetime
             window.__pageErrors.push("error: " + (e.message || String(e.error)));
           });
 
+          // <b>A file that never arrived, which the listener above cannot see —
+          // [D-176](../../docs/architecture-debt.md).</b> A failed `<script src>` or
+          // `<link>` fires `error` on the element and **does not bubble**, so a bubbling
+          // listener records the consequence and never the cause: on 2026-08-26 a CI run
+          // reported `Uncaught ReferenceError: OSM_TILES is not defined` from `view.js`
+          // when what had actually happened was that `ground.js`, which defines it, never
+          // loaded. Capture phase is the only way to hear it, and `e.target` is the element
+          // rather than the window — which is also how this stays out of the way of the
+          // listener above, since a thrown exception targets the window.
+          window.addEventListener("error", e => {
+            const failed = e.target;
+
+            if (failed && failed !== window && (failed.src || failed.href)) {
+              window.__pageErrors.push(
+                "never arrived: " + (failed.src || failed.href));
+            }
+          }, true);
+
           window.addEventListener("unhandledrejection", e => {
             const why = e.reason && (e.reason.message || e.reason);
             window.__pageErrors.push("unhandled rejection: " + String(why));
@@ -958,14 +976,29 @@ public abstract class ConsoleTest : IAsyncLifetime
                 """
                 (() => {
                   try {
-                    const scripts = Array.from(document.scripts || [])
-                      .map(s => (s.src || '').split('/').pop() || 'inline');
-                    const timed = (performance.getEntriesByType('resource') || [])
-                      .filter(r => (r.name || '').indexOf('console.js') >= 0)
-                      .map(r => Math.round(r.responseEnd) + 'ms/' + (r.transferSize || 0) + 'B');
+                    const timings = {};
+
+                    for (const r of (performance.getEntriesByType('resource') || [])) {
+                      timings[r.name] = Math.round(r.responseEnd) + 'ms/'
+                        + (r.transferSize || 0) + 'B';
+                    }
+
+                    // <b>Every script, not one by name — D-176.</b> The first version
+                    // reported `console.js` alone, because that was the file the failures
+                    // in hand were about. The next one was about `ground.js` and the
+                    // report had nothing to say. What a page is waiting for is whichever
+                    // script did not arrive, so all of them are listed with what the
+                    // browser recorded fetching — and `0B` on a script that is on the
+                    // page is the shape being hunted.
+                    const scripts = Array.from(document.scripts || []).map(s => {
+                      const name = (s.src || '').split('/').pop() || 'inline';
+                      return s.src
+                        ? name + '=' + (timings[s.src] || 'never fetched')
+                        : name;
+                    });
+
                     return 'readyState=' + document.readyState
-                      + ' scripts=[' + scripts.join(', ') + ']'
-                      + ' console.js=' + (timed.length ? timed.join(',') : 'never requested');
+                      + ' scripts=[' + scripts.join(', ') + ']';
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
