@@ -811,7 +811,8 @@ public abstract class ConsoleTest : IAsyncLifetime
             $"Ten seconds passed and '{expression}' was never true. {why}\n"
             + $"The address was {await Browser.EvaluateAsync<string>("location.href")} and the "
             + "page's visible text began: "
-            + $"{await Browser.EvaluateAsync<string>("(document.body.innerText || '').slice(0, 400)")}");
+            + $"{await Browser.EvaluateAsync<string>("(document.body.innerText || '').slice(0, 400)")}\n"
+            + await DiagnosisAsync());
     }
 
     /// <summary>Clicks the first element matching a selector.</summary>
@@ -895,7 +896,78 @@ public abstract class ConsoleTest : IAsyncLifetime
 
         Assert.Fail(
             $"Ten seconds passed and nothing on the page matched '{selector}'. The address was "
-            + $"{await Browser.EvaluateAsync<string>("location.href")}.");
+            + $"{await Browser.EvaluateAsync<string>("location.href")}.\n"
+            + await DiagnosisAsync());
+    }
+
+    /// <summary>
+    /// What the page can still be asked when a wait has run out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-172](../../docs/architecture-debt.md): the suite already knew and did not
+    /// say.</b> `window.__pageErrors` is planted before the console's own scripts and has
+    /// recorded every throw since it was written — and neither wait printed it, so a
+    /// timeout arrived as *ten seconds passed* and nothing else. Two CI runs on 2026-08-26
+    /// failed that way on two different tests, and the failures read as unrelated flakes
+    /// because the one line that would have tied them together was collected and discarded.
+    /// </para>
+    /// <para>
+    /// <b>It also says whether `console.js` arrived.</b> A timeout on a global has exactly
+    /// three shapes — the script was never requested, it was requested and is still coming,
+    /// or it ran and threw — and they need different repairs. `readyState` and the resource
+    /// entry separate the first two; `__pageErrors` separates the third.
+    /// </para>
+    /// <para>
+    /// <b>Nothing here may throw.</b> This runs inside a failure, and an exception raised
+    /// while explaining one replaces the assertion with itself — which is how a diagnostic
+    /// becomes the thing being diagnosed.
+    /// </para>
+    /// </remarks>
+    private async Task<string> DiagnosisAsync()
+    {
+        string errors;
+
+        try
+        {
+            string[] thrown = await PageErrorsAsync();
+
+            errors = thrown.Length == 0
+                ? "The page recorded no errors of its own."
+                : $"The page recorded {thrown.Length} error(s): "
+                    + string.Join(" | ", thrown.Take(5));
+        }
+        catch (Exception asking)
+        {
+            errors = $"The page could not be asked what it recorded: {asking.Message}";
+        }
+
+        try
+        {
+            // Null-safe throughout, per this class's own rule: a router that has not
+            // rendered yet must produce a report rather than an exception.
+            string report = await Browser.EvaluateAsync<string>(
+                """
+                (() => {
+                  try {
+                    const scripts = Array.from(document.scripts || [])
+                      .map(s => (s.src || '').split('/').pop() || 'inline');
+                    const timed = (performance.getEntriesByType('resource') || [])
+                      .filter(r => (r.name || '').indexOf('console.js') >= 0)
+                      .map(r => Math.round(r.responseEnd) + 'ms/' + (r.transferSize || 0) + 'B');
+                    return 'readyState=' + document.readyState
+                      + ' scripts=[' + scripts.join(', ') + ']'
+                      + ' console.js=' + (timed.length ? timed.join(',') : 'never requested');
+                  } catch (e) { return 'the report itself threw: ' + e; }
+                })()
+                """) ?? "no load report";
+
+            return errors + "\n" + report;
+        }
+        catch (Exception asking)
+        {
+            return $"{errors}\nThe page could not be asked how it loaded: {asking.Message}";
+        }
     }
 
     /// <summary>
