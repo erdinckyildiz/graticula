@@ -57,6 +57,43 @@ past on every sample rather than ageing, so the backend is not running one
 network round trip restarts the clock the timeout measures. `statement_timeout`
 bounds *a statement*; nothing bounds *a request*.
 
+## 2a. It is size-dependent, and a smaller layer does not show it — 2026-08-26
+
+**Re-run on the same server against a smaller response, because a reproduction that
+does not reproduce is worse than none.** `tiles-buildings`, 20,000 polygons,
+**8,452,230 bytes** — half the size of §2's response — read at 200 kB/s:
+
+| Client rate | Response | Wall time | Database connection |
+|---|---|---|---|
+| unthrottled | 200, 8,452,230 bytes | 0.17 s | active 0.17 s |
+| 200 kB/s | 200, 8,452,230 bytes | **40.8 s** | **idle at every one of ten samples** |
+
+Sampled every three seconds for the first thirty, on the same query and the same
+`pg_stat_activity` filter §2 used. **Not one sample was `active`**, and terminating
+the backend a second into the read changed nothing: the response completed, all
+8,452,230 bytes, valid JSON, `exit 0`.
+
+**So §2's finding is real and its threshold is not stated.** Somebody reproducing
+D-144 on an ordinary layer will watch a slow reader hold nothing at all and
+conclude the row is wrong.
+
+**The likely mechanism, offered as an explanation rather than as a measurement.**
+Nothing here buffers the response deliberately — Kestrel's output limit is its
+default and the writer streams. What differs is the pipe *behind* the server: a
+result small enough to fit in the backend's send buffer and Npgsql's receive
+buffer drains out of PostgreSQL before the slow client has read a tenth of it, and
+the backend goes idle with the rows already in the server's process. §2's
+17,813,675 bytes do not fit, so the backend stays active feeding a socket nobody
+is draining. **The threshold was not bisected** — that would need a layer built for
+it, and what matters for the row is that one exists.
+
+**What this does not change.** §2's hold is not an artefact: at 17.8 MB the
+connection was active for 115.7 s against a 1-second statement timeout, sampled
+every two seconds. The hazard is real and it is worse on exactly the responses
+that matter most.
+
+---
+
 ## 3. Eight readers
 
 Eight concurrent clients at 60 kB/s each — about 480 kB/s in total, which is
