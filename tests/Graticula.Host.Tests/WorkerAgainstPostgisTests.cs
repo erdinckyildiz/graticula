@@ -606,8 +606,25 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
         // case is still a real gap rather than a collapsed one. Verified in the experiment: the
         // nanometre pair is still disjoint at 2×10⁶ rather than having snapped together, so the
         // comparison is not vacuous at that magnitude.
-        foreach (double offset in (double[])[0, 2_000_000])
+        // <b>And 2×10⁷, which is where web Mercator actually ends — Q-20, 2026-08-26.</b>
+        // The row left this open in as many words: *magnitudes beyond 2×10⁶ — the far edge of
+        // web Mercator is ten times further, where the step between doubles is larger than the
+        // nanometre cases, so a different set would be needed rather than the same one moved*.
+        // `Separation` is that different set: the same fifteen shapes with the one measurement
+        // that depends on magnitude scaled to the magnitude.
+        foreach (double offset in (double[])[0, 2_000_000, 20_000_000])
         {
+            // <b>The far slice has to be a comparison rather than a tautology.</b> If the
+            // separation rounds away at this magnitude, the precision cases become two
+            // identical polygons and fifteen green assertions say nothing — the shape of a
+            // check that passes because it is looking at nothing. So the arithmetic is
+            // asserted before the engines are asked.
+            Assert.True(
+                offset + 20 + Separation(offset) != offset + 20,
+                $"At an offset of {offset:N0} the separation {Separation(offset):E3} is smaller "
+                + "than the gap between representable doubles, so the precision cases collapse "
+                + "and this magnitude proves nothing. That is Q-20's reason for scaling it.");
+
             (Geometry left, Geometry right) = HardCase(which, offset);
 
             foreach ((string sql, string? esri, string? pattern) in predicates)
@@ -641,6 +658,22 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     /// the same arrangement over HTTP and had to compute ring winding to do it; here there is no
     /// winding question, because <c>Polygon</c> carries shell and holes as separate rings.
     /// </remarks>
+    /// <summary>
+    /// The smallest separation that is still a real gap at this distance from the origin.
+    /// </summary>
+    /// <param name="at">How far out the case is being written.</param>
+    /// <remarks>
+    /// <b>Two representable steps, or a nanometre, whichever is larger — Q-20.</b> The cases
+    /// this feeds exist to ask whether two libraries round the same way about a distance near
+    /// the limit of what a double can hold, and *near the limit* is a different number at every
+    /// magnitude: 3.6×10⁻¹⁵ at the origin, 2.3×10⁻¹⁰ at 2×10⁶ and **3.7×10⁻⁹ at 2×10⁷**. A
+    /// fixed nanometre is two steps at the middle magnitude and **less than one** at the far
+    /// one, where it would round away and leave two identical polygons being compared. The
+    /// floor keeps the near and middle slices exactly as they were measured on 2026-08-19.
+    /// </remarks>
+    private static double Separation(double at) =>
+        Math.Max(1e-9, 2 * Math.Abs(Math.BitIncrement(at + 20) - (at + 20)));
+
     private static (Geometry Left, Geometry Right) HardCase(string which, double at = 0)
     {
         // Every coordinate is shifted by the same offset, so the *shape* is identical and only its
@@ -682,9 +715,16 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
                 new Polygon(Ring(0, 0, 10, 10, 10, 0, 0, 10, 0, 0)),
                 new Polygon(Ring(0, 0, 10, 10, 10, 0, 0, 10, 0, 0))),
 
-            "a nanometre apart" => (unit, Square(10.000000001, 0, 20, 10)),
-            "a nanometre overlapping" => (unit, Square(9.999999999, 0, 20, 10)),
-            "collapsed sliver" => (Square(0, 0, 10, 0.000000001), unit),
+            // <b>The separation is a function of the magnitude, not a constant — Q-20.</b>
+            // A nanometre is two representable steps at 2×10⁶ and *below* one at 2×10⁷, where
+            // the gap between doubles is 3.7×10⁻⁹ — so moving the same case out there would
+            // collapse it and the comparison would prove that two engines agree about one
+            // polygon. `Separation` keeps it at 1e-9 where 1e-9 is real and widens it to two
+            // steps where it is not, which is what makes the far slice mean the same thing as
+            // the near one.
+            "a nanometre apart" => (unit, Square(10 + Separation(at), 0, 20, 10)),
+            "a nanometre overlapping" => (unit, Square(10 - Separation(at), 0, 20, 10)),
+            "collapsed sliver" => (Square(0, 0, 10, Separation(at)), unit),
 
             // Inside the hole, so disjoint from the polygon rather than within it.
             "polygon inside a hole" => (
