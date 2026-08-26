@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>aa099c0</code> · 2026-08-27 01:30</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d6f2ff2</code> · 2026-08-27 01:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">34</div><div class="kpi-l">açık soru</div><div class="kpi-n">108 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">açık soru</div><div class="kpi-n">109 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">152 ödendi · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -258,7 +258,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-34</span><span class="owner">Council</span></div><p>Are pre-generalised geometry tables per zoom level a datastore-only feature, or attempted on registered sources where we happen to have write access?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-35</span><span class="owner">Council</span></div><p>Which runtime schema changes do we offer, per dialect?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-37</span><span class="owner">Council</span></div><p>What is the contract for a request in flight across a schema change?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-39</span><span class="owner">Council</span></div><p>If a registered source happens to be writable, do we offer hosted-grade capability there automatically or only on explicit opt-in?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-41</span><span class="owner">Council</span></div><p>Do we offer an optional companion schema in a registered database where granted rights, to hold versioning and editor-tracking bookkeeping?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
@@ -407,6 +406,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d6f2ff2</code><time>2026-08-27</time><span>Q-12: the cardinality today is zero, and that is the load-bearing fact</span></li>
 <li><code>aa099c0</code><time>2026-08-27</time><span>D-178: a refusal that names the wrong repair</span></li>
 <li><code>7987d9e</code><time>2026-08-27</time><span>Q-43 closes: there is no poller, so there is no interval and no cost</span></li>
 <li><code>a6a8a33</code><time>2026-08-27</time><span>Q-100: the three routes have their costs now, and the correction was half right</span></li>
@@ -420,7 +420,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>24a8f86</code><time>2026-08-27</time><span>D-176: a file that never arrived, recorded as that</span></li>
 <li><code>efaa3c8</code><time>2026-08-26</time><span>D-175: a cost test that says it asserts no budget asserts one</span></li>
 <li><code>5b9825b</code><time>2026-08-26</time><span>D-174: a refusal reaches the failure as a number</span></li>
-<li><code>0734dae</code><time>2026-08-26</time><span>D-173: three eliminations, and one inverts the obvious reading</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
