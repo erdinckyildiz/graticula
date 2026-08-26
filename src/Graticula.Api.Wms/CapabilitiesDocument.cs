@@ -447,7 +447,7 @@ public static class CapabilitiesDocument
 
         writer.WriteElementString("CRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
 
-        WriteGeographicBox(writer, layer.Geographic, WmsVersion.V130);
+        WriteGeographicBox(writer, layer.Geographic, WmsVersion.V130, required: true);
         WriteBoundingBox(writer, layer, WmsVersion.V130);
 
         // <b>1.3.0 puts a dimension's values inside the Dimension element.</b> 1.1.1
@@ -483,7 +483,7 @@ public static class CapabilitiesDocument
 
         writer.WriteElementString("SRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
 
-        WriteGeographicBox(writer, layer.Geographic, WmsVersion.V111);
+        WriteGeographicBox(writer, layer.Geographic, WmsVersion.V111, required: true);
         WriteBoundingBox(writer, layer, WmsVersion.V111);
 
         if (layer.Time is { } time && time.ExtentText.Length > 0)
@@ -545,11 +545,35 @@ public static class CapabilitiesDocument
     /// is a trap. 1.1.1's <c>LatLonBoundingBox</c> is named for latitude and carries
     /// longitude in <c>minx</c>, which is the same concession made worse.
     /// </remarks>
-    private static void WriteGeographicBox(XmlWriter writer, Envelope? extent, WmsVersion version)
+    private static void WriteGeographicBox(
+        XmlWriter writer, Envelope? extent, WmsVersion version, bool required = false)
     {
+        /*
+          <b>A named layer with nothing in it still owes this element — WMS 1.3.0
+          §7.2.4.6.6, and 1.1.1 §7.1.4.5.6 for its own.</b> *Every named Layer shall have
+          exactly one EX_GeographicBoundingBox element that is either stated explicitly or
+          inherited from a parent Layer.* An empty layer has no extent to state and this
+          server's root layer states none either, so there was nothing to inherit and the
+          element was simply missing.
+
+          <b>The whole world is the honest value, and it is worth saying why it is not a
+          lie.</b> It does not claim the data spans the earth — an empty layer has no data
+          to span anything. It says *this is not constrained*, which is exactly what is
+          known, and it is how a bounding box says *unknown*: the alternative that suggests
+          itself, a zero-area box at the origin, is a false pinpoint off West Africa.
+
+          <b>Found by the WMS 1.3 CITE suite on 2026-08-26</b>, which failed *every named
+          layer in the capabilities document has at least one BoundingBox element*. Two of
+          this deployment's fourteen layers are empty and neither carried either element.
+        */
         if (extent is not { IsEmpty: false } box)
         {
-            return;
+            if (!required)
+            {
+                return;
+            }
+
+            box = new Envelope(-180, -90, 180, 90);
         }
 
         if (version == WmsVersion.V130)
@@ -582,8 +606,37 @@ public static class CapabilitiesDocument
     /// </remarks>
     private static void WriteBoundingBox(XmlWriter writer, WmsLayer layer, WmsVersion version)
     {
+        /*
+          <b>Same requirement, other element — 1.3.0 §7.2.4.6.8.</b> *Every named Layer
+          shall have at least one BoundingBox element that is either stated explicitly or
+          inherited from a parent Layer.*
+
+          <b>Written in CRS:84 rather than in the layer's own reference</b>, and that is
+          the point rather than a shortcut. The world in the layer's own CRS would need
+          that CRS's own domain — which this server cannot look up reliably
+          ([Q-123](../../docs/open-questions.md) measured why) — while CRS:84 is
+          longitude-first by definition, is inherited by every layer from the root, and
+          needs no lookup and no axis decision. A `BoundingBox` need not be in the layer's
+          native reference; it must be in one the layer supports.
+
+          <b>1.1.1 has no CRS:84</b>, so it gets `EPSG:4326`, which in 1.1.1 is
+          longitude-first anyway — the axis rule that makes this delicate arrived with
+          1.3.0.
+        */
         if (layer.Extent is not { IsEmpty: false } box)
         {
+            writer.WriteStartElement("BoundingBox");
+
+            writer.WriteAttributeString(
+                version == WmsVersion.V130 ? "CRS" : "SRS",
+                version == WmsVersion.V130 ? "CRS:84" : "EPSG:4326");
+
+            writer.WriteAttributeString("minx", Number(-180));
+            writer.WriteAttributeString("miny", Number(-90));
+            writer.WriteAttributeString("maxx", Number(180));
+            writer.WriteAttributeString("maxy", Number(90));
+            writer.WriteEndElement();
+
             return;
         }
 
