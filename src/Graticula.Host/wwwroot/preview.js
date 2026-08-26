@@ -16,10 +16,26 @@
 // `GET /rest/services/{name}/MapServer/export` turns a service into an image; WMS `GetMap`
 // does the same through the other face. So route (1) of D-58's trigger — *a real thumbnail,
 // cached, drawn once rather than per viewer* — is available and this preview is no longer the
-// only thing possible. **What has not been measured is whether it is better here**: a render
-// per row against a list of forty, whether a registered layer renders without symbology, and
-// what it costs beside the numbers below, which were measured. Until those exist the sample
-// stays, because this file's own standard is that its numbers came from a measurement.
+// only thing possible.
+//
+// <b>And it is better here, measured 2026-08-24 — `benchmarks/thumbnail/RESULTS.md`.</b>
+// This paragraph asked for three numbers and said the sample stays until they exist. They
+// exist. A 5,000-polygon layer, both paths against the same server, median of five: **the
+// preview costs 17-23 ms and 139.5 kB; the rendered thumbnail costs 70-76 ms and 1.8 kB.**
+// Three to four times slower per request and seventy-seven times smaller on the wire - and on
+// a list of forty that is 5.6 MB against 72 kB, with the asymmetry wider still, because the
+// render is drawn once per layer while the 139.5 kB is paid by every viewer every time. The
+// measured layer was **registered**, which was the other half of the question: the export path
+// covers what the preview covers, including a table this server does not host.
+//
+// <b>So the sample stays for a reason that is no longer the numbers.</b> It is a
+// `<canvas data-preview>` emitted from five places in `console.js` and the `cover` object it
+// reads has a different shape at three of them, so the swap is five markup sites, a fallback
+// for a service with no renderable face, and a look at the result on a screen the owner
+// reviews - a UI change with an owner in it rather than a debt payment. **This paragraph said
+// the opposite for two days after the measurement was taken**, in the file somebody would open
+// to do the work, which is D-130's shape rather than a wrong number: the decision moved and
+// the document that restated it did not.
 //
 // <b>So the browser draws it, from one query.</b> A few hundred features at a precision matched
 // to eighty pixels, through `maxAllowableOffset`, into a canvas with plain 2D calls. No SDK, no
