@@ -43,6 +43,12 @@ public static class CapabilitiesDocument
         "PropertyIsGreaterThanOrEqualTo",
         "PropertyIsLike",
         "PropertyIsNull",
+
+        // <b>Answered as null, because a relational column has one representation for
+        // both</b> — `FilterReader.TryNil`. Advertised because the reader accepts it: a
+        // capability document that omits what the server does is as wrong as one that
+        // claims what it does not.
+        "PropertyIsNil",
         "PropertyIsBetween",
     ];
 

@@ -213,6 +213,26 @@ public static class FilterReader
             // missing operator look like a catastrophe in a conformance report and a
             // one-line change in the code.
             "PropertyIsNotNull" => TryNull(element, fields, geometryColumn, negated: true, out part, out fault),
+
+            /*
+              <b>`PropertyIsNil` reads as `PropertyIsNull` here, and the reason is the
+              store rather than convenience — added 2026-08-26.</b> Filter Encoding 2.0
+              separates the two: `PropertyIsNull` asks whether the property is *absent*,
+              `PropertyIsNil` whether it is present and carries `xsi:nil="true"`. A
+              relational column has one representation for both — `NULL` — so this server
+              cannot tell them apart, and answering the same for both is the only honest
+              mapping available to it. A store that could distinguish them would have to
+              answer differently, which is why this is stated here rather than left to be
+              inferred from the code.
+
+              <b>Found by running the WFS 2.0 CITE suite rather than by reading the
+              specification.</b> `PropertyIsNilOperatorTests` expects 200 and this server
+              answered 400 `OperationNotSupported`; the recorded 2026-08-23 evidence did
+              not show it, because that run left the test untested. That is
+              [D-158](../../docs/architecture-debt.md)'s whole argument arriving as a
+              defect rather than as a warning.
+            */
+            "PropertyIsNil" => TryNil(element, fields, geometryColumn, out part, out fault),
             "PropertyIsLike" => TryLike(element, fields, out part, out fault),
             "PropertyIsBetween" => TryBetween(element, fields, out part, out fault),
             _ when Comparisons.ContainsKey(name) =>
@@ -233,7 +253,8 @@ public static class FilterReader
             $"'fes:{name}' is not a predicate this server evaluates. It reads And, Or, Not, "
             + "ResourceId, PropertyIsEqualTo, PropertyIsNotEqualTo, PropertyIsLessThan, "
             + "PropertyIsGreaterThan, PropertyIsLessThanOrEqualTo, PropertyIsGreaterThanOrEqualTo, "
-            + "PropertyIsLike, PropertyIsNull, PropertyIsBetween, BBOX, Intersects, Within, "
+            + "PropertyIsLike, PropertyIsNull, PropertyIsNotNull, PropertyIsNil, "
+            + "PropertyIsBetween, BBOX, Intersects, Within, "
             + "Contains, Crosses, Overlaps, Touches and DWithin.");
 
         return false;
@@ -433,6 +454,39 @@ public static class FilterReader
             []);
 
         return true;
+    }
+
+    /// <summary>Reads <c>fes:PropertyIsNil</c>, which this store answers as null.</summary>
+    /// <remarks>
+    /// <b><c>nilReason</c> is refused rather than ignored.</b> The attribute asks *why* the
+    /// value is nil — `inapplicable`, `missing`, `withheld` and the rest — and a `NULL`
+    /// column records no reason at all. Ignoring it would answer a narrower question than
+    /// the one asked and call it the same answer, which is the shape of a silent wrong
+    /// result rather than a missing feature.
+    /// </remarks>
+    private static bool TryNil(
+        XElement element,
+        IReadOnlyList<FieldDescription> fields,
+        string? geometryColumn,
+        out Part part,
+        out WfsFault? fault)
+    {
+        if (element.Attribute("nilReason") is { } reason)
+        {
+            part = Part.Empty;
+
+            fault = new WfsFault(
+                WfsFaultCode.OperationNotSupported,
+                "filter",
+                $"'fes:PropertyIsNil' with nilReason='{reason.Value}' asks why a value is "
+                + "absent, and this server stores values in a relational column whose only "
+                + "answer is that it is null — it records no reason, so it cannot match one. "
+                + "Drop the attribute to ask whether the value is absent at all.");
+
+            return false;
+        }
+
+        return TryNull(element, fields, geometryColumn, negated: false, out part, out fault);
     }
 
     private static bool TryNull(

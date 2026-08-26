@@ -380,6 +380,36 @@ public sealed class FilterReaderTests
     }
 
     [Fact]
+    public void PropertyIsNil_reads_as_null_and_a_nilReason_is_refused()
+    {
+        // <b>Found by the WFS 2.0 CITE suite on 2026-08-26, not by reading the
+        // specification.</b> `PropertyIsNilOperatorTests` expects 200 and this server
+        // answered 400; the recorded 2026-08-23 evidence did not show it, because that run
+        // left the test untested. Before: 395 passed, 2 failed. After: 397 passed, 0 failed.
+        Assert.IsType<AttributePredicate.IsNull>(Ok(Wrap(
+            "<fes:PropertyIsNil><fes:ValueReference>name</fes:ValueReference>"
+            + "</fes:PropertyIsNil>")).Predicate);
+
+        // <b>The same answer as PropertyIsNull, and that is the honest mapping.</b> Filter
+        // Encoding separates *absent* from *present and nil*; a relational column has one
+        // representation for both, so a server that answered them differently would be
+        // inventing a distinction its store cannot hold.
+        Assert.IsType<AttributePredicate.IsNull>(Ok(Wrap(
+            "<fes:PropertyIsNull><fes:ValueReference>name</fes:ValueReference>"
+            + "</fes:PropertyIsNull>")).Predicate);
+
+        // <b>`nilReason` is refused rather than ignored.</b> It asks *why* the value is
+        // absent, and a null column records no reason — ignoring it would answer a
+        // narrower question and call it the same answer.
+        Assert.Equal(
+            WfsFaultCode.OperationNotSupported,
+            Refused(Wrap(
+                "<fes:PropertyIsNil nilReason=\"withheld\">"
+                + "<fes:ValueReference>name</fes:ValueReference>"
+                + "</fes:PropertyIsNil>")).Code);
+    }
+
+    [Fact]
     public void A_resource_id_is_carried_as_an_identity_rather_than_a_predicate()
     {
         ParsedFilter parsed = Ok(Wrap("<fes:ResourceId rid=\"tr_yol.42\"/>"));
@@ -517,6 +547,9 @@ public sealed class FilterReaderTests
                 "PropertyIsNull" =>
                     "<fes:PropertyIsNull><fes:ValueReference>name</fes:ValueReference>"
                     + "</fes:PropertyIsNull>",
+                "PropertyIsNil" =>
+                    "<fes:PropertyIsNil><fes:ValueReference>name</fes:ValueReference>"
+                    + "</fes:PropertyIsNil>",
                 "PropertyIsBetween" =>
                     "<fes:PropertyIsBetween><fes:ValueReference>length_m</fes:ValueReference>"
                     + "<fes:LowerBoundary><fes:Literal>1</fes:Literal></fes:LowerBoundary>"
