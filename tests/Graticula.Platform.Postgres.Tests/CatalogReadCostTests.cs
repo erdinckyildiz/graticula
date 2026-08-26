@@ -38,7 +38,31 @@ namespace Graticula.Platform.Postgres.Tests;
 /// the row to quote. `Needs: RealCorpus` is wrong for it — it makes its own row — but it is
 /// database-backed and belongs in this suite.
 /// </para>
+/// <para>
+/// <b>And the sanity check it does assert is a budget in disguise —
+/// [D-175](../../docs/architecture-debt.md), 2026-08-26.</b> *The whole must not be faster
+/// than the part it contains* needs no threshold and is still a comparison of two timings
+/// with no headroom at all: on a GitHub runner it read 2,028 µs against 2,270 µs and failed
+/// twice, correctly refusing a measurement the machine had moved under. The paragraph above
+/// was written about absolute thresholds and did not notice that its own guard has the same
+/// dependence. `UnprotectCostTests` is the contrast that makes the rule readable: it asserts
+/// **100 µs against a measured 2.18** — forty-six times the headroom — and a noisy runner
+/// cannot reach it.
+/// </para>
+/// <para>
+/// <b>Two repairs, and they answer different questions.</b> `Needs=QuietMachine` — the axis
+/// [ADR-048](../../docs/adr/ADR-048-ci-does-not-run-the-real-data-suites.md) defines, already
+/// excluded in this job — is about the **numbers**: a latency printed for a register row to
+/// quote is wrong on a busy machine whether or not any assertion notices. The tolerance on
+/// the sanity check is about the **check**: the two figures it compares differ by about
+/// three per cent, so with no tolerance the assertion inverts roughly half the time at the
+/// true value, and an assertion that is a coin flip where the answer is correct proves
+/// nothing either way. Neither repair is a substitute for the other, and neither is the
+/// third thing that was available — widening it until it always passes, which is how a
+/// measurement becomes decoration.
+/// </para>
 /// </remarks>
+[Trait("Needs", "QuietMachine")]
 public sealed class CatalogReadCostTests(ITestOutputHelper output) : PostgresFixture
 {
     /// <summary>Reads to time. Enough that one scheduling hiccup does not move the median.</summary>
@@ -153,11 +177,25 @@ public sealed class CatalogReadCostTests(ITestOutputHelper output) : PostgresFix
 
         Assert.True(whole > 0 && driver > 0, "Neither measurement ran.");
 
+        // <b>A tenth, because the two are separate samples of the same noisy quantity —
+        // [D-175](../../docs/architecture-debt.md).</b> This read `whole >= driver`, with no
+        // tolerance at all, and the true difference is about **30 µs on 950** — three per
+        // cent. Two 300-iteration medians straddling a value that close invert about as
+        // often as not: it failed at 923 against 956 locally and at 2,028 against 2,270 in
+        // CI, neither of which is a defect in anything. **A check whose outcome at the true
+        // value is a coin flip is not a check.** Ten per cent still catches what this exists
+        // to catch — a decomposition that came out backwards, where the containing read is
+        // *materially* faster than the read it contains and the printed difference is a
+        // negative cost somebody would quote.
+        const double Tolerance = 0.9;
+
         Assert.True(
-            whole >= driver,
-            $"The catalogue read ({whole * 1000:F0} µs) came out faster than the raw read it "
-            + $"contains ({driver * 1000:F0} µs), so the machine moved under the measurement "
-            + "and neither number means anything.");
+            whole >= driver * Tolerance,
+            $"The catalogue read ({whole * 1000:F0} µs) came out more than a tenth faster than "
+            + $"the raw read it contains ({driver * 1000:F0} µs). That is not measurement "
+            + "noise: the whole cannot be materially cheaper than its part, so either the "
+            + "machine moved under the measurement or the two are no longer reading the same "
+            + "thing.");
     }
 
     private async Task ReadRawAsync(string sql)
