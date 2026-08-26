@@ -177,9 +177,9 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
         {
             await SetPasswordAsync(root, generated!, Password);
 
-            string? theirs = await SignInAsync(root, Stranger, Password);
+            (string? theirs, string why) = await SignInAsync(root, Stranger, Password);
 
-            Assert.False(theirs is null, "The probe member could not sign in.");
+            Assert.False(theirs is null, $"The probe member could not sign in. {why}");
 
             // <b>Two services of its own, so nothing another suite reads can move.</b> Empty ones:
             // this test is about how a service *reaches* somebody, and an empty service reaches people
@@ -349,14 +349,23 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
             : null;
     }
 
+    /// <summary>Signs the probe member in and changes its password to a known one.</summary>
+    /// <remarks>
+    /// <b>Every step reports now — [D-177](../../docs/architecture-debt.md).</b> This method
+    /// used to sign in, return silently if that failed, post the password change, and then
+    /// write `_ = response.StatusCode;` — reading the outcome of the one operation it exists
+    /// to perform and discarding it. Both silent exits land on the caller's *The probe member
+    /// could not sign in*, which names the step **after** the one that failed. A CI run on
+    /// 2026-08-26 failed exactly there and the log could say nothing more.
+    /// </remarks>
     private async Task SetPasswordAsync(string root, string generated, string wanted)
     {
-        string? first = await SignInAsync(root, Stranger, generated);
+        (string? first, string why) = await SignInAsync(root, Stranger, generated);
 
-        if (first is null)
-        {
-            return;
-        }
+        Assert.True(
+            first is not null,
+            "The probe member could not sign in with the password its creation returned, so its "
+            + $"password was never changed. {why}");
 
         using HttpRequestMessage request = new(HttpMethod.Post, $"{root}/rest/auth/password");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", first);
@@ -365,29 +374,52 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
             Encoding.UTF8, "application/json");
 
         using HttpResponseMessage response = await Http.SendAsync(request);
+        string said = await response.Content.ReadAsStringAsync();
 
-        _ = response.StatusCode;
+        Assert.True(
+            response.IsSuccessStatusCode,
+            $"Changing the probe member's password returned {(int)response.StatusCode}. "
+            + Explain(said));
     }
 
-    private async Task<string?> SignInAsync(string root, string name, string password)
+    /// <summary>Signs in, and says why when it cannot.</summary>
+    /// <param name="root">The server.</param>
+    /// <param name="name">Who.</param>
+    /// <param name="password">Their password.</param>
+    /// <returns>The token, or null with the reason beside it.</returns>
+    private async Task<(string? Token, string Why)> SignInAsync(
+        string root, string name, string password)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, $"{root}/rest/auth/login");
         request.Content = new StringContent(
             JsonSerializer.Serialize(new { name, password }), Encoding.UTF8, "application/json");
 
         using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            // <b>401 and 429 are different problems.</b> The first is the credential; the
+            // second is this server's per-address throttle, which a suite signing in from one
+            // address can reach on its own. Reporting only *could not sign in* makes them one
+            // symptom with two repairs.
+            return (null, $"Signing in as '{name}' returned {(int)response.StatusCode}. "
+                + Explain(body));
         }
 
-        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonDocument document = JsonDocument.Parse(body);
 
         return document.RootElement.TryGetProperty("token", out JsonElement token)
-            ? token.GetString()
-            : null;
+            ? (token.GetString(), string.Empty)
+            : (null, $"Signing in as '{name}' returned 200 with no token in it. "
+                + Explain(body));
     }
+
+    /// <summary>The server's own words, trimmed for a failure message.</summary>
+    private static string Explain(string body) =>
+        string.IsNullOrWhiteSpace(body)
+            ? "The response had no body to explain it."
+            : "The server said: " + (body.Length <= 300 ? body : body[..300] + "…");
 
     private async Task ShareWithGroupAsync(string root, string token, string group, string qualified)
     {
