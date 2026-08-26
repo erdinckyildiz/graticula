@@ -1635,10 +1635,29 @@ def an_open_question_that_asks_without_saying_why():
                 "had never been taken when it had."
             )
 
-    if rows < 40:
+    # <b>Counted against a second, dumber reading of the same lines rather than
+    # against a number.</b> This was `rows < 40`, which is a floor on the *backlog*
+    # dressed as a floor on the parse: it fired on 2026-08-26 because questions had
+    # been answered, which is the register working. What the guard is actually for is
+    # the cell splitter above going wrong -- `split(" | ")` is naive and a row written
+    # with different spacing would be skipped in silence. So the honest comparison is
+    # against how many rows a reader who only looks for `| Q-` can see: if those two
+    # disagree, the parse is dropping rows, and no amount of answering questions can
+    # make them disagree.
+    visible = sum(
+        1 for line in lines[:answered]
+        if re.match(r"^\|\s*~*\s*Q-[\w-]+\s*~*\s*\|", line.strip()))
+
+    if rows != visible:
         problems.append(
-            f"only {rows} open questions were parsed, so this check is reading nothing. A check "
-            "that cannot fail is worse than no check.")
+            f"{visible} question rows are visible above ## Answered and only {rows} parsed, so "
+            "the cell splitter is dropping rows and every check above it is reading less than "
+            "it looks like. A check that cannot fail is worse than no check.")
+
+    if visible == 0:
+        problems.append(
+            "no question rows were found above ## Answered at all, so this check is reading "
+            "nothing.")
 
     return problems
 
