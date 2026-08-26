@@ -230,6 +230,70 @@ public sealed class WmsConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_box_outside_its_reference_is_a_map_with_empty_space_not_an_exception()
+    {
+        // <b>[D-163](../../docs/architecture-debt.md), found by the WMS 1.3 CITE suite on
+        // 2026-08-26.</b> `BBOX=-10,90,10,110` in CRS:84 asks for latitudes up to 110°,
+        // which do not exist. WMS says the part of a box outside its reference is blank; the
+        // suite says so in its own words — *No image handlers available for the data stream*
+        // — and this server answered a `ServiceException`. A client dragging a world map
+        // past the pole is doing something ordinary.
+        string name = Child(
+            (await PublishedAsync()).First(l => Child(l, "Name") is { Length: > 0 }), "Name")!;
+
+        foreach (string bbox in new[]
+        {
+            // Wholly outside: every latitude asked for is impossible.
+            "-10,90,10,110",
+
+            // Half outside, which is the case a panning client actually produces. The valid
+            // half must still be drawn — an all-or-nothing refusal would be a second bug
+            // wearing the first one's clothes.
+            "28,80,31,100",
+        })
+        {
+            (string mediaType, byte[] image) = await RawAsync(
+                MapUrl(name, crs: "CRS:84", bbox: bbox));
+
+            Assert.Equal("image/png", mediaType);
+            Assert.Equal<byte>([0x89, 0x50, 0x4E, 0x47], image[..4]);
+        }
+    }
+
+    [Fact]
+    public async Task A_box_inside_its_reference_still_draws_what_is_there()
+    {
+        // <b>The half a blanket repair would lose.</b> Answering every request with an empty
+        // image would pass the test above and make this server useless, so the two are
+        // asserted together: over a layer's own extent the map must not be the empty one.
+        XElement layer = (await PublishedAsync())
+            .First(l => l.Elements().Any(e => e.Name.LocalName == "EX_GeographicBoundingBox"));
+
+        XElement box = layer.Elements()
+            .First(e => e.Name.LocalName == "EX_GeographicBoundingBox");
+
+        string name = Child(layer, "Name")!;
+        string west = Child(box, "westBoundLongitude")!;
+        string east = Child(box, "eastBoundLongitude")!;
+        string south = Child(box, "southBoundLatitude")!;
+        string north = Child(box, "northBoundLatitude")!;
+
+        (string mediaType, byte[] drawn) = await RawAsync(
+            MapUrl(name, crs: "CRS:84", bbox: $"{west},{south},{east},{north}"));
+
+        (_, byte[] empty) = await RawAsync(
+            MapUrl(name, crs: "CRS:84", bbox: "-10,90,10,110"));
+
+        Assert.Equal("image/png", mediaType);
+
+        Assert.True(
+            drawn.Length > empty.Length,
+            $"a map over the layer's own extent ({drawn.Length} bytes) is no larger than one "
+            + $"of an area that cannot exist ({empty.Length} bytes), so nothing is being "
+            + "drawn anywhere.");
+    }
+
+    [Fact]
     public async Task The_two_versions_transpose_the_same_extent_and_draw_the_same_map()
     {
         // <b>The most expensive trap in OGC protocols, asserted.</b> WMS 1.3.0 with

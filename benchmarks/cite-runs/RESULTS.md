@@ -144,7 +144,7 @@ measured effect (§82).
 against a real layer returns 200 and a PNG. The assertion that carries that name is one of
 the five.
 
-**The sixth is real and is [D-163](../../docs/architecture-debt.md).** `bbox-outside-crs`
+**The sixth was real, is fixed, and is [D-163](../../docs/architecture-debt.md).** **187 passed / 5 failed** after it, from 184 / 6 — the assertion passes and three others pass with it, and the five that remain are exactly the empty-`LAYERS` ones above, which is what that analysis predicted. `bbox-outside-crs`
 sends a genuine layer with `BBOX=-10,90,10,110` in CRS:84 — latitudes up to 110°. The suite
 expects an image; this server answers a `ServiceException`.
 

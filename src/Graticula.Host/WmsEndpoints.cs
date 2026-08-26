@@ -15,6 +15,8 @@ using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace Graticula.Host;
 
@@ -677,7 +679,10 @@ internal static class WmsEndpoints
         {
             await DrawLayerAsync(
                 contexts, renderer, transform, layer, request.Srid, request.Time,
-                settings.MaximumRecordCount, cancellation)
+                settings.MaximumRecordCount, cancellation,
+                context.RequestServices.GetService(typeof(ILoggerFactory)) is ILoggerFactory made
+                    ? made.CreateLogger("wms")
+                    : null)
                 .ConfigureAwait(false);
         }
 
@@ -725,6 +730,10 @@ internal static class WmsEndpoints
     /// <param name="time">A time filter, or null for none.</param>
     /// <param name="limit">The most features to read.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="log">
+    /// Where to say that an area was outside what this layer can be projected into, or null
+    /// on a path that has no logger — D-163.
+    /// </param>
     /// <returns>The work.</returns>
     public static async Task DrawLayerAsync(
         ServiceContexts contexts,
@@ -734,7 +743,8 @@ internal static class WmsEndpoints
         int srid,
         TimeWindow? time,
         int limit,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        ILogger? log = null)
     {
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(renderer);
@@ -756,7 +766,48 @@ internal static class WmsEndpoints
             return;
         }
 
+        /*
+          <b>The part of the map outside its own reference is blank, not an error —
+          [D-163](../../docs/architecture-debt.md), 2026-08-26.</b> A `GetMap` in `CRS:84`
+          with `BBOX=-10,90,10,110` asks for latitudes up to 110°, which do not exist. PROJ
+          refuses to transform them, PostGIS raises, and until today the caller got a
+          `ServiceException` for what WMS says should be a picture with empty space in it.
+          A client dragging a world map past the pole is doing something ordinary.
+
+          <b>The transform is not clipped and that is the whole design.</b> `transform` still
+          carries the *requested* box, so every pixel keeps the georeferencing the caller
+          asked for and a client compositing tiles gets back the extent it named. Only the
+          envelope that is queried and drawn is narrowed, so the rows outside simply are not
+          there and their pixels stay background.
+
+          <b>Geographic references only, and the limit is stated rather than looked up.</b>
+          ±90° and ±180° are what `CRS:84` and the EPSG geographic block mean, which is the
+          case a panning client hits and the case the suite exercises. A projected
+          reference's mathematical domain is [Q-123](../../docs/open-questions.md)'s unsolved
+          lookup — `postgis_srs` offers an *area of use*, which is a different thing — so a
+          projected box is passed through untouched and D-163 stays open for it. Narrowing
+          the half that is known, and saying so, beats leaving both halves broken.
+        */
         Envelope query = transform.Buffered(plan.Margin);
+
+        if (AxisOrder.IsGeographic(srid))
+        {
+            Envelope inside = new(
+                Math.Max(query.MinX, -180),
+                Math.Max(query.MinY, -90),
+                Math.Min(query.MaxX, 180),
+                Math.Min(query.MaxY, 90));
+
+            // <b>Nothing of this map is inside the reference at all.</b> Drawing nothing is
+            // the answer: the caller gets their requested extent as an empty image, which is
+            // what a map of somewhere that cannot exist looks like.
+            if (inside.MaxX <= inside.MinX || inside.MaxY <= inside.MinY)
+            {
+                return;
+            }
+
+            query = inside;
+        }
 
         List<string> fields = [];
 
@@ -793,9 +844,42 @@ internal static class WmsEndpoints
             maxAllowableOffset: transform.UnitsPerPixel,
             where: where);
 
-        await foreach (Feature feature in source.ReadAsync(features, cancellation).ConfigureAwait(false))
+        /*
+          <b>What the clip above could not reach, drawn as nothing rather than refused.</b>
+          Clipping to ±90° keeps the request inside `CRS:84`; it does not make every point
+          inside it transformable into the *layer's* reference. Web Mercator is undefined at
+          the pole, so a box clipped to exactly 90° still fails — measured: the error changed
+          from *exceeded limits* to *tolerance condition error*, one request to the next.
+
+          <b>Catching is more general than knowing.</b> The alternative is a table of what
+          each projection can represent, which is [Q-123](../../docs/open-questions.md)'s
+          unsolved lookup wearing a different hat. If PROJ cannot put this area into the
+          layer's reference, there is nothing of that layer there to draw, and an empty
+          margin is exactly what WMS asks for.
+
+          <b>Narrow on purpose.</b> `ErrorResponse.IsOutsideItsReference` is the single test,
+          shared with the branch that turns the same fault into a 400 for surfaces that owe
+          an error. Anything else propagates untouched: a swallowed database fault is a map
+          that silently loses a layer, which is the failure this whole area is about.
+        */
+        try
         {
-            pass.Draw(feature);
+            await foreach (Feature feature
+                in source.ReadAsync(features, cancellation).ConfigureAwait(false))
+            {
+                pass.Draw(feature);
+            }
+        }
+        catch (PostgresException outside) when (ErrorResponse.IsOutsideItsReference(outside))
+        {
+            // <b>Optional, because two surfaces call this and only one has a logger to
+            // hand.</b> Silence here would be the thing this repository dislikes most —
+            // a layer that vanishes from a map with nothing said — so the caller that can
+            // say it does, and MapServer's path is a line of work rather than a gap.
+            if (log is not null)
+            {
+                Log.MapAreaOutsideReference(log, layer.Definition.Name, srid);
+            }
         }
     }
 

@@ -350,6 +350,34 @@ internal static class ErrorResponse
     /// <summary>The refusal an exception earns, in both forms.</summary>
     /// <param name="exception">What went wrong.</param>
     /// <returns>The status, the operator's sentence, and the public one where they differ.</returns>
+    /// <summary>
+    /// Whether PROJ refused a coordinate because it lies outside its reference.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One predicate, because two callers have to agree about it —
+    /// [D-163](../../docs/architecture-debt.md).</b> <see cref="Explain"/> turns it into a
+    /// 400 for every surface that owes the caller an error; the WMS map path treats it as
+    /// *nothing to draw here*, because WMS says the part of a bounding box outside its
+    /// reference is blank rather than an exception. Two copies of the test would drift, and
+    /// the one that drifted would turn a blank margin back into a broken layer.
+    /// </para>
+    /// <para>
+    /// <b>Matched on the message because PostGIS gives no code of its own.</b> <c>XX000</c>
+    /// is <c>internal_error</c>, which PostGIS uses for everything it raises itself. Two
+    /// texts are covered and both were seen on the same request: *exceeded limits* when the
+    /// latitude does not exist, and *tolerance condition error* when it exists but the target
+    /// projection cannot represent it — Web Mercator at the pole. The match fails safe: any
+    /// other <c>XX000</c> keeps the old answer.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether it is a coordinate outside its reference.</returns>
+    internal static bool IsOutsideItsReference(Exception exception) =>
+        exception is PostgresException { SqlState: "XX000" } postgis
+        && postgis.MessageText.Contains("transform", StringComparison.Ordinal)
+        && (postgis.MessageText.Contains("exceeded limits", StringComparison.Ordinal)
+            || postgis.MessageText.Contains("tolerance condition", StringComparison.Ordinal));
+
     internal static Refusal Explain(Exception exception) => exception switch
     {
         // <b>The server's own bound, and it must not read as the database's.</b> ADR-007 §4.8's
@@ -531,8 +559,7 @@ internal static class ErrorResponse
         // is wrong; nothing about the server or its data needs attention. On the WMS surface
         // this becomes a `ServiceException`, which is what a conforming client reads.
         PostgresException { SqlState: "XX000" } postgis
-            when postgis.MessageText.Contains("exceeded limits", StringComparison.Ordinal)
-                 && postgis.MessageText.Contains("transform", StringComparison.Ordinal) => new(
+            when IsOutsideItsReference(postgis) => new(
             StatusCodes.Status400BadRequest,
             "A coordinate in this request is outside the range its coordinate reference system "
             + "allows — a latitude beyond ±90° or a longitude beyond ±180° in a geographic "

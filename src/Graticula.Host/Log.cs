@@ -423,4 +423,14 @@ internal static partial class Log
                 + "database being briefly unreachable — the next request asks again.")]
     public static partial void DatumShiftUnknown(
         ILogger logger, string layer, int servedAs, System.Exception exception);
+
+    [LoggerMessage(
+        EventId = 1053,
+        Level = LogLevel.Debug,
+        Message = "The map area asked for is outside what layer '{Layer}' can be projected "
+                + "into from EPSG:{Srid}, so that layer drew nothing. D-163: WMS says the "
+                + "part of a bounding box outside its reference is blank rather than an "
+                + "error. Debug rather than a warning: a client panning past the pole is "
+                + "doing something ordinary, and the map it gets back is correct.")]
+    public static partial void MapAreaOutsideReference(ILogger logger, string layer, int srid);
 }
