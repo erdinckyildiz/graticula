@@ -2514,7 +2514,7 @@ public static class Program
             return;
         }
 
-        if (!layer.Definition.IsArcGisServable)
+        if (!layer.Definition.HasIntegerIdentity)
         {
             await Results.Json(
                 new
@@ -2889,7 +2889,7 @@ public static class Program
     /// </remarks>
     private static string CapabilitiesFor(HttpContext context, PublishedService service)
     {
-        if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.IsArcGisServable))
+        if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.HasIntegerIdentity))
         {
             return Join(service.Limits.Restrict(["Query"]));
         }
@@ -2903,7 +2903,7 @@ public static class Program
     private static string CapabilitiesFor(
         HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits)
     {
-        if (!layer.Definition.IsArcGisServable)
+        if (!layer.Definition.HasIntegerIdentity)
         {
             return Join(limits.Restrict(["Query"]));
         }
@@ -3187,7 +3187,7 @@ public static class Program
                 cancellation).ConfigureAwait(false);
         }
 
-        if (!layer.Definition.IsArcGisServable)
+        if (!layer.Definition.HasIntegerIdentity)
         {
             await Results.Json(
                 new

@@ -68,7 +68,7 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
-        "8adbb5583496a4f778b77d747d87e933c17e6f4e0aa8c3bc79a1f3d28a656402";
+        "a02814428b7ffbf5543b31a350a19c863d8bf5de0373654e063593c53777a5c2";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;

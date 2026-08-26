@@ -131,7 +131,7 @@ internal static partial class OgcFeaturesEndpoints
         // one to *work*, and is refused with the others anyway: a created feature whose
         // `Location` cannot be written is a resource the client is told exists and cannot
         // fetch.
-        if (!layer.Definition.IsArcGisServable)
+        if (!layer.Definition.HasIntegerIdentity)
         {
             await RefuseAsync(
                 context,

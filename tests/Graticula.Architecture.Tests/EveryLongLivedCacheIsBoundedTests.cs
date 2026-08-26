@@ -74,6 +74,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",
         ["TileSingleFlight._building"] = "one per tile being built right now",
         ["CatalogFallback._last"] = "explicit capacity; cleared when full",
+        ["DatumShiftNotices._seen"] =
+            "explicit ceiling of 256 layer-and-reference pairs; stops recording rather "
+            + "than evicting, because eviction would let the same notice be logged twice "
+            + "(Q-141)",
 
         // Fixed at class load. Not caches.
         ["FilterReader.Comparisons"] = "fixed: the comparison operators WFS defines",

@@ -94,15 +94,42 @@ public sealed partial class LayerDefinition
     public bool IsHosted { get; }
 
     /// <summary>
-    /// <see langword="true"/> when this layer can be served through the ArcGIS
-    /// surface, which requires a unique integer identity (ADR-013 §2a).
+    /// <see langword="true"/> when a single row of this layer can be named by an integer.
     /// </summary>
     /// <remarks>
-    /// The capability report reads this rather than discovering it when a
-    /// request fails — never degrade silently, applied to a data-shape
-    /// limitation rather than a provider capability.
+    /// <para>
+    /// <b>Called <c>IsArcGisServable</c> until 2026-08-26, and the rename is
+    /// [D-124](../../../docs/architecture-debt.md)'s own prescription becoming due.</b> That
+    /// row records four of one protocol's nouns living in the domain every protocol reads,
+    /// and sets the trigger precisely: *when a second protocol needs its own notion of
+    /// servability — today only ArcGIS does, so a rename would move the coupling rather than
+    /// remove it.* **It stopped being only ArcGIS on 2026-08-25**, when OGC API Features
+    /// gained its write half ([Q-44](../../../docs/open-questions.md)) and began refusing an
+    /// unaddressable collection by reading this same property.
+    /// </para>
+    /// <para>
+    /// <b>What the property states now is the data's shape, not a face's opinion of it.</b>
+    /// The rule *ArcGIS FeatureServer requires a unique 32-bit integer identity* is genuinely
+    /// ArcGIS's ([ADR-013](../../../docs/adr/ADR-013-arcgis-compatibility.md) §2a) and lives
+    /// on that face; OGC API Features Part 4 needs an addressable feature for a different
+    /// reason — a created feature must be given a <c>Location</c>, and a replaced or deleted
+    /// one must be nameable — and reaches the same requirement by its own road. Two faces
+    /// asking one question about the data is right; two faces asking it in one face's
+    /// vocabulary was the leak.
+    /// </para>
+    /// <para>
+    /// <b>The capability report reads this rather than discovering it when a request
+    /// fails</b> — never degrade silently, applied to a data-shape limitation rather than a
+    /// provider capability.
+    /// </para>
+    /// <para>
+    /// <b>Three of D-124's four nouns are unchanged.</b> <c>ObjectIdColumn</c>,
+    /// <c>FeatureQuery.ObjectIds</c> and <c>FeatureEdits.ObjectId</c> still carry Esri's
+    /// word, and <c>ObjectIdColumn</c> alone is in forty-six places. That row stays open for
+    /// them; this one moved because its trigger fired and it was nine.
+    /// </para>
     /// </remarks>
-    public bool IsArcGisServable => ObjectIdColumn is not null;
+    public bool HasIntegerIdentity => ObjectIdColumn is not null;
 
     /// <summary>
     /// Quotes an identifier for PostgreSQL, doubling any embedded quote.

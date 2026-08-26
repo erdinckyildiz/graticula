@@ -67,8 +67,8 @@ public sealed class LayerDefinitionTests
         // ADR-013 §2a: OGC accepts a string id, ArcGIS FeatureServer requires a
         // unique integer. The capability report reads this rather than
         // discovering it when a request fails.
-        Assert.False(Valid(objectIdColumn: null).IsArcGisServable);
-        Assert.True(Valid().IsArcGisServable);
+        Assert.False(Valid(objectIdColumn: null).HasIntegerIdentity);
+        Assert.True(Valid().HasIntegerIdentity);
     }
 
     [Fact]

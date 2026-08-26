@@ -54,7 +54,7 @@ public sealed class FeatureServerQueryWriter
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
 
-        if (!layer.IsArcGisServable)
+        if (!layer.HasIntegerIdentity)
         {
             // ADR-013 §2a. OGC API Features accepts a string id; ArcGIS requires
             // a unique integer. Refusing here, by construction, means the
