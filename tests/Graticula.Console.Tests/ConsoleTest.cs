@@ -990,15 +990,35 @@ public abstract class ConsoleTest : IAsyncLifetime
                     // script did not arrive, so all of them are listed with what the
                     // browser recorded fetching — and `0B` on a script that is on the
                     // page is the shape being hunted.
-                    const scripts = Array.from(document.scripts || []).map(s => {
+                    //
+                    // <b>And stylesheets, because the third one was about `console.css` —
+                    // D-173.</b> A stylesheet is the page's *first* subresource, so
+                    // whether it was fetched at all separates a failed request from a
+                    // cancelled one, and that distinction is the open question: the
+                    // console's own surface router calls `location.replace` on a path,
+                    // which cancels whatever is in flight. `never fetched` beside a
+                    // recorded error is a cancellation; a timing beside one is a
+                    // response that did not land.
+                    const listed = [];
+
+                    for (const s of Array.from(document.scripts || [])) {
                       const name = (s.src || '').split('/').pop() || 'inline';
-                      return s.src
+                      listed.push(s.src
                         ? name + '=' + (timings[s.src] || 'never fetched')
-                        : name;
-                    });
+                        : name);
+                    }
+
+                    for (const l of Array.from(
+                        document.querySelectorAll('link[rel=stylesheet]') || [])) {
+                      const name = (l.href || '').split('/').pop() || 'inline';
+                      listed.push(l.href
+                        ? name + '=' + (timings[l.href] || 'never fetched')
+                        : name);
+                    }
 
                     return 'readyState=' + document.readyState
-                      + ' scripts=[' + scripts.join(', ') + ']';
+                      + ' at=' + location.pathname
+                      + ' assets=[' + listed.join(', ') + ']';
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
