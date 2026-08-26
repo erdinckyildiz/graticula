@@ -118,10 +118,13 @@ public static class Program
         // `HostSettings.Read` says exactly what is missing, where to set it, and that the
         // former name still works. Unhandled, it reaches the operator as
         // `Unhandled exception. System.InvalidOperationException` with a stack trace and a
-        // signal — measured in the container as **exit 139** — and `compose.yaml` says
-        // `restart: unless-stopped`, so a forgotten variable is a crash loop rather than a
-        // sentence. That file's own comment promises the opposite: *the server refuses to
-        // start without it and says so clearly, which is the better place for the error*.
+        // signal — measured in the container as **exit 139**. `compose.yaml` restarts the
+        // server `on-failure:5`, bounded on purpose because an unbounded policy *turns a
+        // correct, well-explained refusal into a crash loop*: so the operator gets the
+        // explanation five times, as a stack trace, and that file's design goal is defeated
+        // by exactly the shape it was written around. Its own comment promises the other
+        // thing — *the server refuses to start without it and says so clearly, which is the
+        // better place for the error anyway*.
         //
         // <b>Only this call, and only this exception.</b> A blanket handler here would turn
         // every startup bug into a tidy message and hide it; what is caught is the one type
