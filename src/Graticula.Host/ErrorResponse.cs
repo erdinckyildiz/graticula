@@ -531,11 +531,22 @@ internal static class ErrorResponse
             + "which reports the PostGIS version the server can actually see.",
             NeedsAnAdministrator),
 
+        // <b>*Retrying will not help* was measured false — [D-178](../../docs/architecture-debt.md),
+        // 2026-08-26.</b> A layer's shape is remembered for `ServiceContexts.Lifetime`, which is
+        // **30 seconds**, and this is what a request sees while a warm memory names a column the
+        // table no longer has. Measured against a registered table: three queries inside the
+        // window answer 500, and after it the layer re-reads and answers 200 with the columns
+        // that are there. So the sentence sent an operator to republish a layer that repairs
+        // itself in half a minute — and republishing is genuinely needed only when the
+        // registration itself is wrong, which the next request tells them.
         PostgresException { SqlState: "42703" } => new(
             StatusCodes.Status500InternalServerError,
             "The database is reachable but a column this layer was registered with does not exist. "
-            + "The registration and the table have diverged. Retrying will not help; the layer "
-            + "needs republishing against the columns the table actually has.",
+            + "The registration and the table have diverged. This server re-reads a layer's "
+            + "columns every 30 seconds, so try again shortly: if the table simply lost a column, "
+            + "the layer starts serving the columns it now has. If it still refuses after that, "
+            + "the registration names a column the table does not have — its identity or geometry "
+            + "column — and the layer needs republishing.",
             NeedsAnAdministrator),
 
         // <b>A coordinate outside its reference's domain is the caller's mistake, and it was
