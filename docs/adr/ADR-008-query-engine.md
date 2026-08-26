@@ -227,6 +227,26 @@ Keyset pagination is stable and cheap but requires a total order.
   ([data-model.md](../data-model.md) §3), the token is rejected with a clear
   error rather than silently returning incoherent pages.**
 
+> **None of that is built, and this note is here because §4a-i's lesson applies
+> twice in one ADR — added 2026-08-26.** Measured: the OGC face's `next` link is
+> `?limit=5&offset=5`, constructed by this server, and the ArcGIS face pages by
+> `resultOffset`, which its protocol mandates. **There is no opaque token
+> anywhere in `src`** — the only `Cursor` in the repository reads WKB bytes. So
+> the second bullet is what shipped and the first and third are a design.
+>
+> **This is not drift and nothing was violated behind anybody's back.** Offset
+> paging was built because the ArcGIS Maps SDK pages by offset and refusing it
+> refuses the client, and because v1 is one provider. What was skipped is the
+> paragraph saying so, which is exactly the omission
+> [D-40](../architecture-debt.md) recorded about §4.1 and §4a — repaired there on
+> the same day this was found here.
+>
+> **The consequence has a row and the decision did not.**
+> [D-21](../architecture-debt.md) records that offset paging over a changing
+> layer skips and repeats features. What it did not say, until this note, is that
+> a cursor is not an open design question: it is decided, here, and unbuilt. A
+> reader arriving at §4.5 and stopping would believe this server issues tokens.
+
 ### 4.5a Lossy on read means not writable
 
 From [geometry-crs-policy.md](../geometry-crs-policy.md), which found the same
