@@ -49,6 +49,17 @@ namespace Graticula.Host;
 /// ten-thousandth row.
 /// </para>
 /// <para>
+/// <b>Measured 2026-08-26, because the sentence below was a claim.</b> The notice sits in
+/// the query handler's `prepare` phase, which the `query` logger reports at Debug. Twenty-five
+/// warm one-row queries each way, medians: **prepare is 155 µs without `outSR` and 129 µs
+/// with it** — and `outSR` is what makes this fire, so the difference is inside the noise.
+/// The phase it lives in is fifteen times smaller than the per-request catalogue read
+/// standing beside it in the same request (2,164 µs, [D-30](../../docs/architecture-debt.md)).
+/// The first sighting of a pair costs a round trip to `spatial_ref_sys` and was **not**
+/// isolated: three attempts gave +11 ms, −1.4 ms and +6 ms, which is a noise floor rather
+/// than a number.
+/// </para>
+/// <para>
 /// <b>What it does not do.</b> It does not refuse, does not slow the request down by more
 /// than one cached lookup, and says nothing on the response. A transformation this server
 /// cannot verify is still performed, because refusing would break every client that asks
