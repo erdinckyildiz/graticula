@@ -477,11 +477,12 @@ public abstract class ArcGisClient : IDisposable
             return null;
         }
 
+        string body = await response.Content.ReadAsStringAsync();
+
         Assert.True(
             response.IsSuccessStatusCode,
-            $"GET {uri} returned {(int)response.StatusCode}. An ArcGIS client stops here.");
-
-        string body = await response.Content.ReadAsStringAsync();
+            $"GET {uri} returned {(int)response.StatusCode}. An ArcGIS client stops here. "
+            + Said(body));
 
         try
         {
@@ -579,11 +580,18 @@ public abstract class ArcGisClient : IDisposable
 
         using HttpResponseMessage response = await _http.SendAsync(request);
 
+        // <b>Read before asserting, so the refusal is in the failure —
+        // [D-174](../../docs/architecture-debt.md).</b> This server answers a refusal with a
+        // sentence naming the cause, and the assertion below fired one line before the body
+        // was read, so every failure here said only *returned 503*. Four of its causes are
+        // 503 — an unreachable source, a full connection budget, an unreadable platform
+        // store and an undecryptable credential — and they need four different repairs.
+        string body = await response.Content.ReadAsStringAsync();
+
         Assert.True(
             response.IsSuccessStatusCode,
-            $"GET {uri} returned {(int)response.StatusCode}. An ArcGIS client stops here.");
-
-        string body = await response.Content.ReadAsStringAsync();
+            $"GET {uri} returned {(int)response.StatusCode}. An ArcGIS client stops here. "
+            + Said(body));
 
         Assert.Contains(
             "json",
@@ -622,14 +630,31 @@ public abstract class ArcGisClient : IDisposable
 
         using HttpResponseMessage response = await _http.SendAsync(request);
 
+        string body = await response.Content.ReadAsStringAsync();
+
         Assert.True(
             response.IsSuccessStatusCode,
-            $"GET {root}{path} returned {(int)response.StatusCode} for a browser.");
+            $"GET {root}{path} returned {(int)response.StatusCode} for a browser. "
+            + Said(body));
 
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
 
-        return await response.Content.ReadAsStringAsync();
+        return body;
     }
+
+    /// <summary>The server's own explanation, trimmed for a failure message.</summary>
+    /// <param name="body">What came back.</param>
+    /// <remarks>
+    /// <b>Trimmed rather than dropped.</b> A refusal from this server is a sentence and
+    /// fits; an HTML error page does not, and three hundred characters of one still says
+    /// which page it is. The alternative that was there — printing nothing — is what made a
+    /// 503 unattributable.
+    /// </remarks>
+    private static string Said(string body) =>
+        string.IsNullOrWhiteSpace(body)
+            ? "The response had no body to explain it."
+            : "The server said: "
+                + (body.Length <= 300 ? body : body[..300] + "…");
 
     /// <summary>
     /// Fetches with an explicit format and a browser's Accept header.

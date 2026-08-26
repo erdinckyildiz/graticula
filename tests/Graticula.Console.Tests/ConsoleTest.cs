@@ -419,11 +419,19 @@ public abstract class ConsoleTest : IAsyncLifetime
 
         using HttpResponseMessage response = await Http.SendAsync(request);
 
+        // Read first, so a refusal reaches the failure — [D-174](../../docs/architecture-debt.md),
+        // the same repair as `ArcGisClient` and for the same reason: this server explains
+        // itself in the body and the assertion was firing before anybody read it.
+        string body = await response.Content.ReadAsStringAsync();
+
         Assert.True(
             response.IsSuccessStatusCode,
-            $"GET {path} returned {(int)response.StatusCode}.");
+            $"GET {path} returned {(int)response.StatusCode}. "
+            + (string.IsNullOrWhiteSpace(body)
+                ? "The response had no body to explain it."
+                : "The server said: " + (body.Length <= 300 ? body : body[..300] + "…")));
 
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+        return JsonDocument.Parse(body).RootElement.Clone();
     }
 
     /// <summary>
