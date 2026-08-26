@@ -304,6 +304,86 @@ public sealed class OgcFeaturesConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task Asking_for_the_whole_world_works_on_every_collection()
+    {
+        // <b>[D-164](../../docs/architecture-debt.md), found 2026-08-26 by the first
+        // full-scope OGC API Features CITE run.</b> `bbox=-180,-90,180,90` is how a client
+        // asks for everything. It answered **400** on a layer with no rows and **200** on a
+        // layer with rows, same reference, same request — because a layer with rows had its
+        // own extent to clamp the box against first, and one without did not, so ±90°
+        // reached `st_transform` and Web Mercator sends the pole to infinity.
+        //
+        // <b>Every collection, not a chosen one.</b> A test that picks the first collection
+        // would have passed all day: this deployment's empty layers are not first, and that
+        // is exactly how the defect survived a suite that was already green.
+        int checked_ = 0;
+
+        foreach (JsonElement collection in
+            (await JsonAsync(Root + "/collections")).GetProperty("collections").EnumerateArray())
+        {
+            string id = collection.GetProperty("id").GetString()!;
+
+            (HttpStatusCode status, _, string body) = await FetchAsync(
+                $"{Root}/collections/{Uri.EscapeDataString(id)}/items"
+                + "?bbox=-180,-90,180,90&limit=1");
+
+            Assert.True(
+                status == HttpStatusCode.OK,
+                $"collection '{id}' answered {(int)status} to a world-wide bbox; the body was "
+                + body[..Math.Min(200, body.Length)]);
+
+            checked_++;
+        }
+
+        Assert.True(checked_ > 0, "No collection was asked, so this test asserted nothing.");
+    }
+
+    [Fact]
+    public async Task A_world_bbox_still_returns_what_a_collection_holds()
+    {
+        // <b>The half a blanket repair would lose, and it is the dangerous half.</b> Making
+        // every extentless collection answer *no features* would have turned the test above
+        // green while breaking the server: the extent comes from a cached description, so a
+        // layer that was empty when first described and has rows now would report none. A
+        // clamp can only narrow to a region that still holds everything the reference can.
+        int withFeatures = 0;
+
+        foreach (JsonElement collection in
+            (await JsonAsync(Root + "/collections")).GetProperty("collections").EnumerateArray())
+        {
+            string id = collection.GetProperty("id").GetString()!;
+
+            (HttpStatusCode plain, _, string unfiltered) = await FetchAsync(
+                $"{Root}/collections/{Uri.EscapeDataString(id)}/items?limit=5");
+
+            if (plain != HttpStatusCode.OK
+                || JsonDocument.Parse(unfiltered).RootElement
+                    .GetProperty("features").GetArrayLength() == 0)
+            {
+                continue;
+            }
+
+            (HttpStatusCode wide, _, string world) = await FetchAsync(
+                $"{Root}/collections/{Uri.EscapeDataString(id)}/items"
+                + "?bbox=-180,-90,180,90&limit=5");
+
+            Assert.Equal(HttpStatusCode.OK, wide);
+
+            Assert.True(
+                JsonDocument.Parse(world).RootElement
+                    .GetProperty("features").GetArrayLength() > 0,
+                $"collection '{id}' has features but a world-wide bbox returned none, so the "
+                + "clamp is narrowing past the data rather than to the reference's limits.");
+
+            withFeatures++;
+        }
+
+        Assert.True(
+            withFeatures > 0,
+            "No collection had features, so this test asserted nothing.");
+    }
+
+    [Fact]
     public async Task A_property_filter_narrows_by_that_property()
     {
         // Part 1 §7.15.4: every queryable property is a parameter of its own name,

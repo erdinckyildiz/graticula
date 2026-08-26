@@ -1108,16 +1108,46 @@ internal static partial class OgcFeaturesEndpoints
     /// </remarks>
     private static Envelope? Clamped(Envelope box, int bboxSrid, CollectionMetadata collection)
     {
-        if (bboxSrid != Graticula.Geometries.AxisOrder.Wgs84
-            || collection.Extent is not { IsEmpty: false } extent)
+        if (bboxSrid != Graticula.Geometries.AxisOrder.Wgs84)
         {
             return box;
         }
 
-        double minX = Math.Max(box.MinX, extent.MinX);
-        double minY = Math.Max(box.MinY, extent.MinY);
-        double maxX = Math.Min(box.MaxX, extent.MaxX);
-        double maxY = Math.Min(box.MaxY, extent.MaxY);
+        /*
+          <b>The layer's data when it has any, and its reference's own limits when it has
+          not — [D-164](../../docs/architecture-debt.md), 2026-08-26.</b> Until this, a
+          collection with no extent got its box back untouched, and
+          `bbox=-180,-90,180,90` — which is how a client asks for everything — reached
+          `st_transform` with a latitude of 90°. Web Mercator sends the pole to infinity,
+          PostGIS raised, and the request answered **400**. **On a layer with rows the same
+          request answered 200**, because the extent clamped it well inside the pole first.
+          Measured across five layers, all EPSG:3857: two empty ones refused and three full
+          ones answered. A request that starts failing when a layer's last row is deleted is
+          a defect nobody can reproduce on demand.
+
+          <b>Answering *no features* for an extentless collection was the tempting fix and is
+          wrong.</b> The extent comes from a cached description; a layer that was empty when
+          first described and has rows now would be reported as having none — a silent wrong
+          answer, which is worse than the 400 it replaces. Clamping can only ever narrow to a
+          region that still contains everything the reference can hold.
+
+          <b>The reference's limits are known for two families and null for the rest</b>, and
+          null means *do not clamp*. `ProjectionDomain` says why, and D-164 stays open for
+          the references it cannot answer for.
+        */
+        Envelope? bound = collection.Extent is { IsEmpty: false } extent
+            ? extent
+            : Graticula.Geometries.ProjectionDomain.Of(collection.Srid);
+
+        if (bound is not { } within)
+        {
+            return box;
+        }
+
+        double minX = Math.Max(box.MinX, within.MinX);
+        double minY = Math.Max(box.MinY, within.MinY);
+        double maxX = Math.Min(box.MaxX, within.MaxX);
+        double maxY = Math.Min(box.MaxY, within.MaxY);
 
         // Disjoint. A zero-area overlap is kept: two things can touch along an edge,
         // and a degenerate extent is exactly what two of this server's layers have.

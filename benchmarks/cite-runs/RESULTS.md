@@ -200,7 +200,7 @@ Same request, same reference, and the answer depends on whether the table has ro
 ±90° is valid in CRS84 and is not representable in Web Mercator, so transforming the filter
 raises — and whether that raise is reached depends on the plan the table's contents produce.
 
-**This is [D-163](../../docs/architecture-debt.md) on the surface D-163 did not touch**, and
+**Fixed the same day: 1,256 / 20 before, 1,351 / 10 after — 95 more assertions pass.** The ten that remain are six `items/null` requests the suite builds when a collection has no feature to name, and the four paging counts from the baseline. **This was [D-163](../../docs/architecture-debt.md) on the surface D-163 did not touch**, and
 it is [D-164](../../docs/architecture-debt.md). The map path's answer — draw nothing where
 PROJ cannot reach — is *wrong* here: a world bbox on a Web Mercator layer should return
 every feature, because everything is inside ±85°. The filter has to be clipped to what the
