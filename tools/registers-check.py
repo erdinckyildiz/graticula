@@ -1772,7 +1772,19 @@ def the_former_product_name():
             continue
 
         for name in sorted(names):
-            if not name.endswith((".md", ".html")):
+            # <b>Prose, and the files that decide what ships -- widened 2026-08-26,
+            # [D-170](../docs/architecture-debt.md).</b> This read `.md` and `.html`
+            # only, on the reasonable-sounding ground that a rename is a documentation
+            # problem. It is not: `deploy/datastore.Dockerfile` carried
+            # `org.opencontainers.image.title="gis-server datastore"` for nine days
+            # after ADR-032, which is the old name in the one artefact a user actually
+            # receives -- the check was green the whole time because it never opened
+            # the file. Dockerfiles and compose files are added rather than every
+            # extension: `.cs` would drag in `HostSettings`, which reads the legacy
+            # configuration keys on purpose (ADR-032 5), and a guard that needs a
+            # list of excuses to stay green stops being read.
+            if not (name.endswith((".md", ".html", ".yaml", ".yml"))
+                    or "dockerfile" in name.lower()):
                 continue
 
             path = os.path.join(folder, name)
