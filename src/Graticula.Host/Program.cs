@@ -112,7 +112,34 @@ public static class Program
 
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-        HostSettings settings = HostSettings.Read(builder.Configuration);
+        HostSettings settings;
+
+        // <b>The refusal is written carefully and then thrown away — [D-171](../../docs/architecture-debt.md).</b>
+        // `HostSettings.Read` says exactly what is missing, where to set it, and that the
+        // former name still works. Unhandled, it reaches the operator as
+        // `Unhandled exception. System.InvalidOperationException` with a stack trace and a
+        // signal — measured in the container as **exit 139** — and `compose.yaml` says
+        // `restart: unless-stopped`, so a forgotten variable is a crash loop rather than a
+        // sentence. That file's own comment promises the opposite: *the server refuses to
+        // start without it and says so clearly, which is the better place for the error*.
+        //
+        // <b>Only this call, and only this exception.</b> A blanket handler here would turn
+        // every startup bug into a tidy message and hide it; what is caught is the one type
+        // `Read` raises deliberately, around the one call that raises it.
+        try
+        {
+            settings = HostSettings.Read(builder.Configuration);
+        }
+        catch (InvalidOperationException misconfigured)
+        {
+            Console.Error.WriteLine(misconfigured.Message);
+
+            // 78 is `EX_CONFIG` from `sysexits.h`, which is what an init system and a
+            // human both read as *this is your configuration, not my crash*. Distinct
+            // from 1, which serving already uses for a failed handshake.
+            return 78;
+        }
+
         ConfigureKestrel(builder, settings);
 
         // <b>Registered so a handler can be given it rather than reaching for
