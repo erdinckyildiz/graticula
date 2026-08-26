@@ -317,12 +317,25 @@ jobs:
       # above uses a placeholder because it seals nothing; this one seals data
       # source credentials, and a fixed key in a public workflow would be a
       # credential in the repository.
+      # <b>Kestrel is asked to speak, for [D-173](../../docs/architecture-debt.md).</b> A
+      # console run on 2026-08-26 lost `console.css` on one page load and `session.js` on
+      # another while the server answered **every request it saw** with 200 — 112 of them —
+      # and the counts differ by exactly one on each surface, so a request did not arrive
+      # and a response did not land. Both are connection-level and Kestrel is the only
+      # thing that can say which: it logs a connection closed for the minimum data rate, or
+      # reset, under this category, and at `Debug` because the reset is not Information.
+      # `env` rather than an assignment, because the category has dots in it and bash will
+      # not take those in a variable name.
+      #
+      # This changes no behaviour and belongs to the diagnosis rather than to the server.
+      # It costs a few thousand lines in an artefact that is already forty thousand.
       - name: start the server
         run: |
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
           Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
           Graticula__Port=8443 \
-            nohup src/Graticula.Host/bin/Release/net9.0/Graticula.Host \
+            nohup env "Logging__LogLevel__Microsoft.AspNetCore.Server.Kestrel=Debug" \
+              src/Graticula.Host/bin/Release/net9.0/Graticula.Host \
               > server.log 2>&1 &
           echo "started, waiting for the setup token"
 
