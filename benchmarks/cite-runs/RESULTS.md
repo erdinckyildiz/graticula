@@ -215,6 +215,44 @@ diagnosable in one reading.
 
 ---
 
+## 2e. The ten that remain are accounted for, and none of them is a defect here
+
+**A conformance claim is only worth what its residual is understood to be**, so the ten were
+chased rather than left as a number.
+
+**Six are `items/null`.** The suite asks
+`/collections/{id}/items/null?crs=…` because it takes a feature id from the collection and
+the two empty layers have none to take. A 404 for a feature that does not exist is correct;
+the assertion simply cannot run on an empty collection.
+
+**Four are the suite's own page cap.** The message reads *Value of numberReturned (300) does
+not match the number of features in all responses (50)*, which invites the conclusion that
+paging is broken. It is not, and the measurement is unambiguous:
+
+| Walk of `parks`, default limit | Result |
+|---|---|
+| pages followed to exhaustion | **30** |
+| features collected | **300** |
+| distinct among them | **300** |
+| `numberMatched` reported | **300** |
+
+**50 is exactly the first five pages of ten.** The suite stops after five and compares what
+it collected against `numberMatched`, so any collection with more than fifty features and
+the recommended default limit fails this assertion by construction.
+
+**Paging was checked across all fourteen collections and is self-consistent**: no page
+repeats a feature, `numberReturned` equals the number of features actually carried in every
+response, and `limit` above the collection's size returns the whole collection with
+`numberReturned` equal to `numberMatched`.
+
+**It could be made to pass and should not be.** A default `limit` of 100 would put 300
+features inside the suite's five pages. OGC API Features *recommends* 10, and raising a
+default to move an assertion is tuning the server to the test rather than to its callers —
+which is the kind of green that [D-158](../../docs/architecture-debt.md) is warning about
+rather than asking for.
+
+---
+
 ## 3. What this says about D-158
 
 The row's argument is that *a conformance claim ages into a conformance belief*,
