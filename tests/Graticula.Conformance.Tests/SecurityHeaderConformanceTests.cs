@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -327,11 +328,82 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
 
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Every console page this server serves, discovered rather than typed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-46](../../docs/architecture-debt.md) instance 10 was about these two theories,
+    /// and it was still true — repaired 2026-08-26.</b> The row records that the enumerating
+    /// form was named as its own remedy and then carried a hand-typed list of pages that had
+    /// drifted. It had drifted further than the row said: `wwwroot` holds `index.html`,
+    /// `map.html` and `view.html`, and both surfaces serve all three, so the real set is
+    /// **six addresses**. The two theories listed four. **`/server/map.html` and
+    /// `/server/view.html` were checked by neither** — not for an inline script, not for a
+    /// permitted subresource.
+    /// </para>
+    /// <para>
+    /// <b>Discovered from the source tree, which is what makes it an invariant.</b> A page
+    /// added to `wwwroot` tomorrow is covered the day it is added, by both theories, with no
+    /// edit anywhere — which is the property this row says the enumerating form was supposed
+    /// to have and did not. `DeadColumnsStayDeadTests` finds the repository the same way.
+    /// </para>
+    /// <para>
+    /// <b>The prefixes stay typed and that is deliberate.</b> `/server` and `/studio` are
+    /// two surfaces `Program.cs` names in one place; discovering them would mean parsing C#
+    /// to protect a list of two, and a test whose own machinery can be wrong is worse than
+    /// a short list that is right.
+    /// </para>
+    /// </remarks>
+    public static TheoryData<string> ConsolePages
+    {
+        get
+        {
+            DirectoryInfo? at = new(AppContext.BaseDirectory);
+
+            while (at is not null
+                && !Directory.Exists(Path.Combine(at.FullName, "src")))
+            {
+                at = at.Parent;
+            }
+
+            Assert.True(at is not null, "Could not find the repository root from the test assembly.");
+
+            string wwwroot = Path.Combine(
+                at!.FullName, "src", "Graticula.Host", "wwwroot");
+
+            Assert.True(Directory.Exists(wwwroot), $"No wwwroot at {wwwroot}.");
+
+            TheoryData<string> pages = [];
+
+            foreach (string file in Directory
+                .EnumerateFiles(wwwroot, "*.html", SearchOption.TopDirectoryOnly)
+                .OrderBy(f => f, StringComparer.Ordinal))
+            {
+                string name = Path.GetFileName(file);
+
+                foreach (string surface in (string[])["/server", "/studio"])
+                {
+                    // The index is served at the surface's root, which is the address a
+                    // browser actually asks for.
+                    pages.Add(string.Equals(name, "index.html", StringComparison.Ordinal)
+                        ? surface + "/"
+                        : $"{surface}/{name}");
+                }
+            }
+
+            Assert.True(
+                pages.Count >= 4,
+                $"Only {pages.Count} console page(s) were discovered under {wwwroot}, which is "
+                + "fewer than this server is known to serve — the discovery is broken rather "
+                + "than the server being small.");
+
+            return pages;
+        }
+    }
+
     [Theory]
-    [InlineData("/server/")]
-    [InlineData("/studio/")]
-    [InlineData("/studio/map.html")]
-    [InlineData("/studio/view.html")]
+    [MemberData(nameof(ConsolePages))]
     public async Task No_console_page_carries_an_inline_script(string path)
     {
         using HttpResponseMessage page = await GetAsync(path, "text/html");
@@ -386,10 +458,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("/server/")]
-    [InlineData("/studio/")]
-    [InlineData("/studio/map.html")]
-    [InlineData("/studio/view.html")]
+    [MemberData(nameof(ConsolePages))]
     public async Task Every_file_a_console_page_asks_for_is_permitted(string path)
     {
         using HttpResponseMessage page = await GetAsync(path, "text/html");
