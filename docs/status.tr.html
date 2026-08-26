@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e1640d5</code> · 2026-08-26 15:54</p>
+<p class="stamp">Şu commit’ten üretildi: <code>70607b8</code> · 2026-08-26 16:11</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">35</div><div class="kpi-l">açık soru</div><div class="kpi-n">107 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">açık borç</div><div class="kpi-n">142 ödendi · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">açık borç</div><div class="kpi-n">143 ödendi · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2049</div><div class="kpi-l">test</div><div class="kpi-n">244 kaynak dosya, 94,495 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2051</div><div class="kpi-l">test</div><div class="kpi-n">244 kaynak dosya, 94,546 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -300,7 +300,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-165</td><td>A projected reference this server has no domain for is still passed an unclamped filter.</td><td class="muted-t">When a layer is published in a national grid and a client asks for the whole world — which is what bbox=-180,-90,180,90…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-166</td><td>D-60&#x27;s lock serialises the test suites against each other and not against the developer&#x27;s own running server.</td><td class="muted-t">Now, and it is cheap: it costs a diagnosis every time, and the diagnosis looks like a real defect.</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">142 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">143 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -393,20 +393,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">432</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:90.0%"></div></div><div class="bar-n">389</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:79.6%"></div></div><div class="bar-n">344</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:69.0%"></div></div><div class="bar-n">298</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.6%"></div></div><div class="bar-n">145</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:32.2%"></div></div><div class="bar-n">139</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.5%"></div></div><div class="bar-n">97</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">434</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:89.6%"></div></div><div class="bar-n">389</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:79.3%"></div></div><div class="bar-n">344</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:68.7%"></div></div><div class="bar-n">298</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.4%"></div></div><div class="bar-n">145</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:32.0%"></div></div><div class="bar-n">139</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:26.0%"></div></div><div class="bar-n">113</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">97</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.8%"></div></div><div class="bar-n">25</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.6%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.5%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>70607b8</code><time>2026-08-26</time><span>D-58: the measurement reaches the file that would stop the work</span></li>
 <li><code>e1640d5</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-124 closed</span></li>
 <li><code>592377a</code><time>2026-08-26</time><span>D-124 closes: all four ArcGIS nouns leave Tier 1, and the wire keeps its own</span></li>
 <li><code>2a957a4</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-166&#x27;s status word</span></li>
@@ -420,7 +421,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d9c02ff</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-167&#x27;s measurement</span></li>
 <li><code>6618a89</code><time>2026-08-26</time><span>D-167: the credential decryption is not it, by a factor of six hundred</span></li>
 <li><code>0d6ef4b</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-167</span></li>
-<li><code>6a8fee8</code><time>2026-08-26</time><span>D-167: most of the per-request catalogue cost is not the round trip</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

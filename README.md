@@ -122,6 +122,24 @@ It is then a FeatureServer at
 registrations, accounts and sessions, and the serving certificate. Only
 `down -v` destroys it.
 
+### If nobody can administer it any more
+
+A store that has accounts and no administrator — the last one removed, or their
+grant revoked — cannot be recovered from the API, because every route that would
+fix it needs the privilege that is missing. Setup does not re-arm itself: a
+server that printed a fresh credential to its log whenever the last
+administrator disappeared would be printing one for whoever arranged that.
+
+```bash
+GRATICULA_ADMIN_PASSWORD='a properly long password' \
+  docker compose run --rm -e GRATICULA_ADMIN_PASSWORD server \
+  tools admincreator --name root
+```
+
+It refuses on a store that already has an administrator, so it cannot be used to
+add one quietly. Run `docker compose run --rm --no-deps server --help` for this
+and the other commands.
+
 ---
 
 ## Building

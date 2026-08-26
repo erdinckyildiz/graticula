@@ -41,9 +41,60 @@ namespace Graticula.Host;
 /// <summary>The server.</summary>
 public static class Program
 {
+    /// <summary>What this binary does, for a reader who has only the binary.</summary>
+    /// <remarks>
+    /// <b>Every behaviour this executable has, and nothing it does not have.</b> A usage
+    /// text that lists a flag the code does not read is worse than none, so this is
+    /// maintained against the argument matches in <see cref="Main"/> and
+    /// <c>Tools.AdminCreator</c> rather than written from memory.
+    /// </remarks>
+    private const string Usage = """
+        Graticula — an ArcGIS-compatible GIS server over PostGIS.
+
+          graticula                       Serve. This is what the container does, and
+                                          the remaining arguments go to ASP.NET.
+
+          graticula keygen                Print a new 32-byte AES-256 key, base64, for
+                                          Graticula__SecretKey. Needs no configuration.
+
+          graticula migrate [--apply]     Report the platform schema's migrations, and
+                                          run them with --apply. Never automatic.
+
+          graticula tools admincreator [--name <name>] [--password <password>]
+                                          Give a store that has accounts and no
+                                          administrator one. Refuses if it already has
+                                          an administrator. Prefer the password in
+                                          GRATICULA_ADMIN_PASSWORD: an argument lands in
+                                          your shell history and in the process table.
+
+        Configuration is environment variables under Graticula__ — the store is
+        Graticula__PlatformStore and the key is Graticula__SecretKey, and the server
+        refuses to start without either. README.md is the quickstart.
+        """;
+
     /// <summary>Entry point.</summary>
     public static async Task<int> Main(string[] args)
     {
+        // <b>First, and before configuration, because the operator who needs this most
+        // is the one whose server will not start — [D-168](../../docs/architecture-debt.md).</b>
+        // This binary had four behaviours and advertised none of them: `keygen`, `migrate`,
+        // `tools admincreator` and serving were discoverable only by reading `Program.cs`
+        // or an ADR. The one that matters is the recovery command — a store whose last
+        // administrator is gone is recovered by `tools admincreator` and by nothing else
+        // ([Q-137](../../docs/open-questions.md)), so a recovery path nobody can find is a
+        // recovery path that does not exist. `--help` is what a locked-out operator types.
+        //
+        // <b>Only these three spellings, and never an unrecognised argument.</b> Serving
+        // passes the command line to ASP.NET, which has its own options; treating anything
+        // unknown as a usage error would refuse to start a container over a flag this
+        // method does not need to know about.
+        if (args is ["--help", ..] or ["-h", ..] or ["help", ..])
+        {
+            Console.WriteLine(Usage);
+
+            return 0;
+        }
+
         // Before configuration is read, because its whole purpose is to
         // produce the value that configuration will demand. A first run should
         // not require the operator to know how to drive openssl.
