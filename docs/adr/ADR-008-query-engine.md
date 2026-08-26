@@ -152,6 +152,17 @@ envelope.
 target GeoParquet, FlatGeobuf, or anything that is not a database — and those
 are on the provider list (§27).
 
+> **One member breaks this rule, deliberately, and §4a-i is where that was
+> argued — amended here 2026-08-26, closing [D-40](../architecture-debt.md).**
+> `FeatureQuery.Where` is a `ParsedWhere(string Sql, …)`: the attribute filter
+> enters the model already compiled. §4a-i records why, what it costs, and that
+> it is the *only* exception; `SqlStaysOutOfTheQueryModelTests` fails the build
+> if a second one appears. **The pointer is here rather than only there**
+> because a reader who arrives at §4.1 and stops has otherwise read an
+> unqualified rule that this ADR documents breaking, which is what D-40 was
+> about — and a reconciliation only the reader who keeps going can find is half
+> a reconciliation.
+
 ### 4.2 Plan, negotiate, split
 
 ```text
