@@ -38,7 +38,8 @@ public sealed class PublishedLayer
         string? symbology = null,
         TimeSpan? statementTimeout = null,
         IEnumerable<Guid>? sharedWith = null,
-        string? timeField = null)
+        string? timeField = null,
+        IEnumerable<string>? capabilityCeiling = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
@@ -46,6 +47,7 @@ public sealed class PublishedLayer
 
         Id = id;
         Cost = cost ?? ServiceCostCeilings.Unset;
+        CapabilityCeiling = capabilityCeiling is null ? null : [.. capabilityCeiling];
         StatementTimeout = statementTimeout;
         SharedWith = sharedWith is null ? [] : [.. sharedWith];
         Definition = definition;
@@ -123,6 +125,26 @@ public sealed class PublishedLayer
     /// the layer</em>.
     /// </remarks>
     public ServiceCostCeilings Cost { get; }
+
+    /// <summary>
+    /// The capability ceiling of the service this layer belongs to, or null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Carried for the same reason <see cref="Cost"/> is, and left behind when it was —
+    /// [D-179](../../../docs/architecture-debt.md).</b> The two halves of a service's limits
+    /// went down to the layer together in every respect except this one: the cost ceilings
+    /// arrived and the capability ceiling did not, so the layer document and the write path had
+    /// nothing to consult and neither consulted anything. Setting a service to `Query` was
+    /// accepted, persisted, shown on the service document — and edits kept working.
+    /// </para>
+    /// <para>
+    /// <b>Null and empty are different.</b> Null is *no ceiling configured*, which restricts
+    /// nothing; empty is *this service offers nothing*, which ADR-031 §2a keeps as a legitimate
+    /// state — a service that is running and refusing.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string>? CapabilityCeiling { get; }
 
     /// <summary>
     /// What this layer's service allows one database statement, or null for the pool's bound.

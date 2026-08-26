@@ -2764,6 +2764,19 @@ public static class Program
           `EditableGroups` is a subset of `Groups` by construction, so a group that lands here
           is one that already passed the read check.
         */
+        // <b>The service's capability ceiling, which this path never consulted —
+        // [D-179](../../docs/architecture-debt.md).</b> ADR-031 §2 calls the capability set *a
+        // ceiling intersected with the caller's privileges* and says the advertisement follows
+        // the enforcement; it was the other way round. Checked before the privileges below
+        // because a ceiling is a fact about the service rather than about the caller, so the
+        // answer is the same for everybody and there is no reason to make an administrator
+        // pass a privilege test to be told the service is refusing.
+        if (await RefusedByCeilingAsync(context, layer, adds, updates, deletes)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
         // Adds need less than updates and deletes do; asking for the wider
         // privilege on a batch that only adds would refuse a legitimate edit.
         if (adds is not null
@@ -2998,8 +3011,25 @@ public static class Program
         return CapabilitiesFor(context, service.Layers[0], service.Limits);
     }
 
+    /// <summary>The capability string for a layer resolved without its service.</summary>
+    /// <remarks>
+    /// <b>This passed `Unset` until 2026-08-26 — [D-179](../../docs/architecture-debt.md).</b>
+    /// The layer document is what an ArcGIS client reads before deciding whether it may edit,
+    /// and it was the one document on this server that ignored the service's capability
+    /// ceiling: a service configured to `Query` advertised `Query,Create,Update,Delete` here
+    /// while the service document, which resolves a service and therefore had the ceiling in
+    /// hand, said `Query`. Two documents, one service, and the wrong one is the one clients
+    /// read. `PublishedLayer` now carries the ceiling beside the cost ceilings it always
+    /// carried.
+    /// </remarks>
     private static string CapabilitiesFor(HttpContext context, PublishedLayer layer) =>
-        CapabilitiesFor(context, layer, ServiceCapabilityLimits.Unset);
+        CapabilitiesFor(context, layer, CeilingOf(layer));
+
+    /// <summary>The service's capability ceiling as limits, from a layer alone.</summary>
+    private static ServiceCapabilityLimits CeilingOf(PublishedLayer layer) =>
+        layer.CapabilityCeiling is null
+            ? ServiceCapabilityLimits.Unset
+            : new ServiceCapabilityLimits(null, null, layer.CapabilityCeiling, null);
 
     private static string CapabilitiesFor(
         HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits)
@@ -3010,6 +3040,86 @@ public static class Program
         }
 
         return Join(limits.Restrict(PrivilegedCapabilities(context)));
+    }
+
+    /// <summary>
+    /// Refuses an edit the service's capability ceiling excludes, and says which.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer being edited.</param>
+    /// <param name="adds">The adds payload, or null.</param>
+    /// <param name="updates">The updates payload, or null.</param>
+    /// <param name="deletes">The deletes payload, or null.</param>
+    /// <returns>True when it has answered and the caller must stop.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>403 rather than 400 or 404 — [D-179](../../docs/architecture-debt.md).</b> The
+    /// request is well formed, so 400 would be a lie; the service exists and the caller can
+    /// already see it, so 404 would hide nothing it has not already shown. ADR-031 §2a's
+    /// wording is the one to answer with: this service *is running and refusing*, and the
+    /// message says so and names the setting rather than the caller, because nothing about the
+    /// caller would change the answer.
+    /// </para>
+    /// <para>
+    /// <b>Every excluded operation in the batch is named, not the first.</b> An `applyEdits`
+    /// carrying adds and deletes against a `Query,Create` ceiling fails for one reason, and an
+    /// operator who fixes only the half the message mentioned would come straight back.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RefusedByCeilingAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        string? adds,
+        string? updates,
+        string? deletes)
+    {
+        if (layer.CapabilityCeiling is not { } ceiling)
+        {
+            return false;
+        }
+
+        List<string> refused = [];
+
+        if (adds is not null && !ceiling.Contains("Create", StringComparer.Ordinal))
+        {
+            refused.Add("Create");
+        }
+
+        if (updates is not null && !ceiling.Contains("Update", StringComparer.Ordinal))
+        {
+            refused.Add("Update");
+        }
+
+        if (deletes is not null && !ceiling.Contains("Delete", StringComparer.Ordinal))
+        {
+            refused.Add("Delete");
+        }
+
+        if (refused.Count == 0)
+        {
+            return false;
+        }
+
+        string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
+
+        await Results.Json(
+            new
+            {
+                error = new
+                {
+                    code = 403,
+                    message =
+                        $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
+                        + $"{string.Join(" and ", refused)} is refused here. The service is "
+                        + "running and answering what it does offer; an administrator can "
+                        + "change this on its capabilities.",
+                    details = Array.Empty<string>(),
+                },
+            },
+            statusCode: StatusCodes.Status403Forbidden)
+            .ExecuteAsync(context).ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>What the caller's privileges alone would allow.</summary>

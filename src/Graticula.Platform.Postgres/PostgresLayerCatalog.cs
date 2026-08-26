@@ -410,7 +410,17 @@ public sealed class PostgresLayerCatalog
             reader.GetFieldValue<Guid[]>(reader.GetOrdinal("shared_with_groups")),
 
             // Q-129, by name for the reason `symbology` is read by name.
-            Nullable(reader, "time_field"));
+            Nullable(reader, "time_field"),
+
+            // <b>The service's capability ceiling, beside its cost ceilings and for the same
+            // reason — D-179.</b> The cost half was carried onto the layer and this half was
+            // not, so every reader holding only a layer had no ceiling to apply: the layer
+            // document advertised the full privileged set and the write path enforced nothing,
+            // while the service document — the one place that resolves a service — got it
+            // right. One row, two facts, and only one of them travelled.
+            reader.IsDBNull(reader.GetOrdinal("capability_ceiling"))
+                ? null
+                : reader.GetFieldValue<string[]>(reader.GetOrdinal("capability_ceiling")));
     }
 
     /// <summary>The group layers held by the services named.</summary>
