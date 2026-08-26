@@ -37,6 +37,22 @@ namespace Graticula.Testing;
 /// not the thing that contends.
 /// </para>
 /// <para>
+/// <b>And it does not cover the contention a developer actually creates —
+/// [D-166](../../docs/architecture-debt.md), measured 2026-08-26.</b> This handle
+/// is taken by test hosts. A `dotnet run` development server takes none, holds its
+/// own pool against the same PostgreSQL, and contends exactly as a second suite
+/// would. On one commit, minutes apart: `Graticula.Platform.Postgres.Tests` with
+/// the server up was <b>3 failed of 369 in 2 m 34 s</b> — three
+/// `DataSourceProbeTests` timing out at 10, 11 and 12 seconds — and with it
+/// stopped was <b>369 of 369 in 1 m 22 s</b>.
+/// </para>
+/// <para>
+/// <b>The false failures cost more than the minute does.</b> Each passes in
+/// isolation, which is the shape that reads as flakiness and earns a retry rather
+/// than a cause. If a database-backed test fails here and passes alone, look for a
+/// server before looking at the test.
+/// </para>
+/// <para>
 /// <b>So the lock is where the contention is.</b> An exclusive handle on one file
 /// in the temporary directory, taken by each suite that touches the shared
 /// database, held for as long as its test host lives. The five suites that need
