@@ -15,6 +15,15 @@ COPY Directory.Build.props Directory.Packages.props graticula.sln ./
 COPY src/ src/
 COPY tests/ tests/
 
+# <b>One file from outside `src/`, and leaving it out broke the build entirely —
+# [D-169](../docs/architecture-debt.md).</b> `Graticula.Render.Skia` embeds
+# `tools/fonts/DejaVuSans.ttf` as the face it draws labels with (ADR-027, D-161), so a
+# context without it fails at compile with `CS1566: Error reading resource`. Measured
+# 2026-08-26: no image had ever been built from this file, and it did not build.
+# Copied narrowly rather than as `tools/`, which otherwise holds the register scripts
+# and belongs in no serving image.
+COPY tools/fonts/ tools/fonts/
+
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
 # benefit.
@@ -43,6 +52,14 @@ RUN groupadd --gid 64198 gisserver \
 
 WORKDIR /app
 COPY --from=build /app ./
+
+# <b>The font is redistributed by this image, so its notice travels with it.</b>
+# DejaVu Sans is compiled into `Graticula.Render.Skia.dll` rather than sitting beside
+# it, which makes the image a redistribution of the font under the Bitstream Vera
+# licence — and that licence's obligation is that the copyright notice accompanies it.
+# `DEPENDENCY-LICENSES.md` already says the text ships in `tools/fonts`; this is the
+# line that makes that true of the artefact somebody actually receives.
+COPY tools/fonts/LICENSE-DejaVu.txt ./LICENSE-DejaVu.txt
 
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
