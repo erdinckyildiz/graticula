@@ -156,9 +156,11 @@ public sealed class PublishOwnershipTests : ArcGisClient
 
         string issued = JsonDocument.Parse(body).RootElement.GetProperty("password").GetString()!;
 
-        string? first = await SignInAsync(root, issued);
+        (string? first, string firstWhy) = await SignInAsync(root, issued);
 
-        Assert.True(first is not null, "the probe publisher could not sign in with what it was given");
+        Assert.True(
+            first is not null,
+            $"the probe publisher could not sign in with what it was given. {firstWhy}");
 
         using (HttpRequestMessage change = new(HttpMethod.Post, $"{root}/rest/auth/password"))
         {
@@ -175,14 +177,28 @@ public sealed class PublishOwnershipTests : ArcGisClient
                 + await changed.Content.ReadAsStringAsync());
         }
 
-        string? mine = await SignInAsync(root, Password);
+        (string? mine, string mineWhy) = await SignInAsync(root, Password);
 
-        Assert.True(mine is not null, "the probe publisher could not sign in with its own password");
+        Assert.True(
+            mine is not null,
+            $"the probe publisher could not sign in with its own password. {mineWhy}");
 
         return mine!;
     }
 
-    private async Task<string?> SignInAsync(string root, string password)
+    /// <summary>Signs the probe in, and says why when it cannot.</summary>
+    /// <param name="root">The server.</param>
+    /// <param name="password">The password to try.</param>
+    /// <returns>The token, or null with the reason beside it.</returns>
+    /// <remarks>
+    /// <b>[D-177](../../docs/architecture-debt.md).</b> This returned a bare null on any
+    /// refusal, so every caller's assertion could say only *could not sign in*. **401 and 429
+    /// are different problems**: the second is this server's per-address throttle, which a
+    /// suite signing in from one address can reach on its own, and it needs a different repair
+    /// from a wrong password. `AFailureSaysWhyTests` is the check that keeps this shape from
+    /// coming back.
+    /// </remarks>
+    private async Task<(string? Token, string Why)> SignInAsync(string root, string password)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, $"{root}/rest/auth/login");
         request.Content = new StringContent(
@@ -190,17 +206,24 @@ public sealed class PublishOwnershipTests : ArcGisClient
             Encoding.UTF8, "application/json");
 
         using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return (null, $"Signing in returned {(int)response.StatusCode}. " + Explain(body));
         }
 
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+        return JsonDocument.Parse(body)
             .RootElement.TryGetProperty("token", out JsonElement issued)
-            ? issued.GetString()
-            : null;
+            ? (issued.GetString(), string.Empty)
+            : (null, "Signing in returned 200 with no token in it. " + Explain(body));
     }
+
+    /// <summary>The server's own words, trimmed for a failure message.</summary>
+    private static string Explain(string body) =>
+        string.IsNullOrWhiteSpace(body)
+            ? "The response had no body to explain it."
+            : "The server said: " + (body.Length <= 300 ? body : body[..300] + "…");
 
     /// <summary>
     /// A publish naming an existing service and a data source that does not exist.
