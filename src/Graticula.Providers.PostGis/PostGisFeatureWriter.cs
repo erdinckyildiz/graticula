@@ -65,7 +65,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(fields);
 
-        if (layer.ObjectIdColumn is null)
+        if (layer.IntegerIdentityColumn is null)
         {
             // ADR-013 §2a. Without a unique integer key there is no way to name
             // a row for update or delete, so editing is not merely unsupported —
@@ -220,7 +220,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         string sql =
             $"insert into {_layer.QuotedTable} ({string.Join(", ", columns)}) "
             + $"values ({string.Join(", ", values)}) "
-            + $"returning {LayerDefinition.Quote(_layer.ObjectIdColumn!)}";
+            + $"returning {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         Bind(command, bound, add.Geometry);
@@ -243,9 +243,9 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         IReadOnlyDictionary<long, int> zmFlags,
         CancellationToken cancellationToken)
     {
-        if (!zmFlags.TryGetValue(update.ObjectId, out int zmFlag))
+        if (!zmFlags.TryGetValue(update.Identity, out int zmFlag))
         {
-            return EditResult.Missing(update.ObjectId);
+            return EditResult.Missing(update.Identity);
         }
 
         // ADR-008 §4.5a, made concrete. zmFlag is 0 for 2D, 1 for M, 2 for Z,
@@ -254,7 +254,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         if (update.Geometry is not null && zmFlag != 0)
         {
             return EditResult.Failed(
-                update.ObjectId,
+                update.Identity,
                 $"This feature's stored geometry carries {Ordinates(zmFlag)}, and this server "
                 + "reads and writes two dimensions. Overwriting it would silently discard "
                 + $"{(zmFlag == 3 ? "them" : "it")}, so the edit is refused. Attribute-only "
@@ -263,7 +263,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         if (!TryBindColumns(update.Attributes, out List<(string Column, object? Value)> bound, out string? error))
         {
-            return EditResult.Failed(update.ObjectId, error!);
+            return EditResult.Failed(update.Identity, error!);
         }
 
         List<string> assignments =
@@ -280,15 +280,15 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // Nothing to do is a success. A client that sends an update with no
             // changed fields has got what it asked for, and reporting a failure
             // would make an idempotent retry look broken.
-            return EditResult.Ok(update.ObjectId);
+            return EditResult.Ok(update.Identity);
         }
 
         string sql =
             $"update {_layer.QuotedTable} set {string.Join(", ", assignments)} "
-            + $"where {LayerDefinition.Quote(_layer.ObjectIdColumn!)} = @id";
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
-        command.Parameters.AddWithValue("id", update.ObjectId);
+        command.Parameters.AddWithValue("id", update.Identity);
         Bind(command, bound, update.Geometry);
 
         try
@@ -296,12 +296,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             int affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
             return affected > 0
-                ? EditResult.Ok(update.ObjectId)
-                : EditResult.Missing(update.ObjectId);
+                ? EditResult.Ok(update.Identity)
+                : EditResult.Missing(update.Identity);
         }
         catch (PostgresException e)
         {
-            return EditResult.Failed(update.ObjectId, Explain(e));
+            return EditResult.Failed(update.Identity, Explain(e));
         }
     }
 
@@ -313,7 +313,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     {
         string sql =
             $"delete from {_layer.QuotedTable} "
-            + $"where {LayerDefinition.Quote(_layer.ObjectIdColumn!)} = @id";
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", objectId);
@@ -351,13 +351,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         // therefore three-dimensional — it is empty, and writing a shape into it
         // loses nothing.
         string sql =
-            $"select {LayerDefinition.Quote(_layer.ObjectIdColumn!)}, "
+            $"select {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}, "
             + $"coalesce(st_zmflag({LayerDefinition.Quote(_layer.GeometryColumn)}), 0) "
             + $"from {_layer.QuotedTable} "
-            + $"where {LayerDefinition.Quote(_layer.ObjectIdColumn!)} = any(@ids)";
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = any(@ids)";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
-        command.Parameters.AddWithValue("ids", updates.Select(u => u.ObjectId).Distinct().ToArray());
+        command.Parameters.AddWithValue("ids", updates.Select(u => u.Identity).Distinct().ToArray());
 
         Dictionary<long, int> flags = [];
 
@@ -393,7 +393,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         foreach (KeyValuePair<string, object?> attribute in attributes)
         {
-            if (string.Equals(attribute.Key, _layer.ObjectIdColumn, StringComparison.Ordinal))
+            if (string.Equals(attribute.Key, _layer.IntegerIdentityColumn, StringComparison.Ordinal))
             {
                 // Silently ignored rather than refused. Every ArcGIS client
                 // round-trips the object id in the attributes of an update, and

@@ -347,7 +347,7 @@ public sealed class PostgresLayerCatalog
             geometryColumn: reader.GetString(4),
             srid: reader.GetInt32(5),
             identityColumn: reader.GetString(6),
-            objectIdColumn: reader.IsDBNull(7) ? null : reader.GetString(7),
+            integerIdentityColumn: reader.IsDBNull(7) ? null : reader.GetString(7),
             isHosted: reader.GetBoolean(8));
 
         if (!Enum.TryParse(reader.GetString(9), out GeometryKind geometryType))

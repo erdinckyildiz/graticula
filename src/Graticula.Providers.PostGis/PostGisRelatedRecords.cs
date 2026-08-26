@@ -119,11 +119,11 @@ public sealed class PostGisRelatedRecords
         string sql = string.Create(
             CultureInfo.InvariantCulture,
             $"""
-             select o.{LayerDefinition.Quote(_origin.ObjectIdColumn ?? _origin.IdentityColumn)} as __oid{columns}
+             select o.{LayerDefinition.Quote(_origin.IntegerIdentityColumn ?? _origin.IdentityColumn)} as __oid{columns}
              from {Qualified(_origin)} o
              join {Qualified(_related)} r
                on r.{LayerDefinition.Quote(relatedKey)} = o.{LayerDefinition.Quote(originKey)}
-             where o.{LayerDefinition.Quote(_origin.ObjectIdColumn ?? _origin.IdentityColumn)} = any(@ids)
+             where o.{LayerDefinition.Quote(_origin.IntegerIdentityColumn ?? _origin.IdentityColumn)} = any(@ids)
              order by __oid
              limit {limit}
              """);

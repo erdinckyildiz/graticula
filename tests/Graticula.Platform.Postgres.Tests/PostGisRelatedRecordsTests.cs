@@ -67,7 +67,7 @@ public sealed class PostGisRelatedRecordsTests : PostgresFixture
         geometryColumn: "geom",
         srid: 3857,
         identityColumn: "objectid",
-        objectIdColumn: "objectid",
+        integerIdentityColumn: "objectid",
         isHosted: true);
 
     private static readonly FieldDescription[] OwnerFields =

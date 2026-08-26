@@ -52,7 +52,7 @@ public sealed class PostGisTileSourceTests : PostgresFixture
         geometryColumn: "way",
         srid: 3857,
         identityColumn: "objectid",
-        objectIdColumn: "objectid",
+        integerIdentityColumn: "objectid",
         isHosted: true);
 
     private async Task RequireCorpusAsync()
@@ -251,7 +251,7 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                 geometryColumn: "geom",
                 srid: 4326,
                 identityColumn: "objectid",
-                objectIdColumn: "objectid",
+                integerIdentityColumn: "objectid",
                 isHosted: true);
 
             // The tile covering that longitude and latitude in Web Mercator.

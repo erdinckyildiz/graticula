@@ -12,7 +12,7 @@ namespace Graticula.Features;
 public sealed record FeatureAdd(IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry);
 
 /// <summary>A feature to change.</summary>
-/// <param name="ObjectId">Which row.</param>
+/// <param name="Identity">Which row, by its integer identity.</param>
 /// <param name="Attributes">The columns to change. Absent columns are left alone.</param>
 /// <param name="Geometry">
 /// The new shape, or null to leave the existing one untouched.
@@ -25,10 +25,10 @@ public sealed record FeatureAdd(IReadOnlyDictionary<string, object?> Attributes,
 /// it needs an explicit operation rather than an omission.
 /// </remarks>
 public sealed record FeatureUpdate(
-    long ObjectId, IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry);
+    long Identity, IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry);
 
 /// <summary>What happened to one feature.</summary>
-/// <param name="ObjectId">Its id, or -1 when it never got one.</param>
+/// <param name="Identity">Its integer identity, or -1 when it never got one.</param>
 /// <param name="Succeeded">Whether it worked.</param>
 /// <param name="Error">Why not.</param>
 /// <param name="NoSuchFeature">
@@ -37,7 +37,7 @@ public sealed record FeatureUpdate(
 /// feature by URL, and an unknown URL is 404 rather than 400.
 /// </param>
 public readonly record struct EditResult(
-    long ObjectId, bool Succeeded, string? Error, bool NoSuchFeature = false)
+    long Identity, bool Succeeded, string? Error, bool NoSuchFeature = false)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);

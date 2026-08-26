@@ -234,7 +234,7 @@ public sealed class GeneratedSymbologyTests
             geometryColumn: "geom",
             srid: 4326,
             identityColumn: "objectid",
-            objectIdColumn: "objectid",
+            integerIdentityColumn: "objectid",
             isHosted: true);
 
     private static LayerDescription Description() =>

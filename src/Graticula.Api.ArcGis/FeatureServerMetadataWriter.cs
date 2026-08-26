@@ -696,7 +696,7 @@ public static class FeatureServerMetadataWriter
             // Null when the layer has no integer identity. ADR-013 §2a: such a
             // layer is refused by the query endpoint, and a client reading this
             // document learns why before it tries.
-            objectIdField = layer.ObjectIdColumn,
+            objectIdField = layer.IntegerIdentityColumn,
             displayField = DisplayField(layer, description),
             globalIdField = string.Empty,
 
@@ -830,7 +830,7 @@ public static class FeatureServerMetadataWriter
         [.. description.Fields.Select(field => new
         {
             name = field.Name,
-            type = string.Equals(field.Name, layer.ObjectIdColumn, StringComparison.Ordinal)
+            type = string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
                 ? "esriFieldTypeOID"
                 : TypeName(field.Type),
             alias = field.Name,
@@ -841,7 +841,7 @@ public static class FeatureServerMetadataWriter
             // assigned by the database, and a client offering to change it would
             // be offering to break every reference to the feature.
             editable = capabilities.Contains("Update", StringComparison.Ordinal)
-                && !string.Equals(field.Name, layer.ObjectIdColumn, StringComparison.Ordinal),
+                && !string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal),
             domain = (object?)null,
         })];
 
@@ -859,13 +859,13 @@ public static class FeatureServerMetadataWriter
         foreach (FieldDescription field in description.Fields)
         {
             if (field.Type == FieldType.Text
-                && !string.Equals(field.Name, layer.ObjectIdColumn, StringComparison.Ordinal))
+                && !string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal))
             {
                 return field.Name;
             }
         }
 
-        return layer.ObjectIdColumn ?? layer.IdentityColumn;
+        return layer.IntegerIdentityColumn ?? layer.IdentityColumn;
     }
 
     private static object SpatialReference(int srid) => new { wkid = srid, latestWkid = srid };

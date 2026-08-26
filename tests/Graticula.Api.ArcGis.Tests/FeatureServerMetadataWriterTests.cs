@@ -28,7 +28,7 @@ public sealed class FeatureServerMetadataWriterTests
             geometryColumn: "way",
             srid: 3857,
             identityColumn: "objectid",
-            objectIdColumn: objectId,
+            integerIdentityColumn: objectId,
             isHosted: false);
 
     private static LayerDescription Description(Envelope? extent = null) =>

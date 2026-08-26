@@ -53,7 +53,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
         geometryColumn: "geom",
         srid: Srid,
         identityColumn: "objectid",
-        objectIdColumn: "objectid",
+        integerIdentityColumn: "objectid",
         isHosted: true);
 
     private async Task<PostGisFeatureWriter> WriterFor(LayerDefinition layer)
@@ -90,11 +90,11 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
         EditResult result = Assert.Single(outcome.Adds);
         Assert.True(result.Succeeded, result.Error);
-        Assert.True(result.ObjectId > 0);
+        Assert.True(result.Identity > 0);
 
         await using NpgsqlCommand check = DataSource.CreateCommand(
             $"select label, st_x(geom), st_y(geom) from \"{SchemaName}\".\"adds\" where objectid = @id");
-        check.Parameters.AddWithValue("id", result.ObjectId);
+        check.Parameters.AddWithValue("id", result.Identity);
 
         await using NpgsqlDataReader reader = await check.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
@@ -114,7 +114,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
         long id = (await writer.ApplyAsync(
             new EditBatch([Add("before", At(1, 2))], [], []), CancellationToken.None))
-            .Adds[0].ObjectId;
+            .Adds[0].Identity;
 
         EditOutcome outcome = await writer.ApplyAsync(
             new EditBatch([], [new FeatureUpdate(id, new Dictionary<string, object?> { ["label"] = "after" }, null)], []),
@@ -139,7 +139,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
         long id = (await writer.ApplyAsync(
             new EditBatch([Add("doomed", At(1, 2))], [], []), CancellationToken.None))
-            .Adds[0].ObjectId;
+            .Adds[0].Identity;
 
         EditOutcome outcome = await writer.ApplyAsync(
             new EditBatch([], [], [id]), CancellationToken.None);
@@ -267,7 +267,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
         PostGisFeatureWriter writer = await WriterFor(layer);
 
         long id = (await writer.ApplyAsync(
-            new EditBatch([Add("x", At(1, 1))], [], []), CancellationToken.None)).Adds[0].ObjectId;
+            new EditBatch([Add("x", At(1, 1))], [], []), CancellationToken.None)).Adds[0].Identity;
 
         EditOutcome outcome = await writer.ApplyAsync(
             new EditBatch(
@@ -365,7 +365,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
         // unsupported.
         LayerDefinition noOid = new(
             name: "noid", schemaName: SchemaName, tableName: "noid", geometryColumn: "geom",
-            srid: Srid, identityColumn: "uid", objectIdColumn: null, isHosted: true);
+            srid: Srid, identityColumn: "uid", integerIdentityColumn: null, isHosted: true);
 
         Assert.Throws<ArgumentException>(
             () => new PostGisFeatureWriter(DataSource, noOid, []));

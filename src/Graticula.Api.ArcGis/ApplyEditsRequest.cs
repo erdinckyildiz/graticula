@@ -273,7 +273,7 @@ public static class ApplyEditsRequest
         {
             foreach (JsonProperty property in bag.EnumerateObject())
             {
-                if (string.Equals(property.Name, layer.ObjectIdColumn, StringComparison.Ordinal))
+                if (string.Equals(property.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal))
                 {
                     if (property.Value.ValueKind == JsonValueKind.Number
                         && property.Value.TryGetInt64(out long id))
@@ -296,7 +296,7 @@ public static class ApplyEditsRequest
         if (requireObjectId && objectId < 0)
         {
             error =
-                $"An update must carry '{layer.ObjectIdColumn}' in its attributes so the server "
+                $"An update must carry '{layer.IntegerIdentityColumn}' in its attributes so the server "
                 + "knows which feature to change.";
             return false;
         }

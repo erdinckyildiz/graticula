@@ -135,8 +135,8 @@ public static class ApplyEditsResponse
             }
 
             results[at] = result.Succeeded
-                ? Success(result.ObjectId)
-                : Failure(result.ObjectId, result.Error ?? "The edit failed.");
+                ? Success(result.Identity)
+                : Failure(result.Identity, result.Error ?? "The edit failed.");
         }
 
         for (int i = 0; i < results.Length; i++)

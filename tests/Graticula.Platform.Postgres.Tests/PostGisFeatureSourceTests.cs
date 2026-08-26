@@ -43,7 +43,7 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         geometryColumn: "way",
         srid: 3857,
         identityColumn: "osm_id",
-        objectIdColumn: null,          // osm_id is bigint, not a 32-bit OID
+        integerIdentityColumn: null,          // osm_id is bigint, not a 32-bit OID
         isHosted: false);
 
     private async Task RequireCorpusAsync()
@@ -68,7 +68,7 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         geometryColumn: "way",
         srid: 3857,
         identityColumn: "objectid",
-        objectIdColumn: "objectid",
+        integerIdentityColumn: "objectid",
         isHosted: false);
 
     [Fact]
@@ -400,7 +400,7 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         LayerDefinition missing = new(
             name: "ghost", schemaName: "public", tableName: "no_such_table_here",
             geometryColumn: "way", srid: 3857, identityColumn: "id",
-            objectIdColumn: "id", isHosted: false);
+            integerIdentityColumn: "id", isHosted: false);
 
         LayerDescription description =
             await new PostGisFeatureSource(DataSource, missing).DescribeAsync(CancellationToken.None);
@@ -466,7 +466,7 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
                     geometryColumn: "way",
                     srid: 3857,
                     identityColumn: "objectid",
-                    objectIdColumn: "objectid",
+                    integerIdentityColumn: "objectid",
                     isHosted: true));
 
             FeatureQuery distinct = new(

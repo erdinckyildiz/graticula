@@ -419,7 +419,7 @@ internal static partial class OgcFeaturesEndpoints
             return;
         }
 
-        string id = outcome.Adds[0].ObjectId.ToString(CultureInfo.InvariantCulture);
+        string id = outcome.Adds[0].Identity.ToString(CultureInfo.InvariantCulture);
 
         // <b>201 with a Location, which is the whole contract of a create.</b> A client
         // that posts a feature and is told 200 with no address has to guess where its

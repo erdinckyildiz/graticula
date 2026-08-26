@@ -373,12 +373,12 @@ public sealed class PostGisFeatureSource : IFeatureSource
             clauses.Add(SpatialClause(spatial, query));
         }
 
-        if (query.ObjectIds.Count > 0)
+        if (query.Identities.Count > 0)
         {
             // = any(@ids) rather than an interpolated IN list: the ids are
             // values, so they bind, and one parameter carries any number of them
             // without rebuilding the statement for each distinct count.
-            clauses.Add($"{LayerDefinition.Quote(_layer.ObjectIdColumn ?? _layer.IdentityColumn)} = any(@ids)");
+            clauses.Add($"{LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn)} = any(@ids)");
         }
 
         if (query.Where is { Sql.Length: > 0 } where)
@@ -578,9 +578,9 @@ public sealed class PostGisFeatureSource : IFeatureSource
             }
         }
 
-        if (query.ObjectIds.Count > 0)
+        if (query.Identities.Count > 0)
         {
-            command.Parameters.AddWithValue("ids", query.ObjectIds.ToArray<long>());
+            command.Parameters.AddWithValue("ids", query.Identities.ToArray<long>());
         }
 
         if (query.MaxAllowableOffset is { } tolerance and > 0)
@@ -784,7 +784,7 @@ public sealed class PostGisFeatureSource : IFeatureSource
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        string column = LayerDefinition.Quote(_layer.ObjectIdColumn ?? _layer.IdentityColumn);
+        string column = LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn);
 
         StringBuilder sql = new("select ");
         sql.Append(column).Append(" from ").Append(_layer.QuotedTable);

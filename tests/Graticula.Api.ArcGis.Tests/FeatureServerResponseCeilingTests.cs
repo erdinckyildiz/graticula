@@ -43,7 +43,7 @@ public sealed class FeatureServerResponseCeilingTests
         geometryColumn: "geom",
         srid: 4326,
         identityColumn: "objectid",
-        objectIdColumn: "objectid",
+        integerIdentityColumn: "objectid",
         isHosted: true);
 
     /// <summary>Writes the response and returns the parsed body.</summary>

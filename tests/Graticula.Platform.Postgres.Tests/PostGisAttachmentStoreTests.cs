@@ -57,7 +57,7 @@ public sealed class PostGisAttachmentStoreTests : PostgresFixture
             geometryColumn: "geom",
             srid: 3857,
             identityColumn: "objectid",
-            objectIdColumn: "objectid",
+            integerIdentityColumn: "objectid",
             isHosted: true);
 
         return (new PostGisAttachmentStore(DataSource, layer, quota), table);

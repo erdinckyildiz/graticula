@@ -132,7 +132,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
                attachmentid   integer generated always as identity primary key,
                rel_objectid   bigint      not null
                  references {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)}
-                   ({LayerDefinition.Quote(_layer.ObjectIdColumn ?? _layer.IdentityColumn)})
+                   ({LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn)})
                    on delete cascade,
                att_name       text        not null,
                content_type   text        not null,

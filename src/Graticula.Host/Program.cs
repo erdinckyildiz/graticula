@@ -1954,7 +1954,7 @@ public static class Program
 
                 await Results.Json(new
                 {
-                    objectIdFieldName = layer.Definition.ObjectIdColumn,
+                    objectIdFieldName = layer.Definition.IntegerIdentityColumn,
                     objectIds = ids,
                 }).ExecuteAsync(context).ConfigureAwait(false);
                 return;
@@ -3257,7 +3257,7 @@ public static class Program
         */
         if (!FeatureServerQueryParameters.TryParse(
                 await ArcGisParameters.ReadAsync(context, cancellation).ConfigureAwait(false),
-                layer.Definition.ObjectIdColumn!,
+                layer.Definition.IntegerIdentityColumn!,
                 layer.Definition.Srid,
                 described.Fields,
                 out FeatureQuery? query,

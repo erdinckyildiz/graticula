@@ -32,11 +32,10 @@ public sealed partial class LayerDefinition
     /// <param name="identityColumn">
     /// The declared identity column (Q-57). Never inferred, never synthesised.
     /// </param>
-    /// <param name="objectIdColumn">
-    /// A unique integer column for ArcGIS <c>objectId</c>, or
-    /// <see langword="null"/> when the table has none — in which case the layer
-    /// is servable natively and <b>not</b> through the ArcGIS surface
-    /// (ADR-013 §2a).
+    /// <param name="integerIdentityColumn">
+    /// A column holding a unique integer per row, or <see langword="null"/> when the table
+    /// has none — in which case a single feature cannot be named by a number and the faces
+    /// that require one refuse it.
     /// </param>
     /// <param name="isHosted">Whether we own the schema.</param>
     public LayerDefinition(
@@ -46,7 +45,7 @@ public sealed partial class LayerDefinition
         string geometryColumn,
         int srid,
         string identityColumn,
-        string? objectIdColumn,
+        string? integerIdentityColumn,
         bool isHosted)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -57,9 +56,9 @@ public sealed partial class LayerDefinition
         TableName = RequireIdentifier(tableName, nameof(tableName));
         GeometryColumn = RequireIdentifier(geometryColumn, nameof(geometryColumn));
         IdentityColumn = RequireIdentifier(identityColumn, nameof(identityColumn));
-        ObjectIdColumn = objectIdColumn is null
+        IntegerIdentityColumn = integerIdentityColumn is null
             ? null
-            : RequireIdentifier(objectIdColumn, nameof(objectIdColumn));
+            : RequireIdentifier(integerIdentityColumn, nameof(integerIdentityColumn));
         Srid = srid;
         IsHosted = isHosted;
     }
@@ -83,9 +82,22 @@ public sealed partial class LayerDefinition
     public string IdentityColumn { get; }
 
     /// <summary>
-    /// A unique integer column for ArcGIS, or <see langword="null"/>.
+    /// A column holding a unique integer per row, or <see langword="null"/>.
     /// </summary>
-    public string? ObjectIdColumn { get; }
+    /// <remarks>
+    /// <b>Called <c>ObjectIdColumn</c> until 2026-08-26 —
+    /// [D-124](../../../docs/architecture-debt.md).</b> *Object ID* is Esri's word, and it was
+    /// in the domain every face reads. Two faces need what it describes and neither needs the
+    /// name: ArcGIS because its protocol requires a unique 32-bit identity
+    /// ([ADR-013](../../../docs/adr/ADR-013-arcgis-compatibility.md) §2a), and OGC API
+    /// Features Part 4 because a created feature must be given a <c>Location</c> and a
+    /// replaced or deleted one must be nameable.
+    /// <b>The wire keeps Esri's word where it is Esri's</b> — <c>objectIdFieldName</c> on the
+    /// ArcGIS surface, and <c>objectIdColumn</c> on the admin API, which is a published
+    /// contract this console and any script already speak. The mapping between the two is the
+    /// adapter boundary D-124 asks for, and it is now visible as one.
+    /// </remarks>
+    public string? IntegerIdentityColumn { get; }
 
     /// <summary>
     /// <see langword="true"/> when we own the schema, so it can be changed;
@@ -123,13 +135,12 @@ public sealed partial class LayerDefinition
     /// provider capability.
     /// </para>
     /// <para>
-    /// <b>Three of D-124's four nouns are unchanged.</b> <c>ObjectIdColumn</c>,
-    /// <c>FeatureQuery.ObjectIds</c> and <c>FeatureEdits.ObjectId</c> still carry Esri's
-    /// word, and <c>ObjectIdColumn</c> alone is in forty-six places. That row stays open for
-    /// them; this one moved because its trigger fired and it was nine.
+    /// <b>The column beside it moved on the same day</b> — see
+    /// <see cref="IntegerIdentityColumn"/>, which was <c>ObjectIdColumn</c>. The wire keeps
+    /// Esri's word where it is Esri's; the domain no longer does.
     /// </para>
     /// </remarks>
-    public bool HasIntegerIdentity => ObjectIdColumn is not null;
+    public bool HasIntegerIdentity => IntegerIdentityColumn is not null;
 
     /// <summary>
     /// Quotes an identifier for PostgreSQL, doubling any embedded quote.

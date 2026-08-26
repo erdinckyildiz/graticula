@@ -60,7 +60,7 @@ public sealed class FeatureQuery
     /// A spatial restriction richer than a box: any geometry, any of the nine
     /// relations, optionally buffered. Null for none.
     /// </param>
-    /// <param name="objectIds">Only these features, by object id. Null for all.</param>
+    /// <param name="identities">Only these features, by integer identity. Null for all.</param>
     /// <param name="distinct">Whether to collapse duplicate attribute rows.</param>
     /// <param name="statistics">Aggregates to compute instead of returning features.</param>
     /// <param name="groupBy">Fields to group those aggregates by.</param>
@@ -90,7 +90,7 @@ public sealed class FeatureQuery
         bool includeGeometry = true,
         IReadOnlyList<SortKey>? orderBy = null,
         SpatialFilter? spatial = null,
-        IReadOnlyList<long>? objectIds = null,
+        IReadOnlyList<long>? identities = null,
         bool distinct = false,
         IReadOnlyList<StatisticRequest>? statistics = null,
         IReadOnlyList<string>? groupBy = null,
@@ -111,7 +111,7 @@ public sealed class FeatureQuery
         IncludeGeometry = includeGeometry;
         OrderBy = orderBy is null ? Array.Empty<SortKey>() : [.. orderBy];
         Spatial = spatial?.Validated();
-        ObjectIds = objectIds is null ? Array.Empty<long>() : [.. objectIds];
+        Identities = identities is null ? Array.Empty<long>() : [.. identities];
         Distinct = distinct;
         Statistics = statistics is null ? Array.Empty<StatisticRequest>() : [.. statistics];
         GroupBy = groupBy is null ? Array.Empty<string>() : [.. groupBy];
@@ -181,12 +181,20 @@ public sealed class FeatureQuery
     /// Only these object ids, or empty for no such restriction.
     /// </summary>
     /// <remarks>
-    /// <b>Long, not string.</b> ADR-013 §2a: an ArcGIS object id is a unique
-    /// integer by definition, and a layer without one is refused by this surface
-    /// before a query is built. Taking text here would invite a caller to pass
-    /// the declared identity column instead, which may be a uuid.
+    /// <para>
+    /// <b>Long, not string.</b> The integer identity is a unique integer by definition, and a
+    /// layer without one is refused before a query is built. Taking text here would invite a
+    /// caller to pass the declared identity column instead, which may be a uuid.
+    /// </para>
+    /// <para>
+    /// <b>Called <c>ObjectIds</c> until 2026-08-26 —
+    /// [D-124](../../../docs/architecture-debt.md).</b> *Object ID* is Esri's word and this is
+    /// the query model every face reads. The ArcGIS surface still calls its parameter
+    /// <c>objectIds</c>, because that is its protocol's word and the adapter's job; the domain
+    /// no longer borrows it.
+    /// </para>
     /// </remarks>
-    public IReadOnlyList<long> ObjectIds { get; }
+    public IReadOnlyList<long> Identities { get; }
 
     /// <summary>Whether duplicate attribute rows collapse to one.</summary>
     public bool Distinct { get; }

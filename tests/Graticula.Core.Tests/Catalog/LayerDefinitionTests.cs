@@ -6,14 +6,14 @@ namespace Graticula.Core.Tests.Catalog;
 
 public sealed class LayerDefinitionTests
 {
-    private static LayerDefinition Valid(string? objectIdColumn = "objectid") => new(
+    private static LayerDefinition Valid(string? integerIdentityColumn = "objectid") => new(
         name: "Parcels",
         schemaName: "public",
         tableName: "parcels",
         geometryColumn: "geom",
         srid: 3857,
         identityColumn: "parcel_id",
-        objectIdColumn: objectIdColumn,
+        integerIdentityColumn: integerIdentityColumn,
         isHosted: false);
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed class LayerDefinitionTests
         // ADR-013 §2a: OGC accepts a string id, ArcGIS FeatureServer requires a
         // unique integer. The capability report reads this rather than
         // discovering it when a request fails.
-        Assert.False(Valid(objectIdColumn: null).HasIntegerIdentity);
+        Assert.False(Valid(integerIdentityColumn: null).HasIntegerIdentity);
         Assert.True(Valid().HasIntegerIdentity);
     }
 

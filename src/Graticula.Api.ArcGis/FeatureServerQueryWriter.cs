@@ -101,7 +101,7 @@ public sealed class FeatureServerQueryWriter
         // Q-57's declared identity may be a uuid or text; ADR-013 §2a's ArcGIS
         // object id must be a unique integer. Where a layer has both, they can
         // be different columns.
-        int objectIdIndex = schema.IndexOf(_layer.ObjectIdColumn!);
+        int objectIdIndex = schema.IndexOf(_layer.IntegerIdentityColumn!);
 
         // <b>Except for a distinct query, which deliberately has no object id.</b> `DISTINCT ON` is
         // over the columns the caller asked for, and an object id is unique per row — so including it
@@ -113,7 +113,7 @@ public sealed class FeatureServerQueryWriter
         if (objectIdIndex < 0 && !query.Distinct)
         {
             throw new ArgumentException(
-                $"The query must request '{_layer.ObjectIdColumn}' so it can be written as the "
+                $"The query must request '{_layer.IntegerIdentityColumn}' so it can be written as the "
                 + "object id. An ArcGIS response whose objectIdFieldName names a field the "
                 + "response does not contain is one a client cannot page or select against.",
                 nameof(query));
@@ -165,7 +165,7 @@ public sealed class FeatureServerQueryWriter
         // an empty name for a distinct answer for the same reason, and a client that pages or selects
         // by object id cannot do either against a set of combinations.
         writer.WriteString(
-            "objectIdFieldName", query.Distinct ? string.Empty : _layer.ObjectIdColumn);
+            "objectIdFieldName", query.Distinct ? string.Empty : _layer.IntegerIdentityColumn);
         writer.WriteString("globalIdFieldName", string.Empty);
         writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
 
@@ -190,7 +190,7 @@ public sealed class FeatureServerQueryWriter
             WriteField(
                 writer,
                 name,
-                string.Equals(name, _layer.ObjectIdColumn, StringComparison.Ordinal)
+                string.Equals(name, _layer.IntegerIdentityColumn, StringComparison.Ordinal)
                     ? "esriFieldTypeOID"
                     : "esriFieldTypeString");
         }

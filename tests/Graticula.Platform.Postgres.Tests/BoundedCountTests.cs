@@ -56,7 +56,7 @@ public sealed class BoundedCountTests : PostgresFixture
         geometryColumn: "way",
         srid: 3857,
         identityColumn: "osm_id",
-        objectIdColumn: null,
+        integerIdentityColumn: null,
         isHosted: false);
 
     private async Task RequireCorpusAsync()
