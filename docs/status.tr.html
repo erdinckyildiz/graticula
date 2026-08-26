@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>383bdf4</code> · 2026-08-26 16:49</p>
+<p class="stamp">Şu commit’ten üretildi: <code>da032a0</code> · 2026-08-26 23:01</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADR</div><div class="kpi-n">3 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">105/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">92 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">35</div><div class="kpi-l">açık soru</div><div class="kpi-n">107 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">açık borç</div><div class="kpi-n">147 ödendi · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">147 ödendi · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">2051</div><div class="kpi-l">test</div><div class="kpi-n">244 kaynak dosya, 94,576 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">5 açık</span></div><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">119 madde</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>23 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">120 madde</span></div><p><b>92 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -299,6 +299,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-165</td><td>A projected reference this server has no domain for is still passed an unclamped filter.</td><td class="muted-t">When a layer is published in a national grid and a client asks for the whole world — which is what bbox=-180,-90,180,90…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-166</td><td>D-60&#x27;s lock serialises the test suites against each other and not against the developer&#x27;s own running server.</td><td class="muted-t">Now, and it is cheap: it costs a diagnosis every time, and the diagnosis looks like a real defect.</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-173</td><td>The console suite fails one test per CI run, and it is not the same test.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">147 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -407,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>da032a0</code><time>2026-08-26</time><span>D-172: the console suite says what it already knew</span></li>
 <li><code>383bdf4</code><time>2026-08-26</time><span>D-171: the row was wrong about which service restarts how</span></li>
 <li><code>a70a5ba</code><time>2026-08-26</time><span>D-171: a missing variable is a sentence, not a crash loop</span></li>
 <li><code>1598a07</code><time>2026-08-26</time><span>D-170: the rename check reads prose, and the old name was in the label a user sees</span></li>
@@ -420,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6f5ac81</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-166 repaired</span></li>
 <li><code>e0a66c0</code><time>2026-08-26</time><span>D-166 repaired: the run says when it cannot be trusted</span></li>
 <li><code>ae3c637</code><time>2026-08-26</time><span>Republish both Control Room artifacts after D-61 closed</span></li>
-<li><code>38aab10</code><time>2026-08-26</time><span>D-61 closes: verified in a browser, on the case that broke it</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
