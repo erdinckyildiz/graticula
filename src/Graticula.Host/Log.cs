@@ -49,12 +49,16 @@ internal static partial class Log
     /// <param name="path">The path.</param>
     /// <param name="query">The query string, already redacted.</param>
     /// <param name="status">The status code answered.</param>
+    /// <param name="connection">
+    /// Kestrel's own connection id, which is the only thing that ties this line to what the
+    /// transport did — [D-173](../../docs/architecture-debt.md).
+    /// </param>
     [LoggerMessage(
         EventId = 1032,
         Level = LogLevel.Information,
-        Message = "{Method} {Path}{Query} - {Status}")]
+        Message = "{Method} {Path}{Query} - {Status} [{Connection}]")]
     public static partial void Request(
-        ILogger logger, string method, string? path, string query, int status);
+        ILogger logger, string method, string? path, string query, int status, string connection);
 
     [LoggerMessage(
         EventId = 1024,

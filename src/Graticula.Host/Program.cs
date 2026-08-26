@@ -783,12 +783,21 @@ public static class Program
 
             if (requests.IsEnabled(LogLevel.Information))
             {
+                // <b>The connection id, because it is the only join —
+                // [D-173](../../docs/architecture-debt.md).</b> Kestrel keys every transport
+                // event it writes — reset, FIN, a failed handshake — on this string and on
+                // nothing else, while this line had a path and a status and no way to reach
+                // them. That cost a diagnosis: a `console.js` the server logged as **200**
+                // arrived at the browser as **zero bytes**, with connection resets in the same
+                // log and no way to tell whether they were the same connection. Sixteen
+                // characters a line is the price of being able to ask.
                 Log.Request(
                     requests,
                     asked,
                     context.Request.Path.Value,
                     redacted,
-                    outcome);
+                    outcome,
+                    context.Connection.Id);
             }
 
             /*
