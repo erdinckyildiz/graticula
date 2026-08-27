@@ -294,6 +294,14 @@ connection.
    capability cannot grant what a privilege withholds, and that a privilege cannot grant
    what the configuration withholds. Both directions, in one test class, because a
    one-directional test would pass on an implementation that ors instead of ands.
+   *(Discharged 2026-08-27 — `ServiceCapabilityLimitsTests` holds both directions as
+   `Configuration_cannot_grant_what_a_privilege_withholds` and
+   `A_privilege_cannot_grant_what_the_configuration_withholds`, in the one class this
+   condition asks for, beside `Restricting_is_commutative_in_the_only_sense_that_matters`;
+   eleven tests, all passing. **It was met and marked live**, found by sweeping this ADR's
+   conditions against the tests while repairing [D-179](../architecture-debt.md) — a
+   condition that is satisfied and still counted is the same decay as one that is not and
+   says it is, in the direction nobody looks.)*
 2. **Turning a face off is tested to produce the same refusal as absent**, not a
    distinguishable one, so that the capability configuration cannot be used to enumerate
    what exists.
