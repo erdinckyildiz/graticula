@@ -2171,13 +2171,24 @@ public static class Program
     /// is the origin makes half of them undiscoverable.
     /// </remarks>
     /// <remarks>
-    /// <b>Empty when the platform store is unreachable, and the document says
-    /// so.</b> Relationships live only in the platform store, so while blind
-    /// there is no way to report them and no remembered copy to report from
-    /// (Q-95). Reporting none is a lie by omission unless the caller is told,
-    /// which is what <c>catalogStale</c> on the layer document is for.
+    /// <para>
+    /// <b>Null when the platform store is unreachable, and empty when there are none —
+    /// [ADR-026](../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md)
+    /// condition 3.</b> Relationships live only in the platform store, so while blind there is
+    /// no way to report them and no remembered copy to report from (Q-95). This method used to
+    /// return an empty list for both, and the document could not tell them apart: *reporting
+    /// none is a lie by omission unless the caller is told*. The remark that used to sit here
+    /// said the caller was told by <c>catalogStale</c> on the layer document, **and there was no
+    /// such field** — so the only distinguishing signal was the <c>X-Catalog-Age</c> header,
+    /// which the ADR itself called thinner than it should be.
+    /// </para>
+    /// <para>
+    /// <b>Two ways to not know, and they are the same answer.</b> The catalogue may already be
+    /// blind when this is called, or the relationship read may be the request that discovers the
+    /// store has gone. Neither can report relationships and neither is *there are none*.
+    /// </para>
     /// </remarks>
-    private static async Task<IEnumerable<object>> RelationshipsForAsync(
+    private static async Task<IEnumerable<object>?> RelationshipsForAsync(
         PublishedLayer layer,
         PostgresRelationshipCatalog relationships,
         CatalogFallback catalog,
@@ -2185,7 +2196,7 @@ public static class Program
     {
         if (catalog.Catalog is not { } layers)
         {
-            return [];
+            return null;
         }
 
         IReadOnlyList<LayerRelationship> declared;
@@ -2197,7 +2208,7 @@ public static class Program
         }
         catch (Exception e) when (CatalogFallback.IsUnreachable(e))
         {
-            return [];
+            return null;
         }
 
         if (declared.Count == 0)
@@ -2465,20 +2476,27 @@ public static class Program
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
 
+        // <b>Null is *the platform store could not be asked*, and it is not the same as
+        // none</b> — ADR-026 condition 3. The document is told which, so a client that saved it
+        // can still see that this field was unknown rather than empty when it was written.
+        IEnumerable<object>? declared =
+            await RelationshipsForAsync(layer, relationships, catalog, cancellation)
+                .ConfigureAwait(false);
+
         object document = FeatureServerMetadataWriter.Layer(
             layer.Definition,
             layer.GeometryType,
             description,
             CapabilitiesFor(context, layer),
-            await RelationshipsForAsync(layer, relationships, catalog, cancellation)
-                .ConfigureAwait(false),
+            declared ?? [],
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,
             settings.MaximumRecordCount,
 
             // ADR-033 §5a: the stored canonical document, or null for the generated
             // appearance. The writer decides which; this only carries it.
-            layer.Symbology);
+            layer.Symbology,
+            relationshipsKnown: declared is not null);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

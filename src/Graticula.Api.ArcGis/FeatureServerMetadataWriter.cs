@@ -666,6 +666,11 @@ public static class FeatureServerMetadataWriter
     /// What this deployment permits at most, so the document never advertises more than the
     /// server will give. Configurable since 2026-08-19; it was a compile-time constant.
     /// </param>
+    /// <param name="relationshipsKnown">
+    /// Whether <paramref name="relationships"/> is an answer or an absence of one.
+    /// <see langword="false"/> only while the platform store is unreachable — see the remarks
+    /// on <see cref="RelationshipsUnknown"/>.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -675,7 +680,8 @@ public static class FeatureServerMetadataWriter
         int layerId = 0,
         int? maxRecordCount = null,
         int serverMaxRecordCount = MaxRecordCount,
-        string? symbology = null)
+        string? symbology = null,
+        bool relationshipsKnown = true)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -683,7 +689,7 @@ public static class FeatureServerMetadataWriter
         // rather than throwing.
         ArgumentNullException.ThrowIfNull(capabilities);
 
-        return new
+        object document = new
         {
             currentVersion = CurrentVersion,
             id = layerId,
@@ -803,6 +809,58 @@ public static class FeatureServerMetadataWriter
             // spatial relationship the query endpoint implements.
             supportedSpatialRelationships = new[] { "esriSpatialRelIntersects" },
         };
+
+        return relationshipsKnown ? document : RelationshipsUnknown(document);
+    }
+
+    /// <summary>
+    /// The same document, saying that its relationships are unknown rather than none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-026](../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md)
+    /// condition 3.</b> Relationships live only in the platform store, so while that store is
+    /// unreachable there is nothing to report them from — and the document reported an empty
+    /// list, which is the same answer a layer with no relationships gives. The ADR's own
+    /// consequences said so: *<c>X-Catalog-Age</c> is the only thing distinguishing that from a
+    /// layer with no relationships, which is thinner than it should be*. A header is a fact
+    /// about the response; this is a fact about the layer, and a client or a person reading the
+    /// saved document has only the document.
+    /// </para>
+    /// <para>
+    /// <b><c>relationships</c> keeps its empty array, deliberately.</b> ArcGIS has no vocabulary
+    /// for *unknown* here, so anything else — null, absent — would be read as none by every
+    /// client anyway while breaking the ones that call <c>.length</c> on it. The honest move is
+    /// to leave the field a client reads alone and add the fields that say what it means.
+    /// </para>
+    /// <para>
+    /// <b><c>catalogStale</c> is added here rather than invented.</b> The Host's own remark on
+    /// <c>RelationshipsForAsync</c> already said *reporting none is a lie by omission unless the
+    /// caller is told, which is what <c>catalogStale</c> on the layer document is for* — and
+    /// there was no such field. A comment naming a mechanism that does not exist is worse than
+    /// no comment, because it stops the next reader looking.
+    /// </para>
+    /// <para>
+    /// <b>A dictionary rather than a second anonymous type</b>, because the alternative is
+    /// thirty properties written twice, and the copy that drifts is the one nobody serves. This
+    /// runs only while the platform store is down, so its reflection costs nothing that matters.
+    /// </para>
+    /// </remarks>
+    /// <param name="document">The document as it would be served normally.</param>
+    /// <returns>The same fields, plus the two that say what is not known.</returns>
+    private static Dictionary<string, object?> RelationshipsUnknown(object document)
+    {
+        Dictionary<string, object?> fields = new(StringComparer.Ordinal);
+
+        foreach (System.Reflection.PropertyInfo property in document.GetType().GetProperties())
+        {
+            fields[property.Name] = property.GetValue(document);
+        }
+
+        fields["relationshipsKnown"] = false;
+        fields["catalogStale"] = true;
+
+        return fields;
     }
 
     /// <summary>Maps our field types onto ArcGIS's.</summary>

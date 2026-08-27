@@ -225,9 +225,13 @@ have said had it considered two servers over one store.
 - **A public service stopped during the outage keeps answering** for up to the
   window. §3.
 - **Relationships are not reported while blind.** They live only in the platform
-  store and there is no remembered copy, so a layer document served blind reports
-  none. `X-Catalog-Age` is the only thing distinguishing that from a layer with
-  no relationships, which is thinner than it should be — condition 3.
+  store and there is no remembered copy, so a layer document served blind cannot
+  report them. ~~`X-Catalog-Age` is the only thing distinguishing that from a layer with
+  no relationships, which is thinner than it should be — condition 3.~~ **Repaired
+  2026-08-27, condition 3**: the document itself now carries `relationshipsKnown: false`
+  and `catalogStale: true`, so the distinction survives being saved. `relationships` is
+  still an empty array, because ArcGIS has no field for *unknown* and every client would
+  read anything else as none anyway — what changed is that the document says which.
 - **A third behaviour on the authorization path**, which is the path where extra
   behaviours are most expensive to reason about.
 - **Almost no benefit in the baseline deployment**, and somebody will read the
@@ -283,6 +287,24 @@ for the admin API and is **not** solved here.
    `An_unrelated_failure_is_not_swallowed`.)*
 3. **A layer document served blind says that its relationships are unknown**,
    rather than reporting none and relying on a header. Today it reports none.
+   *(Discharged 2026-08-27.* `RelationshipsForAsync` now returns **null for *could not ask*
+   and empty for *there are none***, which it could not distinguish before — both paths that
+   fail returned `[]`, one when the catalogue was already blind and one when the relationship
+   read is the request that discovers the store has gone. The layer document carries
+   `relationshipsKnown: false` and `catalogStale: true` when it could not ask.
+   **`relationships` keeps its empty array deliberately**: ArcGIS has no vocabulary for
+   *unknown* in that field, so null or absent would be read as none by every client while
+   breaking the ones that read its length — the field a client reads is left alone and the
+   fields that say what it means are added beside it. **Neither field appears on an ordinary
+   document**, asserted by a test that compares the two key by key, because two new keys on
+   every layer document would be two more things every client discounts.
+   **And the condition was hiding a second defect.** The remark on `RelationshipsForAsync`
+   said the caller *is* told, *"which is what `catalogStale` on the layer document is for"* —
+   **and there was no such field anywhere in the code.** A comment naming a mechanism that
+   does not exist is worse than no comment, because it stops the next reader looking; the
+   field now exists and the remark is rewritten to say what the method does. **Falsified** by
+   returning the document unchanged: `A_layer_document_served_blind_says_its_relationships_are_unknown`
+   fails and passes on restore.)*
 4. **The outage test becomes something CI runs**, or this decision is verified by
    hand at each release and that is written into the release checklist. A
    behaviour that only exists during a failure is a behaviour that rots.

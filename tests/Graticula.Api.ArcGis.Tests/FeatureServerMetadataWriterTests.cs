@@ -420,4 +420,76 @@ public sealed class FeatureServerMetadataWriterTests
             expected,
             FeatureServerMetadataWriter.AdvertisedMaxRecordCount(serviceCeiling, serverCeiling));
     }
+
+    /// <summary>
+    /// A document that could not ask about relationships says so, rather than reporting none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-026](../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md)
+    /// condition 3.</b> Relationships live only in the platform store; while it is unreachable
+    /// there is nothing to report them from, and an empty array is the same answer a layer with
+    /// no relationships gives. The ADR's own consequences called that *thinner than it should
+    /// be* — the only distinguishing signal was a response header, which is a fact about the
+    /// response rather than about the layer, and is gone the moment somebody saves the document.
+    /// </para>
+    /// <para>
+    /// <b><c>relationships</c> stays an empty array on purpose</b>, and this asserts that too.
+    /// ArcGIS has no vocabulary for *unknown* in this field, so null or absent would be read as
+    /// none by every client while breaking the ones that read its length. The field a client
+    /// reads is left alone and the fields that say what it means are added beside it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_layer_document_served_blind_says_its_relationships_are_unknown()
+    {
+        JsonElement blind = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query", relationshipsKnown: false));
+
+        Assert.False(blind.GetProperty("relationshipsKnown").GetBoolean());
+        Assert.True(blind.GetProperty("catalogStale").GetBoolean());
+
+        Assert.Equal(JsonValueKind.Array, blind.GetProperty("relationships").ValueKind);
+        Assert.Empty(blind.GetProperty("relationships").EnumerateArray());
+    }
+
+    /// <summary>
+    /// An ordinary document gains nothing from the field that says a blind one is blind.
+    /// </summary>
+    /// <remarks>
+    /// <b>The half that keeps the repair from being a regression.</b> Two fields added to every
+    /// layer document would be two more things every client parses and every reader has to
+    /// discount, and <c>catalogStale: false</c> on a document served from a healthy store says
+    /// nothing at all. So the ordinary document is asserted to be exactly what it was: the same
+    /// keys, in the same shape, with neither field present.
+    /// </remarks>
+    [Fact]
+    public void An_ordinary_layer_document_carries_neither_field()
+    {
+        JsonElement ordinary = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
+
+        Assert.False(ordinary.TryGetProperty("relationshipsKnown", out _));
+        Assert.False(ordinary.TryGetProperty("catalogStale", out _));
+
+        // And the two documents are otherwise the same document, which is what makes the two
+        // extra keys the whole difference rather than the visible part of a larger one.
+        JsonElement blind = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query", relationshipsKnown: false));
+
+        string[] ordinaryKeys = ordinary.EnumerateObject().Select(p => p.Name).ToArray();
+        string[] blindKeys = blind.EnumerateObject().Select(p => p.Name).ToArray();
+
+        Assert.Equal(
+            ordinaryKeys.OrderBy(k => k, StringComparer.Ordinal),
+            blindKeys.Except(["relationshipsKnown", "catalogStale"], StringComparer.Ordinal)
+                .OrderBy(k => k, StringComparer.Ordinal));
+
+        foreach (string key in ordinaryKeys)
+        {
+            Assert.Equal(
+                ordinary.GetProperty(key).GetRawText(),
+                blind.GetProperty(key).GetRawText());
+        }
+    }
 }
