@@ -184,6 +184,39 @@ it appears. The accurate phrase is **source-available**.
    `tok` was committed on 2026-08-15 carrying a session token and removed the same day,
    so it is in the pack and would be published. This condition is not about the licence
    and is a precondition of the same event.
+   *(**Discharged 2026-08-27, and the ordering it asks for was not kept.** The repository
+   was created public on 2026-08-25; this is the first sweep of the whole history rather
+   than of a pending range, so it ran two days after the event it was written to precede.
+   That is stated rather than smoothed over, because a precondition met afterwards is a
+   different fact from a precondition met.
+
+   **What was swept:** every object in `git rev-list --all` — 691 commits, 7,589 distinct
+   blobs — read out of the pack rather than off the working tree, so a file deleted in a
+   later commit is still examined. The patterns were GitHub and AWS tokens, PEM private
+   keys, Slack and OpenAI-shaped keys, JWTs, `Authorization: Bearer`, `SecretKey`
+   assignments and `Password=` with a value long enough to be one.
+
+   **The result is 406 matches and no secret.** Every one is an identifier rather than a
+   value — `string password = IssuedPassword.Issue()`, `mustChangePassword`,
+   `password = context.Request.Query["password"]` — or a fixture written to be obviously
+   fake: `Password=hunter2` in `ErrorResponseTests`, `Username=gis;Password=secret` in the
+   console tests, `Password=a-realistic-length-of-secret`. CI's own throwaway Postgres
+   carries `Password=gis` beside the lines that create the container, and its
+   `Graticula__SecretKey` is `AAAA…=`, a key of zeros for a store destroyed at the end of
+   the job.
+
+   **`tok` is not in the history at all.** The condition named it as known and it does not
+   appear as a path in any commit, so either it was never staged or the 2026-08-20
+   `filter-branch` of the unpushed range took it with the development password it was run
+   for. Three narrower checks agree: the dev server's real `Graticula__SecretKey` value has
+   never been committed (`git log -S`, no commits), no `.env`, `*.pem`, `*.key`, `*.pfx`,
+   `secrets.*` or `credentials.*` path has ever existed in the tree, and the only
+   `Graticula__SecretKey` assignments in history are the CI zeros and a `/dev/urandom` one.
+
+   **What this does not cover, and it is the reason [D-183](../architecture-debt.md) is
+   open:** a sweep is a moment, and GitHub's own `secret_scanning` and
+   `secret_scanning_push_protection` — the things that would make the next commit safe
+   rather than this one — are switched off on a public repository.)*
 3. **ADR-025's contributor question is answered before the first outside contribution is
    merged**, not before the repository is public. Reading and forking need no agreement;
    merging somebody else's code does.
