@@ -227,9 +227,31 @@ slotting into it — and it is **Q-93**, not this ADR.
    never seen is not invented and a deleted one stays deleted, that the memory
    expires, that a zero window serves nothing, and that a server-side error is
    not a degraded mode. All of it runs against a fake store, which is what makes
-   the failure modes reachable at all. **Nothing yet stops a real datastore**, so
+   the failure modes reachable at all. ~~**Nothing yet stops a real datastore**, so
    ADR-017 §6's minimal admin surface under an actual outage is still unproven,
-   and that is the case an operator meets at 2 AM.
+   and that is the case an operator meets at 2 AM.~~
+   ***(Discharged 2026-08-27 — [tools/outage-rehearsal.sh](../../tools/outage-rehearsal.sh)
+   stops the real datastore under a running server and reads every surface ADR-017 §6
+   names.)*** The run is four walks: with the store up, with it stopped, immediately after it
+   comes back, and past the breaker's ten-second cooling window. **What it found is three
+   things, and only the first was expected.**
+   **`/admin/health` degrades correctly** — `status: degraded`, `platformStore.reachable:
+   false`, the error redacted, answering anonymously because sessions live in the store and
+   during the outage nobody can authenticate. §4's seam is where the document says it is.
+   **Three of §6's four rows do not exist.** `/admin/version`, `/admin/certificates` and
+   `/admin/workers` are 404 with the store up and 404 with it down. `/admin/health` is the
+   whole of the minimal surface, and it carries the version, the certificate (ADR-014
+   condition 1) and the runtime block that `/admin/workers` was for — so what is missing is
+   the addresses rather than the answers, which is the same finding
+   [ADR-017](ADR-017-admin-api.md) condition 2's walk made about §3.2.
+   **And the server told every administrator they were not signed in** — that is
+   [D-192](../architecture-debt.md), found here, closed here.
+   **Recovery is automatic and bounded**: the breaker keeps refusing for up to ten seconds
+   after the database returns, which is what stops an outage becoming a queue collapse, and it
+   clears on its own. The rehearsal walks both sides of that window so the ten seconds is
+   measured rather than assumed.
+   **This does not run in CI**, and that is stated rather than hidden: it needs Docker and a
+   container this machine happens to have. `OutageRefusalTests` is the portable half.
 2. **A performance claim about serving includes the catalogue read**, rather than
    being made as though §4's first rule had been kept.
    *(Rewritten 2026-08-16, and the previous wording is worth recording.)* This
@@ -278,7 +300,6 @@ slotting into it — and it is **Q-93**, not this ADR.
    check's own docstring rather than left to be discovered. What it buys is that the
    question gets asked, which at 1 of 29 was the whole failure. **Falsified** by deleting
    ADR-044's line: the check names the file and passes when it is put back.)*
-
 ## 9. Assumptions
 
 | ID | Assumption | Status |

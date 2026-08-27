@@ -131,7 +131,17 @@ internal sealed class Authentication
         */
         if (_breaker is { } breaker && breaker.IsOpen(SourceBreaker.PlatformStore))
         {
-            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
+            // <b>The same reason as the catch below, and forgetting it here was the whole
+            // defect surviving its own repair -- D-192.</b> The catch fires once, on the
+            // request that discovers the outage; every request after it takes this line
+            // instead, because that is what the breaker is for. So a repair that set the flag
+            // only in the catch produced the right sentence for one caller and the misleading
+            // one for everybody after -- and the outage rehearsal, which logs in before it
+            // stops the database, read the second kind and showed no change at all.
+            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing)
+            {
+                StoreWasUnreachable = true,
+            };
         }
 
         try
@@ -172,7 +182,13 @@ internal sealed class Authentication
             // breaker is the thing that learns it.
             _breaker?.Failed(SourceBreaker.PlatformStore, unreachable);
 
-            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
+            // <b>Anonymous, and saying why -- D-192.</b> The request continues as anonymous
+            // because a store this server cannot read is not a reason to trust a token. What
+            // the caller is told about that changes: see `StoreWasUnreachable`.
+            return new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing)
+            {
+                StoreWasUnreachable = true,
+            };
         }
     }
 
@@ -360,6 +376,30 @@ internal sealed class RequestPrincipal
 
     /// <summary>Their session, or null for anonymous.</summary>
     public Guid? SessionId { get; }
+
+    /// <summary>
+    /// True when this caller is anonymous because the platform store could not be asked,
+    /// rather than because they presented nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-192](../../docs/architecture-debt.md), found by the outage rehearsal on
+    /// 2026-08-27.</b> Sessions live in the platform store, so when the store is down this
+    /// server cannot tell a valid token from a forged one and correctly refuses both. What it
+    /// said while refusing was *"you are not signed in. Sign in at /rest/auth/login"* — which
+    /// is a sentence about the caller's credentials, sends an administrator to a login route
+    /// that also cannot work, and is precisely the confusion
+    /// [ADR-017](../../docs/adr/ADR-017-admin-api.md) §6 exists to prevent: *a data-plane
+    /// failure must not blind the management plane.*
+    /// </para>
+    /// <para>
+    /// <b>Still anonymous, and still 401.</b> The refusal is right -- an outage is not a
+    /// reason to trust a token -- so what changes is the sentence and not the decision. A 503
+    /// was the alternative and would have changed the contract of every authenticated route
+    /// for a condition the caller cannot act on either way.
+    /// </para>
+    /// </remarks>
+    public bool StoreWasUnreachable { get; init; }
 
     /// <summary>What they may do, resolved once for the request.</summary>
     public Authorization Authorization { get; }

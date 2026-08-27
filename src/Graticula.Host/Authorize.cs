@@ -182,13 +182,31 @@ internal static class Authorize
     /// role they have already granted. Naming the ceiling sends them to the
     /// right place.
     /// </remarks>
-    private static (int Status, string Message) Refusal(
+    internal static (int Status, string Message) Refusal(
         RequestPrincipal current, Privilege privilege)
     {
         string name = Name(privilege);
 
         if (current.Principal.IsAnonymous)
         {
+            // <b>Anonymous for two different reasons, and they need different sentences --
+            // D-192.</b> Sessions live in the platform store, so during an outage this server
+            // cannot tell a valid token from a forged one and refuses both, correctly. Telling
+            // the holder of a perfectly good token that they are *not signed in* sends them to
+            // a login route that also cannot work, at the moment an administrator most needs
+            // to look -- which is the failure ADR-017 §6 is written to prevent. Found by
+            // `tools/outage-rehearsal.sh`, which stopped the datastore and read the answer.
+            if (current.StoreWasUnreachable)
+            {
+                return (StatusCodes.Status401Unauthorized,
+                    $"This needs the '{name}' privilege, and this server cannot currently "
+                    + "reach the platform store where sessions live -- so it cannot tell "
+                    + "whether you are signed in, and refuses rather than assume. Your "
+                    + "credentials are probably fine and signing in again will not work "
+                    + "either. GET /admin/health answers without the store and says what is "
+                    + "wrong with it.");
+            }
+
             return (StatusCodes.Status401Unauthorized,
                 $"This needs the '{name}' privilege and you are not signed in. "
                 + "Sign in at /rest/auth/login.");
