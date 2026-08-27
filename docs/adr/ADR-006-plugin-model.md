@@ -191,6 +191,21 @@ isolation boundary a plugin system would use), [ADR-011](ADR-011-job-system.md),
 
 1. **Ports are not documented as public contracts** while this decision stands.
    Publishing them informally is how a contract is created by accident.
+   *(Discharged 2026-08-27, and it was being kept by nobody having written the page yet.*
+   `registers-check.py` now refuses an **interface declaration** in any document —
+   `public interface I…` at the start of a line — with this ADR itself excused, because a
+   decision that says *not yet* may show what it is saying not-yet to.
+   **A declaration, not a mention, and the difference is the whole rule.** The registers
+   name `IFeatureSource.CountUpToAsync` and should: that is a fact about how this server
+   works, inside a row explaining a measurement. A *signature*, offered for somebody to
+   implement against, is a different act — and the accident this condition describes has a
+   shape, which is a page rather than a line: somebody writes *how to write a provider*,
+   pastes the interface into it, and from that afternoon it cannot change without breaking
+   whoever read it. Nobody decides that; the paste decides it.
+   **Zero found on the first run**, which is what makes the check worth adding rather than
+   a repair — the condition had been kept by accident and is now kept by something.
+   **Falsified** by pasting the interface into `protocol-surface.md`: the check names the
+   file and the line, and passes when it is removed.)*
 2. **The trigger in §2.3 is checked at each phase gate**, so this is a decision
    that gets revisited rather than one that expires quietly.
 

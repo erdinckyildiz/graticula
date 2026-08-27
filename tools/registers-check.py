@@ -2016,6 +2016,62 @@ def a_test_a_register_cites_that_is_not_there():
     return problems
 
 
+def a_port_documented_as_a_contract():
+    """No document declares a port interface, which is how a plugin API starts.
+
+    Why this is a check
+    -------------------
+    [ADR-006](../docs/adr/ADR-006-plugin-model.md) decided *not yet* on a plugin model,
+    and its first condition is that **ports are not documented as public contracts while
+    that decision stands** -- *"publishing them informally is how a contract is created by
+    accident"*.
+
+    The accident has a shape, and it is a page rather than a line: somebody writes *how to
+    write a provider*, pastes `public interface IFeatureSource` into it, and from that
+    afternoon the interface cannot change without breaking whoever read it. Nobody decides
+    that; it is decided by the paste.
+
+    So what is refused is a **declaration**, not a mention. The registers name
+    `IFeatureSource.CountUpToAsync` and should: that is a fact about how this server
+    works, in a row explaining a measurement. A signature offered for somebody to
+    implement against is a different act, and it is the one this forbids.
+
+    Checked 2026-08-27 for the first time and found nothing to fix, which is the point:
+    the condition has been kept by nobody having written that page yet, and this is what
+    keeps it kept.
+
+    ADR-006 is excused. It is the decision, and a decision that says *not yet* may show
+    what it is saying not-yet to.
+    """
+    problems = []
+
+    docs = os.path.join(conditions.ROOT, "docs")
+
+    for name in sorted(os.listdir(docs)):
+        if not name.endswith(".md"):
+            continue
+
+        for line in io.open(os.path.join(docs, name), encoding="utf-8"):
+            if re.search(r"^\s*(public\s+)?interface\s+I[A-Z]\w+", line):
+                problems.append(
+                    f"docs/{name} declares '{line.strip()[:60]}'. ADR-006 condition 1: ports "
+                    "are not documented as public contracts while that decision stands, "
+                    "because publishing them informally is how a contract is created by "
+                    "accident. Name the port and what it does; do not paste its signature.")
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.endswith(".md") or name.startswith("ADR-006"):
+            continue
+
+        for line in io.open(os.path.join(conditions.ADRS, name), encoding="utf-8"):
+            if re.search(r"^\s*(public\s+)?interface\s+I[A-Z]\w+", line):
+                problems.append(
+                    f"docs/adr/{name} declares '{line.strip()[:60]}'. ADR-006 condition 1 "
+                    "-- see the check's own note. ADR-006 itself is excused; nothing else is.")
+
+    return problems
+
+
 def an_adr_that_does_not_say_where_its_state_lives():
     """Every ADR after 019 inventories its own state, catalogue against runtime.
 
@@ -2120,7 +2176,8 @@ def main() -> int:
                 + source_the_repository_would_not_receive()
                 + a_question_the_status_page_cannot_see()
                 + a_test_a_register_cites_that_is_not_there()
-                + an_adr_that_does_not_say_where_its_state_lives())
+                + an_adr_that_does_not_say_where_its_state_lives()
+                + a_port_documented_as_a_contract())
 
     if problems:
         for line in problems:
