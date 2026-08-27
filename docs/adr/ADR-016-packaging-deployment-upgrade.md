@@ -271,6 +271,32 @@ developer then runs what the customer runs.
    release rather than remembered.)*
 3. **The bundle is tested by installing on a machine with no network route**,
    which is the only way Q-15 gets tested rather than asserted.
+   ***(Discharged 2026-08-27 —
+   [tools/airgap-rehearsal.sh](../../tools/airgap-rehearsal.sh), and it is a deployment
+   rather than a process.)***
+   **`--internal`, not `--network none`, and the difference is the whole test.** A container
+   with no network at all cannot reach its database either, so it proves that a server
+   without a database does not start — which nobody doubted. What Q-15 asks is whether
+   anything is *fetched from the internet*: PROJ grids, GDAL driver data, fonts, a telemetry
+   endpoint, an OCSP responder. A Docker `--internal` network gives container-to-container
+   routing and no default gateway, which is a datacentre with no way out, and the datastore
+   runs on it.
+   **The isolation is proved before it is trusted**: the run fails outright if `nuget.org` or
+   `cdn.proj.org` resolves from inside, because a test that assumes the network is cut and is
+   wrong proves nothing.
+   **What the walk does, all of it offline:** applies **all 37 migrations**; starts the
+   server, which listens on TLS with a certificate it generated itself; takes the one-time
+   setup token from its own log and completes setup; and asks `/rest/services`, which answers
+   **200** with its folders. **And its log complains about nothing it could not reach.**
+   **Two failures on the way, both in the rehearsal rather than the product**, and both worth
+   the sentence: `pg_isready` inside the datastore answers *ready* while PostgreSQL is still
+   on the unix socket alone for its initialisation phase, so the server got *connection
+   refused* from a database that had just been declared up — the probe goes over TCP now.
+   And the readiness probe used `wget`, which the server image does not carry, so a server
+   whose own log read *Listening on https://0.0.0.0:8443* was reported as NOT SERVING. **A
+   probe that cannot succeed is indistinguishable from a server that cannot answer.**
+   **What is still not covered** is what §8's note already says: whatever the rendering engine
+   needs, since [ADR-004](ADR-004-rendering-engine.md) is deferred and v1 cut it.
 4. **Certificate material survives a container replacement**, tested — §3 lists
    it as state, and it is the entry most likely to be treated as configuration
    by whoever writes the compose file.
