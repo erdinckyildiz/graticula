@@ -320,3 +320,58 @@ the window they would have quadrupled.
   thing happening, which is the case here.
 - **One machine, one shape of data.** `buildings` is small polygons. A layer of
   national outlines would move decode and serialise and might move the ranking.
+
+---
+
+## §4 — the decomposition under concurrency, 2026-08-27
+
+[D-30](../../docs/architecture-debt.md)'s unpaid half. Every earlier run of this
+decomposition was serial, and the row's trigger says so. `concurrency.py` drives the same
+one-row query at five concurrencies and reads **the server's own per-request breakdown out
+of its log** rather than timing from outside — because the question is *which component
+grows*, and a wall clock answers a different one.
+
+| callers | requests | wall p50 | in-handler total | lookup | prepare | driver | decode | serialise |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 20 | 18.3 ms | 2.75 ms | **1.93** | 0.13 | 0.60 | 0.01 | 0.09 |
+| 4 | 80 | 10.3 ms | 2.63 ms | **1.85** | 0.07 | 0.64 | 0.01 | 0.06 |
+| 8 | 160 | 14.9 ms | 3.16 ms | **2.25** | 0.05 | 0.71 | 0.01 | 0.04 |
+| 16 | 320 | 25.2 ms | 4.63 ms | **3.30** | 0.06 | 0.96 | 0.01 | 0.05 |
+| 32 | 640 | 47.4 ms | 4.12 ms | **2.89** | 0.06 | 0.89 | 0.01 | 0.05 |
+
+**Three findings, and the first reframes the other two.**
+
+**(a) Most of what concurrency costs happens outside the handler.** Wall latency grows
+2.6× from one caller to thirty-two — 18.3 ms to 47.4 ms — while the handler's own time
+grows **1.5×**, 2.75 ms to 4.12 ms. So roughly four fifths of the added latency is queueing,
+TLS and the thread pool rather than the query path. That is the same conclusion §3b reached
+from the other direction, now with the inside of the request visible instead of inferred.
+
+**(b) The per-request catalogue read is both the largest component and the one that
+degrades.** `lookup` is 70% of the handler at one caller and 71% at sixteen, and it grows
+from 1.93 ms to 3.30 ms while everything else is flat. [D-17](../../docs/architecture-debt.md)
+put that read on every request deliberately — it carries the sharing scope and the
+started/stopped status, and holding it would be caching an authorization decision — and
+[Q-04](../connection-budget/RESULTS.md) found the platform store is the `+ 1` pool every
+request touches whatever layer it asks for. This is those two facts meeting: the one pool
+every request shares is where the contention lands.
+
+**(c) The database query costs a third of the permission to run it.** `driver` is
+0.60–0.96 ms against `lookup`'s 1.93–3.30. On a one-row query the server spends more time
+finding out whether the caller may read the layer than reading it. That ratio is a property
+of the *query size* rather than of the design — a thousand-row query moves `driver` and
+`serialise` and leaves `lookup` where it is — but it is the ratio a catalogue browser, a
+tile client or an ArcGIS Pro layer list actually meets, because those ask small questions
+many times.
+
+**What this does not settle.** One machine, one small-polygon layer, one row per query, and
+the wall figures include a client that is also on it. The in-handler numbers are the
+server's own and are not affected by that; the wall column is context rather than a result.
+
+**The harness reports its own failures, and the first version did not.** That version
+swallowed every exception and returned the elapsed time, so a run where nothing worked
+reported *0.3 ms at every concurrency, no traced requests* — and the obvious reading of that
+was *the query logger is not at Debug*, which was wrong. Every request had been refused
+instantly by `urllib` because Git Bash rewrote the path argument `/rest/services/…` into
+`/Program Files/Git/rest/services/…` before Python ever saw it. **A benchmark that cannot
+say *nothing happened* reports a very fast nothing**, which looks like a result.
