@@ -508,6 +508,46 @@ public sealed class PostGisFeatureSource : IFeatureSource
                 sql.Append(LayerDefinition.Quote(query.OrderBy[i].Field))
                    .Append(query.OrderBy[i].Descending ? " desc" : " asc");
             }
+
+            /*
+              <b>And the identity column last, unless the caller already named it —
+              [D-21](../../docs/architecture-debt.md).</b> An order on a column that is not
+              unique is not a total order: rows that tie may come back in any order, and
+              *any order* is allowed to differ between two statements. So page two can
+              repeat page one and skip what should have been on it, with every page
+              individually correct.
+
+              <b>Measured on `hosted/ci_many`, 600 rows over two `kind` values.</b> Six
+              pages of ten ordered by `kind` returned **32 distinct rows of 60, with 28
+              repeated** — the first page `[19, 25, 16, 1, 22, 7, 4, 13, 10, 28]` and the
+              second `[43, 13, 7, 49, 16, 4, 25, 19, 10, 58]`, six of ten repeated. Ordering
+              by `objectid` gave 60 of 60, and so did no ordering at all, which is the
+              `else` branch below doing its job since 2026-08-18.
+
+              <b>This is the same defect that branch fixed, one level in.</b> That one was
+              *no order at all*; this one is *not enough order*, and it is the harder one to
+              notice because the caller asked for an ordering and got one.
+
+              <b>Skipped when the caller already ordered by identity</b>, because `order by
+              objectid, objectid` is not wrong but is a sort key the planner has to read
+              before discarding, and a client that orders by the key is the common case
+              (it is what the ArcGIS SDK does).
+            */
+            bool tied = true;
+
+            foreach (Graticula.Features.SortKey key in query.OrderBy)
+            {
+                if (string.Equals(key.Field, _layer.IdentityColumn, StringComparison.Ordinal))
+                {
+                    tied = false;
+                    break;
+                }
+            }
+
+            if (tied)
+            {
+                sql.Append(", ").Append(LayerDefinition.Quote(_layer.IdentityColumn));
+            }
         }
         else
         {

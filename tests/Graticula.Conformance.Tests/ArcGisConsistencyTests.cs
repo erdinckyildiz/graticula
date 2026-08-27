@@ -466,6 +466,120 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
             + "data rather than on the server.");
     }
 
+    /// <summary>
+    /// Ordering by a column that is not unique still pages without repeating or skipping.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-21](../../docs/architecture-debt.md)'s remaining half, and the row never named
+    /// it.</b> That row says *a client that pages without ordering still does not* get stable
+    /// pages — which stopped being true on 2026-08-18, when the unordered case got an implicit
+    /// order by identity. What was left is the case in between: a caller who **does** order,
+    /// by a column that is not unique. An order on a non-unique column is not a total order,
+    /// rows that tie may come back in any order, and *any order* is allowed to differ between
+    /// two statements.
+    /// </para>
+    /// <para>
+    /// <b>Measured before the repair, on `hosted/ci_many` — 600 rows over two `kind`
+    /// values.</b> Six pages of ten ordered by `kind` returned **32 distinct rows of 60, with
+    /// 28 repeated**: the first page `[19, 25, 16, 1, 22, 7, 4, 13, 10, 28]` and the second
+    /// `[43, 13, 7, 49, 16, 4, 25, 19, 10, 58]`. Every page was individually correct and the
+    /// walk was nearly half wrong.
+    /// </para>
+    /// <para>
+    /// <b>It picks the field itself rather than being told one</b>, because a fixture named in
+    /// a test is a fixture that has to keep existing — [D-65](../../docs/architecture-debt.md)
+    /// is what happens when a check quietly stops covering what it claims. Any text field with
+    /// a repeated value will do, and the test says so when no layer has one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Ordering_by_a_column_that_is_not_unique_still_pages_cleanly()
+    {
+        const int size = 10;
+        const int pages = 6;
+
+        int examined = 0;
+
+        foreach (string name in await EveryServiceNameAsync())
+        {
+            JsonElement whole = await GetJsonAsync(
+                $"/rest/services/{name}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&returnGeometry=false&resultRecordCount=600");
+
+            JsonElement[] features = [.. whole.GetProperty("features").EnumerateArray()];
+
+            if (features.Length < size * pages)
+            {
+                continue;
+            }
+
+            string oid = whole.GetProperty("objectIdFieldName").GetString()!;
+
+            // A field whose values repeat, so an order on it leaves ties.
+            string? tied = null;
+
+            foreach (JsonProperty candidate in features[0].GetProperty("attributes").EnumerateObject())
+            {
+                if (string.Equals(candidate.Name, oid, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                int distinct = features
+                    .Select(f => f.GetProperty("attributes").GetProperty(candidate.Name).ToString())
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+
+                if (distinct > 1 && distinct < features.Length / 4)
+                {
+                    tied = candidate.Name;
+                    break;
+                }
+            }
+
+            if (tied is null)
+            {
+                continue;
+            }
+
+            HashSet<int> seen = [];
+            int repeated = 0;
+
+            for (int page = 0; page < pages; page++)
+            {
+                JsonElement answer = await GetJsonAsync(
+                    $"/rest/services/{name}/FeatureServer/0/query"
+                    + $"?where=1%3D1&outFields=*&returnGeometry=false&orderByFields={tied}"
+                    + $"&resultRecordCount={size}&resultOffset={page * size}");
+
+                foreach (JsonElement feature in answer.GetProperty("features").EnumerateArray())
+                {
+                    if (!seen.Add(feature.GetProperty("attributes").GetProperty(oid).GetInt32()))
+                    {
+                        repeated++;
+                    }
+                }
+            }
+
+            Assert.True(
+                repeated == 0 && seen.Count == size * pages,
+                $"Paging {name} by '{tied}', which is not unique, walked {pages} pages of "
+                + $"{size} and saw {seen.Count} distinct rows with {repeated} repeated. An "
+                + "order on a non-unique column is not a total order, so the rows that tie "
+                + "may come back differently between two statements and a client walking "
+                + "pages repeats some and never sees others. D-21.");
+
+            examined++;
+        }
+
+        Assert.True(
+            examined > 0,
+            $"No layer had {size * pages} features and a field whose values repeat, so this "
+            + "was never exercised and proves nothing. D-65: a test whose coverage is a fact "
+            + "about the data reports on the data rather than on the server.");
+    }
+
     [Fact]
     public async Task The_layer_document_does_not_understate_what_the_query_endpoint_does()
     {
