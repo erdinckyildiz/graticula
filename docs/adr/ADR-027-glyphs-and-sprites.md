@@ -234,26 +234,33 @@ sheet stops being allowed to be empty.
    regeneration that changes the bytes should fail something. ~~Today nothing
    notices, and generated artefacts drifting from their generator is a matter of
    time.~~
-   ***(Discharged 2026-08-27 — [tools/glyphs-check.py](../../tools/glyphs-check.py), in
-   CI.)*** **By running the generator, which is the only thing that proves it.** A manifest of
-   hashes was the cheaper option and proves a weaker claim: that the files have not been
-   *edited*, which says nothing about whether the generator would still produce them. This
-   regenerates every range into a temporary directory from the checked-in font and compares
-   the bytes, in **both** directions — a file that is checked in and no longer produced is as
-   much a drift as one that changed, and a range the generator makes and nobody committed is a
-   label that does not draw, which §2's air-gap rule forbids fixing at runtime.
-   **Measured on the first run: 31 ranges, 4306 KB, every one byte-identical**, in 2.8
-   seconds. So the generator is deterministic, which was true and had never been asserted
-   anywhere — the ADR's own §97 named *checked-in binaries drift from their generator* as a
-   risk and nothing in the repository could tell the two apart.
-   **It fails rather than skips when `numpy`, `Pillow` or `scipy` is missing**, and says which
-   and how to install it. They are the generator's dependencies rather than the server's, so
-   CI installs them in the job that runs this and nowhere else. A check that goes green
-   because its subject could not be loaded is worse than no check, and this repository has
-   written that trap four times.
-   **Falsified** by appending one zero byte to `0-255.pbf`: the check names the file, both
-   digests, both sizes and the command that fixes it, and exits 1 — 0 again once the byte is
-   removed.
+   **PARTLY DISCHARGED 2026-08-27 — [tools/glyphs-check.py](../../tools/glyphs-check.py), in
+   two layers, and the second layer is why this is *partly*.**
+   **Written first as one layer: regenerate every range and compare the bytes**, which is the
+   only thing that proves the files are the generator's *output* rather than merely unedited.
+   It passed here — 31 ranges, 4306 KB, every one byte-identical, in 2.8 seconds — and **CI
+   failed on the first push with 22 of 31 ranges different.** Some the same size with a
+   different hash, some a different size entirely, meaning a different set of glyphs was
+   rasterised at all. The rasteriser is Pillow's, Pillow's is FreeType's, and neither promises
+   identical output across versions or platforms. That is [D-193](../architecture-debt.md),
+   and it is a real finding rather than a broken check: **the artefacts in this repository can
+   be reproduced on one machine and nowhere else**, which is §97's drift risk one level up.
+   **So the generator records what produced it.** `provenance.json` carries the font's hash,
+   every range's hash, and the exact Python, Pillow, FreeType, numpy and scipy versions.
+   **Layer 1, everywhere and in CI:** every range's hash against the manifest, in both
+   directions — a range edited by hand, one that went missing, one nobody committed — plus the
+   font's, because a changed font makes every range stale. No font stack needed.
+   **Layer 2, only where the environment matches the manifest:** run the generator and compare
+   bytes.
+   **Where it cannot run layer 2 it says so and names what differs**, rather than passing
+   quietly. An unverifiable claim reported as verified is the failure this repository has
+   written down six times.
+   **Falsified in both directions**: one zero byte appended to `0-255.pbf` and layer 1 names
+   the file, both digests and the command that fixes it, exiting 1; a doctored
+   `provenance.json` claiming Linux and Pillow 10 and layer 2 declines, printing both
+   environments and the measurement behind the refusal.
+   **This discharges when D-193 does** — when the ranges can be reproduced by somebody who is
+   not the author, or when the ADR decides they need not be and says so.
 4. **The font licence is in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)
    with the text shipped beside the font**, because the Bitstream Vera licence
    requires the notice to travel with the file. *(Discharged — [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries the row and a section explaining why a redistributed font is unlike every other entry, and the licence text sits beside the font at [tools/fonts/LICENSE-DejaVu.txt](../../tools/fonts/LICENSE-DejaVu.txt) — which is what Bitstream Vera requires, since the notice must travel with the file rather than be referenced from elsewhere.)*

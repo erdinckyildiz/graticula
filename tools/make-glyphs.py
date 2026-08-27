@@ -42,11 +42,16 @@ lands on alpha 191 and a client thresholding at 192 gets the outline back.
 Usage:  python tools/make-glyphs.py [output-directory]
 """
 
+import hashlib
 import io
+import json
 import os
+import platform
 import sys
 
 import numpy as np
+import PIL
+import scipy
 from PIL import ImageFont
 from scipy import ndimage
 
@@ -232,6 +237,40 @@ def main():
 
         written += 1
         total += len(blob)
+
+    # <b>The output records what produced it -- ADR-027 condition 3.</b> Measured 2026-08-27:
+    # regenerating on Linux produced different bytes for 22 of 31 ranges, some the same size
+    # with a different hash and some a different size entirely, because the rasteriser is
+    # Pillow's and Pillow's is FreeType's and neither promises identical output across
+    # versions or platforms. So "regenerate and compare" is a check that only means something
+    # where the environment matches -- and until the environment was written down, nobody
+    # could tell whether a difference was drift or a different machine.
+    #
+    # <b>The per-file hashes are the half that is portable.</b> They catch a range edited by
+    # hand, a range that went missing and a range nobody committed, anywhere, without needing
+    # to run this at all.
+    provenance = {
+        "generator": os.path.basename(__file__),
+        "font": os.path.basename(source),
+        "fontSha256": hashlib.sha256(io.open(source, "rb").read()).hexdigest(),
+        "environment": {
+            "python": platform.python_version(),
+            "system": platform.system(),
+            "pillow": PIL.__version__,
+            "freetype": ImageFont.core.freetype2_version,
+            "numpy": np.__version__,
+            "scipy": scipy.__version__,
+        },
+        "ranges": {},
+    }
+
+    for entry in sorted(os.listdir(folder)):
+        if entry.endswith(".pbf"):
+            provenance["ranges"][entry] = hashlib.sha256(
+                io.open(os.path.join(folder, entry), "rb").read()).hexdigest()
+
+    io.open(os.path.join(target, "provenance.json"), "w", encoding="utf-8", newline="\n").write(
+        json.dumps(provenance, indent=2, sort_keys=True) + "\n")
 
     print(f"{written} ranges, {total / 1024:.0f} KB, into {folder}")
 

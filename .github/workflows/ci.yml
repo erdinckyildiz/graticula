@@ -493,22 +493,23 @@ jobs:
       - name: status page still generates
         run: python tools/status-page.py docs/status.html
 
-      # <b>ADR-027 condition 3: the checked-in glyph ranges are provably the output of
-      # the checked-in generator.</b> Thirty-one binary files nobody can read are the
-      # worst possible place for a generated artefact to drift from its generator, and
-      # that ADR names the risk in its own words. This regenerates every range from the
-      # checked-in font and compares bytes -- a hash manifest would prove they had not
-      # been edited, which says nothing about whether the generator still produces them.
+      # <b>ADR-027 condition 3: the checked-in glyph ranges match their generator.</b>
+      # Thirty-one binary files nobody can read are the worst possible place for a generated
+      # artefact to drift from its generator, and that ADR names the risk in its own words.
       #
-      # <b>Three build-time packages, installed here and nowhere else.</b> They are the
-      # generator's dependencies, not the server's, so they belong in the job that runs
-      # the generator. The check fails rather than skips when they are missing.
+      # <b>What this step proves here is the manifest, and that is a correction rather than a
+      # design.</b> The first version regenerated every range and compared bytes. It passed on
+      # the machine it was written on and **this job failed with 22 of 31 ranges different** --
+      # some the same size with a different hash, some a different size entirely -- because the
+      # rasteriser is Pillow's and Pillow's is FreeType's, and neither promises identical
+      # output across versions or platforms. D-193.
       #
-      # Measured 2026-08-27: 2.8 seconds for 31 ranges and 4306 KB.
-      - name: install the glyph generator's dependencies
-        run: python -m pip install --quiet numpy pillow scipy
-
-      - name: glyph ranges match their generator
+      # So the check has two layers and this runs the portable one: every range's SHA-256
+      # against `provenance.json`, in both directions, plus the font's. It needs no font stack,
+      # which is also why nothing is installed here any more. It prints, out loud, that it is
+      # not regenerating and why -- an unverifiable claim reported as verified is the failure
+      # this repository has written down six times.
+      - name: glyph ranges match their manifest
         run: python tools/glyphs-check.py
 
   coverage-gap:

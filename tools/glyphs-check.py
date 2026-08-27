@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
-"""Proves the checked-in glyph ranges are the output of the checked-in generator.
+"""Checks the checked-in glyph ranges against their generator, in two layers.
 
-[ADR-027](../docs/adr/ADR-027-glyph-ranges.md) condition 3
+[ADR-027](../docs/adr/ADR-027-glyphs-and-sprites.md) condition 3
 ----------------------------------------------------------
 *The checked-in ranges are provably the output of the checked-in tool. A regeneration that
 changes the bytes should fail something. Today nothing notices, and generated artefacts
 drifting from their generator is a matter of time.*
 
-That ADR's §97 already names the risk in its own words -- **checked-in binaries drift from
-their generator** -- and until this script nothing in the repository could tell the difference
-between a range file that came out of `make-glyphs.py` and one that came from somewhere else.
-Thirty-one binary files nobody can read are the worst possible place for that.
+That ADR's §97 names the risk in its own words -- **checked-in binaries drift from their
+generator** -- and thirty-one binary files nobody can read are the worst possible place for it.
 
-How it proves it
-----------------
-By running the generator. A manifest of hashes would prove the files have not been *edited*,
-which is a different and weaker claim: it says nothing about whether the generator would still
-produce them. This regenerates every range into a temporary directory from the checked-in font
-and compares the bytes.
+Why two layers, which is a finding rather than a design preference
+------------------------------------------------------------------
+The first version of this script regenerated every range and compared bytes. It passed on the
+machine it was written on, and **CI failed with 22 of 31 ranges different** -- some the same
+size with a different hash, some a different size entirely. The rasteriser is Pillow's, and
+Pillow's is FreeType's, and neither promises identical output across versions or platforms.
+So *regenerate and compare* is a check that means something only where the environment matches
+the one that produced the files, and nowhere else can tell drift from a different machine.
 
-Measured 2026-08-27: 31 ranges, 4306 KB, and every one byte-identical -- so the generator is
-deterministic, which had never been asserted anywhere either.
+**Layer 1, everywhere: the manifest.** `provenance.json` is written by the generator and holds
+a SHA-256 for every range plus the font's. This verifies all of them, in both directions -- a
+file that was edited, one that went missing, and one nobody committed. It needs no font stack
+and no rasteriser, so it runs in CI and on any clone.
 
-Why it fails rather than skips when the libraries are missing
--------------------------------------------------------------
-`numpy`, `Pillow` and `scipy` are build-time dependencies of the generator and are not
-otherwise needed to run this server. A check that goes green because its subject could not be
-loaded is worse than no check -- this repository has written that trap four times -- so this
-says what to install and exits non-zero. Run it where the generator can run.
+**Layer 2, where the environment matches: regeneration.** If Python, Pillow, FreeType, numpy
+and scipy are the versions `provenance.json` records, the generator is run and the bytes are
+compared. That is the only thing that proves the files are its *output* rather than merely
+unedited.
+
+**Where the environment does not match, layer 2 is skipped and says so out loud**, naming what
+differs. It does not pass silently: an unverifiable claim reported as verified is the failure
+this repository has written down six times.
 
 Usage:  python tools/glyphs-check.py
 """
@@ -35,6 +39,7 @@ Usage:  python tools/glyphs-check.py
 import filecmp
 import hashlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -42,8 +47,10 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CHECKED = os.path.join(ROOT, "src", "Graticula.Host", "glyphs")
+GLYPHS = os.path.join(ROOT, "src", "Graticula.Host", "glyphs")
+PROVENANCE = os.path.join(GLYPHS, "provenance.json")
 GENERATOR = os.path.join(ROOT, "tools", "make-glyphs.py")
+FONT = os.path.join(ROOT, "tools", "fonts", "DejaVuSans.ttf")
 
 
 def digest(path):
@@ -51,25 +58,90 @@ def digest(path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def main():
+def ranges_on_disk():
+    """Every .pbf under the glyph folder, keyed by file name."""
+    found = {}
+
+    for folder, _, files in os.walk(GLYPHS):
+        for name in files:
+            if name.endswith(".pbf"):
+                found[name] = os.path.join(folder, name)
+
+    return found
+
+
+def manifest_layer(provenance):
+    """Layer 1: the checked-in bytes are the ones the generator last wrote."""
+    problems = []
+    recorded = provenance.get("ranges", {})
+    present = ranges_on_disk()
+
+    if not recorded:
+        problems.append(
+            "provenance.json records no ranges, so it proves nothing. Run "
+            "`python tools/make-glyphs.py`.")
+        return problems
+
+    for name, expected in sorted(recorded.items()):
+        if name not in present:
+            problems.append(
+                name + " is in provenance.json and not on disk. A range the style asks for "
+                "and the image does not carry is a label that does not draw, and the air-gap "
+                "rule forbids fetching it at runtime.")
+            continue
+
+        actual = digest(present[name])
+
+        if actual != expected:
+            problems.append(
+                name + " does not match provenance.json: recorded " + expected[:16]
+                + ", on disk " + actual[:16] + " (" + str(os.path.getsize(present[name]))
+                + " bytes). Either it was edited or it was regenerated without the manifest "
+                "being written. Run `python tools/make-glyphs.py`.")
+
+    for name in sorted(present):
+        if name not in recorded:
+            problems.append(
+                name + " is on disk and not in provenance.json. It came from somewhere other "
+                "than the generator, or the manifest is stale.")
+
+    if os.path.exists(FONT):
+        font = digest(FONT)
+
+        if font != provenance.get("fontSha256"):
+            problems.append(
+                "The font has changed since the ranges were generated: provenance.json "
+                "records " + str(provenance.get("fontSha256"))[:16] + " and "
+                "tools/fonts/DejaVuSans.ttf is " + font[:16] + ". Every range is stale.")
+
+    return problems
+
+
+def environment():
+    """This machine's versions, in provenance.json's shape, or None if it cannot say."""
     try:
-        import numpy  # noqa: F401
-        import scipy  # noqa: F401
-        from PIL import ImageFont  # noqa: F401
-    except ImportError as missing:
-        print(
-            "The glyph generator needs numpy, Pillow and scipy, and one of them is not "
-            "installed here: " + str(missing) + ".\n"
-            "This check FAILS rather than skips, because a check that goes green when its "
-            "subject cannot be loaded is worse than no check.\n"
-            "  python -m pip install numpy pillow scipy",
-            file=sys.stderr)
-        return 2
+        import platform
 
-    if not os.path.isdir(CHECKED):
-        print("There are no checked-in glyph ranges at " + CHECKED, file=sys.stderr)
-        return 2
+        import numpy
+        import PIL
+        import scipy
+        from PIL import ImageFont
+    except ImportError:
+        return None
 
+    return {
+        "python": platform.python_version(),
+        "system": platform.system(),
+        "pillow": PIL.__version__,
+        "freetype": ImageFont.core.freetype2_version,
+        "numpy": numpy.__version__,
+        "scipy": scipy.__version__,
+    }
+
+
+def regeneration_layer(provenance):
+    """Layer 2: the bytes are what the generator produces, here and now."""
+    problems = []
     fresh = tempfile.mkdtemp(prefix="graticula-glyphs-")
 
     try:
@@ -78,60 +150,95 @@ def main():
             capture_output=True, text=True, cwd=ROOT, timeout=900)
 
         if run.returncode != 0:
-            print("The generator itself failed:\n" + run.stdout + run.stderr, file=sys.stderr)
-            return 2
+            return ["The generator itself failed:\n" + run.stdout + run.stderr]
 
-        problems = []
-        checked_files = 0
+        present = ranges_on_disk()
 
-        for folder, _, files in os.walk(CHECKED):
-            for name in sorted(files):
-                here = os.path.join(folder, name)
-                relative = os.path.relpath(here, CHECKED)
-                there = os.path.join(fresh, relative)
-                checked_files += 1
+        for name, here in sorted(present.items()):
+            relative = os.path.relpath(here, GLYPHS)
+            there = os.path.join(fresh, relative)
 
-                if not os.path.exists(there):
-                    problems.append(
-                        relative + " is checked in and the generator does not produce it. "
-                        "Either it was added by hand or the generator's range list changed "
-                        "without the files being regenerated.")
-                    continue
+            if not os.path.exists(there):
+                problems.append(
+                    relative + " is checked in and the generator does not produce it.")
+                continue
 
-                if not filecmp.cmp(here, there, shallow=False):
-                    problems.append(
-                        relative + " differs from what the generator produces: checked in "
-                        + digest(here)[:16] + " (" + str(os.path.getsize(here)) + " bytes), "
-                        "regenerated " + digest(there)[:16] + " ("
-                        + str(os.path.getsize(there)) + " bytes). Run "
-                        "`python tools/make-glyphs.py` and commit the result, or find out why "
-                        "the generator changed.")
+            if not filecmp.cmp(here, there, shallow=False):
+                problems.append(
+                    relative + " differs from what the generator produces: checked in "
+                    + digest(here)[:16] + " (" + str(os.path.getsize(here)) + " bytes), "
+                    "regenerated " + digest(there)[:16] + " ("
+                    + str(os.path.getsize(there)) + " bytes).")
 
-        # The other direction: something the generator makes and nobody checked in.
-        for folder, _, files in os.walk(fresh):
-            for name in sorted(files):
-                relative = os.path.relpath(os.path.join(folder, name), fresh)
-
-                if not os.path.exists(os.path.join(CHECKED, relative)):
-                    problems.append(
-                        relative + " is produced by the generator and is not checked in. A "
-                        "range the style asks for and the image does not carry is a label "
-                        "that does not draw, and Q-15 forbids fetching it at runtime.")
-
-        if problems:
-            for problem in problems:
-                print(problem, file=sys.stderr)
-
-            print("\n" + str(len(problems)) + " glyph ranges disagree with their generator "
-                  "(ADR-027 condition 3).", file=sys.stderr)
-            return 1
-
-        print(str(checked_files) + " glyph ranges are byte-identical to what "
-              "tools/make-glyphs.py produces from the checked-in font.")
-        return 0
+        return problems
 
     finally:
         shutil.rmtree(fresh, ignore_errors=True)
+
+
+def main():
+    if not os.path.exists(PROVENANCE):
+        print(
+            "There is no " + os.path.relpath(PROVENANCE, ROOT) + ", so nothing can say where "
+            "the checked-in glyph ranges came from. Run `python tools/make-glyphs.py`.",
+            file=sys.stderr)
+        return 2
+
+    provenance = json.load(io.open(PROVENANCE, encoding="utf-8"))
+
+    problems = manifest_layer(provenance)
+
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+
+        print("\n" + str(len(problems)) + " glyph ranges disagree with their manifest "
+              "(ADR-027 condition 3).", file=sys.stderr)
+        return 1
+
+    print(str(len(provenance.get("ranges", {})))
+          + " glyph ranges match provenance.json, and so does the font.")
+
+    here = environment()
+    recorded = provenance.get("environment", {})
+
+    if here is None:
+        print(
+            "Not regenerating: numpy, Pillow or scipy is not installed here, so this run "
+            "proves the bytes are unedited and does not prove they are the generator's "
+            "output. `python -m pip install numpy pillow scipy` on a machine matching "
+            + json.dumps(recorded, sort_keys=True) + ".")
+        return 0
+
+    differences = sorted(
+        key for key in set(recorded) | set(here) if recorded.get(key) != here.get(key))
+
+    if differences:
+        print(
+            "Not regenerating: this machine is not the one that produced these ranges, and "
+            "the rasteriser does not promise identical bytes across "
+            + ", ".join(differences) + ". Recorded "
+            + json.dumps({k: recorded.get(k) for k in differences}, sort_keys=True)
+            + ", here " + json.dumps({k: here.get(k) for k in differences}, sort_keys=True)
+            + ". Measured 2026-08-27: 22 of 31 ranges differ between Windows and Linux, so a "
+            "byte comparison from here would report drift that is not drift.")
+        return 0
+
+    problems = regeneration_layer(provenance)
+
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+
+        print("\n" + str(len(problems)) + " glyph ranges are not what the generator produces "
+              "on the machine that produced them, which is drift (ADR-027 condition 3). Run "
+              "`python tools/make-glyphs.py` and commit the result, or find out why the "
+              "generator changed.", file=sys.stderr)
+        return 1
+
+    print("and regenerating them here produces the same bytes: this environment is the one "
+          "provenance.json records.")
+    return 0
 
 
 if __name__ == "__main__":
