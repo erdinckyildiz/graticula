@@ -305,6 +305,18 @@ connection.
 2. **Turning a face off is tested to produce the same refusal as absent**, not a
    distinguishable one, so that the capability configuration cannot be used to enumerate
    what exists.
+   *(Discharged 2026-08-27 by `FaceOffLooksAbsentTests`, and the existing assertion was not
+   enough.* `WfsConformanceTests.A_service_whose_feature_face_is_off_is_absent_from_wfs`
+   already checked the ArcGIS door answers **404** — and a 404 reading *the feature face of
+   'x' is turned off* would pass that and give away the fact the condition exists to hide.
+   The new test compares the **whole response body**, anonymously, against the body for a
+   name no catalogue has, with each one's own service name replaced by a placeholder: the
+   name is what the caller supplied and everything else has to match. **Three paths**, because
+   the face is gated in three places — the service document, the layer document and `query`,
+   the last being the one with a history of resolving a layer by itself. **Falsified** by
+   giving the service document its own refusal message: *Strings differ*, and it passes on
+   restore. **The restore is asserted too**: a test that leaves a face off fails every suite
+   after it with its own name nowhere in the failure.)*
 3. **The timeout override is tested at its bound** — that it can lower and cannot raise
    or unset — because D-42 is the record of that exact control being wrong once already,
    and it was wrong in the permissive direction.
