@@ -167,8 +167,8 @@ mean two caches rather than a coherence problem.
 
 ## 7. Conditions
 
-1. **The datastore-saturation case is untested and is the strongest surviving
-   argument against this decision.** `ST_AsMVT` puts every byte of tile cost
+1. ~~**The datastore-saturation case is untested and is the strongest surviving
+   argument against this decision.**~~ `ST_AsMVT` puts every byte of tile cost
    inside PostgreSQL. On the benchmark machine PostgreSQL had headroom, so the
    comparison never saw the case where it does not — and ADR-019 makes the
    datastore mandatory and *shared by every service*, so that case is not
@@ -177,6 +177,31 @@ mean two caches rather than a coherence problem.
    deployment where the datastore is the constraint, measure tile throughput
    against a saturated datastore.** If the encoder wins there, this ADR is
    reopened and `/benchmarks/harness` is where the implementation starts.
+   ***(Discharged 2026-08-27 — measured. The encoder does not win, and the ADR stands.)***
+   [benchmarks/saturated-datastore](../../benchmarks/saturated-datastore/RESULTS.md), against
+   the same harness and the same 6,499,215-polygon table the 2026-08-12 comparison used.
+   | Datastore | `ST_AsMVT` | local encoder |
+   |---|---|---|
+   | idle | **8.3–10.9 ms** | 74.7–103.1 ms |
+   | 16 active geometry queries | **31.9 ms** | 109.6 ms |
+   | 32 active geometry queries | **35.2 / 37.0 ms** | 156.8 / 155.9 ms |
+   **The prediction in this condition half held.** `ST_AsMVT` does suffer most in relative
+   terms — 3.4× to 4× worse under load against the encoder's 1.06× to 1.5× — because all of
+   its work is inside the contended process. **And it is still several times faster at every
+   level measured**, so the test this condition set does not fire.
+   **The reason is measured rather than argued, and it is the part worth keeping**: moving the
+   encode out does not take the database off the path. For the same tile PostgreSQL
+   serialises and ships **5,304 bytes** as a finished tile, or **1,700 kB** of
+   `ST_AsBinary(way)` for the encoder to work from — **about 328×**. So the path meant to
+   spare the database asks it for more of exactly the resource that is scarce, and only then
+   encodes. Under load that is the wrong direction twice.
+   **What this does not settle is stated with it** rather than left to a green tick: one
+   machine, one tile, one table (which is condition 2, unchanged); saturation as *geometry
+   CPU* rather than connections or disk; two implementations whose outputs differ in size
+   (5,304 against 4,365 bytes); and the condition's own warning that *no single-box benchmark
+   can refute* a horizontally scaling tier — this does not refute it, and it does show that
+   such a tier would have to carry 1.7 MB per tile across a network to save 30 ms of
+   PostgreSQL.
 2. **Measured on one machine, one dataset, one city, one polygon table.** No line
    layers, no mixed geometry, no attribute-heavy table where the tag dictionary
    dominates the tile. Widen before treating the numbers as general.
