@@ -255,6 +255,20 @@ developer then runs what the customer runs.
    answers from a process at startup.)*
 2. **A rollback is rehearsed**, not assumed: upgrade, roll back before contract,
    confirm the previous version serves correctly.
+   *(Discharged 2026-08-27 —
+   [tools/rollback-rehearsal.sh](../../tools/rollback-rehearsal.sh), against a **copy of a
+   real store with nine layers in it**, because *serves correctly* cannot be shown against
+   an empty schema. Four steps, in the condition's own order.
+   **(1)** This build serves the copy: the `ci_buildings` layer document, 2,018 bytes.
+   **(2)** The store is upgraded past the build — applied 41, minimum reader 1, an expand.
+   **(3)** The previous version is rolled back to. It starts, reports *"server at schema 37
+   is compatible with the platform store (schema 41, minimum reader 1)"*, answers
+   `/rest/info` with 200, returns the **byte-identical** layer document, and answers a query
+   with its 8 features. Byte-identical is the strongest available form of *serves
+   correctly*: not merely a 200, and not merely the same field names.
+   **(4)** And a contract past it is refused, with the message condition 1 asks for.
+   **The rehearsal is a script rather than an afternoon**, so it can be run again before a
+   release rather than remembered.)*
 3. **The bundle is tested by installing on a machine with no network route**,
    which is the only way Q-15 gets tested rather than asserted.
 4. **Certificate material survives a container replacement**, tested — §3 lists
