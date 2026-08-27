@@ -48,6 +48,72 @@ public sealed class SuiteStabilityTests
     }
 
     /// <summary>
+    /// Nothing is filtered, ordered or counted after the rows have arrived.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-008](../../docs/adr/ADR-008-query-engine.md) condition 2</b>: *the residual
+    /// boundary is written down — an explicit list of what executes in-process — and changes to
+    /// it are ADR amendments, not implementation choices.* §4.3 describes the boundary in prose;
+    /// this is the list, and for v1 it is **empty**. `PostGisFeatureSource.ReadAsync` streams
+    /// what the SQL returned and does nothing else to it.
+    /// </para>
+    /// <para>
+    /// <b>An empty list is a stronger position than the prose, and easier to lose.</b> Adding a
+    /// `.Where(` to that loop would be one line, would work, and would move the boundary without
+    /// anybody deciding to — which is precisely the *implementation choice* the condition
+    /// forbids. So the loop is read rather than trusted.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to the one method that yields features</b>, by matching its braces, because the
+    /// same operators are perfectly legitimate elsewhere in the file — building a column list is
+    /// not executing a query.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_feature_read_loop_filters_nothing_after_the_rows_arrive()
+    {
+        string file = Path.Combine(
+            Root().FullName, "src", "Graticula.Providers.PostGis", "PostGisFeatureSource.cs");
+
+        Assert.True(File.Exists(file), $"The PostGIS feature source is not at '{file}'.");
+
+        string source = File.ReadAllText(file);
+
+        int start = source.IndexOf(
+            "public async IAsyncEnumerable<Feature> ReadAsync(", StringComparison.Ordinal);
+
+        Assert.True(start >= 0, "PostGisFeatureSource has no ReadAsync, which is what streams rows.");
+
+        int open = source.IndexOf('{', source.IndexOf(')', start));
+        int depth = 0;
+        int end = open;
+
+        for (int i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{') { depth++; }
+            else if (source[i] == '}' && --depth == 0) { end = i; break; }
+        }
+
+        string body = source[open..end];
+
+        Assert.Contains("yield return", body, StringComparison.Ordinal);
+
+        foreach (string residual in (string[])
+                 [".Where(", ".OrderBy(", ".OrderByDescending(", ".Take(", ".Skip(",
+                  ".Distinct(", ".GroupBy(", ".Count()", ".Sum(", ".Average("])
+        {
+            Assert.False(
+                body.Contains(residual, StringComparison.Ordinal),
+                $"PostGisFeatureSource.ReadAsync uses '{residual}' on rows that have already "
+                + "arrived, so something now executes in-process that the SQL used to do. "
+                + "ADR-008 condition 2: the residual boundary is an explicit list and changes "
+                + "to it are ADR amendments, not implementation choices. For v1 that list is "
+                + "empty. If this is deliberate, amend §4.3 and add it to the list there.");
+        }
+    }
+
+    /// <summary>
     /// A conformance class that publishes names its fixtures so the walkers can tell them apart.
     /// </summary>
     /// <remarks>

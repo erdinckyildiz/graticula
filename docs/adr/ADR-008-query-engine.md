@@ -187,6 +187,29 @@ In-process residual execution is limited to operations that are cheap on a
 stream: attribute filters on already-fetched rows, projection, limit, and simple
 ordering on bounded result sets.
 
+**The list, as of 2026-08-27 — condition 2, and for v1 it is empty.** Nothing in the
+query path executes in process. `PostGisFeatureSource.ReadAsync` streams what the SQL
+returned and decodes it; there is no filter, no ordering, no limit and no aggregate
+applied after a row has arrived. Every `where`, `orderByFields`, `resultRecordCount`,
+`resultOffset`, `outStatistics` and `groupByFieldsForStatistics` this server accepts is
+compiled into the statement, and everything it cannot compile is **refused by name**
+rather than fetched and finished here.
+
+**Empty is a stronger position than the paragraph above describes**, and the paragraph is
+kept because it is the boundary this decision would allow rather than the one it has. What
+the list is for is that moving it must be a decision: adding one `.Where(` to the read loop
+would work, would be one line, and would move the boundary without anybody choosing to.
+`SuiteStabilityTests.The_feature_read_loop_filters_nothing_after_the_rows_arrive` reads
+that method's body — scoped by its braces, because the same operators are legitimate
+elsewhere in the same file — and fails if one appears. **Falsified** by adding a filter to
+the loop: the check names the operator and the condition.
+
+**The two things that do execute in process are not this.** The geometry service runs
+operations on geometry that arrived *in the request*, which is
+[ADR-022](ADR-022-geometry-server.md)'s surface and has nothing to push down to; and the
+tile encoder turns rows into MVT, which is a serialisation rather than a query operation.
+Neither changes what a query means, which is what this boundary is about.
+
 **Anything else is refused with an explanatory error** naming the provider, the
 unsupported operation, and — where one exists — the alternative.
 
@@ -753,6 +776,20 @@ identity), ADR-011 (long queries become jobs), tile pipeline, feature services
 2. **The residual boundary is written down** — an explicit list of what executes
    in-process — and changes to it are ADR amendments, not implementation
    choices.
+   *(Discharged 2026-08-27 — §4.3 now carries the list, and **it is empty**. Nothing in
+   the query path executes in process: `PostGisFeatureSource.ReadAsync` streams what the
+   SQL returned and decodes it, with no filter, ordering, limit or aggregate applied after
+   a row has arrived. Everything this server accepts is compiled into the statement and
+   everything else is refused by name.
+   **Empty is stronger than the boundary §4.3 would allow**, and it is also easier to lose:
+   one `.Where(` in that loop would work, would be one line, and would move the boundary
+   without anybody deciding to — which is exactly the *implementation choice* this
+   condition forbids. So
+   `SuiteStabilityTests.The_feature_read_loop_filters_nothing_after_the_rows_arrive` reads
+   the method's body, scoped by its braces because the same operators are legitimate
+   elsewhere in the file, and fails if one appears — pointing at §4.3 rather than at
+   itself. **Falsified** by adding a filter to the loop: the check names the operator and
+   the condition.)*
 3. **A-021 must be verified** before the tile path is implemented. If the three
    dialects' `simplify` differ enough to produce visibly different tiles, §4.8
    needs rethinking.
