@@ -46,6 +46,14 @@ OGC API Features, the other databases, rendering, geoprocessing and the rest of
 the protocol surface are **deferred, not cancelled**; the map is
 [protocol-surface.md](docs/protocol-surface.md).
 
+**One limit worth knowing before you choose this**: map labels are drawn from a
+checked-in glyph set covering **Latin, Greek, Cyrillic and punctuation** — 7,720
+glyphs. **Chinese, Japanese, Korean and Devanagari are not in it.** A deployment
+that needs to label a map in one of those scripts cannot do it with what ships
+here, and that is a fact about the product rather than a smaller version of it —
+[ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md) has the reasoning and the route
+out, which is generating further ranges with the checked-in tool.
+
 ## Project status
 
 ```

@@ -218,6 +218,13 @@ sheet stops being allowed to be empty.
    product would see it**, not only here. A GIS server that cannot label a map in
    the local language is not a smaller product for that deployment; it is not a
    usable one.
+   *(Discharged 2026-08-27 — `README.md`'s **Status** section now names the covered
+   scripts and the missing ones, beside the v1 scope statement, which is the first
+   place a stranger reads what this is. **It says what is missing rather than what is
+   present**, because *Latin, Greek and Cyrillic* reads as a feature list and *not
+   Chinese, Japanese, Korean or Devanagari* reads as the limit it is. Found live while
+   sweeping this ADR's conditions; the repository had been public for days with the
+   limitation stated only here.)*
 3. **The checked-in ranges are provably the output of the checked-in tool.** A
    regeneration that changes the bytes should fail something. Today nothing
    notices, and generated artefacts drifting from their generator is a matter of
