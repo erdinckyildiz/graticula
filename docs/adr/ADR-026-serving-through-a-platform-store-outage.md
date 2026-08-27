@@ -315,6 +315,42 @@ for the admin API and is **not** solved here.
 4. **The outage test becomes something CI runs**, or this decision is verified by
    hand at each release and that is written into the release checklist. A
    behaviour that only exists during a failure is a behaviour that rots.
+   ***(Discharged 2026-08-27 — CI runs it, which was the first of the two options and the
+   better one.)*** [tools/outage-rehearsal.sh](../../tools/outage-rehearsal.sh) stops the real
+   database under a running, seeded server and walks four times: store up, store stopped,
+   immediately after it returns, and past the breaker's ten-second cooling window. The
+   `conformance` job runs it last, finding the service container by image because Actions
+   names it unpredictably, and the script restarts the container in a trap so an interrupted
+   run does not leave the job's database down.
+   **What the run shows is this section's decision, read back rather than asserted.** With the
+   store stopped: the publicly shared service is still **described** — 200, from the
+   remembered catalogue entry — its **rows** are 503 *"temporarily unavailable, retry in a few
+   seconds"*, and the private service is 503 with the sentence *"the platform store is
+   unreachable; while it is, this server answers only shared-publicly services"* rather than
+   the 404 it gives a stranger at any other time. That is *public-only, while blind*, said out
+   loud to the caller.
+   **The rows being 503 is the shape of the deployment, not a failure of the fallback.** §2's
+   own sentence is *a registered layer in the customer's own PostGIS goes dark because our
+   bookkeeping database is restarting*, and the fixtures this walks are **hosted** — their
+   rows are in the same database as the platform store, so the catalogue can remember what to
+   serve and there is nothing left to serve it from. **The registered case is the one this
+   rehearsal does not cover**, and it is the case this decision was written for: covering it
+   needs a second database, which is stated here rather than left to be assumed from a green
+   tick.
+   **Recovery needs no help and is bounded.** Rows return with the database; the admin surface
+   stays refused for up to ten more seconds while `SourceBreaker` cools, then returns on its
+   own. The walk reads both sides of that window, so the ten seconds is measured.
+   **It has a verdict rather than only output**, because a rehearsal that prints cannot fail:
+   five expectations, each carrying the sentence from this ADR or from ADR-017 §6 that it is
+   holding the server to. **Falsified** by writing a 200 for the private service into the
+   outage ledger — the run names it, quotes *public-ONLY while blind*, and exits 1.
+   **The verdict's own helper could not fail at first**, and that is worth recording next to
+   it: `saw` was a Perl-mode `grep` with a quoted-literal pattern that returned nothing for
+   every label on the machine it was written on, so some expectations passed by never being
+   evaluated. It is an `awk` exact-field match now. This is the sixth time in this repository
+   that something written to catch a failure could not report one.
+   **[D-192](../architecture-debt.md) was found by the first run of this**, before it had a
+   verdict at all.
 5. **The window's default is revisited against a real operator response time**
    before the first deployment that matters. A-068 is a guess.
 

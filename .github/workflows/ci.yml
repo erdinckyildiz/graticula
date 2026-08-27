@@ -420,6 +420,35 @@ jobs:
       - name: console
         run: dotnet test tests/Graticula.Console.Tests -c Release --no-build
 
+      # <b>ADR-026 condition 4: the outage test becomes something CI runs.</b> *A behaviour
+      # that only exists during a failure is a behaviour that rots* -- and until this step,
+      # nothing anywhere stopped a real database. `CatalogFallbackTests` pins the policy
+      # against a fake store in the `unit` job, which is what makes those failure modes
+      # reachable at all, and it is a different claim from *this server, this database,
+      # stopped*.
+      #
+      # <b>Last, and it restores in a trap.</b> It stops the service container the rest of
+      # this job depends on. Every step that needs the database has already run; the log
+      # upload after it does not. The script starts the container again on any exit, waits
+      # for `pg_isready`, and walks past the breaker's cooling window, so a green run also
+      # proves recovery rather than only the outage.
+      #
+      # <b>The container is found by image, not by name.</b> Actions names a service
+      # container something like `<workflow-id>_postgis_<random>`, which nothing can hard-code.
+      - name: serving through a platform-store outage
+        run: |
+          BOX=$(docker ps --filter ancestor=postgis/postgis:16-3.4 --format '{{.Names}}' | head -1)
+
+          if [ -z "$BOX" ]; then
+            echo "No postgis container to stop, so this step would have passed without"
+            echo "testing anything. ADR-026 condition 4 is about a behaviour that only"
+            echo "exists during a failure; a check that cannot cause the failure is not one."
+            exit 1
+          fi
+
+          echo "stopping $BOX"
+          sh tools/outage-rehearsal.sh "$GRATICULA_TEST_URL" "$BOX"
+
       # <b>The server's own log, whatever happened.</b> A conformance failure is
       # usually a 500 with a stack trace on the other side of the wire, and
       # without this the only evidence is "an ArcGIS client stops here".
