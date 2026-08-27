@@ -25,6 +25,7 @@ namespace Graticula.Conformance.Tests;
 /// whose fixture drifts is one whose failures are about the runs before it.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class OgcWriteConformanceTests : ArcGisClient
 {
     /// <summary>The layer to edit — the same one the ArcGIS edit suite uses.</summary>

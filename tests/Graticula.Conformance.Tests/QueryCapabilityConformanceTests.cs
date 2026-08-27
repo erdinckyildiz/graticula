@@ -23,6 +23,7 @@ namespace Graticula.Conformance.Tests;
 /// <c>GRATICULA_TEST_QUERYABLE</c> to one, e.g. <c>hosted/tiles-buildings</c>.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class QueryCapabilityConformanceTests : ArcGisClient
 {
     /// <summary>Which layer to exercise.</summary>

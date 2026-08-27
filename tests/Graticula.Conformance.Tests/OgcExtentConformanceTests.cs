@@ -37,6 +37,7 @@ namespace Graticula.Conformance.Tests;
 /// states it from outside.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class OgcExtentConformanceTests : ArcGisClient
 {
     private const string Root = "/ogc/features/v1";

@@ -309,8 +309,19 @@ public sealed class SuiteStabilityTests
         // Reads the listing to assert headers on it, and consumes nothing from the body.
         string[] excused = ["SecurityHeaderConformanceTests.cs"];
 
-        // Each is a whole-catalogue effect: the first three change what it holds, the last two
-        // read all of it. None of them is made safe by what the fixture is called.
+        // Each is a whole-catalogue effect: some change what it holds, the rest read all of
+        // it. None of them is made safe by what the fixture is called.
+        //
+        // <b>The OGC face was missing, and a red CI run found it — 2026-08-27.</b> The list
+        // knew the ArcGIS enumeration and the admin one and not `/collections`, which is the
+        // same walk through the other door. `OgcExtentConformanceTests` walks every collection
+        // and **counts the features in each**, and it failed with *its own extent selects 4 of
+        // 3 located features, out of 3 rows* while a write class was adding one. See D-197.
+        //
+        // <b>And writing a feature is a whole-estate effect too.</b> The list was about the
+        // *catalogue* — what services and layers exist — and a class that creates or deletes
+        // features changes what a walker counts just as surely. `POST /collections/{id}/items`
+        // and `applyEdits` are that, on either face.
         (string Pattern, string What)[] reaches =
         [
             ("HttpMethod\\.Post,\\s*\"/admin/layers\"", "publishes a layer"),
@@ -318,6 +329,9 @@ public sealed class SuiteStabilityTests
             ("\"/admin/hosted/import\"", "imports into the catalogue"),
             ("EveryServiceNameAsync\\(", "enumerates every service"),
             ("HttpMethod\\.Get,\\s*\"/admin/layers\"", "lists every layer"),
+            ("\\{Root\\}/collections\"", "walks every OGC collection"),
+            ("/collections/{[^}]*}/items", "reaches an OGC collection's features"),
+            ("applyEdits", "edits features through the ArcGIS face"),
         ];
 
         List<string> offenders = [];

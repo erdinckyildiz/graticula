@@ -28,6 +28,7 @@ namespace Graticula.Conformance.Tests;
 /// firmly as what is present.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class EditAliasConformanceTests : ArcGisClient
 {
     private const string ServiceVariable = "GRATICULA_TEST_EDITABLE";
