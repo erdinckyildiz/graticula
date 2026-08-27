@@ -1,0 +1,193 @@
+# The OGC conformance suites, run against a real server rather than remembered.
+#
+# **[D-158](../../docs/architecture-debt.md).** The strongest external evidence this project
+# has is that the OGC's own engines pass against it — and until this file existed that
+# evidence was two dated files and somebody's memory. `ci.yml` never mentioned CITE; the
+# word appeared in no workflow. So the numbers were true of two commits in August and
+# unknown of every commit since, including every commit that touched the WFS, WMS and OGC
+# API Features surfaces, which is most of them.
+#
+# **Nightly, by owner decision 2026-08-27**, beside `security.yml`'s. The three options were
+# every push, nightly, and manual dispatch, and the measured cost was what made the choice
+# affordable rather than a guess: the runs are 12 s, 38 s and 9 s — **59 seconds of
+# assertions** — with container start and image pull around them. On every push that is
+# three or four minutes on a job that takes two; nightly, it is free and a regression is
+# named within a day, with the commit range to look in. Manual dispatch was the option this
+# debt already describes as the problem it is fixing: *re-earned by somebody remembering*.
+#
+# **What it compares.** Failures, and only failures — `tools/cite-baselines.json` says why.
+# TEAM Engine attempts what a capabilities document lets it, so totals move between runs of
+# unchanged code and a total is not a regression. A failure is.
+
+name: cite
+
+on:
+  schedule:
+    # 04:23 UTC, after security.yml's 03:17 and off the hour on the same reasoning: the
+    # hour and the half-hour are when every scheduled job on the platform runs at once.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  cite:
+    name: OGC CITE
+    runs-on: ubuntu-latest
+
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: gis
+          POSTGRES_PASSWORD: gis
+          POSTGRES_DB: gis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # <b>Plain HTTP, and the port is not 8443.</b> These engines are Java and would need
+      # the self-signed certificate in their truststore, which is a step between the
+      # measurement and the answer. What they test is protocol conformance, not transport.
+      CITE_SERVER: "http://host.docker.internal:8445"
+      GRATICULA_TEST_URL: "http://127.0.0.1:8445"
+      GRATICULA_TEST_USER: "ci"
+      GRATICULA_TEST_PASSWORD: "cite-run-password"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build
+        run: dotnet build graticula.sln -c Release
+
+      - name: create the platform schema
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
+            -c 'create schema if not exists gisserver;'
+
+      - name: migrate
+        env:
+          Graticula__PlatformStore: "Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver"
+          Graticula__SecretKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        run: src/Graticula.Host/bin/Release/net9.0/Graticula.Host migrate --apply
+
+      # <b>Listening on every interface, because the caller is a container.</b> A server
+      # bound to loopback is unreachable from one, however the gateway is named.
+      - name: start the server
+        run: |
+          Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
+          Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
+          Graticula__Port=8445 \
+          Graticula__RequireHttps=false \
+          Graticula__Listen=0.0.0.0 \
+            nohup src/Graticula.Host/bin/Release/net9.0/Graticula.Host > server.log 2>&1 &
+          echo "started, waiting for the setup token"
+
+      - name: take the setup token from the log
+        run: |
+          for attempt in $(seq 1 60); do
+            token=$(grep -oE '^[[:space:]]+[A-Za-z0-9._-]{20,}[[:space:]]*$' server.log | head -1 | tr -d '[:space:]') || true
+            if [ -n "$token" ]; then
+              echo "SETUP_TOKEN=$token" >> "$GITHUB_ENV"
+              echo "found the setup token after ${attempt}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::No setup token appeared in server.log within 60s."
+          tail -50 server.log
+          exit 1
+
+      # <b>The same seeder the conformance job uses.</b> These engines walk whatever the
+      # capabilities document advertises, so what is published decides what is tested —
+      # which is why this cannot run against an empty store and why the fixtures are the
+      # same ones every other suite sees.
+      - name: seed the fixtures
+        run: |
+          python tools/seed-conformance.py \
+            --url="$GRATICULA_TEST_URL" \
+            --name="$GRATICULA_TEST_USER" \
+            --password="$GRATICULA_TEST_PASSWORD" \
+            --setup-token="$SETUP_TOKEN" \
+            --prefix=ci \
+            --datastore-connection="Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis" \
+            --raster="$PWD/tests/Graticula.Raster.Tiff.Tests/corpus/gray-byte-deflate.tif" \
+            --github-env="$GITHUB_ENV"
+
+      - name: what the server advertises
+        run: |
+          for face in \
+            "/wfs?service=WFS&version=2.0.0&request=GetCapabilities" \
+            "/wms?service=WMS&version=1.3.0&request=GetCapabilities" \
+            "/ogc/features/v1"; do
+            printf '%-58s %s\n' "$face" \
+              "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:8445$face")"
+          done
+
+      # <b>Each suite is its own step, so a failure names which one.</b> `continue-on-error`
+      # on the first two and a gate at the end: a run that stops at WFS tells you nothing
+      # about the other two, and *which suites regressed* is the finding.
+      - name: WFS 2.0
+        id: wfs
+        continue-on-error: true
+        run: sh tools/cite-run.sh wfs20 "$CITE_SERVER" cite
+
+      - name: OGC API Features 1.0
+        id: features
+        continue-on-error: true
+        run: sh tools/cite-run.sh ogcapi-features-1.0 "$CITE_SERVER" cite
+
+      - name: WMS 1.3
+        id: wms
+        continue-on-error: true
+        run: sh tools/cite-run.sh wms13 "$CITE_SERVER" cite
+
+      # <b>The reports outlive the run.</b> A build that says *six failures* and keeps no
+      # report leaves the next person to reproduce it before they can read it, and these
+      # take four minutes to reproduce.
+      - name: keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cite-reports
+          path: |
+            cite/*.rdf
+            server.log
+          retention-days: 30
+
+      - name: and the verdict
+        if: always()
+        run: |
+          failed=""
+          for suite in wfs:${{ steps.wfs.outcome }} features:${{ steps.features.outcome }} wms:${{ steps.wms.outcome }}; do
+            name=${suite%%:*}
+            outcome=${suite#*:}
+            printf '%-10s %s\n' "$name" "$outcome"
+            [ "$outcome" = "success" ] || failed="$failed $name"
+          done
+
+          if [ -n "$failed" ]; then
+            echo "::error::CITE regressed or could not run:$failed. The reports are in the cite-reports artefact; tools/cite-baselines.json says what each was measured against."
+            exit 1
+          fi
+
+          echo "every suite is within its baseline."

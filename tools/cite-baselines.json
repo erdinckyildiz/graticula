@@ -1,0 +1,48 @@
+{
+  "_why": [
+    "D-158: the CITE runs are the strongest external evidence this project has, and until",
+    "this file existed they were re-earned by somebody remembering. This is what a nightly",
+    "run is compared against.",
+    "",
+    "FAILURES ONLY, and that is deliberate. The 2026-08-26 note is explicit that scope is",
+    "not comparable between runs -- 420 assertions attempted one day and 395 another, on",
+    "unchanged code, because TEAM Engine attempts what the capabilities document lets it.",
+    "So a total that moves is not a regression and cite-count.py does not treat it as one.",
+    "A failure is: it means an assertion was attempted and the answer was wrong.",
+    "",
+    "Lower a baseline in the same commit that earns it. Raising one is a decision about",
+    "what this server claims, and belongs in an ADR rather than in a passing build."
+  ],
+
+  "wfs20": {
+    "failed": 0,
+    "run": "2026-08-27, 279 passed / 0 failed / 246 untested of 525 attempted",
+    "note": [
+      "The recorded hand run of 2026-08-21 was 405 of 420 with a different scope. What is",
+      "comparable between them is the failure count, and both are what they are because",
+      "the untested share is large: WFS 2.0's suite skips whole conformance classes when",
+      "the capabilities document does not advertise them, and this server advertises the",
+      "Simple WFS class."
+    ]
+  },
+
+  "ogcapi-features-1.0": {
+    "failed": 0,
+    "run": "2026-08-27, 308 passed / 0 failed / 24 untested of 332 attempted",
+    "note": [
+      "ADR-042 condition 3 records the run that discharged it: 0 failed, 25 skipped. The",
+      "24 untested here are the same shape -- Part 2 assertions this server does not claim."
+    ]
+  },
+
+  "wms13": {
+    "failed": 6,
+    "run": "2026-08-27, 158 passed / 6 failed / 0 untested of 164 attempted",
+    "note": [
+      "Six is the number ADR-041 condition 6 recorded when it was discharged by running",
+      "it -- 187 passed, 6 failed -- and it is a baseline rather than a target. It is the",
+      "only non-zero one here, so it is the only place a regression could hide behind an",
+      "existing failure; the count is exact for that reason."
+    ]
+  }
+}
