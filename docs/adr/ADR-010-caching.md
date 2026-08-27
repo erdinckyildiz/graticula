@@ -572,6 +572,17 @@ grant fingerprint is the fix — not a purge.
 3. **Seeding must be rate-limited against the source from the first version.**
    Retrofitting politeness after someone's production database has been
    saturated is too late.
+   **NOT YET APPLICABLE, checked 2026-08-27: seeding is not built.** There is no cache
+   seed — no route, no job kind, nothing that walks a grid and fills a cache ahead of a
+   caller — so there is nothing to rate-limit. Recorded rather than left bare, because a
+   condition with no note reads as one nobody has looked at, and the two are different
+   states.
+   **What it becomes when seeding is built** is [ADR-011](ADR-011-job-system.md) §3.6's
+   rule rather than a new one: a seed is a job that touches a source, so it takes a lease
+   from `ConnectionBudget` like every read path does. The mechanism this condition asks for
+   already exists; what does not exist is the thing that would use it — which is the
+   cheapest possible state for a condition to be in, and worth saying so that whoever
+   builds seeding does not build a second limiter beside the first.
 4. **A-029 must be checked against real traffic** before the §2 restraint is
    treated as settled.
 

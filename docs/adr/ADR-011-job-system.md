@@ -289,6 +289,28 @@ run as jobs), admin API (§39), geoprocessing (§36).
 
 1. **Rate limiting against source databases ships in version one.** Not a
    follow-up.
+   **PARTLY DISCHARGED 2026-08-27, and the undischarged part is small and named.**
+   **What ships**: `ConnectionBudget` ([ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md)),
+   which is §3.6's mechanism exactly — *per-source concurrency limits shared across all
+   jobs, configurable, with a conservative default*. Twenty-four per source, sixty-four per
+   worker, `Graticula:PerSourceConcurrency` to change it, and a bounded queue in front so a
+   saturated source refuses rather than growing a wait. Every read path takes a lease,
+   because `LayerConnections.SourceFor` is the only place a read path gets a source.
+   **What is vacuous today, and saying so is the point**: *no job touches a registered data
+   source.* Both kinds read a **file** — `GeodatabaseInspect` reads headers,
+   `GeodatabaseImport` reads features out of an archive — so §3.6's *every job that touches
+   a registered data source* currently ranges over nothing. A condition that is satisfied by
+   there being no such job is not the same as one satisfied by the mechanism, and the
+   difference matters the day a job reads from a customer's database.
+   **What is bounded by something other than the budget**: the import **writes** to the
+   datastore through `PostGisImporter`, which takes connections from the datastore pool
+   directly and holds no lease. Its blast radius is bounded by the worker count rather than
+   by the budget — the importer opens one connection at a time and there are two job
+   workers — so the effect is small, and it is a different mechanism from the one §3.6
+   says to use: *it draws from the same budget rather than a separate one — jobs and
+   requests compete for the same database*. **This discharges when a job first reads a
+   registered source, and the honest repair before then is one lease around the import's
+   write path.**
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps
