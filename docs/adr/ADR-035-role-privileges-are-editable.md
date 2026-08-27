@@ -344,6 +344,12 @@ is that *"0 errors"* from a filtered build log is not a build result.
 5. **No screen appears that its reader cannot use** — [ADR-034](ADR-034-server-and-studio.md)
    condition 1, restated because the roles screen is the first one whose whole subject is who may
    see which screens.
+   *(Discharged 2026-08-27 with ADR-034 condition 1, by the same evidence and for the same
+   reason a restated condition exists: `SurfaceTests.Without_admin_manageServer_there_is_no_Server_surface_to_see`
+   withholds the privilege, opens the Server surface anyway, and asserts
+   `offsetParent === null` rather than the `[hidden]` attribute — because an author display
+   beats the attribute, which is [D-46](../architecture-debt.md) instance 9. A restatement is
+   discharged by its original's evidence or it is not a restatement.)*
 6. **DISCHARGED 2026-08-18** — `Roles.Prerequisites` and `Roles.Implies`, with the store refusing a
    missing prerequisite by name and the resolver applying implications; both directions tested,
    including the case where a wider privilege satisfies a prerequisite for the narrower.

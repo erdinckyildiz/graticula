@@ -817,6 +817,14 @@ items navigable.
    `admin:manageServer` and finds no Server surface — not a hidden one, not a 403 toast. The
    current console's per-section failure isolation makes the opposite failure invisible, which
    is why this is a test and not a review note.
+   *(Discharged 2026-08-27 — `SurfaceTests.Without_admin_manageServer_there_is_no_Server_surface_to_see`
+   signs in with that privilege withheld, opens `/server/#/services` anyway, and asserts
+   `document.getElementById('surfaces').offsetParent === null`. **`offsetParent`, not
+   `[hidden]`, and the test says why**: `#surfaces` carries a display of its own and an author
+   display beats the attribute, which is [D-46](../architecture-debt.md) instance 9 — the
+   control that exists and cannot be seen, or here, the one that is meant to be gone and is
+   only invisible to a weaker check. Four tests in the class, all passing. **It was met and
+   marked live**, found by sweeping this ADR's conditions against the tests.)*
    **The owner restated this condition on 2026-08-17 as a requirement:** *"admin olmayan
    kullanıcılar şuradaki server studio ayrımını görmeyecek bile. sadece studio onlarda olacak.
    server ekranına gitse bile ayarlama yapamayacak."* — a non-administrator will not even see the
