@@ -770,9 +770,25 @@ public abstract class ConsoleTest : IAsyncLifetime
                 }
               } catch (ignored) { how = "timing refused"; }
 
+              // <b>Which document it belongs to -- D-173, and this is the fact that
+              // classifies it.</b> The CI run of 2026-08-27 reported `/server/session.js`
+              // and `/server/console.css` as never arriving with `46ms/0B`, and the
+              // server's own log for the same run recorded **200** for both, twice over.
+              // So the bytes were sent and the browser abandoned them, which is what a
+              // navigation does to everything in flight. The document list is the record
+              // that outlives the document, and until now it was collected and never
+              // printed.
+              let where = "?";
+
+              try {
+                const seen = JSON.parse(sessionStorage.getItem("__documents") || "[]");
+                where = seen.length + ":" + (seen[seen.length - 1] || location.pathname);
+              } catch (ignored) { where = "storage refused"; }
+
               window.__pageErrors.push(
                 "never arrived: " + url
-                + " [" + how + ", readyState=" + document.readyState + "]");
+                + " [" + how + ", readyState=" + document.readyState
+                + ", document " + where + "]");
             }
           }, true);
 
@@ -1113,9 +1129,43 @@ public abstract class ConsoleTest : IAsyncLifetime
             + Environment.NewLine + "  " + string.Join(Environment.NewLine + "  ", reported));
     }
 
-    protected async Task<string[]> PageErrorsAsync() =>
-        await Browser.EvaluateAsync<string[]>("window.__pageErrors")
-            ?? Array.Empty<string>();
+    /// <summary>
+    /// What the page reported, and — when it reported anything — the documents this tab
+    /// loaded, which is what tells a cancelled request from a missing file.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The trail goes here rather than at the fifty-odd assertions — D-173.</b> The
+    /// document list has been collected since 2026-08-26 and never printed, so the run that
+    /// finally carried it printed everything except the one fact that classifies it. Putting
+    /// it in the reader means every caller gets it and none had to be edited, which is also
+    /// how it avoids being a second mechanism beside `NothingWentWrong`.
+    /// </para>
+    /// <para>
+    /// <b>Only when something went wrong.</b> A passing test that appended a document list
+    /// to an empty collection would turn every `Assert.Empty` in the suite red.
+    /// </para>
+    /// </remarks>
+    protected async Task<string[]> PageErrorsAsync()
+    {
+        string[] reported =
+            await Browser.EvaluateAsync<string[]>("window.__pageErrors")
+                ?? Array.Empty<string>();
+
+        if (reported.Length == 0)
+        {
+            return reported;
+        }
+
+        string[] documents =
+            await Browser.EvaluateAsync<string[]>(
+                "JSON.parse(sessionStorage.getItem('__documents') || '[]')")
+                ?? Array.Empty<string>();
+
+        return documents.Length == 0
+            ? reported
+            : [.. reported, "documents this tab loaded, in order: " + string.Join(" -> ", documents)];
+    }
 
     /// <summary>What the page tried to write while the test was running.</summary>
     protected async Task<string[]> WritesAsync() =>
