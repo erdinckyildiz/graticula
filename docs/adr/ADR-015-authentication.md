@@ -543,8 +543,25 @@ access to the platform store.
    read against the platform store is material at the concurrency ADR-007
    targets, the in-process cache TTL becomes a stated revocation delay rather
    than an implementation detail.
-   **OPEN.** Implemented as one indexed read per authenticated request, with no
-   cache. Unmeasured, so A-046 remains `UNVALIDATED`.
+   ~~**OPEN.** Implemented as one indexed read per authenticated request, with no
+   cache. Unmeasured, so A-046 remains `UNVALIDATED`.~~
+   *(Discharged 2026-08-27 —
+   [benchmarks/session-lookup/RESULTS.md](../../benchmarks/session-lookup/RESULTS.md).
+   **0.76 ms serially, and 8.5% of throughput at 24 callers** — 516 req/s anonymous
+   against 472 authenticated, ranges not overlapping. At 48 the difference disappears
+   into whatever else saturates first. **Measured as a difference between two requests
+   that are otherwise identical**: the same *public* layer document asked for with a
+   bearer token and without one, so both are legal and both do the same work.
+   **So the condition's second branch does not apply**: nothing here is material enough
+   to buy back with a cache, the TTL stays an implementation detail rather than becoming
+   a stated revocation delay, and revocation stays immediate — a session removed from the
+   store stops working on the next request, with no window to document.
+   **The first attempt found a defect that was noise**, and it is worth recording: one
+   pass at 48 callers showed the authenticated p50 32 ms slower, and three repeats showed
+   +7, **−33** and +10. A p50 that changes sign between runs of unchanged code is the
+   machine; throughput survives repetition, so throughput is what is reported. This
+   repository has caught five wrong latency harnesses and this was nearly the sixth.
+   [A-046](../architecture-assumptions.md) is validated by the same run.)*
 2. **Token redaction is tested by asserting on log output**, not by reading the
    code. §4.1 fails silently otherwise, and silently is the only way it fails.
    **DISCHARGED 2026-08-20 — and it became due on 2026-08-20 and was missed by half a
