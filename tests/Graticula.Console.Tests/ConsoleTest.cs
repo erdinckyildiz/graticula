@@ -1046,7 +1046,7 @@ public abstract class ConsoleTest : IAsyncLifetime
             // rendered yet must produce a report rather than an exception.
             string report = await Browser.EvaluateAsync<string>(
                 """
-                (() => {
+                (async () => {
                   try {
                     const timings = {};
 
@@ -1101,10 +1101,47 @@ public abstract class ConsoleTest : IAsyncLifetime
                       documents = sessionStorage.getItem('__documents') || '[]';
                     } catch (e) { documents = 'storage refused'; }
 
+                    // <b>Ask the server again for whatever delivered nothing — D-173.</b>
+                    // As of 2026-08-27 the shape is exact and the cause is not: the browser
+                    // records `0B transferred/0B decoded` on the page's three `defer`
+                    // scripts while a stylesheet on the same connection arrives whole, one
+                    // document, one timing entry each — and the server's log records **200**
+                    // for all of them and closes the connection with *the send loop
+                    // completed gracefully*. Two accounts that cannot both be complete.
+                    //
+                    // A fetch settles the half nobody has asked: whether the bytes are there
+                    // to be had. **466303 bytes on a re-fetch** means the file is fine and
+                    // the first delivery lost them; **0** means the server is serving an
+                    // empty file and the browser is right.
+                    //
+                    // <b>Only for assets that recorded nothing, and only on a failure.</b>
+                    // This runs when a wait has already timed out, so it costs a broken run
+                    // three requests and a passing run none.
+                    const empty = listed
+                      .filter(a => a.indexOf('/0B/0B') > 0 || a.indexOf('=0ms/0B') > 0)
+                      .map(a => a.split('=')[0]);
+
+                    let refetched = '';
+
+                    for (const name of empty.slice(0, 3)) {
+                      try {
+                        const url = new URL(name, location.href).href;
+                        const again = await fetch(url, { cache: 'no-store' });
+                        const body = await again.arrayBuffer();
+
+                        refetched += ' ' + name + '=' + again.status + '/'
+                          + body.byteLength + 'B'
+                          + '/' + (again.headers.get('content-length') || 'no length');
+                      } catch (e) {
+                        refetched += ' ' + name + '=refetch threw: ' + String(e).slice(0, 60);
+                      }
+                    }
+
                     return 'readyState=' + document.readyState
                       + ' at=' + location.pathname
                       + ' assets=[' + listed.join(', ') + ']'
-                      + ' documents=' + documents;
+                      + ' documents=' + documents
+                      + (refetched ? ' refetched:' + refetched : '');
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
