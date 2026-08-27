@@ -719,6 +719,23 @@ ADR-006 (plugins are job workers if they exist at all), admin API (§39).
 1a. **The context budget is validated as a resource budget** (F6) before it is
    implemented as a count.
 2. **A-015 must be measured before §4.3's lazy binding is relied upon.**
+   *(Discharged 2026-08-27 —
+   [benchmarks/service-context-bind/RESULTS.md](../../benchmarks/service-context-bind/RESULTS.md).
+   **A cold bind costs 3.2 ms and allocates about 30 KB**: p50 13.6 ms against 10.4 ms warm,
+   over three rounds of nine layers with `ServiceContexts.Lifetime`'s thirty seconds of quiet
+   between them. Memory is measured as **allocation** rather than heap, because a heap reading
+   is the GC's opinion — a first attempt read `heapBytes` and got +883 KB over nine layers,
+   which is an upper bound with a collector's timing inside it.
+   **So §4.3 is safe to rely on, and the failure the assumption guards against does not
+   arise.** A-015's own note says that if bind/unbind is expensive then *§4.4 eviction becomes
+   costly so the budget shrinks; §4.12 pinning becomes the norm* — at 3.2 ms and 30 KB there
+   is nothing to pin, because evicting a context and rebuilding it is cheaper than remembering
+   which ones not to.
+   **One thing the assumption gets wrong**, found by measuring it: it lists *connections*
+   among the per-service warm state, and connections are pooled **per data source** rather
+   than per service ([Q-04](../open-questions.md)), so they are not part of a bind at all.
+   **Not settled**: nine small layers on one machine; a layer with two hundred columns would
+   bind more slowly and nothing here says by how much.)*
 3. ~~**The connection budget must be produced with real numbers, per provider**,
    before any deployment guidance is published.~~ ***(Discharged 2026-08-19 for the one provider v1
    has — [benchmarks/connection-budget/RESULTS.md](../../benchmarks/connection-budget/RESULTS.md),

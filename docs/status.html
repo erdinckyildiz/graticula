@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>cc3cf11</code> · 2026-08-27 07:14</p>
+<p class="stamp">Generated from commit <code>b663a46</code> · 2026-08-27 07:19</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">130/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">67 live · 0 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">131/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">66 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">32</div><div class="kpi-l">open questions</div><div class="kpi-n">111 answered · 2 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">158 repaid · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">12/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi warn"><div class="kpi-v">13/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2080</div><div class="kpi-l">tests</div><div class="kpi-n">245 source files, 95,277 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
@@ -126,14 +126,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">99 items</span></div><p><b>67 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">98 items</span></div><p><b>66 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
@@ -142,6 +141,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-030 · Reading the reference implementati</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -188,7 +188,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">ACCEPTED</span><div class="muted-t">un-deferred 2026-08-20 by ADR-041, which is where the decision now lives.</div></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-20.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/4</td></tr>
 <tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">0/2</td></tr>
-<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">1/4</td></tr>
+<tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">2/4</td></tr>
 <tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
@@ -316,7 +316,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-012</td><td>The sharing question is really about per-service state size, binding cost and neighbour tolerance — not about &quot;shared versus dedicated&quot;</td><td><span class="pill warn">VALIDATING</span></td></tr>
 <tr><td class="id">A-013</td><td>Our Tier 2 dependencies (GDAL, GEOS, PROJ) are thread safe enough to permit a threaded worker model</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-014</td><td>Routing requests to workers already warm for a service materially improves L1 hit rate without wrecking load balance</td><td><span class="pill warn">DOWNGRADED</span></td></tr>
-<tr><td class="id">A-015</td><td>Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-015</td><td>Per-service warm state is small — connections, schema, symbology, fonts, CRS — making bind/unbind cheap</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-018</td><td>~~A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost~~</td><td><span class="pill warn">SUPERSEDED</span></td></tr>
 <tr><td class="id">A-019</td><td>In-process MVT encoding can meet our latency targets</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-020</td><td>Cache seeding absorbs the provider performance gap, so an expensive Oracle tile path is acceptable when paid once rather than per request</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
@@ -406,6 +406,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b663a46</code><time>2026-08-27</time><span>ADR-015 condition 1 discharges and A-046 is validated: 0.76 ms, 8.5%</span></li>
 <li><code>cc3cf11</code><time>2026-08-27</time><span>ADR-022 condition 4 discharges, and D-188 opens: the cap is unreachable</span></li>
 <li><code>e9d9311</code><time>2026-08-27</time><span>ADR-022 condition 3 discharges: the six operations, measured on the real corpus</span></li>
 <li><code>af8a0bc</code><time>2026-08-27</time><span>D-187: D-39&#x27;s repair left the one address where the collision happens</span></li>
@@ -419,7 +420,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3bddde4</code><time>2026-08-27</time><span>D-186: an editing API with no optimistic concurrency, on both faces</span></li>
 <li><code>85d7343</code><time>2026-08-27</time><span>D-185: naming a fixture does not protect a count</span></li>
 <li><code>89a1876</code><time>2026-08-27</time><span>ADR-026 condition 3 discharges: the blind document says it does not know</span></li>
-<li><code>d46c1d7</code><time>2026-08-27</time><span>ADR-023 condition 4 discharges: the boundary with the console, in Â§6a</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
