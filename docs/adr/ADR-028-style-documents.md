@@ -243,6 +243,21 @@ sprite upload, which deletes the `icon-image` check.
    `/style` address a *published* one. A published service named `Geometry`
    would collide with the system one, which is a latent bug this ADR adds a third
    route to rather than causes.
+   *(Discharged 2026-08-27 — and **the bug was not latent any more**, which is what the
+   check found. [D-39](../architecture-debt.md) made the folder part of the lookup and
+   its note ended *there is no name that reaches the wrong thing*; that was one address
+   too confident. Measured on a running server: a FeatureServer created as
+   `Utilities/Geometry` answered **201**, and the next
+   `PUT /admin/services/Geometry/sharing?folder=Utilities` changed **the geometry
+   server's** scope to `public` and reported success — [D-187](../architecture-debt.md).
+   **Closed at the source rather than by renaming the routes**: a published service may
+   not take a system service's address, refused with 409 naming the kind, the name and
+   the folder, so the ambiguity cannot arise and the three routes stay where every
+   console and every test already points. Renaming was the other option and D-39 had
+   already counted it at thirty-one call sites, against
+   [ADR-020](ADR-020-admin-console-and-service-status.md) §5c's frozen-URL rule.
+   `SystemServiceAddressTests` asserts both directions — the refusal, and that `Geometry`
+   at the root is still publishable, because the collision is an address and not a word.)*
 
 ## 11. Dissent
 

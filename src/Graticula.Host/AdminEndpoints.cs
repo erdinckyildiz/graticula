@@ -1831,6 +1831,7 @@ internal static class AdminEndpoints
         HttpContext context,
         ServiceRequest request,
         IAdminCatalog catalog,
+        PostgresSystemServices systemServices,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -1875,6 +1876,13 @@ internal static class AdminEndpoints
 
         string? folder = string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim();
         string name = request.Name.Trim();
+
+        // ADR-028 condition 5: a published service may not take a system service's address.
+        if (await RefusedBySystemServiceAsync(context, systemServices, name, folder, cancellation)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
 
         Guid? id = await catalog.CreateServiceAsync(
             name, folder, request.Description, scope, current.Principal.Id, cancellation)
@@ -2685,6 +2693,64 @@ internal static class AdminEndpoints
     }
 
     /// <summary>
+    /// Refuses a published service that would take a system service's address.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="services">The system services.</param>
+    /// <param name="name">The name being published under.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>True when the refusal was written and the caller should stop.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-028](../../docs/adr/ADR-028-style-documents.md) condition 5, and the latent bug
+    /// it names is reachable in two requests.</b> `/admin/services/{name}/sharing`,
+    /// `/style` and `/groups` address a *system* service when one answers to that name and
+    /// folder, and a *published* one otherwise — the system lookup wins. Measured 2026-08-27:
+    /// creating a FeatureServer called `Geometry` in `Utilities` succeeds, and
+    /// `PUT /admin/services/Geometry/sharing?folder=Utilities` afterwards changes **the system
+    /// geometry service's** scope, from `organization` to `public`, and answers as though it had
+    /// changed the published one.
+    /// </para>
+    /// <para>
+    /// <b>Closed at the source rather than at each route.</b> Renaming the three routes would
+    /// break addresses ADR-020 §5c's frozen-URL rule protects, and disambiguating inside each
+    /// one is three places to keep in step for a collision nobody wants anyway. **A published
+    /// service may not take a system service's address**, so the ambiguity cannot arise.
+    /// </para>
+    /// <para>
+    /// <b>409 rather than 400.</b> The request is well formed and the name is legitimate
+    /// everywhere else; what is wrong is that something is already there. The message says which
+    /// folder, because the same name at the root is fine and a caller who is refused should be
+    /// able to see why the obvious retry works.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RefusedBySystemServiceAsync(
+        HttpContext context,
+        PostgresSystemServices services,
+        string name,
+        string? folder,
+        CancellationToken cancellation)
+    {
+        if (await SystemServiceAsync(services, name, folder, cancellation).ConfigureAwait(false)
+            is not { } taken)
+        {
+            return false;
+        }
+
+        await Refuse(
+            context, 409,
+            $"This server already serves a {taken.Kind} called '{name}'"
+            + (folder is { Length: > 0 } ? $" in folder '{folder}'" : " at the root")
+            + ", so a published service cannot take that address: the administrative routes for "
+            + "sharing, styles and group layers would then address two different things by one "
+            + "name. Publish it under another name, or in another folder.")
+            .ConfigureAwait(false);
+
+        return true;
+    }
+
+    /// <summary>
     /// A system service by name, but only when the caller asked for the folder it is in.
     /// </summary>
     /// <param name="services">Where system services live.</param>
@@ -2712,10 +2778,19 @@ internal static class AdminEndpoints
     /// <para>
     /// <b>What this makes true.</b> <c>hosted/Geometry</c> resolves to the published service,
     /// because its folder is not <c>Utilities</c>. A root-level <c>Geometry</c> resolves to the
-    /// published one for the same reason. <c>Utilities/Geometry</c> resolves to the system one.
-    /// There is no name that reaches the wrong thing, and no name that reaches nothing it used to
-    /// reach: the console asks for the system service with its own folder, which is what the
-    /// listing gave it.
+    /// published one for the same reason. <c>Utilities/Geometry</c> resolves to the system one,
+    /// and no name reaches nothing it used to reach: the console asks for the system service with
+    /// its own folder, which is what the listing gave it.
+    /// </para>
+    /// <para>
+    /// <b>This paragraph used to end <em>there is no name that reaches the wrong thing</em>, and
+    /// that was one address too confident</b> — [D-187](../../docs/architecture-debt.md).
+    /// <c>Utilities/Geometry</c> is a name a published service could take, and taking it put the
+    /// caller back exactly where D-39 started: measured 2026-08-27, creating a FeatureServer
+    /// called <c>Geometry</c> in <c>Utilities</c> succeeded, and the next sharing change landed
+    /// on the geometry server. Comparing folders removed every collision **except the one where
+    /// the folders are equal**, which is the only one left to remove and needed the other half —
+    /// <see cref="RefusedBySystemServiceAsync"/>, which stops that address existing
     /// </para>
     /// </remarks>
     private static async Task<SystemService?> SystemServiceAsync(
@@ -5317,6 +5392,7 @@ internal static class AdminEndpoints
         PublishRequest request,
         IAdminCatalog catalog,
         PostgresLayerCatalog layers,
+        PostgresSystemServices systemServices,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -5349,6 +5425,19 @@ internal static class AdminEndpoints
         if (publication!.Sharing == SharingScope.Public
             && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic)
                 .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // <b>ADR-028 condition 5, and the name here can be implicit.</b> A publish with no
+        // `serviceName` creates a service named after the layer, so this checks what the service
+        // will actually be called rather than what the request happened to say.
+        if (await RefusedBySystemServiceAsync(
+                context,
+                systemServices,
+                publication.ServiceName is { Length: > 0 } given ? given : publication.Name,
+                publication.Folder,
+                cancellation).ConfigureAwait(false))
         {
             return;
         }
