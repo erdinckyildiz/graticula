@@ -192,7 +192,12 @@ server has.
   per-property equality is implemented, with `bbox` and `datetime`, so what shipped
   is not filterless. What it cannot express is `or`, a range, or a spatial
   predicate. **Either Part 3 gets built or condition 1 gets amended by a decision.**
-- **Part 4, transactions.** This surface is read-only, as WFS is.
+- ~~**Part 4, transactions.** This surface is read-only, as WFS is.~~ **Untrue since
+  2026-08-25 and struck 2026-08-27.** §5b built the write surface by owner decision: the
+  verbs are there, and what is not built is the *conformance claim*, which is a different
+  sentence. The line survived inside the ADR that amended it, which is
+  [D-130](../architecture-debt.md)'s shape at the shortest possible range — one document.
+  **WFS is still read-only**, and that half is why the sentence read as current.
 - **`sortby`.** It is not in Part 1 and the ordering is fixed at identity anyway;
   offering it would mean re-opening §5.5's paging guarantee.
 - **A path per collection in the OpenAPI document.** §7.3 allows either, and one

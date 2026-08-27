@@ -621,7 +621,20 @@ pipeline, ADR-006.
 
 4. **Optimistic concurrency must be built on database-maintained state** (§3.8),
    never on our own record of what we saw. Getting this wrong produces silent
-   lost updates, which is the worst defect class an editing API can have. *(**LIVE, not yet triggered.** This surface is read-only ([ADR-042](ADR-042-ogc-api-features.md) §5.7), so there is no concurrency to get wrong. It becomes real with Part 4.)*
+   lost updates, which is the worst defect class an editing API can have.
+   *(~~**LIVE, not yet triggered.** This surface is read-only
+   ([ADR-042](ADR-042-ogc-api-features.md) §5.7), so there is no concurrency to get wrong.
+   It becomes real with Part 4.~~ **LIVE and TRIGGERED, corrected 2026-08-27.** The trigger
+   fired on 2026-08-25 when [ADR-042](ADR-042-ogc-api-features.md) §5b built the write
+   surface by owner decision — `POST`, `PUT`, `PATCH` and `DELETE` on item addresses — and
+   the annotation went on saying *read-only* for two days, in the same ADR whose §5.7 still
+   said it too. **And ArcGIS `applyEdits` was never read-only at all**, so the condition had
+   a live subject before either. Measured 2026-08-27 against a running server: a feature
+   answers with **no `ETag` and no `Last-Modified`**, and carries no version property, on
+   both the OGC item route and the ArcGIS query — so a client has nothing to send back as a
+   precondition and no request is refused for being stale. That is [D-186](../architecture-debt.md).
+   §3.8's recommendation stands and is what the repair follows: a database-maintained row
+   version, not our own record.)*
 
 ## 9. Revisit triggers
 
