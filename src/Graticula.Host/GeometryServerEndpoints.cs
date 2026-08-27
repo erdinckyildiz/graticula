@@ -58,12 +58,46 @@ internal static class GeometryServerEndpoints
     /// how large they are. None of that machinery is reachable from here.
     /// </para>
     /// <para>
-    /// Half a million is roughly seven copies of the largest polygon in the test
-    /// corpus, and about 12 MB of JSON. Generous on purpose: the cap exists so a
-    /// request cannot be unbounded, not to ration ordinary work.
+    /// ~~Half a million is roughly seven copies of the largest polygon in the test corpus, and
+    /// about 12 MB of JSON. Generous on purpose: the cap exists so a request cannot be
+    /// unbounded, not to ration ordinary work.~~
+    /// </para>
+    /// <para>
+    /// <b>130,000 since 2026-08-27 — [D-188](../../docs/architecture-debt.md), and generosity
+    /// was the defect.</b> Measured: inside the ten-second deadline `simplify` manages about
+    /// 250,000 vertices and `buffer` about **130,000**. So half a million advertised more than
+    /// twice what any operation could deliver, and nearly four times what the slowest could —
+    /// a client sizing a batch against `maximumVertices` was being invited to build a request
+    /// this server would spend four seconds refusing.
+    /// </para>
+    /// <para>
+    /// <b>The slowest operation sets it, not the fastest.</b> The cap is advertised once per
+    /// service and the caller chooses the operation afterwards, so a number only `simplify`
+    /// can meet is the same defect one level down. One honest number beats a generous one.
     /// </para>
     /// </remarks>
-    public const int MaximumVertices = 500_000;
+    public const int MaximumVertices = 130_000;
+
+    /// <summary>
+    /// The largest body this surface will read, matched to the vertex cap.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-188](../../docs/architecture-debt.md): a request large enough to be refused cost
+    /// four seconds to refuse.</b> The whole body was read and its JSON materialised before
+    /// any geometry was looked at, so refusing on the first malformed shape cost exactly what
+    /// refusing on the last did — and none of this server's other bounds applied: the
+    /// ten-second deadline bounds the *work*, and admission control bounds the *database*.
+    /// Parsing is neither.
+    /// </para>
+    /// <para>
+    /// <b>Eight megabytes, from the measurement.</b> 500,000 vertices urlencoded was 22.9 MB,
+    /// so a vertex costs about 48 bytes on the wire; 130,000 of them is 6.2 MB, and eight
+    /// leaves 28% for attributes, spatial references and the form's own overhead. A body past
+    /// this is refused on `Content-Length` before a byte is read.
+    /// </para>
+    /// </remarks>
+    public const long MaximumRequestBytes = 8L * 1024 * 1024;
 
     /// <summary>What this surface offers, all of it linear in the input.</summary>
     private static readonly string[] Supported =
@@ -460,7 +494,7 @@ internal static class GeometryServerEndpoints
         // sizing a request against maximumVertices alone can build a body this server will not
         // read, and the refusal used to be a closed connection. Null when the deployment has
         // not set one.
-        maximumRequestBytes = BodyCeiling(context),
+        maximumRequestBytes = MaximumRequestBytes,
 
         maximumCandidatePairs = preflight ?? pool.EnforcedPreflightPairs,
         deadlineSeconds = (deadline ?? pool.EnforcedDeadline).TotalSeconds,
@@ -1911,6 +1945,25 @@ internal static class GeometryServerEndpoints
                 pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase));
 
             return true;
+        }
+
+        // <b>The ceiling this surface reads, set before the body is touched -- D-188.</b>
+        // Measured: a 22.9 MB body took 3.7-4.8 seconds to refuse, because the whole thing
+        // was read and its JSON materialised before any geometry was looked at -- so refusing
+        // on the first malformed shape cost exactly what refusing on the last did. None of
+        // this server's other bounds applies: the ten-second deadline bounds the work and
+        // admission control bounds the database. Parsing is neither.
+        //
+        // <b>The setting, not a second refusal.</b> D-148 already built the refusal and its
+        // words -- 413 with `MB in one body` and the vertex count -- and Kestrel already
+        // checks `Content-Length` against this ceiling before reading a byte. Adding a check
+        // here produced a 400 in different words that shadowed it, which is [D-46] exactly:
+        // one behaviour, two implementations, and the older one silently stops being the one
+        // that runs. Lowering the ceiling is the whole change.
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()
+            is { IsReadOnly: false } bodyLimit)
+        {
+            bodyLimit.MaxRequestBodySize = MaximumRequestBytes;
         }
 
         if (context.Request.HasFormContentType)
