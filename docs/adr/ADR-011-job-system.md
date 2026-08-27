@@ -299,6 +299,14 @@ run as jobs), admin API (§39), geoprocessing (§36).
    detail and then left it as one. Found by sweeping this ADR's conditions against
    what is built.)*
 4. **Job payloads never live in the job table.**
+   *(Discharged 2026-08-27 — measured against a store holding twenty real jobs: every
+   `detail` is **36 bytes**, `{"file":"probe.gdb.zip","bytes":548}`, a reference and a
+   size. The archive itself lives on disk under `ImportScratch`, **named after the job's
+   id so the path is computed rather than carried** — which is also why a job's detail
+   can be returned to its owner verbatim without disclosing this server's directory
+   layout. The `job` table's thirteen columns hold identity, status, progress, owner,
+   subject, detail, failure, three timestamps, the claimant and the protocol version;
+   none of them is a payload.)*
 
 ## 9. Revisit triggers
 
