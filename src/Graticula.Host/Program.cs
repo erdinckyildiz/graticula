@@ -837,7 +837,7 @@ public static class Program
                 context.Response.ContentLength));
         }
 
-        app.UseSecurityHeaders(settings.RequireHttps);
+        app.UseSecurityHeaders(settings.RequireHttps, settings.MapSdkOrigin);
 
         // <b>Before authentication, so that a request cannot outlive its deadline by
         // hanging in a place the deadline has not started yet.</b> Signing in reads the
@@ -1018,6 +1018,33 @@ public static class Program
                 EnableDefaultFiles = true,
                 EnableDirectoryBrowsing = false,
                 StaticFileOptions = { ContentTypeProvider = contentTypes },
+            });
+        }
+
+        // <b>One value, read by the pages and by the policy — ADR-034 condition 3.</b> The
+        // console fetches the ArcGIS Maps SDK from a third-party origin, and that origin is in
+        // this server's Content-Security-Policy. Serving it as a script rather than as JSON is
+        // what lets `map.html` use it without a round trip of its own: it is loaded before the
+        // page's own scripts and sets one global.
+        //
+        // <b>Registered under both mounts and above the file server</b>, which is only safe
+        // because no `surface.js` exists on disk — the static middleware runs first and falls
+        // through for a file it cannot find. A file of that name appearing in `wwwroot` would
+        // silently win, which is why there is not one.
+        //
+        // <b>No cache.</b> An operator who changes the setting and restarts should not be told
+        // the old origin by a browser, especially since the policy will already be refusing it.
+        foreach (string surface in (string[])["/server", "/studio"])
+        {
+            app.MapGet($"{surface}/surface.js", (HttpContext context, HostSettings host) =>
+            {
+                context.Response.Headers.CacheControl = "no-store";
+
+                return Results.Text(
+                    "window.GRATICULA_MAP_SDK = "
+                    + System.Text.Json.JsonSerializer.Serialize(host.MapSdkUrl)
+                    + ";\n",
+                    "application/javascript");
             });
         }
 

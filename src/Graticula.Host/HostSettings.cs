@@ -84,6 +84,21 @@ internal sealed record HostSettings(
     bool RequestLog,
     int JpegQuality,
 
+    // <b>Where the map SDK is fetched from, and the security policy follows it —
+    // [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) §5e, condition 3.</b> The console
+    // draws maps with Esri's Maps SDK, which is a third-party origin in this server's
+    // Content-Security-Policy. Until this setting existed the address was a literal in three
+    // places — the policy, `console.js` and `map.html` — so an operator pointing the SDK at
+    // their own host would have been refused by a policy still naming Esri's, and the page
+    // would render with a dead map and no error the server can see. That is
+    // [D-44](../../docs/architecture-debt.md) exactly, and §5e's word for it is *trap*.
+    //
+    // <b>The pages read it from the server rather than carrying a copy.</b> `surface.js` is
+    // generated from this value under both mounts, so there is one place the address lives and
+    // the policy is derived from the same one. A page with a literal fallback would be a fourth
+    // copy that the policy does not know about.
+    string MapSdkUrl,
+
     // <b>Which peers may speak for somebody else, [D-12](../../docs/architecture-debt.md).</b>
     // Empty by default, and with it empty this server behaves exactly as it did: the socket
     // address is the caller, for every request. A deployment behind a reverse proxy names the
@@ -117,6 +132,26 @@ internal sealed record HostSettings(
     string? CommonPasswordFile = null,
     IReadOnlyList<string>? LegacyKeys = null)
 {
+    /// <summary>
+    /// Where the map SDK comes from unless a deployment says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pinned, and the version is part of the value.</b> ADR-020 §4 chose Esri's CDN and
+    /// 4.29 is the version this console was built and tested against; a floating `latest` would
+    /// change the console's behaviour without a commit. An air-gapped deployment (Q-15) points
+    /// this at its own copy, which is the case the setting exists for.
+    /// </remarks>
+    public const string DefaultMapSdkUrl = "https://js.arcgis.com/4.29/";
+
+    /// <summary>
+    /// The origin of <see cref="MapSdkUrl"/>, which is what a policy names.
+    /// </summary>
+    /// <remarks>
+    /// A Content-Security-Policy source is an origin — scheme, host and port — not a path. The
+    /// value validated at startup is an absolute URL, so this cannot throw here.
+    /// </remarks>
+    public string MapSdkOrigin => new Uri(MapSdkUrl).GetLeftPart(UriPartial.Authority);
+
     /// <summary>Reads and validates settings.</summary>
     /// <exception cref="InvalidOperationException">A setting is missing or unusable.</exception>
     public static HostSettings Read(IConfiguration configuration)
@@ -183,6 +218,30 @@ internal sealed record HostSettings(
         // leaving a deployment believing it has a defence it does not have.
         string? passwordFile = keys.Text("CommonPasswordFile");
         IReadOnlySet<string> common = Graticula.Host.CommonPasswords.Load(passwordFile);
+
+        // <b>Validated here so a bad value is a sentence rather than a broken map.</b> The
+        // Content-Security-Policy is built from this, and a policy naming something that is not
+        // an origin is a policy the browser discards — which fails open in the direction that
+        // matters. Refusing at startup is [D-171](../../docs/architecture-debt.md)'s rule: a
+        // misconfigured server says which key and stops, rather than starting and misbehaving.
+        string mapSdk = keys.Text("MapSdkUrl") ?? DefaultMapSdkUrl;
+
+        if (!Uri.TryCreate(mapSdk, UriKind.Absolute, out Uri? sdkUri)
+            || (sdkUri.Scheme != Uri.UriSchemeHttps && sdkUri.Scheme != Uri.UriSchemeHttp))
+        {
+            throw new InvalidOperationException(
+                $"Graticula:MapSdkUrl is '{mapSdk}', which is not an absolute http or https URL. "
+                + "It is where the console fetches the ArcGIS Maps SDK from, and its origin goes "
+                + $"into this server's Content-Security-Policy. The default is {DefaultMapSdkUrl}.");
+        }
+
+        if (!mapSdk.EndsWith('/'))
+        {
+            throw new InvalidOperationException(
+                $"Graticula:MapSdkUrl is '{mapSdk}' and must end with '/'. The console appends "
+                + "paths to it — `esri/themes/light/main.css` — so a value without the slash "
+                + "resolves one directory too high and the map loads nothing.");
+        }
 
         return new HostSettings(
             platformStore,
@@ -417,6 +476,8 @@ internal sealed record HostSettings(
             // hard edges, which is a harder case than a photograph: a one-pixel road
             // over a flat fill is exactly what block transforms smear.
             Math.Clamp(keys.Value("JpegQuality", 85), 1, 100),
+
+            mapSdk,
 
             proxies,
             keys.Value("AcceptTokenInQueryString", true),

@@ -1892,7 +1892,7 @@ function openScreen(surface, screen, folder) {
  * ADR-015 §4 says clients should prefer. That it works with the real SDK is the
  * argument for not rushing `token=`.
  */
-const SDK = "https://js.arcgis.com/4.29/";
+const SDK = window.GRATICULA_MAP_SDK;
 
 /**
  * Fetches the map SDK the first time a map is wanted, and not before.
@@ -1907,6 +1907,18 @@ function loadSdk() {
   if (loadSdk._started) return loadSdk._started;
 
   loadSdk._started = new Promise((resolve, reject) => {
+    // <b>No literal fallback, deliberately — ADR-034 condition 3.</b> A hard-coded address
+    // here would be a copy the Content-Security-Policy does not know about, which is the
+    // trap §5e names: the script would be fetched and the browser would refuse it, leaving a
+    // dead map and nothing in the server's log. Saying so is the honest failure.
+    if (!SDK) {
+      reject(new Error(
+        "This page did not receive the map SDK's address from the server, so it cannot load "
+        + "the map library. surface.js is generated from Graticula:MapSdkUrl and should be "
+        + "loaded before this script."));
+      return;
+    }
+
     const css = document.createElement("link");
     css.rel = "stylesheet";
     css.href = SDK + "esri/themes/light/main.css";

@@ -905,6 +905,23 @@ items navigable.
 3. **The SDK setting and the Content-Security-Policy move together**, asserted by a test that
    sets a different SDK origin and checks the policy names it. Otherwise §5e is a trap rather
    than a setting.
+   *(Discharged 2026-08-27, and **§5e had not been built at all**: there was no
+   `Graticula:MapSdkUrl`, and `https://js.arcgis.com/4.29/` was a literal in three places —
+   the policy in `SecurityHeaders`, `console.js`, and `map.html`'s two head tags. An operator
+   who moved the SDK would have changed one of the three. The setting now exists, defaults to
+   what shipped, is validated at startup (absolute `http`/`https`, trailing slash, refused by
+   name otherwise — [D-171](../architecture-debt.md)'s rule), and **the policy is built from
+   it** rather than written beside it. `MapSdkSettingTests` sets `https://sdk.inside.example:8443/…`
+   and asserts all five sources name it — `script-src`, `style-src`, `img-src`, `connect-src`,
+   `font-src`, because dropping one produces a map that half works — **and that the default
+   origin disappears**, which is the half that catches a literal left behind. **The pages read
+   it from the server**: `surface.js` is generated under both mounts, so no page holds a copy
+   the policy does not know about, and `console.js` naming the address zero times is asserted.
+   `map.js` now loads the library itself and waits for it, because the address it used to get
+   from a blocking tag in `map.html`'s head arrives asynchronously — the failure is still said
+   on the page rather than thrown at a console nobody has open. **Falsified** by hard-coding
+   `script-src` back: two tests fail naming the directive, and pass on restore. Console suite
+   98/98, conformance 412/412, Host 472.)*
 4. **The content listing exists before Studio claims to list content**, and it reports
    ownership rather than implying it: *mine* and *shared with me* are different answers and a
    publisher acts differently on each.

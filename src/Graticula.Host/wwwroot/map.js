@@ -87,403 +87,439 @@
     }
   }
 
-  // <b>Said out loud rather than thrown at a console nobody has open.</b> The SDK
-  // arrives from Esri's CDN, so a script blocker, an offline machine or an
-  // air-gapped deployment (Q-15) all leave `require` undefined — and without this
-  // the page is blank with the reason only in devtools, which is the failure mode
-  // that cost most of 2026-08-16.
-  if (typeof require !== "function") {
-    problem(
-      "The ArcGIS Maps SDK did not load.",
-      "This viewer is the SDK pointed at your own service, so it needs "
-      + "<code>js.arcgis.com</code>. A script blocker, no network, or an air-gapped "
-      + "deployment all look like this. The console itself works without it — only "
-      + "the map needs it.");
-    throw new Error("the map SDK is unavailable");
+  /*
+    <b>The SDK's address comes from the server — ADR-034 condition 3.</b> This page used to
+    carry `https://js.arcgis.com/4.29/` twice in its own head, as a blocking script and a
+    stylesheet, while the Content-Security-Policy that has to allow it carried a third copy.
+    An operator who moved the SDK would have changed one of the three; §5e's word for that is
+    *trap*. `surface.js` is generated from `Graticula:MapSdkUrl`, the same value the policy is
+    built from, so there is one address and no page holds a copy of it.
+
+    <b>Which makes the load asynchronous, and that is what the wrapper below is for.</b> A
+    blocking `<script src>` in the head meant `require` existed by the time this deferred file
+    ran. It does not now, so everything that needs the SDK happens inside the callback.
+  */
+  function loadSdk() {
+    return new Promise((resolve, reject) => {
+      if (typeof require === "function") { resolve(); return; }
+
+      const url = window.GRATICULA_MAP_SDK;
+
+      if (!url) {
+        reject(new Error(
+          "this page did not receive its address from the server — surface.js is generated "
+          + "from Graticula:MapSdkUrl and should load before this file"));
+        return;
+      }
+
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = url + "esri/themes/light/main.css";
+      document.head.append(css);
+
+      const script = document.createElement("script");
+      script.src = url;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("it could not be fetched from " + url));
+      document.head.append(script);
+    });
   }
 
-  require([
-    "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
-    "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
-    "esri/layers/WebTileLayer", "esri/layers/MapImageLayer",
-    "esri/layers/ImageryLayer", "esri/Basemap",
-  ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
-      MapImageLayer, ImageryLayer, Basemap) => {
+  loadSdk().then(() => {
 
-    /*
-      The ground, and there are two of them.
+    require([
+      "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
+      "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
+      "esri/layers/WebTileLayer", "esri/layers/MapImageLayer",
+      "esri/layers/ImageryLayer", "esri/Basemap",
+    ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
+        MapImageLayer, ImageryLayer, Basemap) => {
 
-      <b>No third-party tiles by default.</b> This page hardcoded OpenStreetMap's
-      public tiles; their usage policy does not permit being an application's
-      basemap and on 2026-08-16 every tile answered 403. A tile template is
-      configurable and the operator's choice.
+      /*
+        The ground, and there are two of them.
 
-      <b>But a map with nothing behind it is not a map.</b> Coastlines with no
-      coastline are just a shape floating in white, and you cannot tell being in
-      the wrong place from having no data — which is exactly the confusion that
-      followed removing the tiles. So we ship our own ground: Natural Earth's
-      1:110m land outline, **public domain**, 87 KB, served from this origin.
+        <b>No third-party tiles by default.</b> This page hardcoded OpenStreetMap's
+        public tiles; their usage policy does not permit being an application's
+        basemap and on 2026-08-16 every tile answered 403. A tile template is
+        configurable and the operator's choice.
 
-      Coarse on purpose. It answers "where in the world is this" and nothing else,
-      and at that job 110m is not a compromise. It also costs no third-party
-      request, so it works in an air-gapped deployment (Q-15) and needs no line in
-      the Content-Security-Policy.
-    */
-    const template = localStorage.getItem("gis-basemap") || "";
-    const basemap = template
-      ? new Basemap({
-        baseLayers: [new WebTileLayer({
-          urlTemplate: template,
-          copyright: localStorage.getItem("gis-basemap-credit") || "",
-        })],
-      })
-      : null;
+        <b>But a map with nothing behind it is not a map.</b> Coastlines with no
+        coastline are just a shape floating in white, and you cannot tell being in
+        the wrong place from having no data — which is exactly the confusion that
+        followed removing the tiles. So we ship our own ground: Natural Earth's
+        1:110m land outline, **public domain**, 87 KB, served from this origin.
 
-    const ground = template
-      ? []
-      : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
+        Coarse on purpose. It answers "where in the world is this" and nothing else,
+        and at that job 110m is not a compromise. It also costs no third-party
+        request, so it works in an air-gapped deployment (Q-15) and needs no line in
+        the Content-Security-Policy.
+      */
+      const template = localStorage.getItem("gis-basemap") || "";
+      const basemap = template
+        ? new Basemap({
+          baseLayers: [new WebTileLayer({
+            urlTemplate: template,
+            copyright: localStorage.getItem("gis-basemap-credit") || "",
+          })],
+        })
+        : null;
 
-    /*
-      <b>The caption said Natural Earth while the map drew OpenStreetMap, with OSM's own
-      attribution visible in the corner at the same time.</b> `groundLayers` was changed
-      to prefer OSM whenever the SDK exposes `WebTileLayer` — which is always, the way
-      this page calls it — and this sentence was not changed with it. A page that
-      contradicts what it is showing is worse than one that says nothing, because the
-      caption is the part a reader believes.
+      const ground = template
+        ? []
+        : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
 
-      <b>Read from what was actually built rather than restated.</b> The layers come back
-      from `groundLayers`; asking them what they are means the caption cannot drift from
-      them again, which is the only durable fix for a sentence that describes code
-      somewhere else.
-    */
-    const osm = ground.some(layer => layer?.copyright?.includes("OpenStreetMap"));
+      /*
+        <b>The caption said Natural Earth while the map drew OpenStreetMap, with OSM's own
+        attribution visible in the corner at the same time.</b> `groundLayers` was changed
+        to prefer OSM whenever the SDK exposes `WebTileLayer` — which is always, the way
+        this page calls it — and this sentence was not changed with it. A page that
+        contradicts what it is showing is worse than one that says nothing, because the
+        caption is the part a reader believes.
 
-    document.getElementById("ground").textContent = template
-      ? "Basemap: " + template
-      : osm
-        ? "Ground is OpenStreetMap. The console's map panel takes a tile template if you "
-          + "have one."
-        : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "
-          + "from here. The console's map panel takes a tile template if you have one.";
+        <b>Read from what was actually built rather than restated.</b> The layers come back
+        from `groundLayers`; asking them what they are means the caption cannot drift from
+        them again, which is the only durable fix for a sentence that describes code
+        somewhere else.
+      */
+      const osm = ground.some(layer => layer?.copyright?.includes("OpenStreetMap"));
 
-    /*
-      Web Mercator, named rather than inherited — hosted data is stored in 3857
-      (ADR-021), so this is the geometry as stored rather than as reprojected.
+      document.getElementById("ground").textContent = template
+        ? "Basemap: " + template
+        : osm
+          ? "Ground is OpenStreetMap. The console's map panel takes a tile template if you "
+            + "have one."
+          : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "
+            + "from here. The console's map panel takes a tile template if you have one.";
 
-      <b>And the starting view is given as an extent in the same units, which is
-      the bug this comment exists for.</b> Naming the reference without changing
-      `center: [28.98, 41.015]` left a centre written in degrees being read as
-      metres: twenty-nine metres east of the prime meridian instead of Istanbul,
-      three and a half million metres from the data. The layer loaded, the SDK
-      queried the visible envelope, the server correctly answered with nothing,
-      and the page looked blank for the same reason a telescope pointed at the
-      floor does.
+      /*
+        Web Mercator, named rather than inherited — hosted data is stored in 3857
+        (ADR-021), so this is the geometry as stored rather than as reprojected.
 
-      A world extent in 3857 cannot be misread, because it carries its own
-      spatial reference. Whatever is drawn then moves the view to its own extent.
-    */
-    const view = new MapView({
-      container: "view",
-      map: new Map({ basemap, layers: ground }),
-      spatialReference: { wkid: 3857 },
-      extent: {
-        xmin: -20037508, ymin: -20037508, xmax: 20037508, ymax: 20037508,
+        <b>And the starting view is given as an extent in the same units, which is
+        the bug this comment exists for.</b> Naming the reference without changing
+        `center: [28.98, 41.015]` left a centre written in degrees being read as
+        metres: twenty-nine metres east of the prime meridian instead of Istanbul,
+        three and a half million metres from the data. The layer loaded, the SDK
+        queried the visible envelope, the server correctly answered with nothing,
+        and the page looked blank for the same reason a telescope pointed at the
+        floor does.
+
+        A world extent in 3857 cannot be misread, because it carries its own
+        spatial reference. Whatever is drawn then moves the view to its own extent.
+      */
+      const view = new MapView({
+        container: "view",
+        map: new Map({ basemap, layers: ground }),
         spatialReference: { wkid: 3857 },
-      },
-      background: template ? undefined : { color: GROUND_WATER },
-    });
-
-    let current = null;
-
-    /**
-     * Says how many features are drawn and where they are, with a way back.
-     *
-     * <b>Because "I cannot see it" and "there is nothing there" look the same.</b>
-     * Eight polygons of a few hundred metres are sub-pixel at country zoom, so a
-     * correct map of real data is indistinguishable from an empty one. The count
-     * comes from the server, and the extent is printed in the layer's own
-     * reference and in degrees, because one of those is checkable against a
-     * table and the other against knowing where places are.
-     */
-    async function describe(features) {
-      const facts = document.getElementById("facts");
-
-      // <b>Not swallowed.</b> This read `catch { }` with a comment calling the
-      // failure not worth mentioning, and then the header said "? features" with no
-      // way to find out why — which is the habit criticised all through 2026-08-16,
-      // committed in the same file that criticised it. The reason is shown where the
-      // count would have been.
-      let count = null;
-      let refusal = null;
-      let drawn = null;
-
-      // <b>Asked of the face, not of the object.</b> This tested whether the layer
-      // had a `queryFeatureCount` method, and an `ImageryLayer` does — it just answers
-      // *query operation is not supported on the input image service*, which then
-      // appeared in the header as though something had gone wrong. What decides the
-      // question is which face is being drawn, and that is known without asking.
-      if (face === "FeatureServer" && typeof features.queryFeatureCount === "function") {
-        try {
-          count = await features.queryFeatureCount();
-        } catch (e) {
-          refusal = e.message || String(e);
-        }
-      } else if (features.sublayers) {
-        // <b>A map service has no feature count and asking would be the wrong
-        // question.</b> It returns pixels; the number that matters is how many of
-        // its sublayers are switched on, because that is what the picker changes and
-        // what the next request will draw. `/MapServer/{id}/query` does not exist —
-        // the capabilities string says `Map` and only `Map`, which the correctness
-        // gate made true on 2026-08-20 by removing the claim rather than the route.
-        const on = features.sublayers.filter(l => l.visible).length;
-        const all = features.sublayers.length;
-        drawn = `${on} of ${all} sublayer${all === 1 ? "" : "s"} drawn, server-side`;
-      } else {
-        // An image service has neither: one coverage, one picture. What is worth
-        // saying is what the pixels are, because that is what decides whether the
-        // stretch it was given makes any sense.
-        // <b>`rasterInfo` first, because that is where the SDK puts it.</b> The
-        // service document's `bandCount` is what this server sends; the SDK parses it
-        // into `rasterInfo` and leaves `layer.bandCount` undefined, so reading the
-        // obvious property printed "?-band" beside a picture that plainly had three.
-        const info = features.rasterInfo || {};
-        const bands = info.bandCount ?? features.bandCount ?? "?";
-        const type = info.pixelType ?? features.pixelType ?? "?";
-        drawn = `${bands}-band ${type} raster, drawn server-side`;
-      }
-
-      const box = features.fullExtent;
-      const wkid = box && box.spatialReference && box.spatialReference.wkid;
-
-      // <b>The unit is read, not assumed.</b> This printed `m` after every extent,
-      // so a layer stored in EPSG:4326 read `19 x 6 m` when it meant nineteen
-      // degrees of longitude — the whole of Turkey, described as a room. It was
-      // invisible while every layer looked at happened to be Web Mercator, and it
-      // showed the moment a MapServer view was pointed at a geographic one
-      // (2026-08-21). The rule is AxisOrder's: EPSG numbers its geographic 2D
-      // systems 4000-4999.
-      const geographic = wkid >= 4000 && wkid <= 4999;
-      const unit = geographic ? "°" : "m";
-
-      // Web Mercator's corner said in degrees, because one of the two is checkable
-      // against a table and the other against knowing where places are. A
-      // geographic extent is already in degrees, so there is nothing to convert.
-      const degrees = wkid === 3857
-        ? `${(box.xmin / 20037508.34 * 180).toFixed(3)}, `
-          + `${(Math.atan(Math.exp(box.ymin / 6378137)) * 360 / Math.PI - 90).toFixed(3)}`
-        : null;
-
-      const size = box
-        ? geographic
-          ? `${box.width.toFixed(2)} × ${box.height.toFixed(2)} ${unit}`
-          : `${Math.round(box.width)} × ${Math.round(box.height)} ${unit}`
-        : null;
-
-      const corner = box
-        ? geographic
-          ? `${box.xmin.toFixed(3)}, ${box.ymin.toFixed(3)}`
-          : `${Math.round(box.xmin)}, ${Math.round(box.ymin)}`
-        : null;
-
-      facts.innerHTML =
-        (drawn !== null
-          ? `<span>${drawn}</span>`
-          : count === null
-            ? `<span style="color:#92620d">feature count refused${
-              refusal ? ` — ${refusal}` : ""}</span>`
-            : `<span>${count.toLocaleString()} feature${count === 1 ? "" : "s"}</span>`)
-        + (box
-          ? `<span><code>${size}</code> at <code>${corner}</code>`
-            + (degrees ? ` — <code>${degrees}</code>` : "")
-            + `</span><button id="frameLayer">Frame layer</button>`
-          : `<span>no extent in the layer document</span>`);
-
-      // <b>`frameLayer`, not `frame`, and the rename is the whole fix.</b> This page's
-      // layout wrapper is `<div id="frame">` and this button was `id="frame"` too, so
-      // `getElementById("frame")` returned the wrapper — first in document order — and
-      // the frame-the-layer handler was attached to the entire page. Every click
-      // anywhere, including on the SDK's own zoom buttons and the mouse-down half of a
-      // drag to pan, snapped the view back to the layer's extent. Wheel zoom and
-      // keyboard panning were the only gestures that escaped it.
-      //
-      // <b>The same failure was already found once, in the other viewer, by a different
-      // route</b> — see `fitWhenSized` in view.js, whose note records a `postrender`
-      // handler that re-framed the map whenever it was panned. Two viewers, two
-      // mechanisms, one symptom: a map that will not stay where it is put.
-      const frame = document.getElementById("frameLayer");
-      if (frame) {
-        frame.onclick = () => view.goTo(features.fullExtent.expand(1.4))
-          .catch(error => problem("The view could not move.", String(error.message || error)));
-      }
-    }
-
-    /**
-     * Adds one layer and frames it.
-     *
-     * The SDK reports a failed layer load as a rejected promise rather than an
-     * exception, and the message is the only place the actual cause appears —
-     * usually an untrusted certificate, or a query parameter this server refused
-     * with a reason worth reading.
-     */
-    function add(at) {
-      // <b>One layer, replacing whatever was there.</b> This page used to add
-      // every layer of a service on top of each other, which is a stack of
-      // unrelated geometry rather than a look at anything. The service page's
-      // "View in" gives you a picker instead, so choosing is explicit.
-      if (current) {
-        view.map.remove(current);
-        current.destroy();
-      }
-
-      /*
-        <b>Two faces, two layer types, and the difference is where the drawing
-        happens.</b> A `FeatureLayer` fetches geometry and the SDK draws it in the
-        browser with a symbology the SDK chose. A `MapImageLayer` asks
-        `/MapServer/export` for a PNG of the current view and the drawing is ours —
-        the stored symbology, our label placement, our renderer. Panning re-requests;
-        that is what a map service is, and it is why the export link the directory
-        offered before today was not a viewer.
-
-        `sublayers` is left to the SDK to read from the service document, so
-        switching one off sends `layers=show:` with the rest, which this server's
-        export parser understands.
-      */
-      /*
-        <b>Three faces, three layer types, and the third is the SDK's own client for
-        an image service.</b> `ImageryLayer` asks `/ImageServer/exportImage` for a PNG
-        of the current view and reads the service document to know the extent and the
-        reference — which is the point of pointing it here at all
-        ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) condition
-        1). A viewer of our own drawing our own pixels proves the pixels; Esri's own
-        client asking for them proves the contract.
-      */
-      const features = face === "ImageServer"
-        ? new ImageryLayer({ url: at })
-        : face === "MapServer"
-        ? new MapImageLayer({ url: at })
-        : new FeatureLayer({
-          url: at,
-          outFields: ["*"],
-          popupTemplate: { title: "{name}", content: "{*}" },
-        });
-
-      current = features;
-      view.map.add(features);
-
-      // <b>After the view is ready, and the failure is said out loud.</b> goTo
-      // before the view settles rejects, and an unhandled rejection is a message
-      // in devtools and a blank map to everyone else. An absent extent is the
-      // other half: PostGIS statistics fill it, so a table nobody has ANALYZEd
-      // has none, and silently not moving looks identical to being lost.
-      return features.when(
-        async () => {
-          await view.when();
-          await describe(features);
-
-          if (!features.fullExtent) {
-            problem(
-              "Drawn, but the view did not move.",
-              "This layer's document carries no extent, which is what the map frames "
-              + "itself with. Run <code>ANALYZE</code> on the source table and reload.");
-            return;
-          }
-
-          try {
-            await view.goTo(features.fullExtent.expand(1.4));
-          } catch (error) {
-            problem("The view could not move to the layer.", String(error.message || error));
-          }
+        extent: {
+          xmin: -20037508, ymin: -20037508, xmax: 20037508, ymax: 20037508,
+          spatialReference: { wkid: 3857 },
         },
-        error => problem(
-          "The SDK could not load a layer.",
-          `${at}<br><br>${error.message || error}<br><br>If this mentions a network or certificate ` +
-          `problem, open <a href="/healthz/live" target="_blank">/healthz/live</a>, accept the ` +
-          `warning and reload. Otherwise it is a parameter this server refused — the message ` +
-          `says which.`));
-    }
+        background: template ? undefined : { color: GROUND_WATER },
+      });
 
-    // <b>A whole service, when no layer is named.</b> The directory's service page
-    // links here without one, because "View In" on a service means the service —
-    // which is what an ArcGIS directory does too. Group layers are skipped: they
-    // hold no features. Named with a layer, only that layer is drawn.
-    // <b>An image service holds one coverage and publishes no layer list</b>, so there
-    // is nothing to pick between and the picker would be an empty row. It is drawn
-    // directly, which is also what its service document expects to be read for.
-    if (service && face === "ImageServer") {
-      document.getElementById("which").textContent = `${service} (ImageServer)`;
-      add(`${location.origin}/rest/services/${service}/ImageServer`);
-    } else if (service && layerId === null) {
-      fetch(`${location.origin}/rest/services/${service}/${face}?f=json`,
-        { headers: { Accept: "application/json" } })
-        .then(response => response.json())
-        .then(doc => {
-          const drawable = (doc.layers || []).filter(l => l.type !== "Group Layer");
+      let current = null;
 
-          if (drawable.length === 0) {
-            problem("Nothing to draw.", "This service lists no feature layers.");
-            return;
+      /**
+       * Says how many features are drawn and where they are, with a way back.
+       *
+       * <b>Because "I cannot see it" and "there is nothing there" look the same.</b>
+       * Eight polygons of a few hundred metres are sub-pixel at country zoom, so a
+       * correct map of real data is indistinguishable from an empty one. The count
+       * comes from the server, and the extent is printed in the layer's own
+       * reference and in degrees, because one of those is checkable against a
+       * table and the other against knowing where places are.
+       */
+      async function describe(features) {
+        const facts = document.getElementById("facts");
+
+        // <b>Not swallowed.</b> This read `catch { }` with a comment calling the
+        // failure not worth mentioning, and then the header said "? features" with no
+        // way to find out why — which is the habit criticised all through 2026-08-16,
+        // committed in the same file that criticised it. The reason is shown where the
+        // count would have been.
+        let count = null;
+        let refusal = null;
+        let drawn = null;
+
+        // <b>Asked of the face, not of the object.</b> This tested whether the layer
+        // had a `queryFeatureCount` method, and an `ImageryLayer` does — it just answers
+        // *query operation is not supported on the input image service*, which then
+        // appeared in the header as though something had gone wrong. What decides the
+        // question is which face is being drawn, and that is known without asking.
+        if (face === "FeatureServer" && typeof features.queryFeatureCount === "function") {
+          try {
+            count = await features.queryFeatureCount();
+          } catch (e) {
+            refusal = e.message || String(e);
           }
+        } else if (features.sublayers) {
+          // <b>A map service has no feature count and asking would be the wrong
+          // question.</b> It returns pixels; the number that matters is how many of
+          // its sublayers are switched on, because that is what the picker changes and
+          // what the next request will draw. `/MapServer/{id}/query` does not exist —
+          // the capabilities string says `Map` and only `Map`, which the correctness
+          // gate made true on 2026-08-20 by removing the claim rather than the route.
+          const on = features.sublayers.filter(l => l.visible).length;
+          const all = features.sublayers.length;
+          drawn = `${on} of ${all} sublayer${all === 1 ? "" : "s"} drawn, server-side`;
+        } else {
+          // An image service has neither: one coverage, one picture. What is worth
+          // saying is what the pixels are, because that is what decides whether the
+          // stretch it was given makes any sense.
+          // <b>`rasterInfo` first, because that is where the SDK puts it.</b> The
+          // service document's `bandCount` is what this server sends; the SDK parses it
+          // into `rasterInfo` and leaves `layer.bandCount` undefined, so reading the
+          // obvious property printed "?-band" beside a picture that plainly had three.
+          const info = features.rasterInfo || {};
+          const bands = info.bandCount ?? features.bandCount ?? "?";
+          const type = info.pixelType ?? features.pixelType ?? "?";
+          drawn = `${bands}-band ${type} raster, drawn server-side`;
+        }
 
-          /*
-            <b>The picker means opposite things on the two faces, because the faces
-            are opposite.</b>
+        const box = features.fullExtent;
+        const wkid = box && box.spatialReference && box.spatialReference.wkid;
 
-            On FeatureServer a service's layers are alternatives to look at rather
-            than a composition, so the picker chooses one and the others go away.
-            On MapServer they *are* a composition: the whole point of a map service
-            is that it fuses its layers into one drawing, and switching one off is a
-            question you ask of the same map rather than a different map. So there
-            the picker toggles, several can be on, and each click re-requests one
-            image with `layers=show:` naming the survivors.
+        // <b>The unit is read, not assumed.</b> This printed `m` after every extent,
+        // so a layer stored in EPSG:4326 read `19 x 6 m` when it meant nineteen
+        // degrees of longitude — the whole of Turkey, described as a room. It was
+        // invisible while every layer looked at happened to be Web Mercator, and it
+        // showed the moment a MapServer view was pointed at a geographic one
+        // (2026-08-21). The rule is AxisOrder's: EPSG numbers its geographic 2D
+        // systems 4000-4999.
+        const geographic = wkid >= 4000 && wkid <= 4999;
+        const unit = geographic ? "°" : "m";
 
-            <b>Both are single-click, and neither is a stack of unrelated geometry</b>
-            — which is what this page did before D-45 and is the thing worth not
-            going back to.
-          */
-          const picker = document.getElementById("picker");
-          const fused = face === "MapServer";
+        // Web Mercator's corner said in degrees, because one of the two is checkable
+        // against a table and the other against knowing where places are. A
+        // geographic extent is already in degrees, so there is nothing to convert.
+        const degrees = wkid === 3857
+          ? `${(box.xmin / 20037508.34 * 180).toFixed(3)}, `
+            + `${(Math.atan(Math.exp(box.ymin / 6378137)) * 360 / Math.PI - 90).toFixed(3)}`
+          : null;
 
-          picker.innerHTML = drawable.map((l, i) =>
-            `<button data-id="${l.id}"${fused || i === 0 ? ' class="on"' : ""}>${
-              String(l.name).replace(/[&<>"]/g, c =>
-                ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))
-            }</button>`).join("");
+        const size = box
+          ? geographic
+            ? `${box.width.toFixed(2)} × ${box.height.toFixed(2)} ${unit}`
+            : `${Math.round(box.width)} × ${Math.round(box.height)} ${unit}`
+          : null;
 
-          picker.onclick = event => {
-            const id = event.target.dataset && event.target.dataset.id;
-            if (!id) return;
+        const corner = box
+          ? geographic
+            ? `${box.xmin.toFixed(3)}, ${box.ymin.toFixed(3)}`
+            : `${Math.round(box.xmin)}, ${Math.round(box.ymin)}`
+          : null;
 
-            if (fused) {
-              // The layer is already drawn; this changes what the next image holds.
-              // `sublayers` is a Collection, so `find` rather than an index — the
-              // service document's ids need not be dense and need not start at zero.
-              const sublayer = current
-                && current.sublayers
-                && current.sublayers.find(l => String(l.id) === String(id));
+        facts.innerHTML =
+          (drawn !== null
+            ? `<span>${drawn}</span>`
+            : count === null
+              ? `<span style="color:#92620d">feature count refused${
+                refusal ? ` — ${refusal}` : ""}</span>`
+              : `<span>${count.toLocaleString()} feature${count === 1 ? "" : "s"}</span>`)
+          + (box
+            ? `<span><code>${size}</code> at <code>${corner}</code>`
+              + (degrees ? ` — <code>${degrees}</code>` : "")
+              + `</span><button id="frameLayer">Frame layer</button>`
+            : `<span>no extent in the layer document</span>`);
 
-              if (!sublayer) return;
+        // <b>`frameLayer`, not `frame`, and the rename is the whole fix.</b> This page's
+        // layout wrapper is `<div id="frame">` and this button was `id="frame"` too, so
+        // `getElementById("frame")` returned the wrapper — first in document order — and
+        // the frame-the-layer handler was attached to the entire page. Every click
+        // anywhere, including on the SDK's own zoom buttons and the mouse-down half of a
+        // drag to pan, snapped the view back to the layer's extent. Wheel zoom and
+        // keyboard panning were the only gestures that escaped it.
+        //
+        // <b>The same failure was already found once, in the other viewer, by a different
+        // route</b> — see `fitWhenSized` in view.js, whose note records a `postrender`
+        // handler that re-framed the map whenever it was panned. Two viewers, two
+        // mechanisms, one symptom: a map that will not stay where it is put.
+        const frame = document.getElementById("frameLayer");
+        if (frame) {
+          frame.onclick = () => view.goTo(features.fullExtent.expand(1.4))
+            .catch(error => problem("The view could not move.", String(error.message || error)));
+        }
+      }
 
-              sublayer.visible = !sublayer.visible;
-              event.target.classList.toggle("on", sublayer.visible);
-              describe(current);
+      /**
+       * Adds one layer and frames it.
+       *
+       * The SDK reports a failed layer load as a rejected promise rather than an
+       * exception, and the message is the only place the actual cause appears —
+       * usually an untrusted certificate, or a query parameter this server refused
+       * with a reason worth reading.
+       */
+      function add(at) {
+        // <b>One layer, replacing whatever was there.</b> This page used to add
+        // every layer of a service on top of each other, which is a stack of
+        // unrelated geometry rather than a look at anything. The service page's
+        // "View in" gives you a picker instead, so choosing is explicit.
+        if (current) {
+          view.map.remove(current);
+          current.destroy();
+        }
+
+        /*
+          <b>Two faces, two layer types, and the difference is where the drawing
+          happens.</b> A `FeatureLayer` fetches geometry and the SDK draws it in the
+          browser with a symbology the SDK chose. A `MapImageLayer` asks
+          `/MapServer/export` for a PNG of the current view and the drawing is ours —
+          the stored symbology, our label placement, our renderer. Panning re-requests;
+          that is what a map service is, and it is why the export link the directory
+          offered before today was not a viewer.
+
+          `sublayers` is left to the SDK to read from the service document, so
+          switching one off sends `layers=show:` with the rest, which this server's
+          export parser understands.
+        */
+        /*
+          <b>Three faces, three layer types, and the third is the SDK's own client for
+          an image service.</b> `ImageryLayer` asks `/ImageServer/exportImage` for a PNG
+          of the current view and reads the service document to know the extent and the
+          reference — which is the point of pointing it here at all
+          ([ADR-043](../../docs/adr/ADR-043-imageserver-and-the-raster-face.md) condition
+          1). A viewer of our own drawing our own pixels proves the pixels; Esri's own
+          client asking for them proves the contract.
+        */
+        const features = face === "ImageServer"
+          ? new ImageryLayer({ url: at })
+          : face === "MapServer"
+          ? new MapImageLayer({ url: at })
+          : new FeatureLayer({
+            url: at,
+            outFields: ["*"],
+            popupTemplate: { title: "{name}", content: "{*}" },
+          });
+
+        current = features;
+        view.map.add(features);
+
+        // <b>After the view is ready, and the failure is said out loud.</b> goTo
+        // before the view settles rejects, and an unhandled rejection is a message
+        // in devtools and a blank map to everyone else. An absent extent is the
+        // other half: PostGIS statistics fill it, so a table nobody has ANALYZEd
+        // has none, and silently not moving looks identical to being lost.
+        return features.when(
+          async () => {
+            await view.when();
+            await describe(features);
+
+            if (!features.fullExtent) {
+              problem(
+                "Drawn, but the view did not move.",
+                "This layer's document carries no extent, which is what the map frames "
+                + "itself with. Run <code>ANALYZE</code> on the source table and reload.");
               return;
             }
 
-            for (const button of picker.querySelectorAll("button")) {
-              button.classList.toggle("on", button === event.target);
+            try {
+              await view.goTo(features.fullExtent.expand(1.4));
+            } catch (error) {
+              problem("The view could not move to the layer.", String(error.message || error));
             }
-            add(`${location.origin}/rest/services/${service}/FeatureServer/${id}`);
-          };
+          },
+          error => problem(
+            "The SDK could not load a layer.",
+            `${at}<br><br>${error.message || error}<br><br>If this mentions a network or certificate ` +
+            `problem, open <a href="/healthz/live" target="_blank">/healthz/live</a>, accept the ` +
+            `warning and reload. Otherwise it is a parameter this server refused — the message ` +
+            `says which.`));
+      }
 
-          document.getElementById("which").textContent =
-            fused ? `${service} (MapServer)` : service;
+      // <b>A whole service, when no layer is named.</b> The directory's service page
+      // links here without one, because "View In" on a service means the service —
+      // which is what an ArcGIS directory does too. Group layers are skipped: they
+      // hold no features. Named with a layer, only that layer is drawn.
+      // <b>An image service holds one coverage and publishes no layer list</b>, so there
+      // is nothing to pick between and the picker would be an empty row. It is drawn
+      // directly, which is also what its service document expects to be read for.
+      if (service && face === "ImageServer") {
+        document.getElementById("which").textContent = `${service} (ImageServer)`;
+        add(`${location.origin}/rest/services/${service}/ImageServer`);
+      } else if (service && layerId === null) {
+        fetch(`${location.origin}/rest/services/${service}/${face}?f=json`,
+          { headers: { Accept: "application/json" } })
+          .then(response => response.json())
+          .then(doc => {
+            const drawable = (doc.layers || []).filter(l => l.type !== "Group Layer");
 
-          add(fused
-            ? `${location.origin}/rest/services/${service}/MapServer`
-            : `${location.origin}/rest/services/${service}/FeatureServer/${drawable[0].id}`);
-        })
-        .catch(error => problem("The service document could not be read.", String(error)));
-    } else {
-      add(url);
-    }
+            if (drawable.length === 0) {
+              problem("Nothing to draw.", "This service lists no feature layers.");
+              return;
+            }
+
+            /*
+              <b>The picker means opposite things on the two faces, because the faces
+              are opposite.</b>
+
+              On FeatureServer a service's layers are alternatives to look at rather
+              than a composition, so the picker chooses one and the others go away.
+              On MapServer they *are* a composition: the whole point of a map service
+              is that it fuses its layers into one drawing, and switching one off is a
+              question you ask of the same map rather than a different map. So there
+              the picker toggles, several can be on, and each click re-requests one
+              image with `layers=show:` naming the survivors.
+
+              <b>Both are single-click, and neither is a stack of unrelated geometry</b>
+              — which is what this page did before D-45 and is the thing worth not
+              going back to.
+            */
+            const picker = document.getElementById("picker");
+            const fused = face === "MapServer";
+
+            picker.innerHTML = drawable.map((l, i) =>
+              `<button data-id="${l.id}"${fused || i === 0 ? ' class="on"' : ""}>${
+                String(l.name).replace(/[&<>"]/g, c =>
+                  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))
+              }</button>`).join("");
+
+            picker.onclick = event => {
+              const id = event.target.dataset && event.target.dataset.id;
+              if (!id) return;
+
+              if (fused) {
+                // The layer is already drawn; this changes what the next image holds.
+                // `sublayers` is a Collection, so `find` rather than an index — the
+                // service document's ids need not be dense and need not start at zero.
+                const sublayer = current
+                  && current.sublayers
+                  && current.sublayers.find(l => String(l.id) === String(id));
+
+                if (!sublayer) return;
+
+                sublayer.visible = !sublayer.visible;
+                event.target.classList.toggle("on", sublayer.visible);
+                describe(current);
+                return;
+              }
+
+              for (const button of picker.querySelectorAll("button")) {
+                button.classList.toggle("on", button === event.target);
+              }
+              add(`${location.origin}/rest/services/${service}/FeatureServer/${id}`);
+            };
+
+            document.getElementById("which").textContent =
+              fused ? `${service} (MapServer)` : service;
+
+            add(fused
+              ? `${location.origin}/rest/services/${service}/MapServer`
+              : `${location.origin}/rest/services/${service}/FeatureServer/${drawable[0].id}`);
+          })
+          .catch(error => problem("The service document could not be read.", String(error)));
+      } else {
+        add(url);
+      }
+    });
+  }).catch(error => {
+    // <b>Said out loud rather than thrown at a console nobody has open.</b> A script blocker,
+    // an offline machine or an air-gapped deployment (Q-15) all leave the SDK unloaded, and
+    // without this the page is blank with the reason only in devtools — the failure mode that
+    // cost most of 2026-08-16.
+    problem(
+      "The ArcGIS Maps SDK did not load.",
+      "This viewer is the SDK pointed at your own service, so it needs that library: "
+      + error.message + ". A script blocker, no network, or an air-gapped deployment all look "
+      + "like this. The console itself works without it — only the map needs it.");
   });

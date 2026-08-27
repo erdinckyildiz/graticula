@@ -118,16 +118,19 @@ public sealed class OneCopyAcrossSurfacesTests : ArcGisClient
             + string.Join(" | ", stylesheets)
             + ". ADR-034 condition 2 asks for one across both surfaces.");
 
-        // The SDK's address appears once in the code that loads it. A second literal is how a
-        // pinned version drifts between the two surfaces without either being wrong on its own.
+        // <b>And the address itself is not here at all.</b> It was a literal in `console.js`
+        // until ADR-034 condition 3; now it comes from `surface.js`, which the server generates
+        // from the same setting its Content-Security-Policy is built from. A copy in the script
+        // would be a copy the policy does not know about, which is the trap §5e names.
         string console = await TextAsync($"{root}/server/console.js");
 
-        int loaders = Regex.Count(console, "https://js\\.arcgis\\.com");
+        int copies = Regex.Count(console, "https://js\\.arcgis\\.com");
 
         Assert.True(
-            loaders == 1,
-            $"console.js names the map SDK's address {loaders} times. One is the map module; a "
-            + "second is the copy ADR-034 condition 2 forbids.");
+            copies == 0,
+            $"console.js names the map SDK's address {copies} times. It should name it none: "
+            + "the address comes from surface.js, generated from Graticula:MapSdkUrl, and a "
+            + "literal here is a copy the Content-Security-Policy does not follow.");
     }
 
     /// <summary>Fetches a text asset, failing with the status when it is not there.</summary>

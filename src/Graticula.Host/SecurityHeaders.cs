@@ -113,13 +113,38 @@ internal static class SecurityHeaders
     /// visibly a different policy and not a broken one.
     /// </para>
     /// </remarks>
-    private const string ConsolePolicy =
+    /// <summary>
+    /// The console's policy, with the map SDK's origin written into every source it needs.
+    /// </summary>
+    /// <param name="mapSdkOrigin">
+    /// Scheme, host and port of <c>Graticula:MapSdkUrl</c> — never a path, because a
+    /// Content-Security-Policy source is an origin.
+    /// </param>
+    /// <returns>The policy.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Built rather than written, since [ADR-034](../../docs/adr/ADR-034-server-and-studio.md)
+    /// condition 3.</b> The origin used to be a literal here and two more times in the pages, so
+    /// an operator who pointed the SDK somewhere else would have been refused by a policy still
+    /// naming Esri's — a blocked script, a page with a dead map, and nothing the server can see.
+    /// The condition's word for that is *trap*; §5e's decision is that the setting and the
+    /// policy move together, and this is the half that makes them.
+    /// </para>
+    /// <para>
+    /// <b>The origin appears in five sources and each is needed.</b> `script-src` for the SDK
+    /// itself, `style-src` for its theme, `font-src` for its icon font, `img-src` for the sprite
+    /// sheets it fetches, and `connect-src` because its AMD loader fetches modules with XHR.
+    /// Dropping any one of them produces a map that half works, which is harder to diagnose than
+    /// one that does not load at all.
+    /// </para>
+    /// </remarks>
+    internal static string ConsolePolicyFor(string mapSdkOrigin) =>
         "default-src 'none'; "
-        + "script-src 'self' https://js.arcgis.com; "
-        + "style-src 'self' 'unsafe-inline' https://js.arcgis.com; "
-        + "img-src 'self' data: blob: https://js.arcgis.com https://tile.openstreetmap.org; "
-        + "connect-src 'self' https://js.arcgis.com https://tile.openstreetmap.org; "
-        + "font-src https://js.arcgis.com; "
+        + $"script-src 'self' {mapSdkOrigin}; "
+        + $"style-src 'self' 'unsafe-inline' {mapSdkOrigin}; "
+        + $"img-src 'self' data: blob: {mapSdkOrigin} https://tile.openstreetmap.org; "
+        + $"connect-src 'self' {mapSdkOrigin} https://tile.openstreetmap.org; "
+        + $"font-src {mapSdkOrigin}; "
         + "worker-src blob:; "
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
@@ -154,9 +179,15 @@ internal static class SecurityHeaders
     /// <summary>Stamps the headers on every response.</summary>
     /// <param name="app">The application.</param>
     /// <param name="https">Whether this server requires HTTPS, for HSTS.</param>
-    public static void UseSecurityHeaders(this WebApplication app, bool https)
+    /// <param name="mapSdkOrigin">
+    /// Where the console's map SDK is fetched from — <c>Graticula:MapSdkUrl</c>'s origin.
+    /// </param>
+    public static void UseSecurityHeaders(this WebApplication app, bool https, string mapSdkOrigin)
     {
         ArgumentNullException.ThrowIfNull(app);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapSdkOrigin);
+
+        string consolePolicy = ConsolePolicyFor(mapSdkOrigin);
 
         app.Use(async (context, next) =>
         {
@@ -212,7 +243,7 @@ internal static class SecurityHeaders
                 bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
-                    console ? ConsolePolicy : html ? HtmlPolicy : DocumentPolicy);
+                    console ? consolePolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

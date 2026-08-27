@@ -64,6 +64,15 @@ Optional: `Graticula__Port` (8443), `Graticula__Listen` (0.0.0.0),
 `Graticula__CertificatePassword`, `Graticula__StatePath`,
 `Graticula__TileCachePath`.
 
+**`Graticula__MapSdkUrl`** deserves its own line, because it is the one optional setting that
+changes this server's **security policy**. It is where the console fetches the ArcGIS Maps SDK
+from, defaulting to `https://js.arcgis.com/4.29/`, and its origin is written into the console's
+`Content-Security-Policy` — so pointing it at your own copy is one change rather than two, and
+an air-gapped deployment ([Q-15](open-questions.md)) can serve the library from inside the
+network. It must be an absolute `http`/`https` URL **ending in a slash**; the server refuses to
+start otherwise and says which key. Nothing else about the console needs it: the map is the only
+thing that does, and everything else works with the library unreachable.
+
 **The former `GisServer__*` names still work**, and a server started on them warns once
 at startup naming the keys to move — ADR-032 §5. This is not politeness: `SecretKey`
 decrypts every stored data-source credential, so a rename that silently stopped reading
