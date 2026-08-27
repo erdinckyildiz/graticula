@@ -15,19 +15,28 @@ Why two layers, which is a finding rather than a design preference
 The first version of this script regenerated every range and compared bytes. It passed on the
 machine it was written on, and **CI failed with 22 of 31 ranges different** -- some the same
 size with a different hash, some a different size entirely. The rasteriser is Pillow's, and
-Pillow's is FreeType's, and neither promises identical output across versions or platforms.
-So *regenerate and compare* is a check that means something only where the environment matches
-the one that produced the files, and nowhere else can tell drift from a different machine.
+Pillow's is FreeType's, and neither promises identical output across *versions*.
+
+**Across platforms it does, which took a container to find out.** The reading at the time was
+that the ranges were machine-dependent and could only ever be verified by their author. They
+are not: with Pillow, FreeType, numpy and scipy pinned, Linux and Windows agree byte for byte.
+What CI had was different *versions*, because it installed whatever `pip` offered that day.
 
 **Layer 1, everywhere: the manifest.** `provenance.json` is written by the generator and holds
 a SHA-256 for every range plus the font's. This verifies all of them, in both directions -- a
 file that was edited, one that went missing, and one nobody committed. It needs no font stack
 and no rasteriser, so it runs in CI and on any clone.
 
-**Layer 2, where the environment matches: regeneration.** If Python, Pillow, FreeType, numpy
-and scipy are the versions `provenance.json` records, the generator is run and the bytes are
+**Layer 2, where the rasteriser matches: regeneration.** If Pillow, FreeType, numpy and
+scipy are the versions `provenance.json` records, the generator is run and the bytes are
 compared. That is the only thing that proves the files are its *output* rather than merely
 unedited.
+
+**Four versions, not the platform.** Regenerating inside `tools/glyphs.Dockerfile` — Linux,
+Python 3.12 — reproduces byte-for-byte what Windows and Python 3.10 produced, because the
+pinned Pillow, FreeType, numpy and scipy are the same. The 22-of-31 difference that started
+this was CI installing whatever `pip` had that day, not the operating system. Anybody can
+reproduce the ranges by running that container.
 
 **Where the environment does not match, layer 2 is skipped and says so out loud**, naming what
 differs. It does not pass silently: an unverifiable claim reported as verified is the failure
@@ -210,8 +219,20 @@ def main():
             + json.dumps(recorded, sort_keys=True) + ".")
         return 0
 
+    # <b>The four that decide the bytes, and not the two that do not — D-193.</b> This
+    # compared every recorded field, including `python` and `system`, on the belief that the
+    # ranges were platform-dependent. Measured 2026-08-27 by regenerating inside a container
+    # with the versions pinned: **Windows/Python 3.10 and Linux/Python 3.12 produce
+    # byte-identical ranges** when Pillow, FreeType, numpy and scipy match. So the platform
+    # was never the variable; CI's `pip install numpy pillow scipy` fetching whatever was
+    # current was. Comparing the platform refused to verify runs that would have verified.
+    #
+    # `python` and `system` are still recorded, because a difference in the bytes with these
+    # four equal would be a finding and the record is where it would be seen.
+    decides = ("pillow", "freetype", "numpy", "scipy")
+
     differences = sorted(
-        key for key in set(recorded) | set(here) if recorded.get(key) != here.get(key))
+        key for key in decides if recorded.get(key) != here.get(key))
 
     if differences:
         print(

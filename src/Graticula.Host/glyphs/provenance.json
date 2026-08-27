@@ -3,9 +3,9 @@
     "freetype": "2.14.3",
     "numpy": "1.26.4",
     "pillow": "12.2.0",
-    "python": "3.10.10",
+    "python": "3.12.14",
     "scipy": "1.15.3",
-    "system": "Windows"
+    "system": "Linux"
   },
   "font": "DejaVuSans.ttf",
   "fontSha256": "3fdf69cabf06049ea70a00b5919340e2ce1e6d02b0cc3c4b44fb6801bd1e0d22",
