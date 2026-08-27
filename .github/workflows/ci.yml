@@ -464,6 +464,24 @@ jobs:
       - name: status page still generates
         run: python tools/status-page.py docs/status.html
 
+      # <b>ADR-027 condition 3: the checked-in glyph ranges are provably the output of
+      # the checked-in generator.</b> Thirty-one binary files nobody can read are the
+      # worst possible place for a generated artefact to drift from its generator, and
+      # that ADR names the risk in its own words. This regenerates every range from the
+      # checked-in font and compares bytes -- a hash manifest would prove they had not
+      # been edited, which says nothing about whether the generator still produces them.
+      #
+      # <b>Three build-time packages, installed here and nowhere else.</b> They are the
+      # generator's dependencies, not the server's, so they belong in the job that runs
+      # the generator. The check fails rather than skips when they are missing.
+      #
+      # Measured 2026-08-27: 2.8 seconds for 31 ranges and 4306 KB.
+      - name: install the glyph generator's dependencies
+        run: python -m pip install --quiet numpy pillow scipy
+
+      - name: glyph ranges match their generator
+        run: python tools/glyphs-check.py
+
   coverage-gap:
     name: what CI does not cover
     runs-on: ubuntu-latest

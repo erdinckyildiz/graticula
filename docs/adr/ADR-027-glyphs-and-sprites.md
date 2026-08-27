@@ -231,9 +231,29 @@ sheet stops being allowed to be empty.
    sweeping this ADR's conditions; the repository had been public for days with the
    limitation stated only here.)*
 3. **The checked-in ranges are provably the output of the checked-in tool.** A
-   regeneration that changes the bytes should fail something. Today nothing
+   regeneration that changes the bytes should fail something. ~~Today nothing
    notices, and generated artefacts drifting from their generator is a matter of
-   time.
+   time.~~
+   ***(Discharged 2026-08-27 — [tools/glyphs-check.py](../../tools/glyphs-check.py), in
+   CI.)*** **By running the generator, which is the only thing that proves it.** A manifest of
+   hashes was the cheaper option and proves a weaker claim: that the files have not been
+   *edited*, which says nothing about whether the generator would still produce them. This
+   regenerates every range into a temporary directory from the checked-in font and compares
+   the bytes, in **both** directions — a file that is checked in and no longer produced is as
+   much a drift as one that changed, and a range the generator makes and nobody committed is a
+   label that does not draw, which §2's air-gap rule forbids fixing at runtime.
+   **Measured on the first run: 31 ranges, 4306 KB, every one byte-identical**, in 2.8
+   seconds. So the generator is deterministic, which was true and had never been asserted
+   anywhere — the ADR's own §97 named *checked-in binaries drift from their generator* as a
+   risk and nothing in the repository could tell the two apart.
+   **It fails rather than skips when `numpy`, `Pillow` or `scipy` is missing**, and says which
+   and how to install it. They are the generator's dependencies rather than the server's, so
+   CI installs them in the job that runs this and nowhere else. A check that goes green
+   because its subject could not be loaded is worse than no check, and this repository has
+   written that trap four times.
+   **Falsified** by appending one zero byte to `0-255.pbf`: the check names the file, both
+   digests, both sizes and the command that fixes it, and exits 1 — 0 again once the byte is
+   removed.
 4. **The font licence is in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)
    with the text shipped beside the font**, because the Bitstream Vera licence
    requires the notice to travel with the file. *(Discharged — [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries the row and a section explaining why a redistributed font is unlike every other entry, and the licence text sits beside the font at [tools/fonts/LICENSE-DejaVu.txt](../../tools/fonts/LICENSE-DejaVu.txt) — which is what Bitstream Vera requires, since the notice must travel with the file rather than be referenced from elsewhere.)*
