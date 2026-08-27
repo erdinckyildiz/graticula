@@ -223,10 +223,26 @@ public sealed class WfsCiteRepairTests : ArcGisClient
     {
         string layer = await LargeTypeAsync();
 
-        XElement first = XElement.Parse((await GetAsync(
-            Query($"request=GetFeature&typeNames=graticula:{layer}&count=2"))).Body);
+        string firstBody = (await GetAsync(
+            Query($"request=GetFeature&typeNames=graticula:{layer}&count=2"))).Body;
 
-        Assert.NotNull(first.Attribute("next"));
+        XElement first = XElement.Parse(firstBody);
+
+        // <b>The document, when the attribute is missing — D-173's neighbourhood.</b> This
+        // failed once in CI, on 2026-08-27, with `Assert.NotNull() Failure: Value is null`
+        // and nothing else: a `next` that is absent because the server paged wrongly and one
+        // that is absent because the answer is an exception report look identical from an
+        // assertion that only names the attribute. The element's own name settles it in one
+        // word — `FeatureCollection` or `ExceptionReport` — and this suite has spent two days
+        // learning that the next failure has to carry its evidence.
+        Assert.True(
+            first.Attribute("next") is not null,
+            $"The first page of '{layer}' has no 'next' link. The server answered a "
+            + $"<{first.Name.LocalName}> with numberMatched="
+            + $"{(string?)first.Attribute("numberMatched") ?? "absent"}, numberReturned="
+            + $"{(string?)first.Attribute("numberReturned") ?? "absent"}: "
+            + Excerpt(firstBody));
+
         Assert.Null(first.Attribute("previous"));
 
         long matched = long.Parse(
@@ -234,12 +250,18 @@ public sealed class WfsCiteRepairTests : ArcGisClient
 
         Assert.True(matched > 4, $"{layer} has {matched} features and this test needs several.");
 
-        XElement last = XElement.Parse((await GetAsync(
+        string lastBody = (await GetAsync(
             Query($"request=GetFeature&typeNames=graticula:{layer}&count=2"
-                + $"&startIndex={matched - 2}"))).Body);
+                + $"&startIndex={matched - 2}"))).Body;
+
+        XElement last = XElement.Parse(lastBody);
 
         Assert.Null(last.Attribute("next"));
-        Assert.NotNull(last.Attribute("previous"));
+
+        Assert.True(
+            last.Attribute("previous") is not null,
+            $"The last page of '{layer}' has no 'previous' link. The server answered a "
+            + $"<{last.Name.LocalName}>: " + Excerpt(lastBody));
     }
 
     /// <summary>
@@ -442,4 +464,19 @@ public sealed class WfsCiteRepairTests : ArcGisClient
 
         return Task.FromResult(slash < 0 ? type : type[(slash + 1)..]);
     }
+
+    /// <summary>The first of a response, for a failure message.</summary>
+    /// <param name="body">What came back.</param>
+    /// <returns>Enough of it to tell an exception report from a feature collection.</returns>
+    /// <remarks>
+    /// <b>Two hundred characters, on one line.</b> A whole GML document in an assertion
+    /// message is unreadable and a truncation at fifty is what
+    /// [D-173](../../docs/architecture-debt.md) spent a day on: the evidence was past it.
+    /// </remarks>
+    private static string Excerpt(string body) =>
+        body.Length <= 200
+            ? body.Replace("\n", " ", StringComparison.Ordinal)
+                  .Replace("\r", string.Empty, StringComparison.Ordinal)
+            : body[..200].Replace("\n", " ", StringComparison.Ordinal)
+                         .Replace("\r", string.Empty, StringComparison.Ordinal) + "...";
 }
