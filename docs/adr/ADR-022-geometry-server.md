@@ -767,8 +767,17 @@ seconds without any of them waiting ten for a worker.
    on 47 of 50 shapes. **The comparison is the number, and it found two defects
    review had not** — a degenerate first segment in Douglas–Peucker on a closed
    ring, and a collapse floor that resolved ties to one corner and returned a
-   triangle with half the area. `distance` is still refused, now with its own
-   reason rather than the overlay sentence that had been pasted onto it.
+   triangle with half the area. ~~`distance` is still refused, now with its own
+   reason rather than the overlay sentence that had been pasted onto it.~~
+   **Corrected 2026-08-27: `distance` has answered since §2b**, which moved it to NTS's
+   `DistanceOp` on the same day this note was written, and it is in the engine's operation
+   list. Measured on the same run as condition 3: two 2,900-vertex polygons, **30 ms**. The
+   sentence outlived the decision that reversed it by twelve days, in the register entry that
+   records the reversal —
+   [D-130](../architecture-debt.md)'s shape at close range. **What is genuinely left of this
+   condition is the individual numbers for `convexHull`, `generalize` and `densify`**, which
+   were verified against PostGIS for correctness and never timed; the four §2b operations
+   beside them now are.
 3. **The six operations added in §2b have no measured cost profile.** They are
    verified for *correctness* against PostGIS, and bounded by the deadline and
    the heap limit — but nobody has measured what a realistic `buffer` or
@@ -776,6 +785,30 @@ seconds without any of them waiting ten for a worker.
    sized from overlay's numbers alone. A `relation` over two sets of thirty is
    nine hundred comparisons in one worker slot, and that shape did not exist
    when the pool was sized.
+   *(Discharged 2026-08-27 —
+   [benchmarks/geometry-operations/RESULTS.md](../../benchmarks/geometry-operations/RESULTS.md),
+   against real OpenStreetMap polygons out of the 6.5-million-polygon corpus rather than
+   against fixtures. **Four findings, and two of them change how to think about the bound.**
+   **(a) The deadline fires on ordinary input.** Thirty polygons of about 2,900 vertices
+   buffered by 500 metres — a few city blocks — runs past ten seconds and is refused. At 10
+   metres the same thirty cost 4.3 s. So the bound is real rather than a formality, which is
+   what makes it worth having.
+   **(b) The shape this condition singled out is cheap.** *A `relation` over two sets of
+   thirty* is **660 ms** on the largest ordinary band — sixteen times inside the deadline,
+   and less work than one 500-metre buffer over the same shapes, because a predicate can
+   stop early and a buffer cannot.
+   **(c) One enormous polygon is not the expensive case.** The largest polygon in the corpus,
+   **215,488 vertices**, buffers in 3.5 s. Cost is dominated by how many shapes must be
+   dissolved against each other, not by how many vertices one of them has — so a per-geometry
+   vertex cap would not be the control it looks like.
+   **(d) The pool is two, and the wait is not part of the deadline.** Two concurrent expensive
+   requests run at full speed; at eight, two are refused after waiting ten seconds and two are
+   *answered at fifteen*. A caller's worst case is **the wait plus the work**, and two
+   requests arriving in the same millisecond can end up one refused and one served ten seconds
+   later. The server's own refusal says *the wait and the work have separate budgets*; what
+   was missing was anybody having read that as a latency promise and found out it is not one.
+   **What is not settled**: one machine, one corpus, polygons only, and memory unmeasured — the
+   1 GB heap ceiling is still sized from overlay's numbers.)*
 4. **The vertex cap is not validated, only argued.** 500,000 comes from the
    corpus and a JSON size estimate, not from a measurement of what a request at
    that size actually costs this server under concurrency.
