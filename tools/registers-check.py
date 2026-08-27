@@ -1925,6 +1925,97 @@ def a_question_the_status_page_cannot_see():
     return complaints
 
 
+def a_test_a_register_cites_that_is_not_there():
+    """A test name a register row claims, against the tests that exist.
+
+    **A row that names a test is making a claim about the repository**, and it is the
+    kind that decays silently: the test is renamed as part of some later repair, the
+    row goes on naming the old one, and the next reader chasing the evidence finds
+    nothing. D-64 cited `ShapefileReaderTests.A_hole_is_recognised_by_containment_rather_than_winding`
+    for a fortnight after that class became `ShapefileCorpusTests`.
+
+    **Method, not method name, is checked too.** A class that survives a rename while
+    the method inside it is renamed is the same decay one level down, and it is the
+    more common one.
+
+    **External suites are named here on purpose.** The registers cite the OGC CITE
+    engines' own test names -- those are evidence about somebody else's suite and
+    there is nothing in `tests/` for them to match. Each is listed with the engine it
+    belongs to rather than waved through by a pattern, because a pattern would also
+    wave through our own typos.
+    """
+    external = {
+        # ogccite/ets-wfs20, quoted by D-158's re-run.
+        "PropertyIsNilOperatorTests",
+    }
+
+    sources = {}
+
+    for folder, dirs, names in os.walk(os.path.join(conditions.ROOT, "tests")):
+        dirs[:] = [d for d in dirs if d not in ("bin", "obj")]
+
+        for name in names:
+            if name.endswith(".cs"):
+                try:
+                    sources[name[:-3]] = io.open(
+                        os.path.join(folder, name), encoding="utf-8").read()
+                except OSError:
+                    continue
+
+    if not sources:
+        return ["tests/ holds no .cs files, so this check is reading nothing."]
+
+    cited = re.compile(r"`?([A-Z][A-Za-z0-9]*Tests)(?:\.([A-Za-z_][A-Za-z0-9_]*))?`?")
+
+    # <b>A row is allowed to name a test that is gone, if it says it is gone.</b> The
+    # same escape `the_former_product_name` gives the old product name, and for the
+    # same reason: a register that cannot record its own history is worse than one
+    # with a stale name in it. What is refused is a row that cites evidence in the
+    # present tense and sends the reader nowhere.
+    excuses = (
+        "no longer exists", "was renamed", "renamed to", "became ",
+        "used to be", "has been replaced", "no longer a test",
+    )
+
+    problems = []
+    seen = set()
+
+    for register in ("architecture-debt.md", "open-questions.md"):
+        where = os.path.join(conditions.ROOT, "docs", register)
+
+        try:
+            lines = io.open(where, encoding="utf-8").read().splitlines()
+        except OSError:
+            continue
+
+        for number, line in enumerate(lines, 1):
+            if not line.strip().startswith("|"):
+                continue
+
+            flat = " ".join(line.lower().split())
+            excused = any(word in flat for word in excuses)
+
+            for cls, method in cited.findall(line):
+                if (cls, method) in seen or cls in external or excused:
+                    continue
+
+                seen.add((cls, method))
+
+                if cls not in sources:
+                    problems.append(
+                        f"docs/{register}:{number} cites {cls}, which is not a test class in "
+                        "tests/. Either it was renamed and the row was not, or it never "
+                        "existed -- and a row that names evidence nobody can find is worse "
+                        "than one that names none.")
+                elif method and not re.search(rf"\b{re.escape(method)}\b", sources[cls]):
+                    problems.append(
+                        f"docs/{register}:{number} cites {cls}.{method}, and {cls} has no such "
+                        "member. The class survived a rename and the method did not, which is "
+                        "the same decay one level down.")
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -1970,7 +2061,8 @@ def main() -> int:
                 + a_test_project_ci_never_runs()
                 + a_serving_assembly_that_reaches_for_the_network()
                 + source_the_repository_would_not_receive()
-                + a_question_the_status_page_cannot_see())
+                + a_question_the_status_page_cannot_see()
+                + a_test_a_register_cites_that_is_not_there())
 
     if problems:
         for line in problems:
