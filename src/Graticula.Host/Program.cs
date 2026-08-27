@@ -181,6 +181,35 @@ public static class Program
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     ApplicationName = "graticula",
+
+                    /*
+                      <b>Bounded, and [D-196](../../docs/architecture-debt.md) is why.</b>
+                      This pool had no ceiling, so Npgsql's default of 100 applied and it
+                      reached it: measured 2026-08-27 at **129 connections** during the
+                      admission-control test, 100 of them here, against a stock PostgreSQL's
+                      97 usable. The database then refuses everybody with `53300: sorry, too
+                      many clients already`, the source breaker opens, and unrelated requests
+                      answer 503 for ten seconds — eighteen times in one CI run.
+
+                      <b>Twenty-four, from the measurement rather than from taste.</b> The
+                      catalogue lookup this pool serves is 2.16 ms warm and 3.30 ms at
+                      concurrency 32 ([D-30](../../docs/architecture-debt.md)), and the
+                      server's measured peak is 942 requests a second — so the concurrent
+                      demand on it is about **three** connections. Twenty-four is eight times
+                      what has ever been needed, and it leaves the arithmetic inside a
+                      database nobody has configured: 24 here + 64 for
+                      [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)'s
+                      worker budget + 2 for the job pool = **90 of 97**.
+
+                      <b>A ceiling converts the wrong failure into the right one.</b> Without
+                      it, a burst takes the database out for every caller including the ones
+                      that touch no data source. With it, the twenty-fifth concurrent request
+                      waits for a store connection — which is a queue, and ADR-046's whole
+                      argument is that a queue is the thing to bound. The startup check says
+                      whether the sum fits, so a deployment that raises the budget is told
+                      rather than left to find out under load.
+                    */
+                    MaxPoolSize = PlatformStorePool,
                 }.ConnectionString)
                 .Build());
 
@@ -1185,6 +1214,16 @@ public static class Program
     /// rather than as a mistake.
     /// </remarks>
     /// <summary>
+    /// How many connections the platform store's pool may hold — D-196.
+    /// </summary>
+    /// <remarks>
+    /// Eight times the concurrent demand ever measured on it, and small enough that the sum
+    /// of this, the worker budget and the job pool fits inside a PostgreSQL nobody has
+    /// configured. The reasoning is beside the pool it bounds.
+    /// </remarks>
+    private const int PlatformStorePool = 24;
+
+    /// <summary>
     /// The largest number of database connections this server may hold at once.
     /// </summary>
     /// <param name="services">Where the budget lives.</param>
@@ -1207,16 +1246,13 @@ public static class Program
     /// </remarks>
     private static int Ceiling(IServiceProvider services)
     {
-        // Npgsql's default, which is what an unconfigured pool takes.
-        const int NpgsqlDefaultPool = 100;
-
         int budget = services.GetService<ConnectionBudget>() is { } bounded
             ? bounded.Worker
             : 0;
 
         int jobs = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length;
 
-        return NpgsqlDefaultPool + budget + jobs;
+        return PlatformStorePool + budget + jobs;
     }
 
     private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)
