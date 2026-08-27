@@ -224,6 +224,14 @@ release must fill in the supported-versions table these documents leave empty.
    policy names that route first, so a policy pointing at a disabled feature
    would be worse than no policy. *(Documents written 2026-08-15. The GitHub
    setting is the owner's to enable and is not discharged.)*
+   *(**Measured 2026-08-27 and the thing this condition guards against has
+   happened**: the repository's `visibility` is `public` and
+   `private-vulnerability-reporting` reports `{"enabled": false}`, so `SECURITY.md`
+   names a Security-tab button that is not there. Three more switches are off on the
+   same public repository — `secret_scanning`, `secret_scanning_push_protection` and
+   `dependabot_security_updates`. The policy's fallback email keeps it from being a
+   dead end, which is why this is [D-183](../architecture-debt.md) and not an
+   incident. Still the owner's four settings; still not discharged.)*
 2. **The supported-versions table is filled in at the first release**, not left
    saying "there are no versions" in a repository that has some.
 3. **The security contact is confirmed by the owner.** The address in

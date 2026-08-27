@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>12a121d</code> · 2026-08-27 04:06</p>
+<p class="stamp">Generated from commit <code>6ccebe6</code> · 2026-08-27 04:08</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">109/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">88 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">32</div><div class="kpi-l">open questions</div><div class="kpi-n">111 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">open debts</div><div class="kpi-n">155 repaid · 3 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">26</div><div class="kpi-l">open debts</div><div class="kpi-n">155 repaid · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">11/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2056</div><div class="kpi-l">tests</div><div class="kpi-n">244 source files, 94,875 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">117 items</span></div><p><b>88 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>25 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">118 items</span></div><p><b>88 ADR conditions</b> outstanding across 36 decisions — the largest commitment on this page.</p><p><b>26 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -298,6 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-166</td><td>D-60&#x27;s lock serialises the test suites against each other and not against the developer&#x27;s own running server.</td><td class="muted-t">Now, and it is cheap: it costs a diagnosis every time, and the diagnosis looks like a real defect.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-173</td><td>The console suite fails one test per CI run, and it is not the same test.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-180</td><td>A service with Query turned off advertises that it is off and answers queries anyway.</td><td class="muted-t">The first incident where somebody turns Query off to stop a service answering.</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-183</td><td>The repository is public and the first route its security policy names is switched off.</td><td class="muted-t">Already fired: it fires for the first person who reads the policy and looks for the button</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">155 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -406,6 +407,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>6ccebe6</code><time>2026-08-27</time><span>ADR-011 condition 4 discharges: measured against twenty real jobs</span></li>
 <li><code>12a121d</code><time>2026-08-27</time><span>ADR-010 condition 2 discharges: the window is four numbers, not one</span></li>
 <li><code>f7d38ab</code><time>2026-08-27</time><span>ADR-011 condition 3 discharges: the number was only in the code</span></li>
 <li><code>24a68ef</code><time>2026-08-27</time><span>ADR-031 condition 1 discharges: it was met and marked live</span></li>
@@ -419,7 +421,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>0109ae4</code><time>2026-08-27</time><span>D-180 partly repaid: the two faces that have a word for it now refuse</span></li>
 <li><code>bd9da10</code><time>2026-08-27</time><span>D-173: three at once, and they are exactly the deferred scripts</span></li>
 <li><code>74be4ba</code><time>2026-08-27</time><span>D-173: the record carries its own evidence, not just the waits</span></li>
-<li><code>5bc22ad</code><time>2026-08-27</time><span>D-179: the OGC write face was unenforced too, and is now</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
