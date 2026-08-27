@@ -1547,6 +1547,14 @@ def an_answered_question_still_filed_as_open():
         r"^\*{0,2}(ANSWERED|Answered|RESOLVED|Resolved|Re-answered|Re-ANSWERED"
         r"|DISSOLVED|Dissolved|WITHDRAWN|Withdrawn)\b")
 
+    # <b>The same words without the anchor.</b> `verdict` is anchored at the start of the
+    # cell, which is right for an ordinary row and wrong for a struck one — there the
+    # question it no longer is comes first. Using `search` on an anchored pattern silently
+    # behaves like `match`, which is how the widened check passed its own falsification once.
+    inside = re.compile(
+        r"\*{0,2}(ANSWERED|Answered|RESOLVED|Resolved|Re-answered|Re-ANSWERED"
+        r"|DISSOLVED|Dissolved|WITHDRAWN|Withdrawn|CLOSED|Closed)\b")
+
     problems = []
     rows = 0
 
@@ -1556,22 +1564,32 @@ def an_answered_question_still_filed_as_open():
         if len(cells) < 2 or not re.match(r"^Q-\d+$", cells[0]):
             continue
 
-        # A struck question is withdrawn and its shape is settled.
-        if cells[1].startswith("~~"):
+        # <b>A struck question with no verdict beside it is withdrawn, and its shape is
+        # settled.</b> One that is struck *and* answered is a different thing, and this
+        # exemption swallowed seven of them — [D-189](../docs/architecture-debt.md). The
+        # strikethrough says *this is no longer the question*; the verdict says *and here is
+        # the answer*, which is what the Answered section is for.
+        if cells[1].startswith("~~") and not inside.search(cells[1]):
             continue
 
         rows += 1
 
         for which, cell in enumerate(cells[1:], start=1):
-            found = verdict.match(cell)
+            # <b>`match` at the start, or anywhere inside a struck cell.</b> An ordinary
+            # cell opens with its verdict; a struck one opens with the question it no longer
+            # is, and puts the verdict after the second `~~`.
+            found = verdict.match(cell) or (
+                inside.search(cell) if cell.startswith("~~") else None)
+
             if not found:
                 continue
 
             problems.append(
-                f'{cells[0]} is filed under an open heading and its own cell {which} opens '
-                f'"{found.group(1)}". The page classifies by section, so the answer is invisible '
-                "to it and the question is counted as live uncertainty. Move the row into "
-                "Answered; nine had accumulated when this check was written.")
+                f"{cells[0]} is filed under an open heading and its own cell {which} says "
+                f'"{found.group(1)}". The page classifies by section, so the answer is '
+                "invisible to it and the question is counted as live uncertainty. Move the "
+                "row into Answered; nine had accumulated when this check was written, and "
+                "seven more when its strikethrough exemption was narrowed (D-189).")
             break
 
     if rows < 30:
