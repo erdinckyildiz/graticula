@@ -131,6 +131,11 @@ recorded rather than absorbed.
 
 **Ports created.** None.
 
+**State.** *Catalogue*: none. A portal *item* is a projection of a service row — its
+id, its type and its URL are derived, not stored — which is exactly what condition 2 asserts.
+*Runtime*: none. The three token endpoints share one **session** store, and sessions are
+[ADR-015](ADR-015-authentication.md)'s catalogue state rather than this decision's.
+
 ## 6. Conditions
 
 1. **DISCHARGED 2026-08-20. ArcGIS Pro connects, browses and adds.** It signs in as `root`, lists

@@ -159,6 +159,10 @@ notice rather than a thing to be relaxed about.
 **Ports created.** None. `TilingScheme` is Tier 1 arithmetic in `Graticula.Core`, with no
 library type in any signature.
 
+**State.** *Catalogue*: none. *Runtime*: none. A tiling scheme is arithmetic over
+the coverage's reference and extent, computed when a document asks for it — which is why
+`singleFusedMapCache` stays false: there is no stored cache for it to describe.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

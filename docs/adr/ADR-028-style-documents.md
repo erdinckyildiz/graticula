@@ -193,6 +193,11 @@ by a column constraint so a second writer cannot bypass it.
 
 **Ports created.** None.
 
+**State.** *Catalogue*: **one style document per service**, stored as text with a
+size check constraint rather than as `jsonb`, so it comes back byte for byte. That is the only
+thing this decision stores, and condition 2 is about it becoming more than one. *Runtime*:
+none.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

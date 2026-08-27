@@ -147,6 +147,13 @@ zero — but the cost of *reversing* Q-67 has gone up, and this ADR is part of w
 
 ---
 
+**State.** *Catalogue*: none. A tile is derived from a layer that is already in the
+catalogue and adds nothing to it. *Runtime*: nothing held between requests — the encoder is a
+function of the tile's bounds and the rows it reads. The **cache** a tile goes into is
+[ADR-010](ADR-010-caching.md)'s and is **node-local** on disk
+([ADR-029](ADR-029-affinity-routing-is-not-the-default.md) condition 3), which is why two nodes
+mean two caches rather than a coherence problem.
+
 ## 6. Alternatives rejected
 
 | | Why not |

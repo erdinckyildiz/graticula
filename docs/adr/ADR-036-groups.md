@@ -725,6 +725,12 @@ unrecognised — clients outlive settings.
 - **Studio gains a Groups screen**, per ADR-034 §6.
 - **`groups:shareTo` becomes enforceable**, which it was not when ADR-035 defined it.
 
+**State.** *Catalogue*: **groups, their membership, what is shared with them, and
+each group's settings** — visibility, join policy, contributor policy and the delete lock. Also
+the `item_update` flag, fixed at creation. Every one of these decides who may read something, so
+none of it can be runtime. *Runtime*: a caller's group set is resolved per request and held only
+for that request.
+
 ## 6. Conditions
 
 1. **DISCHARGED 2026-08-18**, measured in §4d: 404 / 404 / 200 / 200 across anonymous,

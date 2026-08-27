@@ -226,6 +226,12 @@ node-local tile cache; condition 3.
 
 **Ports created.** None. This removes a design, it does not add one.
 
+**State.** *Catalogue*: none. *Runtime*: this decision is largely about runtime state
+and where it lives — a service context is bound in the worker that serves the request and is
+**node-local**, as is the tile cache, which is condition 3's whole point. Nothing here is
+shared, and nothing needs to be: two nodes running this design hold two independent sets of the
+same derived things.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

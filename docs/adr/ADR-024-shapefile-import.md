@@ -140,6 +140,11 @@ database silently.
 
 **Ports created.** None. `System.IO.Compression` is base class library.
 
+**State.** *Catalogue*: none of its own. An import creates layers, and a layer is
+[ADR-002](ADR-002-primary-data-architecture.md)'s state. *Runtime*: the **extraction directory**,
+node-local scratch, bounded by `ArchiveLimits` and cleaned whether the import succeeds or fails.
+Nothing in it outlives the job, which is why it is not under `StatePath`.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

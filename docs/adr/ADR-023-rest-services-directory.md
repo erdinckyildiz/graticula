@@ -414,6 +414,11 @@ because `GET` is the only verb the cookie authenticates.
 **Ports created.** None. No Tier 2 dependency is adopted; the renderer is
 `StringBuilder` and `System.Text.Json`.
 
+**State.** *Catalogue*: none. Every page renders a document the API already serves —
+that is §5's rule, and it is what keeps the two from disagreeing. *Runtime*: none. The sign-in
+form issues a **session**, and a session is [ADR-015](ADR-015-authentication.md)'s state, held
+in the platform store rather than in this process.
+
 ## 6a. The boundary with the console — added 2026-08-27
 
 Condition 4 asks for this, and it is written now rather than at the moment the console

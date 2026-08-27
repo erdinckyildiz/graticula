@@ -187,6 +187,10 @@ Scope creep by imitation is a live risk.
 **Conditions.** Three, in §11 — where [tools/conditions.py](../../tools/conditions.py)
 can find them.
 
+**State.** None. This decision governs what may be read and what must be disclosed;
+it stores nothing and remembers nothing. The **reading log** is a document in this repository,
+not state of the running server.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

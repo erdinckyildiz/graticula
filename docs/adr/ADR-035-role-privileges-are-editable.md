@@ -314,6 +314,12 @@ is that *"0 errors"* from a filtered build log is not a build result.
   migration case is exactly this.
 - **Fourteen privilege names become a contract.** §2's three consequences.
 
+**State.** *Catalogue*: **roles, what each role grants, and which role each
+principal holds** — three tables, seeded so a fresh install has the eighteen privileges and the
+five roles, and editable per deployment thereafter. All of it is catalogue by definition: an
+authorization decision that is not the same on every node is not an authorization decision.
+*Runtime*: none; a caller's authorization is resolved per request from the store.
+
 ## 6. Conditions
 
 1. **DISCHARGED 2026-08-18.** **The seed is asserted to reproduce today's grants exactly**, role by

@@ -173,6 +173,9 @@ it appears. The accurate phrase is **source-available**.
   contribution mechanism of its own. [ADR-025](ADR-025-governance-and-maintenance.md)
   owns that and it is not answered here.
 
+**State.** None. A licence is a fact about the repository, not about the running
+server; nothing stores it and nothing reads it at runtime.
+
 ## 7. Conditions
 
 1. **Every claim that this project is Apache-2.0 or open source is corrected before the

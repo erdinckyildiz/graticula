@@ -185,6 +185,9 @@ rather than left to be inferred.
 
 **Ports created.** None.
 
+**State.** None, in either sense. This decision is about documents and about what
+this project promises; it stores nothing and remembers nothing.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

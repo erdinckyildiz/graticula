@@ -811,6 +811,11 @@ items navigable.
   it.
 - **Q-112 (groups)**, when answered, lands in Studio.
 
+**State.** *Catalogue*: none. The split is a **path and a privilege check**: which
+surface a reader gets is decided from the grants they already hold, so nothing new is stored and
+an operator who changes a role changes what they see on the next request. *Runtime*: none.
+`Graticula:MapSdkUrl` is configuration read at startup, which is neither.
+
 ## 7. Conditions
 
 1. **No screen appears that its reader cannot use**, asserted by a test that signs in without

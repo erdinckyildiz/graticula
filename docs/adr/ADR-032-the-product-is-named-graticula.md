@@ -151,6 +151,10 @@ the same fact.
   README currently says Apache-2.0 while CLAUDE.md §7 says copyleft is acceptable; that
   contradiction is older than this ADR and is not resolved by it.
 
+**State.** None. A name is not state. The two places the former working title
+survives — the `GisServer:*` configuration keys and the default `gisserver` schema — are read
+from configuration and from a connection string, and neither is something this server stores.
+
 ## 7. Conditions
 
 1. **Layer 3 lands as one commit that changes no behaviour**, proven by the full suite

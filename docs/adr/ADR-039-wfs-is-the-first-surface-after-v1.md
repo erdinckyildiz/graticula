@@ -248,6 +248,10 @@ stand at FAIL, which is the cost §1 records the owner accepting.
 **Ports created.** None. No Tier 2 dependency is adopted: `System.Xml` is the base library, and GML
 is written from `Graticula.Geometries` types rather than from a geometry library.
 
+**State.** *Catalogue*: none. WFS is a second face over the services the catalogue
+already holds, and a layer is advertised through it because of its sharing scope rather than
+because of anything WFS stores. *Runtime*: none.
+
 ## 6b. The suite re-run, 2026-08-21: 297 of 391 became 405 of 420
 
 **§6 above records a number and not a breakdown, and that was the whole problem.** The

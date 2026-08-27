@@ -241,6 +241,10 @@ derived rather than typed, and reversible in one line per class.
 - The announcement is a convention, not a mechanism. Nothing fails if somebody
   adds an exclusion without one.
 
+**State.** None. This decision is about which suites CI runs. The `Needs` trait it
+adds is metadata on tests, and the artefacts a real-corpus run would need are not held anywhere
+this server can see.
+
 ## 7. Conditions
 
 1. **A second exclusion reopens this.** One is a decision; two is a pattern, and a

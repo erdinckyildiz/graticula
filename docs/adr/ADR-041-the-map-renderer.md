@@ -337,6 +337,13 @@ recorded, taken a third time, and recorded rather than absorbed.
 
 **Ports created.** One: the drawing surface, in `Graticula.Core/Cartography`.
 
+**State.** *Catalogue*: none. A drawn map is derived from a layer and its style.
+*Runtime*: the **remembered time extent** per layer, five minutes, on `ServiceContexts` — a
+temporal capabilities document costs a query and would otherwise cost one per request. Per
+process and **node-local**, and safe to be stale in a way sharing is not: a time extent that is
+five minutes old draws a map five minutes out of date, which is a different class of wrong from
+an authorization decision that is.
+
 ## 7. Conditions
 
 1. **DISCHARGED 2026-08-20.** [benchmarks/map-rendering](../../benchmarks/map-rendering/RESULTS.md):

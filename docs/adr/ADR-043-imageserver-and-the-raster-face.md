@@ -163,6 +163,12 @@ and it is why WMS and MapServer get raster for free once this lands.
   tiles; a rendered raster is expensive in a different way and its invalidation is not
   the same question.
 
+**State.** *Catalogue*: **coverages** — a registered raster's path, the header facts
+read once at registration, its sharing scope and its status. The pixels stay where they are and
+are never copied, which is §3.3's decision, so what is stored is a reference and a description
+rather than data. *Runtime*: the reader opens the file per request and holds nothing between
+them.
+
 ## 5. Conditions
 
 1. **A real ArcGIS client opens an ImageServer published here and draws it.** Not our

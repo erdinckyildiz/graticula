@@ -242,6 +242,13 @@ have said had it considered two servers over one store.
 
 **Ports created.** None. `CatalogFallback` wraps our own catalogue.
 
+**State.** *Catalogue*: none — it reads the catalogue and writes nothing to it.
+*Runtime*: the **remembered catalogue entries**, and they are the whole subject. Per worker
+process and therefore **node-local**; bounded at 4,096 entries and dropped whole rather than
+evicted cleverly; never authoritative — while blind, only a remembered `Public` scope is
+honoured, because that is the one stale value being wrong about costs nothing that was not
+already given away.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

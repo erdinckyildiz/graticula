@@ -2016,6 +2016,63 @@ def a_test_a_register_cites_that_is_not_there():
     return problems
 
 
+def an_adr_that_does_not_say_where_its_state_lives():
+    """Every ADR after 019 inventories its own state, catalogue against runtime.
+
+    Why this is a check
+    -------------------
+    [ADR-012](../docs/adr/ADR-012-clustering.md) is deferred, and the one thing it
+    requires while deferred is that *every other ADR must state which of its state is
+    node-local and which is shared* -- because "that inventory is the real precondition
+    for clustering, and collecting it late is expensive". ADR-019 condition 3 extends it
+    to the axis that matters before any of that: catalogue against runtime.
+
+    **Measured 2026-08-27: 1 of 29 subsequent ADRs said anything at all**, and that one
+    was ADR-029 mentioning node-local about the tile cache in passing. Twenty-nine
+    decisions had been taken without the inventory either of them asks for, and nothing
+    noticed, because a requirement written in one ADR's prose is a requirement nobody
+    reads twice. The backlog was written the same day; this is what stops it coming
+    back.
+
+    What it does not check
+    ----------------------
+    **Whether the sentence is true.** A line reading `**State.** None.` on an ADR that
+    adds a table would pass, and no reasonable check catches that. What this buys is that
+    the question is asked at all -- which, at 1 of 29, was the whole failure.
+
+    ADR-019 and below are exempt: the condition says *every subsequent ADR*, and the
+    inventory for the earlier ones lives in ADR-002 §5 and ADR-012 itself.
+    """
+    problems = []
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        try:
+            number = int(name[4:7])
+        except ValueError:
+            continue
+
+        if number <= 19:
+            continue
+
+        path = os.path.join(conditions.ADRS, name)
+        text = io.open(path, encoding="utf-8").read()
+
+        if "**State.**" in text:
+            continue
+
+        problems.append(
+            f"docs/adr/{name} does not say where its state lives. ADR-019 condition 3 and "
+            "ADR-012 both ask for it: one **State.** line in Consequences, saying what this "
+            "decision puts in the catalogue and what it holds at runtime -- and node-local "
+            "against shared where they differ. 'None' is a complete answer for a decision "
+            "that stores nothing, and most of them do.")
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -2062,7 +2119,8 @@ def main() -> int:
                 + a_serving_assembly_that_reaches_for_the_network()
                 + source_the_repository_would_not_receive()
                 + a_question_the_status_page_cannot_see()
-                + a_test_a_register_cites_that_is_not_there())
+                + a_test_a_register_cites_that_is_not_there()
+                + an_adr_that_does_not_say_where_its_state_lives())
 
     if problems:
         for line in problems:

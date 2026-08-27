@@ -180,6 +180,10 @@ what `IJobStore` refuses. The job's detail carries, per layer, whether it landed
   is for; only the features say what is in it, which is why the count is reported per layer and not
   derived from the declaration.
 
+**State.** *Catalogue*: the layers an import creates, and the job row that records
+it ([ADR-037](ADR-037-job-workers-come-in-two-kinds.md)'s). *Runtime*: the **scratch directory**
+the archive is read from, node-local and bounded, holding nothing after the job either way.
+
 ## 7. Conditions
 
 **Measured 2026-08-19 against all three of the owner's archives**, end to end through the endpoint, the

@@ -180,6 +180,11 @@ both keys and still serves tiles.
 
 **Ports created.** None. `System.IO` and files.
 
+**State.** *Catalogue*: none. The glyph ranges are **checked-in files** served from
+disk, and the sprite sheet is a stub; nothing about them is per deployment, which is why a
+deployment that needs another script regenerates the files rather than configuring anything.
+*Runtime*: none — a range is read and written out.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

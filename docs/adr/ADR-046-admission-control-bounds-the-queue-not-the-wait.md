@@ -212,6 +212,12 @@ cannot report. That is a debt this ADR creates deliberately rather than a gap it
 
 **Ports created.** None. `ConnectionBudget` is already the seam.
 
+**State.** *Catalogue*: none. *Runtime*: the **per-source permits and waiter
+counts**, per worker process and therefore **node-local** — which is a real limit of this
+design and is stated rather than hidden: the budget bounds what one worker does to a database,
+and two workers can still do twice that. Nothing here survives a restart, and nothing needs
+to.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

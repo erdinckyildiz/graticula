@@ -373,6 +373,13 @@ looks symmetrical.
   [A-077](../architecture-assumptions.md) still lists their absence against the model's
   sufficiency.
 
+**State.** *Catalogue*: **a MapLibre style document on the layer**, and the
+per-service style [ADR-028](ADR-028-style-documents.md) already had; both text, both with a size check
+constraint rather than a C# guard, because §7's fifth condition asks for the bound to be the
+database's. *Runtime*: the derived `drawingInfo` and tile style are computed per request from
+that one document — deliberately not held, so the three faces cannot drift apart by caching it
+separately.
+
 ## 7. Conditions
 
 1. **The generated default is computed once and consumed by all three faces**, asserted

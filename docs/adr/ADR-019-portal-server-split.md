@@ -254,6 +254,30 @@ slotting into it — and it is **Q-93**, not this ADR.
    number, and that is what these carry.
 3. **Every subsequent ADR states which of its state is catalogue and which is
    runtime**, extending ADR-012's existing inventory requirement.
+   *(Discharged 2026-08-27, and it was **1 of 29** when it was measured.* Of the
+   twenty-nine ADRs written after this one, exactly one — ADR-029 — said anything about
+   where its state lives, and that was *node-local* about the tile cache in passing.
+   Twenty-nine decisions had been taken without the inventory this condition and
+   [ADR-012](ADR-012-clustering.md) both ask for, and nothing noticed, because **a
+   requirement written in one ADR's prose is a requirement nobody reads twice**. That is
+   [D-130](../architecture-debt.md)'s shape applied to a rule rather than to a fact.
+   All twenty-nine now carry a **`**State.**`** line at the end of their Consequences,
+   saying what the decision puts in the catalogue and what it holds at runtime, with
+   node-local against shared where they differ. **Most of them store nothing**, and
+   saying so is the point. Counted: **twelve of the twenty-nine hold no state at all** —
+   five say *None* outright and seven say it on both axes — and **six more put nothing in
+   the catalogue** and hold only a node-local cache. Eleven store something. That
+   distribution is a fact about this design worth being able to see, and nobody could
+   have seen it before today. The ones that do —
+   groups, roles, jobs, coverages, styles, the two log tables, the capability ceiling —
+   are all catalogue, and the runtime side is almost entirely node-local caches whose
+   whole safety argument is that being stale about them costs nothing.
+   **And it is checked now**, by `registers-check.py`: an ADR after 019 with no `**State.**`
+   line fails the build. What the check cannot do is decide whether the sentence is *true* —
+   `**State.** None.` on an ADR that adds a table would pass — and that is stated in the
+   check's own docstring rather than left to be discovered. What it buys is that the
+   question gets asked, which at 1 of 29 was the whole failure. **Falsified** by deleting
+   ADR-044's line: the check names the file and passes when it is put back.)*
 
 ## 9. Assumptions
 

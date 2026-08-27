@@ -172,6 +172,13 @@ somebody will get wrong.
 interfaces in `Graticula.Platform` with the Postgres implementations beside the existing
 audit one, so the store is replaceable on the same terms as the rest of the platform.
 
+**State.** *Catalogue*: **two tables** — the request log and the audit trail — with a
+retention cap this ADR states as a number, swept rather than allowed to grow. Both are catalogue
+because the question they answer is *what happened on this deployment*, not on this node.
+*Runtime*: a **bounded in-process queue** in front of each, node-local, whose drops are counted
+and shown, because a log that silently loses records under load is worse than one that says how
+many it lost.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

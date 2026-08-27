@@ -288,6 +288,11 @@ connection.
   would report a database that is genuinely down as a slow query, which is worse because it
   reassures.
 
+**State.** *Catalogue*: two columns on the service row — the **capability ceiling**
+and the **statement timeout** a service may lower to. Both are per service and per deployment,
+so both belong in the store rather than in configuration. *Runtime*: none; the ceiling is read
+with the service on the request that needs it.
+
 ## 4. Conditions
 
 1. **The intersection is tested for the direction that matters** — that a configured

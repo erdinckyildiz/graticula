@@ -291,6 +291,14 @@ into the importer's feature stream; **no Parquet or Arrow library type may appea
 signature**, which is the ordinary rule and is restated because a columnar reader is exactly the kind of
 dependency that leaks.
 
+**State.** *Catalogue*: **the job table** — a job's kind, its status, its detail and
+its timestamps — so that long work can be asked about after the request that started it has
+gone. [ADR-011](ADR-011-job-system.md) condition 4 keeps payloads out of it, and that
+condition is discharged with the measurement: every `detail` on a real store is 36 bytes or
+fewer. *Runtime*: the **worker pool and its pollers**,
+per process and therefore **node-local**; a worker holds a claim while it works and the claim is
+in the store, so a node that dies does not take the job with it.
+
 ## 7. Conditions
 
 1. **DISCHARGED 2026-08-19.** **The rule that separates the two kinds is written where a worker is

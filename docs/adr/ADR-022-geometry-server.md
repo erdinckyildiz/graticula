@@ -677,6 +677,12 @@ that is how a planar answer comes back labelled geodesic.
   becoming a pattern worth naming: a refusal that cites a measurement is a
   design record a client can read.
 
+**State.** *Catalogue*: the geometry service is a **service row** like any other, so
+that it can be shared and stopped like any other — the migration that made services separable
+from layers exists for it. It holds no data of its own. *Runtime*: the overlay workers, their
+queue and the deadline that bounds them, all per worker process and therefore **node-local**;
+nothing survives the request that created it.
+
 ## 9. Q-97 answered — overlay ships, in a process that can be killed
 
 **Owner's choice, taken 2026-08-15: worker process plus pre-flight.**

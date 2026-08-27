@@ -967,6 +967,12 @@ it. A screen that says *success* throws that away.
 
 ---
 
+**State.** *Catalogue*: a service's **started/stopped status**, a column on the service row
+(§3) — so an operator's stop survives a restart and is the same on every node, which is the
+whole reason it is not a runtime flag. *Runtime*: none of its own. The console holds a token in
+the browser's `sessionStorage` and nothing on the server; every screen it draws is a document
+the admin API already answers.
+
 ## 7. Deliberately not in this version
 
 - **An audit viewer.** The rows exist and the endpoint does not. It is the

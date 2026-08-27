@@ -304,6 +304,11 @@ condition 2 wants the conformance list generated rather than hand-maintained —
 live and unmet**, which is a deferral doing its job rather than quietly becoming a
 retraction.
 
+**State.** *Catalogue*: none. Collections are the catalogue's services under another
+name, filtered by the same sharing evaluation. *Runtime*: none. The write surface §5b added goes
+through the same `IFeatureWriter` as ArcGIS `applyEdits`, so it stores what a layer stores and
+nothing beside it.
+
 ## 7. Conditions
 
 1. **DISCHARGED 2026-08-20. `OgcFeaturesConformanceTests`, eighteen tests against
