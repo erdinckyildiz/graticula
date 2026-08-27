@@ -3373,7 +3373,6 @@ public static class Program
         int layerId,
         CatalogFallback catalog,
         ServiceContexts contexts,
-        IAuditLog audit,
         ILoggerFactory loggerFactory,
         HostSettings settings,
         IProjector projector,
@@ -3396,8 +3395,9 @@ public static class Program
         // and applyEdits redirected; query, the most-used of the three, served
         // happily from the wrong folder. A conformance test caught it. The
         // divergence was justified at the time by its refusals differing, and
-        // they do not: the audit below needs the *reason*, not a different set
-        // of answers, and the reason is a pure function of what we already have.
+        // they do not. The justification used to end *the audit below needs the
+        // reason*; the audit moved into the resolver on 2026-08-27, so what is
+        // left is a handler that resolves like every other one.
         PublishedLayer? layer = await ServiceLookup
             .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);
@@ -3424,31 +3424,16 @@ public static class Program
             return;
         }
 
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        // <b>A layer's scope comes from its service and so do its groups.</b> `layer.Sharing` is
-        // what the catalogue read off the owning service row (migration 11), and `SharedWith` is the
-        // same service's group shares — the layer table carries neither.
-        LayerAccess.Reason reason = LayerAccess.Evaluate(
-            layer.Sharing, layer.Owner, current.Principal, current.Authorization, layer.SharedWith);
-
-        if (reason == LayerAccess.Reason.AdministrativeOverride)
-        {
-            // ADR-018 condition 3. An administrator reading a private layer is
-            // legitimate and must leave a record, or the sharing model is
-            // decorative.
-            await audit.RecordAsync(
-                new AuditEvent(
-                    current.Principal.Id,
-                    current.Principal.Name,
-                    CallerAddress.Of(context)?.ToString(),
-                    "layer.read.override",
-                    $"{serviceName}/{layerId}",
-                    SharingDetail(layer.Sharing),
-                    Succeeded: true),
-                cancellation).ConfigureAwait(false);
-        }
-
+        // <b>The override record used to be written here, and only here.</b> ADR-018
+        // condition 3 asks that reading under <c>admin:viewAllContent</c> leaves a record. This
+        // handler wrote one — re-evaluating the layer's sharing to get the reason — and the other
+        // faces that serve the same data wrote nothing, so the condition was met on the one
+        // surface a test could have been written against and unmet everywhere else. Measured
+        // 2026-08-27: a second administrator read a private service's FeatureServer document and
+        // the audit log gained no row. It now belongs to <see cref="SharingAudit"/>, called from
+        // the two resolvers every face goes through, and <see cref="ServiceLookup.LayerAsync"/>
+        // has written it before this line runs. Keeping both would record every administrator's
+        // query twice, and the second evaluation is gone with it.
         if (!layer.Definition.HasIntegerIdentity)
         {
             await Results.Json(

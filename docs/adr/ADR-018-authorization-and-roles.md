@@ -527,6 +527,17 @@ divergence a breaking change to our core.
 3. **`admin:viewAllContent` is auditable.** An administrator reading a private
    layer is legitimate and must leave a record, or the sharing model is
    decorative.
+   *(Discharged 2026-08-27, and it took a repair rather than a note —
+   [D-184](../architecture-debt.md). **It read as met and was met on one route out
+   of twenty-odd**: the record was written in the FeatureServer `query` handler, and
+   a second administrator reading the same private service's FeatureServer *document*
+   was answered 200 with nothing recorded. Measured before the repair, on a running
+   server. `SharingAudit.RecordOverrideAsync` now writes `content.read.override` from
+   the two resolvers every face passes through, and `OverrideIsRecordedTests` asserts
+   it from outside — both directions, because a row written on every read would
+   satisfy the first assertion and answer nothing. The condition's own sentence is
+   what makes this the shape of finding worth the repair: **the record is the entire
+   reason the privilege is safe to hold.**)*
 4. **The upgrade is walked on a store that already has layers**, and the
    operator is told that existing layers became private. Silently privatising
    somebody's published data is a worse regression than the closed default was.

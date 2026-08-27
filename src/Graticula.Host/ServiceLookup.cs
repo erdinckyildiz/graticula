@@ -292,18 +292,18 @@ internal static class ServiceLookup
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        if (!LayerAccess
-            .Evaluate(
-                service.Sharing,
-                service.Owner,
-                current.Principal,
-                current.Authorization,
+        LayerAccess.Reason reason = LayerAccess.Evaluate(
+            service.Sharing,
+            service.Owner,
+            current.Principal,
+            current.Authorization,
 
-                // ADR-036: which groups this service is shared with. Read from the catalogue with
-                // the service, so the decision costs no round trip — and consulted only when the
-                // scope is `group`.
-                service.SharedWith)
-            .IsAllowed())
+            // ADR-036: which groups this service is shared with. Read from the catalogue with
+            // the service, so the decision costs no round trip — and consulted only when the
+            // scope is `group`.
+            service.SharedWith);
+
+        if (!reason.IsAllowed())
         {
             if (!quiet)
             {
@@ -311,6 +311,21 @@ internal static class ServiceLookup
             }
 
             return false;
+        }
+
+        // <b>The reason is kept, not discarded — ADR-018 condition 3.</b> This method asked
+        // <c>IsAllowed()</c> and threw the reason away, so the one answer that has to be visible
+        // afterwards — <em>you saw this because you may see everything</em> — was the one nothing
+        // recorded. Written here because every face resolves through this method, which is the
+        // same argument the request deadline below is wired here on.
+        //
+        // <b>Not on the quiet path</b>, which is the folder probe above: it decides whether to
+        // redirect, and the redirected request comes back through here and records itself.
+        if (!quiet && reason == LayerAccess.Reason.AdministrativeOverride)
+        {
+            await SharingAudit
+                .RecordOverrideAsync(context, service.QualifiedName, service.Sharing)
+                .ConfigureAwait(false);
         }
 
         if (!service.IsRunning)

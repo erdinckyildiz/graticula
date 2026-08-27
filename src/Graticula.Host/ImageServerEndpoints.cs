@@ -1263,12 +1263,12 @@ internal static class ImageServerEndpoints
         RequestPrincipal principal = context.Features.Get<RequestPrincipal>()
             ?? new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing);
 
-        bool visible = coverage is not null
-            && LayerAccess.Evaluate(
-                coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization)
-                .IsAllowed();
+        LayerAccess.Reason reason = coverage is null
+            ? LayerAccess.Reason.Denied
+            : LayerAccess.Evaluate(
+                coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization);
 
-        if (!visible)
+        if (!reason.IsAllowed())
         {
             await RefuseAsync(
                 context,
@@ -1279,6 +1279,16 @@ internal static class ImageServerEndpoints
                 .ConfigureAwait(false);
 
             return null;
+        }
+
+        // <b>ADR-018 condition 3, for the face that does not resolve through
+        // <see cref="ServiceLookup"/>.</b> A coverage carries its own catalogue, so the record
+        // the service resolver writes would never be written for an image service without this.
+        if (reason == LayerAccess.Reason.AdministrativeOverride)
+        {
+            await SharingAudit
+                .RecordOverrideAsync(context, coverage!.QualifiedName, coverage.Sharing)
+                .ConfigureAwait(false);
         }
 
         /*
