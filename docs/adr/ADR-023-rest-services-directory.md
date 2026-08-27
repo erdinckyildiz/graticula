@@ -414,6 +414,45 @@ because `GET` is the only verb the cookie authenticates.
 **Ports created.** None. No Tier 2 dependency is adopted; the renderer is
 `StringBuilder` and `System.Text.Json`.
 
+## 6a. The boundary with the console — added 2026-08-27
+
+Condition 4 asks for this, and it is written now rather than at the moment the console
+overlapped, because it already has: [ADR-034](ADR-034-server-and-studio.md) split the console
+into **Server** and **Studio**, and Studio lists content — which is the job a reader would say
+this directory already does.
+
+**The line is not a policy anybody has to remember. It is a mechanism, and §4c is where it came
+from.** The cookie this directory issues authenticates `GET` and `HEAD` and nothing else, so a
+browser holding one can read every document it is entitled to and cannot change anything. Every
+mutation needs a bearer header, which is what the console keeps in `sessionStorage`. So:
+
+- **The directory reads. The console writes.** Not by agreement — by the only credential each
+  surface has. A write control added to a directory page would not work, which is the property
+  §4c bought and the reason it cost a `415` and a phishing check to keep.
+- **The directory renders documents the API already serves, and adds nothing.** That is §5's
+  render-the-serialised-document rule, and it makes the overlap harmless rather than duplicated:
+  every page here is a second exit from one document, so it cannot disagree with the API without
+  a test failing.
+- **The console shows what the API cannot say.** Job progress, the request log, roles and groups,
+  a data source's connection state, a member's holdings — none of these is an ArcGIS document,
+  and none of them belongs in a directory an ArcGIS client walks.
+
+**The listings overlap deliberately, and they are answering different questions.** This
+directory lists *what is published here that you may see*, filtered by sharing and answerable
+anonymously — the *paste the server URL and see what is on it* case §1 exists for. Studio's
+listing answers *what is mine and what was shared with me*, which needs a signed-in caller by
+construction and is a different set even for the same person. ADR-034 §5f built the second one
+rather than reusing `/admin/layers`, for exactly this reason: they are not the same list.
+
+**What this forbids.** A write surface on a directory page — the deliberate asymmetry has to
+stay visible to the surface that lives with it, which is what §4c's episode taught. And a
+directory page that shows state no document carries, because that is the console's job and the
+moment this becomes a second console rather than a second exit.
+
+**What stays open.** §9's revisit trigger is unchanged: if the console ever reaches feature
+parity with this directory, keeping both needs an argument. This section says which jobs are
+whose today; it does not promise the answer stays two surfaces.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |
@@ -458,6 +497,16 @@ which job needs stating before both grow.
 4. **The relationship with [ADR-020](ADR-020-admin-console-and-service-status.md)
    is stated** before the console ships anything that overlaps this directory.
    Two browsable surfaces with no boundary is how both end up half-built.
+   *(Discharged 2026-08-27 — §6a, and it is **late**: the overlap it was to precede
+   already happened when [ADR-034](ADR-034-server-and-studio.md) gave Studio a content
+   listing. That is stated in §6a rather than glossed. What the section says is that the
+   boundary is a **mechanism rather than an agreement** — the directory's cookie
+   authenticates `GET` and `HEAD` only, so the directory reads and the console writes by
+   the only credential each has, which is §4c's property being spent rather than a new
+   rule. The two listings overlap deliberately and answer different questions: *what is
+   published here that you may see*, anonymously, against *what is mine and what was
+   shared with me*, which ADR-034 §5f built separately for that reason. §9's revisit
+   trigger is unchanged.)*
 5. **The conformance suite's sign-in stays optional and stays off by default**,
    so that "is this resource public?" remains a question the suite can answer.
 6. **The cookie never becomes a general credential.** It authenticates `GET` and
