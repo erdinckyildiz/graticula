@@ -812,6 +812,24 @@ seconds without any of them waiting ten for a worker.
 4. **The vertex cap is not validated, only argued.** 500,000 comes from the
    corpus and a JSON size estimate, not from a measurement of what a request at
    that size actually costs this server under concurrency.
+   *(Discharged 2026-08-27 —
+   [benchmarks/geometry-operations/RESULTS.md](../../benchmarks/geometry-operations/RESULTS.md),
+   and **the measurement says the cap is unreachable**. The ten-second work deadline
+   refuses a `simplify` at about **half** the cap and a `buffer` at about **a quarter** of
+   it, so no request the cap would refuse gets far enough for the cap to be what refuses
+   it. The cap is not wrong; it is not the binding constraint, and until now nobody knew
+   which was.
+   **The size estimate it rests on is low by 60%.** §7 reasons about *"about 12 MB of
+   JSON"* at 500,000 vertices; measured, that is **19.0 MB** of JSON and a **22.9 MB**
+   urlencoded body — against Kestrel's 30 MB default, much less headroom than the note
+   implies, which is [D-148](../architecture-debt.md)'s territory.
+   **And a refusal at that size is expensive**, which is the concurrency half this
+   condition asked for: refusing on the *first* malformed shape of a 22.9 MB body costs
+   **4.3 s**, the same as refusing on the last, because the whole body is read and its
+   JSON materialised before any geometry is looked at — so the vertex count being
+   incremental buys nothing. Four callers at that size take **11–12 s each** and all are
+   refused. That is [D-188](../architecture-debt.md), recorded rather than repaired here,
+   because lowering an advertised limit is the owner's call.)*
 
 ## 8. Assumptions
 

@@ -127,6 +127,46 @@ the total would mean refusing work that was going to succeed. It is written here
 nothing said it before, and *the deadline is ten seconds* reads like a promise about the
 answer's latency when it is a promise about the work's duration.
 
+## The vertex cap — ADR-022 condition 4
+
+`GeometryServerEndpoints.MaximumVertices` is **500,000**, and the condition says it came
+from the corpus and a JSON size estimate rather than from a measurement. Here is the
+measurement, built by repeating real large-band polygons until a request reaches a size.
+
+| request | shapes | JSON | `simplify` | `buffer` |
+|---|---|---|---|---|
+| 50,649 vertices | 16 | 1.9 MB | 1,557 ms | 1,524 ms |
+| 128,111 vertices | 42 | 4.9 MB | 4,857 ms | **9,959 ms** |
+| 252,659 vertices | 84 | 9.6 MB | **10,353 ms** | **503, deadline** |
+| 452,514 vertices | 150 | 17.2 MB | **503, deadline** | — |
+| 501,781 vertices | 166 | 19.0 MB | **400, over the cap** | 400 |
+
+**The cap is unreachable, and that is the finding.** The ten-second work deadline refuses
+a `simplify` at about **half** the cap and a `buffer` at about **a quarter** of it. No
+request that the cap would refuse ever gets far enough for the cap to be what refuses it —
+except a request that is *cheap per vertex*, and there is no such operation on this
+surface.
+
+**The JSON size estimate is low by 60%.** §7's note reasons about *"about 12 MB of JSON"*
+at the cap; 501,781 vertices is **19.0 MB** of JSON and a **22.9 MB** urlencoded body.
+Against Kestrel's 30 MB default that leaves less headroom than the note implies.
+
+### What a refusal at that size costs
+
+| where the request is wrong | body | time to refuse |
+|---|---|---|
+| third shape pushes it over the cap | 23.8 MB | 4,786 ms |
+| last shape pushes it over the cap | 22.9 MB | 3,718 ms |
+| **first shape is malformed** | 22.9 MB | **4,265 ms** |
+
+**Refusing at the first shape costs the same as refusing at the last**, so the vertex
+count being incremental buys nothing: the whole body is read and its JSON materialised
+before any geometry is looked at. About four seconds of that request is parsing, and the
+ten-second deadline does not include it — the deadline bounds the *work*.
+
+Under concurrency it compounds: four callers each sending 23 MB take **11–12 seconds
+apiece**, and every one of them is refused. That is [D-188](../../docs/architecture-debt.md).
+
 ## What this settles, and what it does not
 
 **Settles.** The ten-second deadline is the right order of magnitude and it fires on
