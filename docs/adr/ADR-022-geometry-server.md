@@ -778,6 +778,17 @@ seconds without any of them waiting ten for a worker.
    condition is the individual numbers for `convexHull`, `generalize` and `densify`**, which
    were verified against PostGIS for correctness and never timed; the four §2b operations
    beside them now are.
+   *(Discharged 2026-08-27 —
+   [benchmarks/geometry-operations/RESULTS.md](../../benchmarks/geometry-operations/RESULTS.md),
+   and the three now have numbers too. Thirty polygons, 90,000 vertices, **in process on flat
+   arrays**: `convexHull` **159 ms**, `generalize` **216 ms**, `densify` **274 ms** —
+   linear, about 2–3 µs per vertex, which is §2's own *single pass over the coordinates*
+   shown rather than argued. `distance` is **30 ms** on two 2,900-vertex polygons.
+   **All four named in this condition ship and all four are measured**, which is what it
+   asked for. **And the split earns its cost**: `generalize` reduces 90,000 vertices in 216 ms
+   while `simplify` — the topological job, in the worker pool, over the same thirty shapes —
+   takes **3,264 ms**. Fifteen times, for two operations a caller could easily confuse, which
+   is the argument for keeping them separate names.)*
 3. **The six operations added in §2b have no measured cost profile.** They are
    verified for *correctness* against PostGIS, and bounded by the deadline and
    the heap limit — but nobody has measured what a realistic `buffer` or

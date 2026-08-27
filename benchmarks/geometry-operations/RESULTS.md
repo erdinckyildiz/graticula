@@ -167,6 +167,29 @@ ten-second deadline does not include it — the deadline bounds the *work*.
 Under concurrency it compounds: four callers each sending 23 MB take **11–12 seconds
 apiece**, and every one of them is refused. That is [D-188](../../docs/architecture-debt.md).
 
+## The three linear operations — ADR-022 condition 2
+
+`convexHull`, `generalize` and `densify` were refused by §2 on an argument about
+asymptotics, shipped by §4b, and verified against PostGIS for *correctness*. The
+condition says each returns "only with a number", and correctness is not one. These run
+**in process on flat arrays** — no worker pool, no ten-second deadline — so they are
+timed separately from the six above.
+
+| operation | 30 small (234 v) | 30 medium (9,261 v) | 30 large (90,000 v) |
+|---|---|---|---|
+| `convexHull` | 10 ms | 30 ms | **159 ms** |
+| `generalize` (5 m) | 20 ms | 29 ms | **216 ms** |
+| `densify` (25 m) | 8 ms | 36 ms | **274 ms** |
+
+**Linear, and about 2–3 µs per vertex.** §2's own description of them — *a single pass
+over the coordinates* — is what the numbers show, and it is why they need no worker.
+
+**The split is worth its cost.** `generalize` reduces 90,000 vertices in **216 ms**;
+`simplify`, which does the topological job in the worker pool over the same thirty
+shapes, takes **3,264 ms**. Fifteen times, for two operations a caller could easily
+confuse — which is the argument for `generalize` staying a separate name rather than
+being folded into `simplify`.
+
 ## What this settles, and what it does not
 
 **Settles.** The ten-second deadline is the right order of magnitude and it fires on
