@@ -1215,6 +1215,34 @@ public static class Program
 
     private static void ConfigureKestrel(WebApplicationBuilder builder, HostSettings settings)
     {
+        /*
+          <b>ADR-014 §2b: a replacement must not need a restart.</b> Only when the operator
+          supplied the path -- a generated development certificate is rotated by deleting it
+          and restarting, and watching it would mean this server reacting to its own writes.
+
+          <b>Here rather than beside the certificate it watches, and that is not tidiness.</b>
+          It was written inside the `Listen` callback, next to the load. That callback is a
+          Kestrel *options* callback: it runs when the container resolves `KestrelServerImpl`,
+          which is **after** `builder.Build()` has sealed the service collection -- so
+          `AddSingleton` threw `The service collection cannot be modified because it is
+          read-only` and the process died before it listened on anything.
+
+          <b>Every deployment that sets a certificate path, and no development machine.</b>
+          The dev servers generate their certificate, so they never took this branch and
+          started perfectly all the way through the change. It was found by
+          [tools/rotate-rehearsal.sh](../../tools/rotate-rehearsal.sh) on the first run, and
+          the unit test for the same feature could not have found it: the test builds its own
+          Kestrel and copies this line, so it proved the line rather than the wiring.
+        */
+        if (settings.RequireHttps && settings.CertificatePath is { } watched)
+        {
+            builder.Services.AddSingleton<IHostedService>(services =>
+                new CertificateReload(
+                    watched,
+                    settings.CertificatePassword,
+                    services.GetRequiredService<ILogger<CertificateReload>>()));
+        }
+
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
@@ -1239,7 +1267,19 @@ public static class Program
 
                 listen.UseHttps(https =>
                 {
-                    https.ServerCertificate = certificate;
+                    // <b>A selector rather than a certificate -- ADR-014 §2b, condition 1.</b>
+                    // Kestrel reads `ServerCertificate` once when the listener is built, so a
+                    // rotation with it set means a new listener, which means a restart, which
+                    // evicts every warm service context ADR-007 §4.4 exists to keep. The
+                    // selector is consulted on **every** handshake, so replacing what it
+                    // returns is the whole of the rotation, and connections already open
+                    // finish on the certificate they started with.
+                    //
+                    // Never null in practice: this branch runs only when HTTPS is required,
+                    // and `Presenting` was called on the line above. The fallback is what
+                    // keeps a bug here from being an unhandled exception inside a handshake.
+                    https.ServerCertificateSelector =
+                        (_, _) => ServingCertificate.Current ?? certificate;
 
                     // ADR-014 §2e: platform defaults rather than a hand-written
                     // cipher list. A hand-rolled list is correct on the day it

@@ -5,13 +5,26 @@
 # The store is a copy of a real one with real layers in it, because "serves correctly"
 # cannot be shown against an empty schema.
 set -u
+
+# <b>The key and the connection string come from the environment, and that is not a style
+# choice.</b> Both were literals in this file until 2026-08-27, when a pre-push scan found
+# them: `Graticula:SecretKey` is the AES-256 key that seals every registered data source's
+# credentials (ADR-032, layer 2), so a key in a public repository is a key nobody may ever use for
+# anything real -- and the likeliest way that happens is somebody copying it out of a script
+# like this one. See D-191 in docs/architecture-debt.md.
+#
+# Set them before running:
+#   export GRATICULA_TEST_PG='Host=...;Port=...;Database=...;Username=...;Password=...'
+#   export GRATICULA_SECRET_KEY="$(openssl rand -base64 32)"
+: "${GRATICULA_TEST_PG:?set GRATICULA_TEST_PG to the platform store connection string}"
+: "${GRATICULA_SECRET_KEY:?set GRATICULA_SECRET_KEY, e.g. from: openssl rand -base64 32}"
 cd "c:/Personal/Projects/GIS" || exit 1
 S="C:/Users/Erdinc/AppData/Local/Temp/claude/c--Personal-Projects-GIS/9db7f59f-6624-459d-b69c-f9b00b1599e7/scratchpad"
 FROM=gisconsole
 TO=gisrollback
 PORT=8452
-PG="Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis;Search Path=$TO,public"
-KEY="3hYx5gzbV49eNInQ51/4FCwDCEnT3MgsxpIhue0o+8Y="
+PG="$GRATICULA_TEST_PG;Search Path=$TO,public"
+KEY="$GRATICULA_SECRET_KEY"
 
 psql() {
   docker exec -e PGPASSWORD=gis gis-experiment-postgis psql -U gis -d gis -t -A -c "$1"

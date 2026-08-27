@@ -437,4 +437,38 @@ internal static partial class Log
                 + "error. Debug rather than a warning: a client panning past the pole is "
                 + "doing something ordinary, and the map it gets back is correct.")]
     public static partial void MapAreaOutsideReference(ILogger logger, string layer, int srid);
+    [LoggerMessage(
+        EventId = 1054,
+        Level = LogLevel.Information,
+        Message = "Watching '{Path}' -- a replacement certificate takes effect on the next "
+                + "handshake, with no restart (ADR-014 2b).")]
+    public static partial void WatchingCertificate(ILogger logger, string path);
+
+    [LoggerMessage(
+        EventId = 1055,
+        Level = LogLevel.Warning,
+        Message = "Serving certificate replaced from '{Path}' without a restart. Now serving "
+                + "{Subject}, expiring {NotAfter}; it replaces {Previous}. Connections "
+                + "already open finish on the old one. Warning rather than information "
+                + "because the serving identity of this server changed, and that is worth "
+                + "seeing in a log somebody reads.")]
+    public static partial void CertificateRotated(
+        ILogger logger, string path, string subject, string notAfter, string previous);
+
+    [LoggerMessage(
+        EventId = 1056,
+        Level = LogLevel.Error,
+        Message = "The certificate at '{Path}' changed and could not be loaded after "
+                + "{Attempts} attempts. The certificate already running is unchanged and this "
+                + "server is still answering; nothing has been rotated. A wrong password and "
+                + "a half-written file both look like this.")]
+    public static partial void CertificateReloadFailed(
+        ILogger logger, string path, int attempts, System.Exception exception);
+
+    [LoggerMessage(
+        EventId = 1057,
+        Level = LogLevel.Warning,
+        Message = "The certificate at '{Path}' is not in a directory that can be watched, so "
+                + "a replacement will need a restart. That is ADR-014 2b's whole subject.")]
+    public static partial void CertificateNotWatchable(ILogger logger, string path);
 }

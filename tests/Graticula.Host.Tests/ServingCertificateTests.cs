@@ -66,20 +66,51 @@ public sealed class ServingCertificateTests
         Assert.Contains("expired", note, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// [ADR-014](../../docs/adr/ADR-014-tls-and-certificates.md) §2c's ladder, rung by rung.
+    /// </summary>
+    /// <remarks>
+    /// <b>*A warning at 30 days, escalating at 7, critical at 1.*</b> §2c gives that duty to a
+    /// runtime supervisor that does not exist, and the ladder does not need one to be true —
+    /// the operator reading the health page is the person §2c is written for. Written as one
+    /// theory rather than four facts because the interesting part is the **boundaries**: a
+    /// certificate with exactly seven days left is a warning and not yet escalating, and an
+    /// off-by-one here would move a 2 AM page by six days.
+    /// </remarks>
+    [Theory]
+    [InlineData(400, "valid")]
+    [InlineData(31, "valid")]
+    [InlineData(30, "warning")]
+    [InlineData(8, "warning")]
+    [InlineData(7, "escalating")]
+    [InlineData(2, "escalating")]
+    [InlineData(1, "critical")]
+    public void The_expiry_ladder_is_the_one_ADR_014_2c_names(int daysLeft, string expected)
+    {
+        DateTimeOffset now = new(2026, 8, 27, 12, 0, 0, TimeSpan.Zero);
+        using X509Certificate2 certificate = Expiring(now.AddDays(daysLeft));
+
+        object description = ServingCertificate.Describe(certificate, now)!;
+
+        Assert.Equal(expected, Field<string>(description, "state"));
+        Assert.Equal(daysLeft, Field<double>(description, "daysRemaining"));
+    }
+
     [Fact]
-    public void A_certificate_with_a_week_left_says_so_before_the_night_it_goes()
+    public void A_certificate_with_a_week_left_says_how_to_replace_it()
     {
         DateTimeOffset now = new(2026, 8, 27, 12, 0, 0, TimeSpan.Zero);
         using X509Certificate2 certificate = Expiring(now.AddDays(5));
 
         object description = ServingCertificate.Describe(certificate, now)!;
 
-        Assert.Equal("expiring", Field<string>(description, "state"));
-        Assert.Equal(5, Field<double>(description, "daysRemaining"));
+        // An operator planning the replacement is told what it costs in the same breath, and
+        // as of ADR-014 condition 1 what it costs is nothing: replacing the file is enough
+        // and `CertificateReload` picks it up on the next handshake.
+        string note = Field<string>(description, "note");
 
-        // An operator planning the replacement is told the cost of it in the same breath,
-        // because rotation without a restart is not built (ADR-014 condition 1).
-        Assert.Contains("restart", Field<string>(description, "note"), StringComparison.Ordinal);
+        Assert.Contains("no restart is needed", note, StringComparison.Ordinal);
+        Assert.Contains("2b", note, StringComparison.Ordinal);
     }
 
     [Fact]

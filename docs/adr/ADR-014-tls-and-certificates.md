@@ -99,6 +99,26 @@ Therefore:
 - The same applies to the trust store for T2 and T3.
 - No configuration file edit, no signal, no restart, no container replacement.
 
+**Built 2026-08-27, and by a file watch rather than the admin API — which is a decision and
+not a shortcut.** `CertificateReload` watches the file `Graticula:CertificatePath` names and
+installs a replacement on the next handshake. The four things forbidden above are all still
+forbidden: replacing the certificate file is not a configuration edit, a signal, a restart or
+a container replacement, and it is what every certificate tool already does — `cert-manager`
+writes a secret into a mounted path, `certbot --deploy-hook` copies a file, and an operator
+with a new PFX copies a file. **An upload endpoint would need all of that *plus* a new
+authorization story, a new disclosure surface and validation of an uploaded blob before it
+can replace a working certificate.** That is a larger decision, it is still open, and
+[ADR-017](ADR-017-admin-api.md) §3.4 step 3 still records the route as absent rather than
+quietly counting this as it.
+
+**A bad replacement changes nothing**, which is the property that makes an automatic reload
+safe: a half-written file, a wrong password and a certificate with no private key all leave
+the running certificate in place, after four attempts two seconds apart, and say so at
+`Error`. A server that stopped answering because somebody was halfway through a copy would be
+a worse outage than the expiry the rotation was for. **Only when the operator supplied the
+path** — a generated development certificate is rotated by deleting it and restarting, and
+watching it would mean this server reacting to its own writes.
+
 ### 2c. Certificate expiry is a supervisor duty
 
 A certificate expiry is a **total data-plane outage with a known date**, which
@@ -109,6 +129,16 @@ The [runtime supervisor](../runtime-supervisor.md) monitors expiry for every
 certificate it holds — serving, client, and trust anchors — and surfaces it with
 lead time: a warning at 30 days, escalating at 7, critical at 1. It appears in
 the admin API's health surface and in whatever §46 eventually exports.
+
+**The ladder is built 2026-08-27; the supervisor is not.** `GET /admin/health` carries
+`servingCertificate` with a `state` of `valid`, `warning`, `escalating`, `critical` or
+`expired` on exactly those thresholds, plus the dates, the signed days remaining and a
+sentence. The ladder does not need a supervisor to be true, and the operator reading that
+page is the person this section is written for. **The boundaries are tested rung by rung and
+that is not ceremony**: written first with `<`, which made a certificate with exactly seven
+days left a *warning* and would have moved the page six days later than this paragraph says.
+**Serving only** — there are no client certificates and no trust anchors in this server to
+monitor, measured 2026-08-27, so *every certificate it holds* is one.
 
 **This also supplies one of the three 2 AM scenarios that F5 requires** and
 [phase-0-exit-plan](../phase-0-exit-plan.md) still lists as unmet — *the
@@ -302,6 +332,29 @@ Three consequences, all of which change the checklist:
 1. **Rotation is verified without a restart**, by test, watching that warm
    service contexts survive it. If they do not, §2b has failed and ADR-007 §4.4
    is paying for it.
+   ***(Discharged 2026-08-27 — `CertificateRotationTests`.)*** **The listener holds a
+   selector now, not a certificate**, and that one word is the whole condition: Kestrel reads
+   `ServerCertificate` once when the listener is built, so a rotation with it set means a new
+   listener, which means a restart, which evicts every warm context ADR-007 §4.4 exists to
+   keep. `ServerCertificateSelector` is consulted on **every** handshake.
+   **Tested against a real Kestrel, because the claim is about Kestrel.** A test of this
+   repository's own indirection would pass either way. The test starts a listener, completes
+   a handshake, rotates, and completes another on a **fresh** connection —
+   `PooledConnectionLifetime` is zero, because reusing the first connection would show the
+   old certificate and prove nothing, and that is the way this test would most easily have
+   lied. The two thumbprints differ and the listener was never restarted.
+   **The second half is the one the condition is actually about**, and it is measured by what
+   a cold context would cost: a warm service context is established before the rotation and
+   the describe count is asserted **unchanged** afterwards, with the same `LayerDescription`
+   instance coming back. Written first as `Assert.Same` on the feature source, which failed —
+   `GetAsync` hands back a fresh handle every call and caches the description behind it. The
+   handle is cheap; the round trip is the warmth. A count of entries alone would have passed
+   over an eviction and a rebuild, which is the exact failure being watched for.
+   **Falsified** by putting `https.ServerCertificate = first` back in the test's own listener:
+   the rotation case fails, the other two pass, and the difference between those two lines is
+   what §2b forbids.
+   **What is not discharged is the admin route** — [ADR-017](ADR-017-admin-api.md) §3.4 step 3.
+   The mechanism it would use exists; the decision about an upload surface does not. See §2b.
 2. **Handshake cost enters Q-04's connection budget measurement** rather than
    being assumed negligible against shrink-to-zero pools.
 3. **The forwarded-header trusted-proxy default is empty**, and a test proves a
@@ -349,7 +402,7 @@ Three consequences, all of which change the checklist:
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-044 | Certificate rotation can be made to take effect on the next handshake without recycling the listener or the worker | `UNVALIDATED` — load-bearing for §2b, and ADR-007 §4.4's warm state depends on it |
+| A-044 | Certificate rotation can be made to take effect on the next handshake without recycling the listener or the worker | **`VALIDATED` 2026-08-27** — `CertificateRotationTests` rotates a certificate on a running Kestrel and reads the new one off the next handshake, on a fresh connection, with the listener never restarted; a warm service context is established before and its describe count is unchanged after. Kestrel's `ServerCertificateSelector` is the mechanism, and the assumption held |
 | A-045 | Soft-fail revocation checking is an acceptable security posture for the air-gapped profile | `UNVALIDATED` — it is a real weakening, and the alternative is a server that cannot validate anything offline. Needs stating in deployment documentation rather than buried |
 
 ## 11. Dissent

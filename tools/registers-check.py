@@ -2147,6 +2147,106 @@ def an_adr_that_does_not_say_where_its_state_lives():
     return problems
 
 
+SECRET_NAMES = '(?i)(secret[_a-z]*key|api[_-]?key|private[_-]?key|password|passwd|pwd)\\s*[:=]\\s*(?P<value>\\"[^\\"\\n]*\\"|\'[^\'\\n]*\'|[^\\s;,\\"\']+)'
+GENERATED_KEY = '^(?:[A-Za-z0-9+/]{20,}={0,2}|[0-9a-fA-F]{32,})$'
+
+
+def a_secret_committed_to_a_public_repository():
+    """
+    A generated key written into a tracked file.
+
+    <b>D-191, found by a pre-push scan on 2026-08-27 and already two commits too late.</b>
+    Three rehearsal scripts carried `Graticula__SecretKey` as a base64 literal.
+    `Graticula:SecretKey` is the AES-256 key that seals every registered data source's
+    credentials (ADR-032, layer 2), so a key in a public repository is a key nobody may ever use
+    for anything real -- and the likeliest way somebody does is copying it out of a script in
+    the repository that shows how to start the server.
+
+    <b>Entropy rather than the word, and the first version proved why.</b> Written to flag any
+    secret-shaped name set to a literal, it found 161 things and the two that mattered were
+    lost in them: a test fixture's own throwaway password is not a secret, and a check
+    somebody has to ignore is a check somebody turns off. What this looks for is what a
+    *generated* key looks like -- twenty characters of base64 or thirty-two of hex, which is a
+    shape nobody types -- with an entropy floor under that, because `AAAAAAAA...=` is base64
+    for thirty-two zero bytes and is exactly as secret as the number nought. Both CI workflows
+    carry one, and they are placeholders rather than leaks.
+
+    <b>Two versions could not fail, and the falsification caught both.</b> The name is
+    matched without a leading word boundary: `_` is a word character, the setting that leaked
+    is spelled `Graticula__SecretKey`, and `\\bsecretkey` cannot match after two
+    underscores. The second listed only what git already tracks, so the untracked file the key
+    was put back into was never read. Both times the check reported clean with the key in the
+    working tree -- the fourth and fifth times in this repository that a check has passed its
+    own falsification, and the reason nothing here is trusted until it has been made to fail.
+
+    <b>Not a substitute for reading the diff.</b> It catches the shape that already got
+    through once. The repository is public and the rule is that every commit is read before it
+    is pushed.
+    """
+    problems = []
+
+    names = re.compile(SECRET_NAMES)
+    generated = re.compile(GENERATED_KEY)
+
+    try:
+        # <b>`--others` as well as the index, and that was the second falsification.</b>
+        # Plain `ls-files` lists what git already tracks, so a brand-new script carrying a key
+        # is invisible to this check -- which is the case that matters most, because a secret
+        # arrives in a file that is being added rather than in one that has been there for
+        # months. The falsification put the key back into an untracked file and the check
+        # reported clean. `--exclude-standard` keeps `.gitignore` honoured, so `bin/` and
+        # `obj/` do not come in with it.
+        listing = subprocess.run(
+            ["git", "-C", conditions.ROOT, "ls-files",
+             "--cached", "--others", "--exclude-standard"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return problems
+
+    for path in listing.stdout.split("\n"):
+        path = path.strip()
+
+        if not path.startswith(("tools/", "src/", "tests/", "docs/", ".github/")):
+            continue
+
+        if path.endswith((".png", ".jpg", ".gif", ".pdf", ".ico", ".woff", ".woff2")):
+            continue
+
+        # This file names the shape it looks for.
+        if path.endswith("registers-check.py"):
+            continue
+
+        try:
+            text = io.open(
+                os.path.join(conditions.ROOT, path), encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+
+        for number, line in enumerate(text.split("\n"), start=1):
+            for hit in names.finditer(line):
+                bare = hit.group("value").strip("'").strip(chr(34))
+
+                if not generated.match(bare):
+                    continue
+
+                # <b>A key with no entropy is not a secret, and both CI workflows hold one.</b>
+                # `AAAAAAAA...=` is base64 for thirty-two zero bytes and is exactly as secret
+                # as the number nought: it is the shape a placeholder takes when a setting
+                # insists on a valid AES-256 key. Eight distinct characters is far below
+                # anything a generator produces and far above what a placeholder uses.
+                if len(set(bare.rstrip("="))) < 8:
+                    continue
+
+                problems.append(
+                    path + ":" + str(number) + " sets " + hit.group(1) + " to what looks like "
+                    "a generated key. This repository is public, so a committed key is a "
+                    "published one -- and this is the key class that seals data source "
+                    "credentials. Read it from the environment instead: D-191, and "
+                    "tools/rotate-rehearsal.sh is the shape.")
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -2195,7 +2295,8 @@ def main() -> int:
                 + a_question_the_status_page_cannot_see()
                 + a_test_a_register_cites_that_is_not_there()
                 + an_adr_that_does_not_say_where_its_state_lives()
-                + a_port_documented_as_a_contract())
+                + a_port_documented_as_a_contract()
+                + a_secret_committed_to_a_public_repository())
 
     if problems:
         for line in problems:
