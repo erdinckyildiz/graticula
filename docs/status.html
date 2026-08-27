@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7094f84</code> · 2026-08-27 12:04</p>
+<p class="stamp">Generated from commit <code>d85a9aa</code> · 2026-08-27 12:09</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">48</div><div class="kpi-l">ADRs</div><div class="kpi-n">3 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">143/197</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">54 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">32</div><div class="kpi-l">open questions</div><div class="kpi-n">118 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">163 repaid · 4 partly</div></div>
+<div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">28</div><div class="kpi-l">open debts</div><div class="kpi-n">164 repaid · 4 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2112</div><div class="kpi-l">tests</div><div class="kpi-n">249 source files, 96,303 lines</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">86 items</span></div><p><b>54 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>28 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -238,6 +238,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-100</span><span class="owner">Council</span></div><p>How does findTransformations reach PROJ&#x27;s operation database?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-102</span><span class="owner">Council</span></div><p>Is there a deployment-level capability manifest, distinct from the per-layer capability report?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-111</span><span class="owner">Council</span></div><p>Can a local administrator still sign in when the configured external identity source is unreachable or misconfigured — and should changing that source require a local credential?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-114</span><span class="owner">Council</span></div><p>Should the generated default consider what a layer is, not only its geometry?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-12</span><span class="owner">Council</span></div><p>How is monitoring cardinality bounded at 1,000 services?</p></article>
@@ -297,7 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-191</td><td>An AES-256 key was committed to a public repository, and it is the key class that seals data source credentials.</td><td class="muted-t">Already fired.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-193</td><td>The checked-in glyph ranges can be verified byte-for-byte on exactly one machine, and CI is not it.</td><td class="muted-t">Already fired, in the sense that matters: the files in the repository today cannot be independently reproduced by…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">163 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">164 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -404,6 +405,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>d85a9aa</code><time>2026-08-27</time><span>D-193: the glyph ranges reproduce on one machine, and CI found it by going red</span></li>
 <li><code>7094f84</code><time>2026-08-27</time><span>ADR-026 condition 4: CI stops the database now, and the rehearsal has a verdict</span></li>
 <li><code>1e5d8d1</code><time>2026-08-27</time><span>ADR-027 condition 3: the glyph ranges are proved against their generator, by running it</span></li>
 <li><code>120a04a</code><time>2026-08-27</time><span>ADR-019 condition 1: the datastore is actually stopped, and D-192 was underneath it</span></li>
@@ -417,7 +419,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>82190c9</code><time>2026-08-27</time><span>D-165 resolves: a whole-world filter on a national grid was a zero-width line</span></li>
 <li><code>cbc0ff4</code><time>2026-08-27</time><span>D-21 resolves: a non-unique ordering is not a total order</span></li>
 <li><code>12264df</code><time>2026-08-27</time><span>D-30&#x27;s concurrency half is paid: the catalogue read is what degrades</span></li>
-<li><code>4ca29e0</code><time>2026-08-27</time><span>D-158: the workflow was run before the row was believed, and it was green</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

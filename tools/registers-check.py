@@ -2311,6 +2311,111 @@ def a_file_a_security_promise_names_that_is_not_there():
     return problems
 
 
+AN_ADR_CALLING_A_QUESTION_OPEN = '\\b(Q-\\d{1,3})\\b(?:(?!\\. [A-Z]).){0,160}?\\b(opens? it|is open|remains open|still open|is unanswered|has no answer|opens the question|is still unanswered)\\b'
+
+
+def an_adr_that_calls_an_answered_question_open():
+    """
+    An ADR saying a question is open when the register says it is answered.
+
+    <b>[D-130](../docs/architecture-debt.md)'s shape, and it took a running server to find one
+    on 2026-08-27.</b> ADR-009 §2.1 said *what is still not written, and is not decided here:
+    registering a COG in place ... Q-121 opens it.* Q-121 was answered by owner decision on
+    2026-08-21, recorded in ADR-043 §3.3, and the behaviour was **built** -- the server tells
+    an operator *imagery is registered in place, so the path is read at every request* while
+    the ADR still called it undecided. Six days, in the document a reader goes to for the
+    decision.
+
+    <b>Why the existing checks did not catch it.</b>
+    `amendments_the_other_adr_does_not_know_about` looks for ADRs amending each other, and
+    this is an ADR pointing at the *question register*. `broken_links` only cares whether the
+    file exists. Nothing read the sentence.
+
+    <b>The sentence, not the link.</b> A reference to an answered question is ordinary and
+    often right -- *Q-121 asked this* is history. What is wrong is an ADR **asserting the
+    question is still open** when it is not, because that is a reader's cue to stop looking.
+    So this matches the claim rather than the mention: *opens it*, *is open*, *remains open*,
+    *still open*, *is unanswered*, *has no answer*.
+
+    <b>Two rows that were not answered were flagged first, and the fix was to stop having a
+    second opinion.</b> *Does the row contain the word ANSWERED anywhere* is not the
+    register's rule -- Q-106 reads `Open, and narrowed`, and prose further along its row used
+    one of the words. The rule is the one `an_answered_question_still_filed_as_open` applies:
+    below the `## Answered` heading, or an anchored verdict opening the cell.
+
+    <b>The gap between the question and the claim took three tries, and each failure was a
+    different kind.</b> *No full stop between them*, to keep them in one sentence, could not
+    match `[Q-121](../open-questions.md) opens it` at all -- the ordinary way an ADR names a
+    question is a link, and a link is full of full stops. The stale sentence went back in and
+    the check stayed green: the seventh time in this repository, and again only the
+    falsification knew. *Anything between them* then matched ADR-016's *"closes most of
+    Q-15's checklist. What remains open there is ..."*, which is a true sentence about a
+    checklist rather than a claim about the question. What separates the two is a **sentence
+    boundary** -- a full stop, a space and a capital -- so that is what the gap may not
+    contain.
+
+    <b>A struck sentence is history and is skipped.</b> Correcting one of these in place --
+    striking the old text and writing what replaced it -- is the repair this repository
+    prefers, and a check that then flagged the struck copy would punish the fix.
+    """
+    problems = []
+
+    # <b>The register's own rule for *answered*, not a second one.</b> Written first as
+    # "does the row contain the word ANSWERED anywhere", which flagged two rows that were not
+    # answered at all -- Q-106 is `Open, and narrowed`, and prose further along its row used
+    # one of the words. CLAUDE.md records what it cost the last time two tools each decided
+    # for themselves what a status means: they disagreed, and the wrong number was the one on
+    # the status page. So this is the same test `an_answered_question_still_filed_as_open`
+    # applies -- below the `## Answered` heading, or an anchored verdict opening the cell.
+    answered = set()
+
+    lines = io.open(
+        os.path.join(conditions.ROOT, "docs", "open-questions.md"),
+        encoding="utf-8").read().splitlines()
+
+    boundary = next(
+        (i for i, line in enumerate(lines) if line.startswith("## Answered")), len(lines))
+
+    verdict = re.compile(
+        r"^~{0,2}\*{0,2}(ANSWERED|Answered|RESOLVED|Resolved|Re-answered|Re-ANSWERED"
+        r"|DISSOLVED|Dissolved|WITHDRAWN|Withdrawn)\b")
+
+    for index, line in enumerate(lines):
+        cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+        if len(cells) < 2 or not re.match(r"^Q-\d+$", cells[0]):
+            continue
+
+        if index >= boundary or verdict.match(cells[1]):
+            answered.add(cells[0])
+
+    claim = re.compile(AN_ADR_CALLING_A_QUESTION_OPEN, re.IGNORECASE)
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        text = io.open(os.path.join(conditions.ADRS, name), encoding="utf-8").read()
+
+        for number, line in enumerate(text.split(chr(10)), start=1):
+            # Struck text is the record of what was believed, not a live claim.
+            if line.count("~~") >= 1:
+                continue
+
+            for hit in claim.finditer(line):
+                question = hit.group(1)
+
+                if question in answered:
+                    problems.append(
+                        name + ":" + str(number) + " says " + question + " " + hit.group(2)
+                        + ", and open-questions.md records it as answered. An ADR is where a "
+                        "reader goes for the decision, so a question called open there is a "
+                        "cue to stop looking -- D-130. Strike the sentence and write what "
+                        "replaced it, rather than deleting it.")
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -2361,7 +2466,8 @@ def main() -> int:
                 + an_adr_that_does_not_say_where_its_state_lives()
                 + a_port_documented_as_a_contract()
                 + a_secret_committed_to_a_public_repository()
-                + a_file_a_security_promise_names_that_is_not_there())
+                + a_file_a_security_promise_names_that_is_not_there()
+                + an_adr_that_calls_an_answered_question_open())
 
     if problems:
         for line in problems:

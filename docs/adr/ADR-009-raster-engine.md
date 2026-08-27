@@ -129,12 +129,25 @@ exist. It is the same shape as
 the ingest path is a job, and the worker is optional at the cost of exactly the
 formats it converts.
 
-**What is still not written, and is not decided here:** registering a COG **in
+~~**What is still not written, and is not decided here:** registering a COG **in
 place** — catalogued and served from where it already lives, with no copy into a
 writable store. §2.1's next paragraph says conversion needs somewhere to write and
 that a read-only source holding a non-COG can be catalogued but not served; it does
 not say what happens when that read-only source holds a COG, which is the case where
-nothing needs writing at all. [Q-121](../open-questions.md) opens it. **Derived from
+nothing needs writing at all. [Q-121](../open-questions.md) opens it.~~
+**Decided 2026-08-21 by owner decision, and this paragraph outlived it by six days** —
+[Q-121](../open-questions.md), recorded in
+[ADR-043](ADR-043-imageserver-and-the-raster-face.md) §3.3: **yes, registered in place and
+never copied.** Registration reads the header and stores a reference; the file stays where it
+is. The bytes still travel through this server, because §2.4 already settled that a client
+fetching a COG straight from object storage cannot be authorised per layer — so a
+range-request proxy is what *in place* costs.
+**And it is built.** `POST /admin/coverages` refuses an unreadable path with the sentence
+*"Imagery is registered in place, so the path is read at every request rather than once at
+upload"*, which is this decision speaking to an operator at the moment it applies. Measured
+2026-08-27 against a running server, along with the paragraph above still saying it was
+undecided. That is [D-130](../architecture-debt.md)'s shape exactly: a decision taken in one
+place and left standing in every document that restated the question. **Derived from
 reading the reference's public description** — ADR-030 condition 1 — which advertises
 *"No GDAL required on the server"* and cloud-optimized GeoTIFFs *"registered in place
 from S3/Azure"*; the properties of COG itself are cited from
