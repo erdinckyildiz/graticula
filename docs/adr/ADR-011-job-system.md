@@ -124,6 +124,18 @@ Mitigation for the interactive case: when a job is submitted through the admin
 API on the same node, the local worker may be nudged directly. This is an
 optimisation and correctness must not depend on it.
 
+**The number, written down 2026-08-27 because this section asked for it and did
+not give it.** A worker waits **2 seconds** between claims when there is work
+about, and that wait **doubles on every idle wake up to 30 seconds** — then
+resets to 2 the moment anything arrives, whether a job or a `LISTEN`/`NOTIFY`
+signal. So the floor an administrator waits on the same node is the signal, which
+is milliseconds; **the 30-second ceiling is the worst case for a job enqueued by
+another node**, which is the only case this poll now exists for. The two figures
+live as `Idle` and `Patience` on `GeodatabaseImporter` and `GeodatabaseInspector`,
+and the backoff is [D-110](../architecture-debt.md)'s repair: two workers holding
+a session each at a flat two seconds was eight database sessions held for ever on
+an idle server.
+
 ### 3.4 Leases and heartbeats, and the constraint they impose
 
 A claimed job holds a **lease**, renewed by heartbeat. If a worker dies, the
@@ -280,6 +292,12 @@ run as jobs), admin API (§39), geoprocessing (§36).
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
 3. **The polling interval is documented as a number.**
+   *(Discharged 2026-08-27 — §3.3 now states it: 2 seconds, doubling on idle to a
+   30-second ceiling, reset by work or by a signal. **The condition was live because
+   the number was only in the code**, which is what it was written to prevent: this
+   section argued for three paragraphs that the figure must not be an implementation
+   detail and then left it as one. Found by sweeping this ADR's conditions against
+   what is built.)*
 4. **Job payloads never live in the job table.**
 
 ## 9. Revisit triggers
