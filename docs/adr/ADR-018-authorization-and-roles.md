@@ -490,6 +490,17 @@ divergence a breaking change to our core.
 1. **The ceiling is tested for the escalation it exists to prevent** — a
    principal with a narrow user type and a wide role gets the intersection, and
    the test is written from the migration-import scenario, not from the unit.
+   *(Discharged 2026-08-27 — `UserTypeCeilingTests`, and it is §1's scenario rather than
+   a re-statement of it: the probe member is created with the **`publisher` role and the
+   `viewer` user type**, which is the imported Portal member Q-16 describes, and it is
+   asked to publish **over HTTP against a running server**. 403, with the refusal saying
+   *user type* and *Granting the role again will not help* — the distinction is asserted
+   because *ask an administrator for the role* is advice that cannot work when the role is
+   already held. **The control is what makes it evidence**: the same role under `creator`
+   reaches the endpoint and fails for a missing data source instead, so a server that
+   refused every publish would not pass. Found live while sweeping this ADR's conditions;
+   the test was written for [D-15](../architecture-debt.md) and nothing connected it back
+   to the condition it satisfies.)*
 2. ~~**The privilege identifiers and default-role assignments are verified against
    Esri's published documentation** before any surface claims Portal
    compatibility. §5 records that the current table is structural.~~
