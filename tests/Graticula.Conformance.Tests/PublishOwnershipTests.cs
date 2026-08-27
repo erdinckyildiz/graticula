@@ -34,6 +34,7 @@ namespace Graticula.Conformance.Tests;
 /// a test that does the thing it is checking against.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class PublishOwnershipTests : ArcGisClient
 {
     private const string Publisher = "zz_d104_publisher";

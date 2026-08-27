@@ -27,6 +27,7 @@ namespace Graticula.Conformance.Tests;
 /// wrote none are the same defect wearing different numbers, and only counting tells them apart.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class SilentPublishTests : ArcGisClient
 {
     /// <summary>Publishing from a source that does not exist is refused, and writes nothing.</summary>

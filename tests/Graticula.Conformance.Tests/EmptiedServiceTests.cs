@@ -30,6 +30,7 @@ namespace Graticula.Conformance.Tests;
 /// not work is worse than no message.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class EmptiedServiceTests : ArcGisClient
 {
     /// <summary>A table the fixture leaves unpublished — the same pair D-157 came from.</summary>

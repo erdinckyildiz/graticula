@@ -122,6 +122,98 @@ public sealed class SuiteStabilityTests
     }
 
     /// <summary>
+    /// A class that changes or counts what the whole catalogue holds joins the collection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-185](../../docs/architecture-debt.md), and it is the check above having been half
+    /// right.</b> That one accepts two ways to be safe: join the collection, or name what you
+    /// publish `zz_`/`corpus_` so <c>ArcGisClient.Fixture</c> skips it. **The naming escape only
+    /// protects a name.** A test that reads *how many layers exist*, does something, and asserts
+    /// the number is unchanged is not protected by any naming convention at all — the count moves
+    /// when anybody else publishes, whatever it is called.
+    /// </para>
+    /// <para>
+    /// <b>Found by a failure that would not reproduce.</b> On 2026-08-27 a full conformance run
+    /// failed `SilentPublishTests.A_publish_from_a_source_that_does_not_exist_is_refused`, whose
+    /// assertion is that the layer count is the same before and after a refused publish; three
+    /// further runs of the same binary passed. That signature — a failure set that changes
+    /// between runs of unchanged code — is [D-75](../../docs/architecture-debt.md)'s, and the
+    /// class was outside the collection while `EmptiedServiceTests` published and unpublished a
+    /// layer in parallel.
+    /// </para>
+    /// <para>
+    /// <b>So this check has no naming escape.</b> A class that publishes into the catalogue or
+    /// reads the whole of it belongs in the collection, full stop. The cost is that those classes
+    /// no longer run in parallel with each other; the alternative is a suite that fails somebody
+    /// once every few runs and cannot say why.
+    /// </para>
+    /// <para>
+    /// <b>One name is allowed through, with its reason.</b> <c>SecurityHeaderConformanceTests</c>
+    /// names <c>/admin/layers</c> in an <c>InlineData</c> and asserts response headers; it reads
+    /// the listing and consumes nothing from it. An allow-list of one with a stated reason is
+    /// this repository's usual escape — <c>registers-check.py</c> does the same for the one
+    /// external test name it cannot resolve — and it is deliberately not a pattern, because a
+    /// pattern would wave through the next real one too.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_conformance_class_that_touches_the_whole_catalogue_joins_the_collection()
+    {
+        string folder = Path.Combine(Root().FullName, "tests", "Graticula.Conformance.Tests");
+
+        Assert.True(Directory.Exists(folder), $"The conformance suite is not at '{folder}'.");
+
+        // Reads the listing to assert headers on it, and consumes nothing from the body.
+        string[] excused = ["SecurityHeaderConformanceTests.cs"];
+
+        // Each is a whole-catalogue effect: the first three change what it holds, the last two
+        // read all of it. None of them is made safe by what the fixture is called.
+        (string Pattern, string What)[] reaches =
+        [
+            ("HttpMethod\\.Post,\\s*\"/admin/layers\"", "publishes a layer"),
+            ("HttpMethod\\.Post,\\s*\"/admin/featureservices\"", "creates a service"),
+            ("\"/admin/hosted/import\"", "imports into the catalogue"),
+            ("EveryServiceNameAsync\\(", "enumerates every service"),
+            ("HttpMethod\\.Get,\\s*\"/admin/layers\"", "lists every layer"),
+        ];
+
+        List<string> offenders = [];
+
+        foreach (string file in Directory.EnumerateFiles(folder, "*.cs"))
+        {
+            string name = Path.GetFileName(file);
+
+            if (excused.Contains(name, StringComparer.Ordinal) || name == "ArcGisClient.cs")
+            {
+                continue;
+            }
+
+            string source = File.ReadAllText(file);
+
+            if (source.Contains($"[Collection(\"{WalkCollection}\")]", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach ((string pattern, string what) in reaches)
+            {
+                if (Regex.IsMatch(source, pattern))
+                {
+                    offenders.Add($"{name} {what}");
+                }
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            $"A conformance class reaches the whole catalogue from outside the '{WalkCollection}' "
+            + "collection. Naming its fixtures does not make this safe: a layer count or a "
+            + "service enumeration moves when anybody else publishes, whatever the fixture is "
+            + "called. D-185.\n  " + string.Join("\n  ", offenders));
+    }
+
+    /// <summary>
     /// A console test's class selector is qualified when that class is used on more than one tag.
     /// </summary>
     /// <remarks>

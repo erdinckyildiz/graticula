@@ -29,6 +29,7 @@ namespace Graticula.Conformance.Tests;
 /// touches existed before it ran.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class LastAdministratorTests : ArcGisClient
 {
     private const string Probe = "zz_d101_admin";

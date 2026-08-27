@@ -32,6 +32,7 @@ namespace Graticula.Conformance.Tests;
 /// server says which, and this asserts that it says which.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class UserTypeCeilingTests : ArcGisClient
 {
     private const string Probe = "zz_d15_ceiling";

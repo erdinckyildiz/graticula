@@ -31,6 +31,7 @@ namespace Graticula.Conformance.Tests;
 /// asymmetry is the defect.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class AmbiguousLayerNameTests : ArcGisClient
 {
     private const string Layer = "zz_d109_twice";
