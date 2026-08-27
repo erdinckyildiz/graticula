@@ -509,6 +509,23 @@ which job needs stating before both grow.
    trigger is unchanged.)*
 5. **The conformance suite's sign-in stays optional and stays off by default**,
    so that "is this resource public?" remains a question the suite can answer.
+   *(Discharged 2026-08-27, measured and then guarded. **Measured**: with
+   `GRATICULA_TEST_USER` and `GRATICULA_TEST_PASSWORD` unset,
+   `AnonymousAccessConformanceTests` passes 2/2 against a live server — the suite still
+   answers the question — while `ContentScopeConformanceTests` **fails** with *No
+   administrator credential; set the suite's user and password*, which is this project's
+   fail-rather-than-skip rule and not a silent downgrade. A configured-but-wrong credential
+   fails loudly for the same reason: falling back to anonymous *"would turn every
+   authorization test into a test of whether the resource is public, and they would all
+   still pass."*
+   **Guarded**, because the decay is silent: `SuiteStabilityTests.The_conformance_suites_anonymous_reader_sends_no_credential`
+   reads `ArcGisClient.AnonymousAsync`'s body and fails if it mentions `AuthenticateAsync`,
+   `Authorization`, `TokenAsync` or `?token=` — a one-line convenience that would leave every
+   anonymous test passing while asserting nothing, which is the exact worry this condition
+   states. It also asserts somebody still calls it, or the guard guards nothing. **Read from
+   the source rather than run**, because a request carrying a credential produces exactly the
+   responses these tests expect on a public deployment, so no run distinguishes the two.
+   **Falsified** by adding the one line: the check names it and passes on restore.)*
 6. **The cookie never becomes a general credential.** It authenticates `GET` and
    `HEAD`, and the day somebody needs a browser to write, that needs its own
    decision — antiforgery tokens, a same-origin check, or a deliberate narrowing

@@ -122,6 +122,82 @@ public sealed class SuiteStabilityTests
     }
 
     /// <summary>
+    /// The conformance suite's anonymous reader stays anonymous.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-023](../../docs/adr/ADR-023-rest-services-directory.md) condition 5.</b> *"The
+    /// conformance suite's sign-in stays optional and stays off by default, so that **is this
+    /// resource public?** remains a question the suite can answer."* The suite grew an optional
+    /// sign-in because an organization-shared service cannot be tested anonymously, and the ADR
+    /// recorded the cost in the same breath: *a suite that can sign in is a suite that can hide
+    /// an authorization regression if somebody makes the login unconditional.*
+    /// </para>
+    /// <para>
+    /// <b>The decay is silent and that is why it is checked.</b> Adding
+    /// <c>await AuthenticateAsync(request, root)</c> to <c>AnonymousAsync</c> would be a
+    /// one-line convenience; every anonymous test would keep passing while asserting nothing
+    /// about anonymous callers, and nothing would look wrong. That is
+    /// [D-174](../../docs/architecture-debt.md)'s shape — a check that passes for the wrong
+    /// reason — applied to a whole class of test.
+    /// </para>
+    /// <para>
+    /// <b>Read from the source rather than run, because the fault is in the code and not in an
+    /// answer.</b> A request that carried a credential would produce exactly the responses these
+    /// tests expect on a public deployment, so no run distinguishes the two.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_conformance_suites_anonymous_reader_sends_no_credential()
+    {
+        string file = Path.Combine(
+            Root().FullName, "tests", "Graticula.Conformance.Tests", "ArcGisClient.cs");
+
+        Assert.True(File.Exists(file), $"The conformance client is not at '{file}'.");
+
+        string source = File.ReadAllText(file);
+
+        int start = source.IndexOf("AnonymousAsync(string path)", StringComparison.Ordinal);
+
+        Assert.True(start >= 0, "ArcGisClient has no AnonymousAsync, which every anonymous test uses.");
+
+        int open = source.IndexOf('{', start);
+        int depth = 0;
+        int end = open;
+
+        for (int i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{') { depth++; }
+            else if (source[i] == '}' && --depth == 0) { end = i; break; }
+        }
+
+        string body = source[open..end];
+
+        foreach (string credential in (string[])
+                 ["AuthenticateAsync", "Authorization", "TokenAsync", "?token="])
+        {
+            Assert.False(
+                body.Contains(credential, StringComparison.Ordinal),
+                $"ArcGisClient.AnonymousAsync mentions '{credential}', so the suite's anonymous "
+                + "reader is not anonymous. Every test that asks whether a resource is public "
+                + "would then be asking whether an administrator can read it, and would pass. "
+                + "ADR-023 condition 5.");
+        }
+
+        // And somebody has to be using it, or the guard above guards nothing.
+        string folder = Path.Combine(Root().FullName, "tests", "Graticula.Conformance.Tests");
+
+        int callers = Directory.EnumerateFiles(folder, "*.cs")
+            .Where(f => Path.GetFileName(f) != "ArcGisClient.cs")
+            .Count(f => File.ReadAllText(f).Contains("AnonymousAsync(", StringComparison.Ordinal));
+
+        Assert.True(
+            callers > 0,
+            "No conformance class reads anything anonymously any more, so the suite can no "
+            + "longer answer whether a resource is public. ADR-023 condition 5.");
+    }
+
+    /// <summary>
     /// A class that changes or counts what the whole catalogue holds joins the collection.
     /// </summary>
     /// <remarks>
