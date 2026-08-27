@@ -493,24 +493,41 @@ jobs:
       - name: status page still generates
         run: python tools/status-page.py docs/status.html
 
-      # <b>ADR-027 condition 3: the checked-in glyph ranges are the generator's output.</b>
+      # <b>ADR-027 condition 3: the checked-in glyph ranges match their manifest.</b>
       # Thirty-one binary files nobody can read are the worst possible place for a generated
-      # artefact to drift from its generator.
+      # artefact to drift from its generator. This is the portable layer: every range's
+      # SHA-256 against `provenance.json`, in both directions, plus the font's. It needs no
+      # font stack.
       #
-      # <b>Pinned, and that is the whole of D-193.</b> This step first regenerated and
-      # compared bytes, and failed here with 22 of 31 ranges different — read at the time as
-      # *the ranges are machine-dependent*. They are not. Regenerating inside
-      # `tools/glyphs.Dockerfile` on Linux reproduces byte-for-byte what Windows produced,
-      # because Pillow, FreeType, numpy and scipy match. What this job had was whatever `pip`
-      # offered that day. Installing the versions `provenance.json` records makes the strong
-      # check — run the generator, compare the bytes — run here too.
-      #
-      # The check compares those four and not the platform, and says so when it declines.
-      - name: the glyph generator's pinned dependencies
-        run: python -m pip install --quiet numpy==1.26.4 pillow==12.2.0 scipy==1.15.3
-
-      - name: glyph ranges are what the generator produces
+      # <b>The strong layer runs in the container, not here — D-193.</b> Regenerating and
+      # comparing bytes was tried in this job twice. Once with whatever `pip` offered, which
+      # differed in 22 of 31 ranges; once with the four versions `provenance.json` records
+      # pinned, which differed in the same 22. A container with those versions reproduces the
+      # ranges byte-for-byte on Linux from a Windows original, so **the four version strings
+      # are not what decides the bytes** and matching them is not enough to verify. The next
+      # step is below and it is the container itself.
+      - name: glyph ranges match their manifest
         run: python tools/glyphs-check.py
+
+      # <b>Reproducibility defined by an image rather than by four strings.</b> If this agrees
+      # with the checked-in bytes, the ranges are reproducible by anybody who can run the
+      # container, which is what D-193 asks for. If it does not, the artefact depends on
+      # something the image does not fix -- the CPU that numpy and scipy compile for is the
+      # open suspect -- and that is a finding rather than a flake.
+      #
+      # `continue-on-error` while D-193 is open: this is the experiment, and a red gate on an
+      # open question teaches people to ignore the gate.
+      - name: glyph ranges regenerate in the pinned container
+        continue-on-error: true
+        run: |
+          docker build -f tools/glyphs.Dockerfile -t graticula-glyphs:pinned tools
+          rm -rf /tmp/glyphs && mkdir -p /tmp/glyphs
+          docker run --rm -v "$PWD:/repo" -v /tmp/glyphs:/out graticula-glyphs:pinned \
+            python /repo/tools/make-glyphs.py /out
+          diff -r "src/Graticula.Host/glyphs/DejaVu Sans Regular" \
+                  "/tmp/glyphs/DejaVu Sans Regular" \
+            && echo "the container reproduces the checked-in ranges" \
+            || echo "the container does not reproduce them -- D-193, and the versions are not the variable"
 
   coverage-gap:
     name: what CI does not cover

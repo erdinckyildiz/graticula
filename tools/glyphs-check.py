@@ -229,6 +229,13 @@ def main():
     #
     # `python` and `system` are still recorded, because a difference in the bytes with these
     # four equal would be a finding and the record is where it would be seen.
+    # <b>These four, and they are necessary rather than sufficient -- D-193.</b> Matching
+    # them is what makes a byte comparison *worth attempting*; it is not what makes it agree.
+    # Measured 2026-08-27: a container with these four pinned reproduces the ranges
+    # byte-for-byte from a Windows original, and a GitHub runner with the same four differs in
+    # 22 of 31. So something below the version strings decides the bytes -- the CPU numpy and
+    # scipy compile for is the open suspect -- and a run that gets here and disagrees is a
+    # finding rather than a broken check.
     decides = ("pillow", "freetype", "numpy", "scipy")
 
     differences = sorted(

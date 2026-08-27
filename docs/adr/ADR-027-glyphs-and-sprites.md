@@ -259,15 +259,21 @@ sheet stops being allowed to be empty.
    the file, both digests and the command that fixes it, exiting 1; a doctored
    `provenance.json` claiming Linux and Pillow 10 and layer 2 declines, printing both
    environments and the measurement behind the refusal.
-   ***(Discharged 2026-08-27 with [D-193](../architecture-debt.md), and the premise it was
-   waiting on was wrong.)*** The ranges **can** be reproduced by somebody who is not the
-   author: `tools/glyphs.Dockerfile` pins the four versions that decide the bytes, and
-   regenerating inside it on Linux and Python 3.12 reproduces byte-for-byte what Windows and
-   Python 3.10 produced — not one of the thirty-one files changed. The 22-of-31 difference
-   that made this look machine-dependent was CI installing whatever `pip` offered that day.
-   **So layer 2 runs everywhere**, including in CI, and this condition's *a regeneration that
-   changes the bytes should fail something* is enforced on every push rather than on one
-   laptop.
+   ~~*(This was marked discharged on 2026-08-27 with [D-193](../architecture-debt.md), on the
+   reading that the premise it was waiting on was wrong.)* The ranges **can** be reproduced by
+   somebody who is not the author:
+   `tools/glyphs.Dockerfile` pins the four versions that decide the bytes, and regenerating
+   inside it on Linux and Python 3.12 reproduces byte-for-byte what Windows and Python 3.10
+   produced — not one of the thirty-one files changed. The 22-of-31 difference that made this
+   look machine-dependent was CI installing whatever `pip` offered that day. **So layer 2 runs
+   everywhere**, including in CI.~~
+   **Undischarged the same hour: CI falsified it.** With those four versions pinned and
+   matching exactly, a GitHub runner still differs in the same 22 of 31 ranges. One container
+   agreeing with one laptop is two machines agreeing, and it was read as *anywhere*. The four
+   versions are necessary and not sufficient; what decides the bytes is below them, and the
+   open suspect is the instruction set numpy and scipy dispatch on. **Still
+   [D-193](../architecture-debt.md)**, with the container comparison running in CI as an
+   experiment rather than a gate.
 4. **The font licence is in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)
    with the text shipped beside the font**, because the Bitstream Vera licence
    requires the notice to travel with the file. *(Discharged — [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries the row and a section explaining why a redistributed font is unlike every other entry, and the licence text sits beside the font at [tools/fonts/LICENSE-DejaVu.txt](../../tools/fonts/LICENSE-DejaVu.txt) — which is what Bitstream Vera requires, since the notice must travel with the file rather than be referenced from elsewhere.)*
