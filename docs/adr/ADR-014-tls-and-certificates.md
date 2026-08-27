@@ -357,6 +357,29 @@ Three consequences, all of which change the checklist:
    The mechanism it would use exists; the decision about an upload surface does not. See §2b.
 2. **Handshake cost enters Q-04's connection budget measurement** rather than
    being assumed negligible against shrink-to-zero pools.
+   ***(Discharged 2026-08-27 — measured.)***
+   [benchmarks/tls-handshake](../../benchmarks/tls-handshake/RESULTS.md). Six runs against
+   PostgreSQL 16 with `ssl = on`, TLS 1.3: a plain connect plus the SSLRequest exchange takes
+   **1.8–2.3 ms** and the same connect with the handshake takes **4.7–5.8 ms**, so the
+   handshake is **about 2.8 ms, roughly 2.5×** a plain connect. §3's *far more expensive than
+   a plain connect* was right and is now a number rather than an adjective.
+   **The minimum is the figure, and the reason is stated rather than assumed away.** Across
+   six runs the minima sit inside 0.5 ms of each other and the medians move by a factor of
+   nearly three — the path is a Docker port proxy on Windows and its median measures the
+   scheduler. Both are reported.
+   **What it means for the budget**, which is why the condition exists:
+   [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md) bounds a worker at
+   64 concurrent database operations and one source at 24, and a pool that has shrunk to zero
+   pays the connect on every one — **112 ms to refill a source's budget, 299 ms to refill the
+   worker's, at best**, of which 67 ms and 178 ms is handshake. That is the cost of an idle
+   period, paid by whoever arrives after it, per source.
+   **It is a floor rather than an estimate**: this is loopback, and a remote database adds
+   round trips to both arms and *more* of them to the handshake — one extra for TLS 1.3, two
+   for 1.2 — so the handshake's share grows with distance. Authentication, the startup packet
+   and Npgsql's own bookkeeping are deliberately outside the number, because what §3's note is
+   about is the cost a refill pays **extra** for being encrypted.
+   **This does not say whether pools should shrink to zero.** It says what that decision
+   costs, which is what was asked.
 3. **The forwarded-header trusted-proxy default is empty**, and a test proves a
    spoofed `X-Forwarded-Proto` from an untrusted source is ignored.
    ***(Discharged 2026-08-24 — §5a.)*** `Graticula:TrustedProxies` is empty by default and
