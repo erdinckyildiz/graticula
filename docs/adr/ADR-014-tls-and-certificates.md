@@ -314,6 +314,36 @@ Three consequences, all of which change the checklist:
    start.
 4. **Data-source certificate expiry produces a named diagnosis**, not a generic
    connection error — tested by expiring one.
+   ***(Discharged 2026-08-27 — tested by expiring one, which is what the condition asked
+   for and is why it found two things instead of one.)*** The probe's message was
+   *"Could not reach the server: Exception while performing SSL handshake"*: Npgsql's outer
+   sentence, with an `AuthenticationException` under it whose own wording is the platform's
+   callback message or an OS error number. **None of the three carries a date**, and the
+   operator's next move is a replacement on the database rather than anything on this
+   network.
+   **A refused handshake now gets a second look** — `SourceCertificate.WhyRefusedAsync`
+   opens one more connection, answers the postgres SSLRequest, takes the certificate in a
+   validation callback that **returns false**, and reads its dates. It changes no outcome and
+   cannot make a rejected certificate work; it turns the message into *"The database's TLS
+   certificate expired on 2026-08-26 15:04 UTC, 1 days ago"*, with the subject. Not expired
+   is answered too — not yet valid is a clock, and the remaining case names the issuer,
+   whether it is self-signed, and that `VerifyFull` wants the name as well as the issuer,
+   because a self-signed certificate is usually also issued to the wrong name and an operator
+   told only one of the two fixes it and fails again. Null when the second look fails, and
+   then the generic sentence stands: a wrong diagnosis is worse than a vague one.
+   **Tested against Npgsql's real code path without a database.** A PostgreSQL container
+   built with TLS and a backdated certificate is a heavy dependency for one exception shape,
+   and postgres announces TLS before it authenticates anything — eight bytes in, one `S`
+   back, then an ordinary handshake. `ExpiredSourceCertificateTests` is those two steps and a
+   certificate that expired yesterday. It asserts the **date**, not the word: asserting
+   *certificate* alone would have passed on Npgsql's own wording.
+   **What the test found on the way is [D-190](../architecture-debt.md), and it is the more
+   serious half.** It was written for three modes on the belief that `Require` validates.
+   Npgsql 9 follows libpq, where `Require` means *encrypt* and nothing more: the expired
+   certificate was **accepted**, and the run failed later on the startup packet. So a source
+   registered with `Require` has confidentiality and no authentication, and the probe reports
+   it exactly like a `VerifyFull` one. That is a caution the probe should give and does not,
+   and it is open.
 
 ## 10. Assumptions
 

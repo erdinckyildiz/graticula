@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
@@ -80,6 +81,30 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
             // blamed `ErrorResponse`'s catch-all and a missing classification there; the cause was
             // three layers earlier, which is why that row said a row is a lead rather than a finding.
             // `TimeoutException` is beside it for the host that resolves and never answers.
+            //
+            // <b>A refused TLS handshake gets a second look — ADR-014 condition 4.</b> Npgsql
+            // says *Exception while performing SSL handshake* and the platform underneath it
+            // says the callback rejected the certificate; neither says **when it expired**,
+            // and the operator's next move is a replacement on the database rather than
+            // anything on this network. The certificate is fetched again and refused again,
+            // purely to read its dates -- see `SourceCertificate`. Null means the second look
+            // failed too, and then the generic sentence stands, because a wrong diagnosis is
+            // worse than a vague one.
+            if (e is NpgsqlException { InnerException: AuthenticationException })
+            {
+                string? why = await SourceCertificate.WhyRefusedAsync(
+                    builder.Host ?? "localhost",
+                    builder.Port,
+                    DateTimeOffset.UtcNow,
+                    Timeout,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (why is not null)
+                {
+                    return Failed(ProbeOutcome.CannotConnect, why);
+                }
+            }
+
             return Failed(ProbeOutcome.CannotConnect, Describe(e));
         }
 
