@@ -291,6 +291,29 @@ run as jobs), admin API (§39), geoprocessing (§36).
    follow-up.
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
+   *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps
+   each `JobKind` to one of three answers, and **there is no default arm**: an undeclared
+   kind throws with this condition's number in the message. A `_ =>` returning the safest
+   word is precisely the wrong default the condition names — a kind added without a
+   decision would inherit *harmless* and nobody would find out until data was duplicated.
+   **The two kinds, and the distinction between them is the point.**
+   `GeodatabaseInspect` is **`Harmless`**: it reads headers, writes no table, and two
+   inspections of one archive give two identical answers. `GeodatabaseImport` is
+   **`RefusedByTheStore`** — *not* harmless: running it twice cannot duplicate, because
+   `layer_table_unique` and `layer_name_unique_in_service` refuse the second attempt, so
+   what makes it safe is a constraint stopping it rather than the work being idempotent.
+   An operator sees the difference: a second inspection succeeds and a second import
+   fails, and a register that called both *safe* would have them expect one answer from
+   two.
+   **The third answer, `Unsafe`, exists so the true answer can be written down when it is
+   the true one** — and `JobRerunTests.No_registered_kind_is_unsafe_to_run_twice` asserts
+   no registered kind is it, which is where the condition's word *before* is enforced: a
+   kind that would be unsafe needs a constraint or a design change before registration,
+   not a note afterwards.
+   **Walked rather than trusted.** The throw would fail at the moment somebody imports a
+   geodatabase, which is a failure in production; `Every_job_kind_declares_what_a_second_run_would_do`
+   walks the enumeration so the same omission fails on the build that adds the kind.
+   **Falsified** by adding a third kind and nothing else: two tests fail, naming it.)*
 3. **The polling interval is documented as a number.**
    *(Discharged 2026-08-27 — §3.3 now states it: 2 seconds, doubling on idle to a
    30-second ceiling, reset by work or by a signal. **The condition was live because
