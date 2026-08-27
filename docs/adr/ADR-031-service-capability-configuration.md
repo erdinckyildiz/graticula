@@ -308,6 +308,18 @@ connection.
 3. **The timeout override is tested at its bound** — that it can lower and cannot raise
    or unset — because D-42 is the record of that exact control being wrong once already,
    and it was wrong in the permissive direction.
+   *(Discharged 2026-08-27, and the third bound was the one missing.* `RequestDeadlineTests`
+   already carried `A_service_may_lower_the_deadline` and
+   `A_service_cannot_raise_the_deadline`, both passing; **nothing exercised *unset***, which is
+   the bound this condition would have been written for on its own. `LowerTo` refuses a
+   non-positive value in the same expression that refuses a larger one, so the code was right
+   and only the assertion was absent — which is exactly the state D-42 was found in.
+   `A_service_cannot_unset_the_deadline` now asks for 0, −1 and −3600 seconds and asserts the
+   deployment's bound is unchanged **and still installed**, because an assertion about the
+   remaining time alone would pass against a middleware that had removed the timer.
+   `A_service_with_no_opinion_leaves_the_deadline_alone` covers null, which is what almost every
+   service says and therefore the worst thing to leave untested. **Falsified** by deleting
+   `asked <= TimeSpan.Zero` from the guard: all three cases fail, and pass on restore.)*
 4. **The default is proven to be a no-op** on an existing catalogue: a service with no
    configured set must produce the byte-identical document it produced before this
    change. Asserted against the conformance suite rather than argued.

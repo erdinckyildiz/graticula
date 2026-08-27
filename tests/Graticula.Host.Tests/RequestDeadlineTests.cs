@@ -133,6 +133,85 @@ public sealed class RequestDeadlineTests
         await middleware.InvokeAsync(context);
     }
 
+    /// <summary>A service cannot take the bound off by asking for nothing.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-031](../../docs/adr/ADR-031-service-capability-configuration.md) condition 3, the
+    /// third of its three bounds.</b> The condition names them together — the override *can lower
+    /// and cannot raise or unset* — and the first two had tests while the third did not. Unsetting
+    /// is the one that matters most and looks least like an attack: nought and null are what a
+    /// configuration says when it has nothing to say, so an implementation that treated them as
+    /// *no limit* rather than as *no opinion* would read as reasonable and would hand every
+    /// service a way out of the deployment's bound.
+    /// </para>
+    /// <para>
+    /// <b>Negative is here for the same reason zero is.</b> `TimeSpan` is signed, the column is
+    /// milliseconds, and a value that arrived through arithmetic rather than through the admin API
+    /// can be negative — where <c>CancelAfter</c> would throw rather than refuse.
+    /// </para>
+    /// <para>
+    /// The admin API refuses a non-positive timeout as well
+    /// (<c>ServiceCapabilityLimitsTests.A_timeout_that_is_not_positive_is_refused</c>). That is a
+    /// second defence rather than the same one: this asserts the behaviour of the seam every
+    /// request goes through, which is where a value that reached the store some other way arrives.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-3600)]
+    public async Task A_service_cannot_unset_the_deadline(int seconds)
+    {
+        DefaultHttpContext context = new();
+        TimeSpan server = TimeSpan.FromSeconds(10);
+
+        RequestDeadline.Middleware middleware = new(
+            _ =>
+            {
+                RequestDeadline.LowerTo(context, TimeSpan.FromSeconds(seconds));
+
+                Assert.NotNull(RequestDeadline.Of(context));
+
+                Assert.Equal(server, RequestDeadline.Of(context)!.Allowed);
+
+                // And the token is still the deadline's rather than the one the request arrived
+                // with, because *the bound is still installed* is the half of this an assertion
+                // about `Allowed` alone would not catch.
+                Assert.True(context.RequestAborted.CanBeCanceled);
+
+                return Task.CompletedTask;
+            },
+            server);
+
+        await middleware.InvokeAsync(context);
+    }
+
+    /// <summary>Saying nothing at all leaves the deployment's bound where it is.</summary>
+    /// <remarks>
+    /// <b>Null is the common case and the one the signature invites.</b> <c>LowerTo</c> takes a
+    /// nullable so that the seam reading a nullable column does not write the same null check at
+    /// every call site — which means null reaches this method on almost every request, and *almost
+    /// every request* is the worst thing to leave untested.
+    /// </remarks>
+    [Fact]
+    public async Task A_service_with_no_opinion_leaves_the_deadline_alone()
+    {
+        DefaultHttpContext context = new();
+        TimeSpan server = TimeSpan.FromSeconds(10);
+
+        RequestDeadline.Middleware middleware = new(
+            _ =>
+            {
+                RequestDeadline.LowerTo(context, null);
+
+                Assert.Equal(server, RequestDeadline.Of(context)!.Allowed);
+                return Task.CompletedTask;
+            },
+            server);
+
+        await middleware.InvokeAsync(context);
+    }
+
     /// <summary>Nought means no bound, which a deployment may choose.</summary>
     /// <remarks>
     /// <b>It is also the behaviour of every build before this one.</b> A deployment with its own
