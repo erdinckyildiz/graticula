@@ -298,6 +298,29 @@ Four mechanisms, in order of precision:
 4. **TTL.** The floor. Crude, always available, always correct in the limited
    sense that staleness is bounded.
 
+**The bound, written down 2026-08-27, because condition 2 asks for a number and
+this section gave four mechanisms and no window.** It is not one number — each
+memory bounds a different thing, and an operator asking *how stale can this be*
+is asking about one of them:
+
+| What is remembered | The window | Where it is set |
+|---|---|---|
+| A tile | **60 minutes** by default, **or the layer's own `cache_seconds`** where an administrator set one | `Graticula:TileCacheMinutes`; per layer, `PUT /admin/layers/{name}/cache` |
+| A layer's shape — its fields, types and geometry column | **30 seconds** | `ServiceContexts.Lifetime` |
+| A WMS layer's measured time extent | **5 minutes** | `WmsEndpoints.TimeExtentLifetime` |
+| Anything, after our own write or an admin action | **zero** | `ServiceContexts.Forget`, called by the publish, unpublish and refresh paths |
+
+**The last row is the one that matters most and is the easiest to miss.** The TTLs
+above are the floor for a change this server did not see; a change it *did* see —
+an edit through the API, a republish, a cache setting — invalidates exactly and at
+once. So the window an operator actually waits is the TTL only for a direct
+database edit, which is the case §5.2 opens by admitting cannot be guaranteed.
+
+**And the shape window was measured rather than read off the constant** — see
+[Q-43](../open-questions.md): a dropped column is invisible to a cold memory and
+takes a warm one down for the full thirty seconds, which is the same number
+arriving as a symptom.
+
 **TTL is the only mechanism that works everywhere**, so it is the default and
 the others are accelerations. A design that assumes 1 or 2 is available is a
 design that breaks on the read-only Oracle we said we would support.
@@ -540,6 +563,12 @@ grant fingerprint is the fix — not a purge.
    work.
 2. **The invalidation delay must be documented as a number**, not described as
    "eventual". An operator needs to know the window.
+   *(Discharged 2026-08-27 — §5.2 now carries the four windows as a table: 60
+   minutes for a tile or the layer's own setting, 30 seconds for a layer's shape,
+   5 minutes for a WMS time extent, and **zero** after any write this server saw.
+   **The condition was live because the numbers were only in the code**, which is
+   what it was written to prevent. Found by sweeping this ADR's conditions against
+   what is built.)*
 3. **Seeding must be rate-limited against the source from the first version.**
    Retrofitting politeness after someone's production database has been
    saturated is too late.
