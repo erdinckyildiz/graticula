@@ -227,12 +227,32 @@ developer then runs what the customer runs.
 1. **A version-mismatch refusal is tested by deliberately starting a stale
    image**, and the message must name which two components disagree and in which
    direction.
-   **PARTLY DISCHARGED.** The refusal has been observed twice against a real
+   ~~**PARTLY DISCHARGED.** The refusal has been observed twice against a real
    store — a schema-5 server against a schema-2 store, and against an empty one
    — and both messages name the two versions and the direction. What has *not*
    been tested is the other direction: a **stale image against a newer store**,
    which is the dangerous case §4b exists for. That needs two published image
-   tags, so it is owed with the first release rather than now.
+   tags, so it is owed with the first release rather than now.~~
+   *(**Discharged 2026-08-27, and the premise for deferring it was wrong.** It does not
+   need two published image tags. What makes a component stale is the store's
+   `minimum_reader_version` standing above the version that component was built for, and
+   that is arrangeable on a scratch schema — which is what
+   [tools/stale-component-rehearsal.sh](../../tools/stale-component-rehearsal.sh) does, so
+   the run repeats rather than being a story about one afternoon.
+   **Both directions, observed against a real server and a real store.**
+   A build at schema 37 against a store at **applied 40, minimum reader 39** refuses at
+   startup: *"server is built for schema 37, and the platform store requires at least 39
+   (it is at 40). A contract migration has removed something this version still uses, so it
+   cannot be rolled back to."* Two versions, the direction, and what to do — which is what
+   this condition asks the message for.
+   **And the case that must not be refused is not refused.** The same build against
+   **applied 40, minimum reader 1** — a store ahead by expand only — starts and says
+   *"server at schema 37 is compatible with the platform store (schema 40, minimum reader
+   1)"*. That is §4b's whole design working: a stale component is refused when a contract
+   has passed it and admitted when one has not, and a check that refused both would have
+   made every expand migration a synchronised restart.
+   `UpgradeAndRollbackTests` covers both outcomes as a function; this is the same two
+   answers from a process at startup.)*
 2. **A rollback is rehearsed**, not assumed: upgrade, roll back before contract,
    confirm the previous version serves correctly.
 3. **The bundle is tested by installing on a machine with no network route**,
