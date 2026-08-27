@@ -749,8 +749,30 @@ public abstract class ConsoleTest : IAsyncLifetime
             const failed = e.target;
 
             if (failed && failed !== window && (failed.src || failed.href)) {
+              const url = failed.src || failed.href;
+
+              // <b>The two facts that classify it, recorded with it — D-173.</b> The load
+              // report reaches a caller only through the two waits, and the assertions that
+              // read `__pageErrors` directly are the ones that fail *fast* — so the richest
+              // failures were carrying the least. There are fifty-four of those call sites
+              // and one of this, which is why the context goes here. `transferSize` is the
+              // whole question: a resource that was fetched and delivered nothing accuses
+              // the server, and one with no timing entry was never requested.
+              let how = "no timing entry";
+
+              try {
+                const timed = (performance.getEntriesByType("resource") || [])
+                  .filter(r => r.name === url).pop();
+
+                if (timed) {
+                  how = Math.round(timed.responseEnd) + "ms/"
+                    + (timed.transferSize || 0) + "B";
+                }
+              } catch (ignored) { how = "timing refused"; }
+
               window.__pageErrors.push(
-                "never arrived: " + (failed.src || failed.href));
+                "never arrived: " + url
+                + " [" + how + ", readyState=" + document.readyState + "]");
             }
           }, true);
 
