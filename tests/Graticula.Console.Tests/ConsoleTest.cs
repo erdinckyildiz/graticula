@@ -1055,9 +1055,16 @@ public abstract class ConsoleTest : IAsyncLifetime
                       // hit and a response that delivered nothing both report
                       // `transferSize: 0`, and reading the first as the second is how this
                       // has been chased for two days.
+                      // <b>The protocol, because it is the last untested hypothesis --
+                      // D-173.</b> A re-fetch of the three that delivered nothing returns
+                      // 200 with the full bytes, so the files are fine and the first
+                      // delivery lost them. What separates the victims from the survivors on
+                      // one page is not size, not order and not the connection: `h2` beside
+                      // `http/1.1` would separate them in one field.
                       timings[r.name] = Math.round(r.responseEnd) + 'ms/'
                         + (r.transferSize || 0) + 'B/'
                         + (r.decodedBodySize || 0) + 'B'
+                        + '/' + (r.nextHopProtocol || '?')
                         + ((r.transferSize || 0) === 0 && (r.decodedBodySize || 0) > 0
                             ? '(cached)' : '');
                     }
