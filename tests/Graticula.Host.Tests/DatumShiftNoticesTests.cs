@@ -242,6 +242,10 @@ public sealed class DatumShiftNoticesTests
 
         public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) =>
             throw new NotSupportedException("the notice does not ask this");
+
+        /// <summary>This double knows no areas of use, which is a complete answer.</summary>
+        public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
+            Task.FromResult<Envelope?>(null);
     }
 
     /// <summary>An <see cref="ILogger"/> that keeps what it was told.</summary>

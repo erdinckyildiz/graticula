@@ -346,8 +346,21 @@ internal static partial class OgcFeaturesEndpoints
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
+        // <b>Asked once, and only when nothing cheaper can answer — [D-165].</b> A layer
+        // that holds rows knows its own extent and never reaches the projector; a geographic
+        // or Web Mercator collection is answered from arithmetic. What is left is a projected
+        // reference whose layer is empty, which is exactly the case that had its filter passed
+        // to `st_transform` unclamped. Cached per srid after the first request.
+        Envelope? domain =
+            request!.Bbox is null
+            || collection.Extent is { IsEmpty: false }
+            || Graticula.Geometries.ProjectionDomain.Of(collection.Srid) is not null
+                ? null
+                : await projector.DomainOfAsync(collection.Srid, cancellation)
+                    .ConfigureAwait(false);
+
         if (!TryQuery(
-                request!, layer, described, collection,
+                request!, layer, described, collection, domain,
                 out FeatureQuery? features, out bool empty, out problem))
         {
             await RefuseAsync(context, problem!).ConfigureAwait(false);
@@ -784,6 +797,12 @@ internal static partial class OgcFeaturesEndpoints
         PublishedLayer layer,
         LayerDescription described,
         CollectionMetadata collection,
+
+        // <b>Resolved by the caller, because this method is synchronous and asking is a
+        // round trip — [D-165](../../docs/architecture-debt.md).</b> Null when the
+        // collection has an extent, when `ProjectionDomain` can answer from arithmetic, or
+        // when the deployment cannot say. All three mean the same thing here.
+        Envelope? domain,
         out FeatureQuery? query,
         out bool empty,
         out OgcProblem? problem)
@@ -871,7 +890,7 @@ internal static partial class OgcFeaturesEndpoints
                     continue;
                 }
 
-                if (Clamped(box, request.BboxSrid, collection) is { } usable)
+                if (Clamped(box, request.BboxSrid, collection, domain) is { } usable)
                 {
                     boxes.Add(Rectangle(
                         Padded(usable, request.BboxSrid)));
@@ -1162,7 +1181,15 @@ internal static partial class OgcFeaturesEndpoints
     /// can only narrow a box that is in CRS84 to begin with.
     /// </para>
     /// </remarks>
-    private static Envelope? Clamped(Envelope box, int bboxSrid, CollectionMetadata collection)
+    /// <remarks>
+    /// <b>Internal rather than private so a test can reach it</b> --
+    /// [D-165](../../docs/architecture-debt.md). What this method decides is the whole of
+    /// the repair, and the alternative was a fixture: a layer in a national grid with rows
+    /// on both sides of its central meridian, seeded into every deployment the suite runs
+    /// against. Widening one accessor is cheaper than that and holds the same contract.
+    /// </remarks>
+    internal static Envelope? Clamped(
+        Envelope box, int bboxSrid, CollectionMetadata collection, Envelope? domain)
     {
         if (bboxSrid != Graticula.Geometries.AxisOrder.Wgs84)
         {
@@ -1187,13 +1214,22 @@ internal static partial class OgcFeaturesEndpoints
           answer, which is worse than the 400 it replaces. Clamping can only ever narrow to a
           region that still contains everything the reference can hold.
 
-          <b>The reference's limits are known for two families and null for the rest</b>, and
-          null means *do not clamp*. `ProjectionDomain` says why, and D-164 stays open for
-          the references it cannot answer for.
+          <b>The reference's limits are known for two families from arithmetic, and asked of
+          the projection authority for the rest</b> —
+          [D-165](../../docs/architecture-debt.md). `ProjectionDomain` answers for geographic
+          references and Web Mercator without a round trip; everything else comes from
+          `IProjector.DomainOfAsync`, which is the reference's own **area of use**. Null still
+          means *do not clamp*, and it is what an older PostGIS, an unknown code and an
+          unreachable store all say — the behaviour before any of this existed, which is what
+          made adding it safe.
+
+          <b>The extent still wins when there is one.</b> A layer that holds rows knows better
+          than its reference does: the area of use is where the projection is *valid*, not
+          where the data is.
         */
         Envelope? bound = collection.Extent is { IsEmpty: false } extent
             ? extent
-            : Graticula.Geometries.ProjectionDomain.Of(collection.Srid);
+            : Graticula.Geometries.ProjectionDomain.Of(collection.Srid) ?? domain;
 
         if (bound is not { } within)
         {

@@ -122,6 +122,36 @@ public interface IProjector
     Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken);
 
     /// <summary>
+    /// What a reference can represent, in longitude and latitude, or null when unknown.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-08-27 for [D-165](../../../docs/architecture-debt.md).</b>
+    /// <see cref="ProjectionDomain"/> answers this for two families — geographic and Web
+    /// Mercator — from arithmetic, and null for everything else. Null means *do not clamp*,
+    /// so a caller asking a layer in a national grid for `bbox=-180,-90,180,90` had its
+    /// filter passed to `st_transform` unclamped, which is what the OGC suite sends at every
+    /// collection. The reference's own area of use is the answer, and this is where a
+    /// deployment's projection authority is asked for it.
+    /// </para>
+    /// <para>
+    /// <b>Null is a complete answer and not a failure.</b> A projection database that does
+    /// not publish areas of use, a code it has never heard of, and a reference that genuinely
+    /// has no bound are one answer here: *this server does not know, so do not clamp*. That
+    /// is the behaviour before this method existed, which is what makes adding it safe.
+    /// </para>
+    /// <para>
+    /// <b>Cached, for the same reason <see cref="KnowsAsync"/> is.</b> The area of use of
+    /// EPSG:2180 changes when somebody edits the projection database, which is close enough
+    /// to never.
+    /// </para>
+    /// </remarks>
+    /// <param name="srid">The EPSG code of the reference.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The area of use in degrees, or null when this deployment cannot say.</returns>
+    Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken);
+
+    /// <summary>
     /// What a transformation between two references would be, without moving anything.
     /// </summary>
     /// <remarks>

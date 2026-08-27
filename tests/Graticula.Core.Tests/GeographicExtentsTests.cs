@@ -42,6 +42,10 @@ public sealed class GeographicExtentsTests
         public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult(true);
 
+        /// <summary>This double knows no areas of use, which is a complete answer.</summary>
+        public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
+            Task.FromResult<Envelope?>(null);
+
         public Task<(IReadOnlyList<Graticula.Geometries.Geometry> Projected, ProjectionProvenance Provenance)>
             ProjectAsync(
                 IReadOnlyList<Graticula.Geometries.Geometry> geometries,
@@ -179,6 +183,10 @@ public sealed class GeographicExtentsTests
             throw new NotSupportedException("this test does not ask about datums");
         public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult(srid != 99999);
+
+        /// <summary>This double knows no areas of use, which is a complete answer.</summary>
+        public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
+            Task.FromResult<Envelope?>(null);
 
         public Task<(IReadOnlyList<Graticula.Geometries.Geometry> Projected, ProjectionProvenance Provenance)>
             ProjectAsync(

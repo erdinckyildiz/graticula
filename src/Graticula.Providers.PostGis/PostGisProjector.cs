@@ -319,4 +319,80 @@ public sealed class PostGisProjector : IProjector
     }
 
     private readonly ConcurrentDictionary<int, bool> _known = new();
+
+    /// <summary>
+    /// What a reference can represent, from the projection database's own area of use.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-165](../../../docs/architecture-debt.md).</b> `ProjectionDomain` answers for
+    /// geographic references and Web Mercator from arithmetic, and null for every projected
+    /// one — so a layer in EPSG:2180 or 5254 had a caller's whole-world bounding box passed
+    /// to `st_transform` unclamped. `postgis_srs` publishes the reference's **area of use**
+    /// in degrees, which is the right answer from an authoritative source with no table of
+    /// ours to maintain. Measured 2026-08-26: EPSG:5254 is (28.5, 36.06)–(31.5, 41.46),
+    /// EPSG:2180 is (14.14, 49)–(24.15, 55.93), EPSG:3857 is (−180, −85.06)–(180, 85.06).
+    /// </para>
+    /// <para>
+    /// <b>It arrived in PostGIS 3.4, and this does not make 3.4 a requirement.</b> That
+    /// version commitment is what stopped this being built: the repository declares no
+    /// minimum PostGIS version and calls the function nowhere else. Asking for it inside a
+    /// `try` and answering **null** when it is not there costs nothing on an older server and
+    /// leaves it exactly as it was — null already means *do not clamp*. A capability used
+    /// where it exists is not a dependency.
+    /// </para>
+    /// <para>
+    /// <b>An unknown code answers a row of nulls rather than no row</b>, measured against
+    /// `EPSG:999999`, so the null check is on the ordinates and not on the row count.
+    /// </para>
+    /// </remarks>
+    /// <param name="srid">The EPSG code.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The area of use in degrees, or null.</returns>
+    public async Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken)
+    {
+        if (_domains.TryGetValue(srid, out Envelope? cached))
+        {
+            return cached;
+        }
+
+        Envelope? answer = null;
+
+        try
+        {
+            await using NpgsqlCommand command = _dataSource.CreateCommand(
+                "select st_x(point_sw), st_y(point_sw), st_x(point_ne), st_y(point_ne) "
+                + "from postgis_srs('EPSG', @srid)");
+
+            command.Parameters.AddWithValue(
+                "srid", srid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            await using NpgsqlDataReader reader =
+                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                && !await reader.IsDBNullAsync(0, cancellationToken).ConfigureAwait(false)
+                && !await reader.IsDBNullAsync(1, cancellationToken).ConfigureAwait(false)
+                && !await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false)
+                && !await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false))
+            {
+                answer = new Envelope(
+                    reader.GetDouble(0), reader.GetDouble(1),
+                    reader.GetDouble(2), reader.GetDouble(3));
+            }
+        }
+        catch (NpgsqlException)
+        {
+            // <b>Older PostGIS, or a store that cannot be reached.</b> Both mean the same
+            // thing to the caller — this deployment cannot say — and that is what null is.
+            // Not cached, because an outage is not an answer about a reference.
+            return null;
+        }
+
+        _domains[srid] = answer;
+
+        return answer;
+    }
+
+    private readonly ConcurrentDictionary<int, Envelope?> _domains = new();
 }
