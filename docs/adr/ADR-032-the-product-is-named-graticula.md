@@ -175,6 +175,15 @@ the same fact.
    ayarlayıp kendi reposuna taşırız"*. Recorded as deferred rather than met, because a
    condition nobody has done is not discharged by having been postponed, and this one
    has a clock on it that nobody here controls.
+   *(**PARTLY DISCHARGED, and re-measured 2026-08-27 — ten days on.** The repository half
+   is done: it lives at `github.com/erdinckyildiz/graticula`, created 2026-08-25 and
+   public. **Nothing else is held.** `github.com/graticula` still answers **404**, npm
+   `graticula` **404**, PyPI `graticula` **404**, and `graticula.io`, `graticula.com` and
+   `graticula.org` **do not resolve** — the same six checks §4's table ran, run again
+   rather than assumed. So the clock this condition describes is still running and the
+   decision is still reversible by a stranger. **The re-measurement is the point**: §4's
+   table said *available* and the condition said that has a shelf life of days, so the
+   only honest way to leave this open is with a fresh reading beside the old one.)*
 4. **No document keeps `gis-server` as live text.** Checked by
    [tools/registers-check.py](../../tools/registers-check.py) rather than by memory,
    the way the banned-tally check already works.
