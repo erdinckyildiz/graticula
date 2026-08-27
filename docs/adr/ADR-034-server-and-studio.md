@@ -896,6 +896,19 @@ items navigable.
 4. **The content listing exists before Studio claims to list content**, and it reports
    ownership rather than implying it: *mine* and *shared with me* are different answers and a
    publisher acts differently on each.
+   *(Discharged 2026-08-27 — `GET /content/items` and `GET /content/layers`, §5f's endpoints,
+   built before Studio was gated. **They need no privilege beyond being signed in**, which is
+   the whole reason they exist: `/admin/layers` requires `admin:viewAllContent`, so a publisher
+   asking for their own layers is refused by it. Each item carries `scope` — `mine`, `group`,
+   `organization`, `public`, `administrative` — beside `owner`, `because`, `sharedWith` and
+   `throughGroups`, so **ownership is reported rather than implied** and the two answers are
+   distinguishable in the payload rather than by inference.
+   `ContentScopeConformanceTests` asserts it from four callers' points of view and, in the
+   process, records why it is not one field: `LayerAccess.Evaluate` answers *why are you
+   allowed* and prefers the cheapest sufficient reason, which filed ten of eleven services
+   under **public** for the person who owned every one. **Ownership decides the section and the
+   reason is reported beside it**, which is what this condition asks for and what the first
+   implementation got wrong in a way that read as correct.)*
 5. **Moving between the surfaces costs one action for a reader who may be in both**, checked by
    using it rather than by reading it. An administrator is also a publisher, and a split that
    makes them navigate twice for one layer will be resented by the person it was not built for.
