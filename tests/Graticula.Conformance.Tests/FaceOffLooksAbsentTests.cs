@@ -112,6 +112,131 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
     }
 
     /// <summary>A service's capability document, as it stands now.</summary>
+    /// <summary>
+    /// Turning `Query` off does not stop the tile path, and `servesTiles` does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-180](../../docs/architecture-debt.md) counted a face that was never one.</b> Its
+    /// reasoning listed *the tile path* among the five reading faces the `Query` capability
+    /// governs and therefore among the places the enforcement was missing. Measured
+    /// 2026-08-27 and it is not: tiles have their own switch. This pins both halves so the
+    /// row cannot drift back.
+    /// </para>
+    /// <para>
+    /// <b>Both halves, because either alone is misleading.</b> That the tile path answers
+    /// while `Query` is off looks like the defect D-180 was about, and it is only correct
+    /// beside the fact that `servesTiles` does stop it. That `servesTiles` stops it proves
+    /// nothing about whether `Query` should have.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_tile_path_answers_to_its_own_switch_rather_than_to_Query()
+    {
+        string root = await RequireServerAsync();
+        string? service = await AnyTileServiceNameAsync();
+
+        Assert.False(service is null, "This server lists no tile service to turn a face off on.");
+
+        string[] parts = service!.Split('/');
+        string? folder = parts.Length > 1 ? parts[0] : null;
+        string bare = parts[^1];
+
+        string prefix = folder is { Length: > 0 } ? $"/rest/services/{folder}" : "/rest/services";
+        string document = $"{prefix}/{bare}/VectorTileServer?f=json";
+
+        string before = await CapabilitiesAsync(root, bare, folder);
+
+        try
+        {
+            // ---------------------------------------------------------------- Query off
+            await SetCeilingAsync(root, bare, folder, ["Create"]);
+
+            (HttpStatusCode refused, _) =
+                await AnonymousAsync($"{prefix}/{bare}/FeatureServer/0/query?where=1%3D1&f=json");
+
+            Assert.Equal(HttpStatusCode.Forbidden, refused);
+
+            (HttpStatusCode tiles, _) = await AnonymousAsync(document);
+
+            Assert.True(
+                tiles == HttpStatusCode.OK,
+                $"With the capability ceiling set to Create -- Query explicitly off -- the "
+                + $"VectorTileServer document answered {(int)tiles}. Tiles answer to "
+                + "servesTiles, not to Query, and D-180's reasoning counted this as a fifth "
+                + "unenforced face when it is not one. If this has genuinely changed, the "
+                + "decision belongs in ADR-031 rather than in a test.");
+
+            // ---------------------------------------------------------------- tiles off
+            await SetTileFaceAsync(root, bare, folder, serves: false);
+
+            (HttpStatusCode off, _) = await AnonymousAsync(document);
+
+            Assert.True(
+                off == HttpStatusCode.NotFound,
+                $"With servesTiles false the VectorTileServer document answered {(int)off}. "
+                + "The switch that is about tiles must turn tiles off, and ADR-031 "
+                + "condition 2 makes a face that is off indistinguishable from absent.");
+        }
+        finally
+        {
+            await RestoreAsync(root, bare, before);
+        }
+    }
+
+    /// <summary>A service that serves tiles, or null.</summary>
+    private static Task<string?> AnyTileServiceNameAsync()
+    {
+        string? named = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE");
+
+        return Task.FromResult(string.IsNullOrWhiteSpace(named) ? null : named.Trim('/'));
+    }
+
+    /// <summary>Sets the capability ceiling and leaves the two faces alone.</summary>
+    private async Task SetCeilingAsync(
+        string root, string name, string? folder, string[] capabilities)
+    {
+        using HttpRequestMessage request =
+            new(HttpMethod.Put, new Uri($"{root}/admin/services/{Uri.EscapeDataString(name)}/capabilities"))
+            {
+                Content = JsonContent.Create(new
+                {
+                    folder,
+                    servesFeatures = (bool?)null,
+                    servesTiles = (bool?)null,
+                    capabilities,
+                }),
+            };
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>Turns the tile face on or off, leaving the ceiling alone.</summary>
+    private async Task SetTileFaceAsync(string root, string name, string? folder, bool? serves)
+    {
+        using HttpRequestMessage request =
+            new(HttpMethod.Put, new Uri($"{root}/admin/services/{Uri.EscapeDataString(name)}/capabilities"))
+            {
+                Content = JsonContent.Create(new
+                {
+                    folder,
+                    servesFeatures = (bool?)null,
+                    servesTiles = serves,
+                    capabilities = (string[]?)null,
+                }),
+            };
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     private async Task<string> CapabilitiesAsync(string root, string name, string? folder)
     {
         string path = $"/admin/services/{Uri.EscapeDataString(name)}/capabilities"
