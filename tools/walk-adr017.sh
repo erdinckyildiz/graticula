@@ -64,6 +64,24 @@ step 3.3 4 GET  "/admin/jobs"                             "the two things that a
 echo
 echo '3.4 "Everything stopped at 03:14"'
 step 3.4 1 GET  "/admin/health"                           "certificate expired at 03:14"
+
+# <b>Step 3.4.1 is the one step whose status code is not the answer.</b> The route answered
+# 200 on 2026-08-27 and said nothing about a certificate, which is how a walk that reads only
+# codes can call a scenario walkable while the operator meeting it learns nothing. So this
+# step is read rather than counted.
+printf '%-5s %s  ' 3.4 1
+curl -sk "$ROOT/admin/health" -H "Authorization: Bearer $TOKEN" | python -c "
+import sys, json
+d = json.load(sys.stdin)
+c = d.get('servingCertificate')
+if not c:
+    print('%-9s %s' % ('SAYS NOTHING', 'no servingCertificate in the health document'))
+elif 'state' not in c or 'notAfter' not in c:
+    print('%-9s %s' % ('PARTIAL', 'servingCertificate carries %s' % sorted(c)))
+else:
+    print('%-9s %s, expires %s (%s days)'
+          % ('names it', c['state'], c['notAfter'], c['daysRemaining']))
+"
 step 3.4 2 GET  "/admin/certificates"                     "every certificate, with expiry"
 step 3.4 3 PUT  "/admin/certificates/serving"             "install the replacement, no restart"
 

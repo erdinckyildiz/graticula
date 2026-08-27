@@ -1230,6 +1230,13 @@ public static class Program
                     ? X509CertificateLoader.LoadPkcs12FromFile(path, settings.CertificatePassword)
                     : ServerIdentity.LoadOrCreate(settings.HostName, settings.StatePath);
 
+                // <b>ADR-017 §3.4 step 1</b>: this is the only place the serving certificate
+                // exists, so it is the only place that can tell `/admin/health` when it
+                // expires. Walked 2026-08-27 and the health route said nothing about a
+                // certificate while the process held one — *everything stopped at 03:14* is
+                // the one outage with a date known in advance.
+                ServingCertificate.Presenting(certificate);
+
                 listen.UseHttps(https =>
                 {
                     https.ServerCertificate = certificate;

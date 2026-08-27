@@ -4721,6 +4721,17 @@ internal static class AdminEndpoints
             error = storeError,
         };
 
+        // <b>The one outage with a date known in advance — ADR-017 §3.4 step 1.</b> Walked
+        // 2026-08-27: this route answered and carried no certificate, while the process had
+        // held one since startup. An expiry an operator has to infer from a client's
+        // handshake error is an expiry this server watched arrive and did not mention. Null
+        // on a plain-HTTP deployment, which is not a failure and is why the key is only
+        // added when there is something to say.
+        if (ServingCertificate.Describe(DateTimeOffset.UtcNow) is { } certificate)
+        {
+            health["servingCertificate"] = certificate;
+        }
+
         // Not a vanity statistic. This is the one piece of state the request
         // path carries between requests, and a cache nobody can see is a
         // cache nobody suspects when the answers go stale. The lifetime is

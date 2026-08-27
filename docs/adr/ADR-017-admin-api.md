@@ -147,16 +147,23 @@ deliberately.
 The scenario [ADR-014](ADR-014-tls-and-certificates.md) §2c added, and the only
 one with a known date in advance.
 
-**Walked 2026-08-27, and this is the scenario the walk leaves worst.** Step 1's endpoint
-answers and says nothing about a certificate; steps 2 and 3 do not exist. So the one outage
-with a known date in advance is the one an operator would still meet as a TLS handshake
-error — which is what this section was written to prevent.
+**Walked 2026-08-27: step 1 said nothing, and was repaired the same day. Steps 2 and 3 do
+not exist, and only one of them should.** The walk found `/admin/health` answering 200 and
+carrying no certificate while the process had held one since startup — so the one outage with
+a date known in advance was the one an operator would still meet as a TLS handshake error,
+which is what this section was written to prevent.
+
+**Step 1's status code was never the answer, and the walk now reads the document.** A
+scenario can be *walkable* by every code being a 2xx and still tell an operator nothing;
+this is the step where those two came apart, so
+[tools/walk-adr017.sh](../../tools/walk-adr017.sh) reads step 1's body and reports
+`SAYS NOTHING`, `PARTIAL` or the expiry itself.
 
 | Step | Endpoint | Answers | Walked |
 |---|---|---|---|
-| 1 | `GET /admin/health` | **Certificate expired at 03:14** — stated, not inferred | **Answers, and carries no certificate.** Its blocks are `platformStore`, `runtime`, `admissionControl`, `describedShapes`, `tileCache`, `datumShifts`, `unopenableSources`. Expiry is in none of them |
-| 2 | `GET /admin/certificates` | Every certificate we hold, with expiry and days remaining | **Not built** |
-| 3 | `PUT /admin/certificates/serving` | Install the replacement — no restart | **Not built.** [ADR-014](ADR-014-tls-and-certificates.md) condition 1 asks for rotation without a restart to be *verified by test*, and that condition is open for the same reason: there is nothing to rotate through |
+| 1 | `GET /admin/health` | **Certificate expired at 03:14** — stated, not inferred | **Answers, and now names it.** `servingCertificate` carries `subject`, `issuer`, `notBefore`, `notAfter`, `daysRemaining` (signed, so an expired one reads as a post-mortem rather than *expires today*), `state` — `valid`, `expiring`, `expired` — and a `note` in words from thirty days out. Absent rather than null on a plain-HTTP deployment |
+| 2 | ~~`GET /admin/certificates`~~ | Every certificate we hold, with expiry and days remaining: serving, data-source clients, trust anchors | **Not built, and answered at step 1 — because this server holds exactly one certificate.** Measured 2026-08-27: no source in `/src` names a client certificate, a root certificate or a trust anchor, so *every certificate we hold* is the serving one. A second address for one fact is the mistake §3.2 documents from the other side |
+| 3 | `PUT /admin/certificates/serving` | Install the replacement — no restart | **Not built, and the gap is real.** [ADR-014](ADR-014-tls-and-certificates.md) condition 1 asks for rotation without a restart to be *verified by test*, and that condition is open for the same reason: there is nothing to rotate through. Step 1's `note` says so to the operator's face rather than letting them discover it during the replacement |
 
 **What this forces into existence:** expiry is surfaced **before** it bites,
 30/7/1 days, and the supervisor owns it. An outage with a known date that
@@ -301,8 +308,9 @@ administrator has left.
    no step requiring a log file. A step that needs `docker logs` is a missing
    endpoint.
    **PARTLY DISCHARGED 2026-08-27, and the walk is a script now rather than an afternoon** —
-   [tools/walk-adr017.sh](../../tools/walk-adr017.sh). **Of sixteen steps, three answer, two
-   exist under a different verb, and eleven are not there.** §3 is rewritten against that
+   [tools/walk-adr017.sh](../../tools/walk-adr017.sh). **Of sixteen steps, four answer, two
+   exist under a different verb, and ten are not there** — three and eleven when the walk
+   was first run, before §3.4 step 1 was repaired. §3 is rewritten against that
    run, the way §3.3 was on 2026-08-24, so the tables say what the server does rather than
    what the section wished for.
    **The finding is the gap between the address and the answer.** Five of §3.2's six
@@ -315,9 +323,14 @@ administrator has left.
    answer and needs none.
    **What is genuinely absent is worth naming separately**: drift detection (A-023's
    fingerprint), scoped cache invalidation, per-level cache generation times, a GET for one
-   layer, and **all of §3.4's certificate surface** — which is the scenario this leaves
-   worst, because it is the one outage with a date known in advance and an operator would
-   still meet it as a handshake error.
+   layer, and rotation without a restart.
+   **§3.4 step 1 was repaired the same day the walk found it**, because it was the scenario
+   this left worst and the cheapest thing in the list: the process had held its certificate
+   since startup and nothing asked it. `/admin/health` carries `servingCertificate` now, with
+   the expiry, the signed days remaining and a sentence. **That step also changed what the
+   walk is**: it answered 200 the whole time, so a walk that reads status codes called it
+   walkable while an operator meeting the outage learned nothing. The script reads that
+   body now.
    **This discharges when those exist.** It is not discharged by the walk being written
    down; what the walk bought is that the gap is now sixteen rows with a verdict each rather
    than a sentence nobody had checked.
