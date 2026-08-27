@@ -241,11 +241,43 @@ release must fill in the supported-versions table these documents leave empty.
    SECURITY.md is the one configured in git, chosen as the obvious default and
    flagged here rather than assumed. A personal address on a public repository
    is the owner's call, and a role address or an alias may be preferred.
+   *(**Still open, and 2026-08-27 gave it a sharper edge**: there are two addresses in play.
+   `git config user.email` in this working copy is `erdincyildiz@gmail.com`, which is what
+   `SECURITY.md` carries; the account this work is done under is a different address. Only
+   the owner knows which inbox is watched, and a security contact nobody reads is worse than
+   none because it looks like a route. This is the fallback route rather than the primary
+   one — the primary is GitHub private vulnerability reporting, which
+   [D-183](../architecture-debt.md) measured as **disabled** — so today both routes named in
+   the policy are uncertain.)*
 4. **The claims SECURITY.md makes about scope stay true.** It names four
    deliberate trade-offs by ADR — the archive bounds, the read-only cookie,
    credentials in URLs, the overlay deadline. If any is changed or removed, that
    list is wrong, and a scope statement that is wrong invites the wrong reports
    and dismisses the right ones.
+   ***(Discharged 2026-08-27 — read against the code, and the mechanical half is checked
+   from now on.)*** **All four are still true**, and each was verified rather than assumed:
+   `BoundedArchive`'s five bounds are ADR-024 §4's five; `Authentication.cs` says in as many
+   words that *the cookie authenticates GET and HEAD and nothing else*; ArcGIS still puts a
+   token in the query string, which is why [D-184](../architecture-debt.md)'s audit records a
+   path and never a query; and the overlay worker is a separate process started with
+   `DOTNET_GCHeapHardLimit` and a deadline, in `GeometryWorkerPool`.
+   **One claim had drifted, in the out-of-scope list rather than the in-scope one.** It named
+   *the `docker-compose` file used for development*; the file is `compose.yaml`, it takes its
+   password from `GIS_DATASTORE_PASSWORD`, and it says in the file that the default is
+   development only. A reporter looking for what was named would not have found it. The
+   sentence now names the file that exists and what it actually does.
+   **A fifth trade-off is named, because a bound that is measured and unpaid should not
+   arrive as news.** [D-188](../architecture-debt.md) measured that a request large enough to
+   be refused by the geometry service costs about four seconds of CPU to refuse. That is in
+   the register and was not in the policy, so the first person to notice it would have
+   reported it as a finding.
+   **What keeps it true is now a check rather than a memory** —
+   `registers-check.py.a_file_a_security_promise_names_that_is_not_there` fails the build on
+   any path `SECURITY.md` or `CONTRIBUTING.md` names in backticks that is not in the
+   repository. **It only checks paths, and that limit is stated rather than hidden**: whether
+   the cookie is still read-only cannot be read off a filename. What it catches is the drift
+   that actually happened. Falsified by putting `docker-compose.yml` back: it names the file
+   and the line, and clears when the real name returns.
 
 ## 11. Dissent
 

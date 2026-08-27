@@ -2247,6 +2247,70 @@ def a_secret_committed_to_a_public_repository():
     return problems
 
 
+BACKTICK_PATH = '`([A-Za-z0-9_./-]+\\.(?:md|cs|py|sh|ya?ml|json|csproj|sln|html|js|css)|[A-Za-z0-9_-]+/[A-Za-z0-9_./-]+)`'
+
+
+def a_file_a_security_promise_names_that_is_not_there():
+    """
+    A path named in `SECURITY.md` or `CONTRIBUTING.md` that does not exist.
+
+    <b>[ADR-025](../docs/adr/ADR-025-governance-and-maintenance.md) condition 4</b>: *the claims
+    SECURITY.md makes about scope stay true. If any is changed or removed, that list is wrong,
+    and a scope statement that is wrong invites the wrong reports and dismisses the right
+    ones.* A condition worded as *stays true* is a promise somebody has to keep remembering,
+    and this repository's whole debt register is what that costs -- so the mechanical half of
+    it is checked here.
+
+    <b>Paths only, because only paths can be checked.</b> Whether *the cookie authenticates
+    GET and HEAD only* is still true cannot be read off a filename; it was verified by hand on
+    2026-08-27 against `Authentication.cs`, and so were the other three trade-offs. What a
+    check can do is catch the drift that already happened: the out-of-scope list named *the
+    `docker-compose` file* and the file is `compose.yaml`, so a reporter looking for it would
+    not have found it.
+
+    <b>These two files rather than every document.</b> A wrong path in an ADR is a nuisance;
+    a wrong path in the file that tells a stranger what is in scope is how a real report gets
+    dismissed as out of scope, or a known trade-off gets reported as news.
+    """
+    problems = []
+
+    named = re.compile(BACKTICK_PATH)
+
+    for promise in ("SECURITY.md", "CONTRIBUTING.md"):
+        full = os.path.join(conditions.ROOT, promise)
+
+        if not os.path.exists(full):
+            problems.append(
+                promise + " does not exist, and ADR-025 condition 1 requires it before this "
+                "repository is public. It is public.")
+            continue
+
+        text = io.open(full, encoding="utf-8").read()
+
+        # <b>Line numbers, because the same path can appear twice.</b> The first run reported
+        # `architecture-debt.md` twice with nothing to tell the two apart, and one of the two
+        # was a bullet written a minute earlier.
+        seen = {}
+        for number, line in enumerate(text.split(chr(10)), start=1):
+            for hit in named.finditer(line):
+                seen.setdefault(hit.group(1), number)
+
+        for path, number in seen.items():
+
+            # A bare filename with an extension may be prose rather than a path -- but only
+            # if nothing in the repository is called that either.
+            if os.path.exists(os.path.join(conditions.ROOT, path)):
+                continue
+
+            problems.append(
+                promise + ":" + str(number) + " names `" + path + "`, which is not in this "
+                "repository. A scope statement that points at a file nobody can find "
+                "dismisses the right reports and invites the wrong ones -- ADR-025 "
+                "condition 4.")
+
+    return problems
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
@@ -2296,7 +2360,8 @@ def main() -> int:
                 + a_test_a_register_cites_that_is_not_there()
                 + an_adr_that_does_not_say_where_its_state_lives()
                 + a_port_documented_as_a_contract()
-                + a_secret_committed_to_a_public_repository())
+                + a_secret_committed_to_a_public_repository()
+                + a_file_a_security_promise_names_that_is_not_there())
 
     if problems:
         for line in problems:
