@@ -105,15 +105,21 @@ public sealed class CatalogReadCostTests(ITestOutputHelper output) : PostgresFix
             Assert.NotNull(await catalog.FindAsync("cost_layer", CancellationToken.None));
         }
 
-        Stopwatch clock = Stopwatch.StartNew();
-
-        for (int i = 0; i < Iterations; i++)
-        {
-            _ = await catalog.FindAsync("cost_layer", CancellationToken.None);
-        }
-
-        clock.Stop();
-        double whole = clock.Elapsed.TotalMilliseconds / Iterations;
+        // <b>The measurement is interleaved, and it was not — CI, 2026-08-27.</b> Measured as
+        // three hundred of one and then three hundred of the other, the two windows are
+        // minutes apart on a machine whose load is not ours: a CI run reported the whole
+        // (1578 µs) coming out *faster* than the part it contains (1934 µs), which the
+        // assertion below correctly calls impossible and correctly offers two explanations
+        // for — *either the machine moved under the measurement or the two are no longer
+        // reading the same thing*. The machine moved.
+        //
+        // <b>One round is one of each, so both see the same machine.</b> Drift that would
+        // have landed entirely on whichever ran second is now shared by both, and the
+        // comparison is within-sample rather than between two windows. The assertion is
+        // unchanged: the invariant is true, and what was wrong was the way it was being
+        // asked.
+        double wholeTicks = 0;
+        double driverTicks = 0;
 
         // The same shape of work with nothing built: every column is read, and dropped.
         const string Sql = """
@@ -133,15 +139,23 @@ public sealed class CatalogReadCostTests(ITestOutputHelper output) : PostgresFix
             await ReadRawAsync(Sql);
         }
 
-        clock.Restart();
+        Stopwatch clock = new();
 
         for (int i = 0; i < Iterations; i++)
         {
+            clock.Restart();
+            _ = await catalog.FindAsync("cost_layer", CancellationToken.None);
+            clock.Stop();
+            wholeTicks += clock.Elapsed.TotalMilliseconds;
+
+            clock.Restart();
             await ReadRawAsync(Sql);
+            clock.Stop();
+            driverTicks += clock.Elapsed.TotalMilliseconds;
         }
 
-        clock.Stop();
-        double driver = clock.Elapsed.TotalMilliseconds / Iterations;
+        double whole = wholeTicks / Iterations;
+        double driver = driverTicks / Iterations;
 
         // <b>And the read the request path actually makes.</b> `ServiceLookup` resolves a
         // *service* with all its layers, not one layer, so `FindAsync` is not what the
