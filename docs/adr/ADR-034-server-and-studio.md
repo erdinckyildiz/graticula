@@ -890,6 +890,18 @@ items navigable.
 2. **One stylesheet and one map module across both surfaces**, asserted by a test that fails
    if a second copy of either appears. D-46 has six recorded instances and this decision
    doubles the opportunity.
+   *(Discharged 2026-08-27 — `OneCopyAcrossSurfacesTests`, two halves because one is not
+   enough. **The bytes**: every same-origin script and stylesheet `index.html` names is
+   fetched from `/server` and `/studio` and compared by SHA-256, so a copy that appeared at
+   one of the two mounts is caught even though both are served from one directory today.
+   **The count**: the page must link exactly one same-origin stylesheet and `console.js` must
+   name the map SDK's address exactly once — because the first half would pass against *two*
+   stylesheets as long as both surfaces served both, which is the condition broken with the
+   copies in step. **The asset list is read from the page rather than written here**, since a
+   hard-coded list is a second place to keep in step and that is the defect this condition is
+   about. **Falsified twice**: a route shadowing `/studio/console.css` with different bytes
+   fails the first (*958123DB… vs C7238ECD…*), and a second `<link rel="stylesheet">` fails
+   the second (*links 2 same-origin stylesheets*). Both pass on restore.)*
 3. **The SDK setting and the Content-Security-Policy move together**, asserted by a test that
    sets a different SDK origin and checks the policy names it. Otherwise §5e is a trap rather
    than a setting.
