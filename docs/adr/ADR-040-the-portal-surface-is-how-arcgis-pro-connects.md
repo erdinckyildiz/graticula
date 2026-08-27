@@ -159,6 +159,12 @@ recorded rather than absorbed.
    one's, the way `/admin/routes` is asserted rather than assumed.
 3. **The third token endpoint shares the second's implementation**, not its shape. A test signs in
    through all three and asserts the same session store answers.
+   *(Discharged 2026-08-27 — `PortalConformanceTests.All_three_token_endpoints_answer_from_one_session_store`
+   posts credentials to `/rest/generateToken`, `/admin/generateToken` and
+   `/sharing/rest/generateToken` in turn, and then **spends each token on a surface none of the
+   three belongs to** — which is the part that makes it about one session store rather than
+   three that happen to answer. Passing. **It was met and marked live**, found by sweeping this
+   ADR's conditions against the tests.)*
 4. **If Pro still does not connect, the finding is written into [Q-126](../open-questions.md) with
    the log**, and Alternative A is reconsidered as a decision rather than resumed as a reflex.
 
