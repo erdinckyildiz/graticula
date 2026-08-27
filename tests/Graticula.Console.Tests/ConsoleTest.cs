@@ -897,7 +897,7 @@ public abstract class ConsoleTest : IAsyncLifetime
     {
         for (int attempt = 0; attempt < 100; attempt++)
         {
-            if (await Browser.EvaluateAsync<bool>($"!!({expression})"))
+            if (await StillWaitingOrTrueAsync($"!!({expression})"))
             {
                 return;
             }
@@ -1173,6 +1173,47 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// to an empty collection would turn every `Assert.Empty` in the suite red.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Evaluates a wait's expression, treating a page that is navigating as *not yet*.
+    /// </summary>
+    /// <param name="expression">The expression, already wrapped in a truth test.</param>
+    /// <returns>Whether it is true now.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-173](../../docs/architecture-debt.md)'s fourth distinct cause, CI 2026-08-27.</b>
+    /// `SurfaceTests.Without_admin_manageServer_there_is_no_Server_surface_to_see` failed with
+    /// `Runtime.evaluate failed: {"code":-32000,"message":"Inspected target navigated or
+    /// closed"}` — and unlike every earlier occurrence, **the navigation is real and is the
+    /// behaviour under test**: a reader without `admin:manageServer` is moved out of Server by
+    /// the console's own router, which calls `location.replace` on a path. The test waits for
+    /// exactly that redirect and can be evaluating at the instant it commits.
+    /// </para>
+    /// <para>
+    /// <b>Not yet, rather than an error, and that is not a weakening.</b> A wait's contract is
+    /// *keep asking until this is true*; a target that is mid-navigation has not answered
+    /// either way, so the honest reading is *not yet* and the loop's own hundred attempts
+    /// bound it. A wait that gave up because the page moved was reporting the browser's
+    /// timing rather than the server's behaviour.
+    /// </para>
+    /// <para>
+    /// <b>Only this message.</b> Every other DevTools failure still throws — a page that
+    /// threw, a target that died, a protocol error. Swallowing those would turn a wait into a
+    /// timeout with no cause, which is what this suite spent two days undoing.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> StillWaitingOrTrueAsync(string expression)
+    {
+        try
+        {
+            return await Browser.EvaluateAsync<bool>(expression);
+        }
+        catch (InvalidOperationException moving)
+            when (moving.Message.Contains("navigated or closed", StringComparison.Ordinal))
+        {
+            return false;
+        }
+    }
+
     protected async Task<string[]> PageErrorsAsync()
     {
         string[] reported =
