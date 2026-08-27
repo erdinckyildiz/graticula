@@ -226,6 +226,89 @@ public sealed class SurfaceTests : ConsoleTest
     }
 
     /// <summary>
+    /// The switch is used rather than read: one click, and you are on the other surface.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-034](../../docs/adr/ADR-034-server-and-studio.md) condition 5.</b> *"Moving
+    /// between the surfaces costs one action for a reader who may be in both, **checked by using
+    /// it rather than by reading it**. An administrator is also a publisher, and a split that
+    /// makes them navigate twice for one layer will be resented by the person it was not built
+    /// for."*
+    /// </para>
+    /// <para>
+    /// <b>The distinction the condition insists on is the whole test.</b>
+    /// <c>An_administrator_is_shown_both_surfaces</c> asserts the switch is painted with two
+    /// links in it, and every one of those assertions would still pass if the links went
+    /// nowhere, or landed on a sign-in form, or took two clicks because the session did not
+    /// survive the navigation. This clicks it.
+    /// </para>
+    /// <para>
+    /// <b>One action means the session survives the navigation, which is not free.</b> The token
+    /// lives in <c>sessionStorage</c>, and <c>sessionStorage</c> is per origin — so it survives
+    /// <c>/server/</c> → <c>/studio/</c> and would not survive a second host or a second port.
+    /// That is the property being asserted, by counting the clicks it takes to arrive signed in.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_administrator_reaches_the_other_surface_in_one_action()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/services", token);
+
+        await WaitForAsync(
+            "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
+            "The console did not open for an administrator.");
+
+        await DrawnAsync();
+
+        Assert.Equal(
+            "server",
+            await Browser.EvaluateAsync<string>("document.documentElement.dataset.surface"));
+
+        // <b>Clicked, not navigated to.</b> Driving the browser to `/studio/` would assert that
+        // the address works, which nobody doubts; what the condition is about is whether the
+        // control in front of a reader takes them there.
+        await Browser.EvaluateAsync<object>(
+            "document.querySelector('#surfaces a[data-surface=\"studio\"]').click()");
+
+        await WaitForAsync(
+            "location.pathname.startsWith('/studio')",
+            "Clicking Studio in the surface switch did not move the reader to Studio. The switch "
+            + "is painted for an administrator and this is what it is for — ADR-034 condition 5.");
+
+        await WaitForAsync(
+            "!!document.getElementById('app')"
+            + " && getComputedStyle(document.getElementById('app')).display !== 'none'",
+            "Studio did not open after one click from Server. If the reader was sent to a "
+            + "sign-in form the move cost two actions, which is what this condition forbids.");
+
+        await DrawnAsync();
+
+        Assert.Equal(
+            "studio",
+            await Browser.EvaluateAsync<string>("document.documentElement.dataset.surface"));
+
+        // <b>Still signed in, and asserted from the page rather than from the store.</b> A token
+        // sitting in `sessionStorage` that the page has not used proves nothing; the header
+        // naming who is looking is the console's own evidence that the session came across.
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                await Browser.EvaluateAsync<string>(
+                    "document.getElementById('who').textContent")),
+            "Studio opened without knowing who was looking, so the session did not survive the "
+            + "one click. Moving between the surfaces would then cost a sign-in.");
+
+        // And the way back is there, which is what makes it a switch rather than a door.
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('surfaces').offsetParent === null"),
+            "The switch disappeared on arrival in Studio, so the reader can get in and not out.");
+    }
+
+    /// <summary>
     /// Waits for the header to have been drawn, which is not when the body appears.
     /// </summary>
     /// <remarks>

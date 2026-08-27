@@ -941,6 +941,19 @@ items navigable.
 5. **Moving between the surfaces costs one action for a reader who may be in both**, checked by
    using it rather than by reading it. An administrator is also a publisher, and a split that
    makes them navigate twice for one layer will be resented by the person it was not built for.
+   *(Discharged 2026-08-27 — `SurfaceTests.An_administrator_reaches_the_other_surface_in_one_action`,
+   and **the distinction this condition insists on is the whole test.**
+   `An_administrator_is_shown_both_surfaces` already asserted the switch is painted with two
+   links in it, and every one of those assertions would still pass if the links went nowhere,
+   landed on a sign-in form, or took two clicks because the session did not survive. So this
+   one **clicks it**: `/server/#/services` → one click on Studio → `location.pathname` is
+   `/studio`, the application opens, the header still names who is looking, and the switch is
+   still there to come back with. **One action means the session survives the navigation**,
+   which is not free: the token is in `sessionStorage`, which is per origin, so it crosses
+   `/server/` → `/studio/` and would not cross a second host or port — that is the property
+   being asserted, by counting the clicks it takes to arrive signed in. **Falsified** by
+   pointing the switch's `href` at `#`: ten seconds pass and `location.pathname` never starts
+   with `/studio`, and it passes on restore. Console suite 99/99.)*
 
 ## 8. Assumptions
 
