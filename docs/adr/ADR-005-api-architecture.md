@@ -617,7 +617,31 @@ pipeline, ADR-006.
 2. **The capability report is generated, never hand-maintained.** *(**LIVE and UNMET, 2026-08-20.** `OgcNames.ConformsTo` is a hand-maintained array of five URIs. This is the condition's own failure mode: the list is what a validator checks, and nothing ties it to what the code actually does — a class removed in the code stays claimed in the array until somebody notices. ADR-008 §2 makes the same demand for the ArcGIS capability report and it is tracked there.)*
 
 3. **Every extension is reviewed against the additive-only rule** in §3.2 before
-   it ships. This is the rule most likely to erode quietly. *(**LIVE, not yet triggered.** Nothing extends OGC API Features here yet. It becomes real the first time a query parameter, a link relation or a media type is added that the specification does not define.)*
+   it ships. This is the rule most likely to erode quietly.
+   *(~~**LIVE, not yet triggered.** Nothing extends OGC API Features here yet. It becomes
+   real the first time a query parameter, a link relation or a media type is added that the
+   specification does not define.~~
+   **Discharged 2026-08-27, and it had been triggered for two days.**
+   [ADR-042](ADR-042-ogc-api-features.md) §5b added the write surface on 2026-08-25 —
+   `POST`, `PUT`, `PATCH` and `DELETE` on addresses Part 1 defines only `GET` for — and that
+   is an extension by this condition's own definition. The annotation saying otherwise was
+   written before it and outlived it, which is the shape [D-186](../architecture-debt.md)
+   records one document along.
+   **The review, and it is short because the surface is small.** Measured against a running
+   server: the link relations published are `self`, `alternate`, `conformance`, `data`,
+   `service-desc`, `service-doc`, `collection` and `next` — **every one of them Part 1's**.
+   The query parameters read are `f` (Part 1 §7.4) and `crs` (Part 2). The top-level keys of
+   a feature collection are `type`, `features`, `links`, `numberMatched`, `numberReturned`
+   and `timeStamp` — **all Part 1's**. The media types are `application/geo+json`,
+   `application/json` and `text/html`.
+   **So there is exactly one extension: the write verbs, and they are additive.** They add
+   methods to paths that already exist and change nothing about the `GET` on those paths; a
+   client that only reads cannot tell they are there. `PATCH` carries
+   `application/merge-patch+json`, which is RFC 7396 rather than an invention of ours.
+   **And no conformance class is claimed for any of it** — `OgcNames.ConformsTo` lists no
+   Part 4 class, which ADR-042 §5b decided deliberately and a conformance test asserts the
+   *absence* of. That is the additive-only rule at its strictest: the capability is added and
+   the claim is not, so nothing a client reads to decide what this server is has changed.)*
 
 4. **Optimistic concurrency must be built on database-maintained state** (§3.8),
    never on our own record of what we saw. Getting this wrong produces silent
