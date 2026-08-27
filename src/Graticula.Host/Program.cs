@@ -1184,6 +1184,41 @@ public static class Program
     /// newer schema. The result is unrecoverable and presents as corruption
     /// rather than as a mistake.
     /// </remarks>
+    /// <summary>
+    /// The largest number of database connections this server may hold at once.
+    /// </summary>
+    /// <param name="services">Where the budget lives.</param>
+    /// <returns>The sum of the pool ceilings, which is a worst case rather than a usage.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The platform store's pool is the dominant term and is outside the admission
+    /// budget</b> — it is read on every request, including requests that touch no data
+    /// source. It is built with no `MaxPoolSize`, so Npgsql's default of 100 applies, and
+    /// D-196 measured it reaching exactly that.
+    /// </para>
+    /// <para>
+    /// <b>Deliberately a worst case, and deliberately not exact.</b> Per-layer pools are
+    /// created on demand, one per distinct connection string, so their true ceiling depends
+    /// on how many data sources a deployment registers — which this cannot know at startup.
+    /// What it counts is the store, the admission budget the data-source work is bounded by,
+    /// and the job pool. A deployment with many sources is worse than this number, never
+    /// better, and saying so is more useful than a number that is exactly wrong.
+    /// </para>
+    /// </remarks>
+    private static int Ceiling(IServiceProvider services)
+    {
+        // Npgsql's default, which is what an unconfigured pool takes.
+        const int NpgsqlDefaultPool = 100;
+
+        int budget = services.GetService<ConnectionBudget>() is { } bounded
+            ? bounded.Worker
+            : 0;
+
+        int jobs = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length;
+
+        return NpgsqlDefaultPool + budget + jobs;
+    }
+
     private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)
     {
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
@@ -1210,6 +1245,19 @@ public static class Program
         }
 
         Log.SchemaCompatible(logger, result.Explanation);
+
+        // <b>D-196: nothing compared what this server may open against what the database will
+        // give.</b> Measured 2026-08-27 at 129 connections against a stock PostgreSQL's 100,
+        // of which 100 were the platform store's own pool at Npgsql's default ceiling. The
+        // way that announces itself is `53300: sorry, too many clients already` on whichever
+        // request is next, which opens the source breaker and turns ten seconds of unrelated
+        // requests into 503s. This says so at startup instead.
+        //
+        // <b>Here, because the connection already exists and has just been used.</b> The
+        // handshake is the one place that has read from the store before anything is serving.
+        await ConnectionCeilings.CompareAsync(
+            dataSource, Ceiling(services), logger, CancellationToken.None).ConfigureAwait(false);
+
         return true;
     }
 

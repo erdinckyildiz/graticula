@@ -471,4 +471,26 @@ internal static partial class Log
         Message = "The certificate at '{Path}' is not in a directory that can be watched, so "
                 + "a replacement will need a restart. That is ADR-014 2b's whole subject.")]
     public static partial void CertificateNotWatchable(ILogger logger, string path);
+    [LoggerMessage(
+        EventId = 1058,
+        Level = LogLevel.Information,
+        Message = "This server may hold up to {Ceiling} database connections at once and the "
+                + "platform store allows {Usable} of its {Allowed} (the rest are reserved for "
+                + "superusers). It fits.")]
+    public static partial void ConnectionCeilingFits(
+        ILogger logger, int ceiling, int usable, int allowed);
+
+    [LoggerMessage(
+        EventId = 1059,
+        Level = LogLevel.Warning,
+        Message = "This server may hold up to {Ceiling} database connections at once and the "
+                + "platform store allows only {Usable} of its {Allowed} (the rest are "
+                + "reserved for superusers). Under load it will be refused with '53300: sorry, "
+                + "too many clients already', which is not a defect in whatever request "
+                + "happens to be next -- that request is refused, the source breaker opens, "
+                + "and unrelated requests answer 503 for the next ten seconds. Raise "
+                + "max_connections on the database, or lower Graticula:PerSourceConcurrency "
+                + "and Graticula:WorkerConcurrency. D-196.")]
+    public static partial void ConnectionCeilingExceedsTheDatabase(
+        ILogger logger, int ceiling, int usable, int allowed);
 }
