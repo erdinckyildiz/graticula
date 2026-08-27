@@ -185,16 +185,34 @@ public sealed class DevTools : IAsyncDisposable
     /// Waits for Chrome to publish the port it chose.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>The file appears before it is complete.</b> Chrome creates
     /// <c>DevToolsActivePort</c> and then writes two lines into it, so a reader
     /// that acts on existence alone gets an empty string — which is why this
     /// requires both lines rather than one.
+    /// </para>
+    /// <para>
+    /// <b>Thirty seconds rather than ten, and the ten was a guess</b> —
+    /// [D-173](../../docs/architecture-debt.md). A CI run on 2026-08-27 failed one test of
+    /// ninety-nine with *Chrome did not publish a debugging port within ten seconds*, on a
+    /// runner also carrying a .NET server, a PostgreSQL and the suite itself. Waiting longer
+    /// costs a fast machine nothing — the loop leaves the moment the file has two lines —
+    /// and costs a genuinely broken Chrome twenty extra seconds once per run.
+    /// </para>
+    /// <para>
+    /// <b>And the refusal says what it saw.</b> The old message named the ten seconds and
+    /// nothing else, so a browser that never started and a browser that started and stayed
+    /// quiet produced the same sentence. That is [D-177](../../docs/architecture-debt.md)'s
+    /// rule: every step reports now.
+    /// </para>
     /// </remarks>
     private static async Task<int> ReadPortAsync(string profile, Process process)
     {
         string path = Path.Combine(profile, "DevToolsActivePort");
 
-        for (int attempt = 0; attempt < 200; attempt++)
+        const int patience = 600;   // 30 seconds at 50 ms
+
+        for (int attempt = 0; attempt < patience; attempt++)
         {
             if (process.HasExited)
             {
@@ -233,7 +251,28 @@ public sealed class DevTools : IAsyncDisposable
             await Task.Delay(50);
         }
 
-        throw new TimeoutException("Chrome did not publish a debugging port within ten seconds.");
+        string wrote = File.Exists(path)
+            ? $"'{path}' exists and holds {new FileInfo(path).Length} bytes"
+            : $"'{path}' was never created";
+
+        string said = string.Empty;
+
+        try
+        {
+            said = await process.StandardError.ReadToEndAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // The stream was already consumed or the process is gone. Nothing to add.
+        }
+
+        throw new TimeoutException(
+            $"Chrome did not publish a debugging port within {patience / 20} seconds. "
+            + $"The process {(process.HasExited ? $"has exited with {process.ExitCode}" : "is still running")}, "
+            + $"and {wrote}. "
+            + (string.IsNullOrWhiteSpace(said)
+                ? "It wrote nothing to stderr."
+                : $"It said: {said.Trim()[..Math.Min(400, said.Trim().Length)]}"));
     }
 
     /// <summary>The WebSocket URL of the tab, past Chrome's own internal targets.</summary>
