@@ -45,12 +45,17 @@ four are walked.
 
 **What the administrator knows:** a user complained. Nothing else.
 
-| Step | Endpoint | Answers |
-|---|---|---|
-| 1 | `GET /admin/layers/{id}` | Is this layer hosted or registered? Which data source? |
-| 2 | `GET /admin/layers/{id}/cache` | When was each zoom level last generated? What is the invalidation policy — TTL, event, manual? |
-| 3 | `GET /admin/datasources/{id}/drift` | Has the source schema or content changed since we last looked? (A-023's fingerprint) |
-| 4 | `POST /admin/layers/{id}/cache/invalidate` | Fix it, scoped to a bbox or zoom range rather than all-or-nothing |
+**Walked 2026-08-27 by [tools/walk-adr017.sh](../../tools/walk-adr017.sh), and two of the
+four steps do not exist.** The column on the right is what the walk found, not what this
+section wished for — the same treatment §3.3 got on 2026-08-24, and for the same reason:
+the document is what did not follow.
+
+| Step | Endpoint | Answers | Walked |
+|---|---|---|---|
+| 1 | ~~`GET /admin/layers/{id}`~~ | Is this layer hosted or registered? Which data source? | **405.** There is no GET for one layer — `/admin/layers/{name}` is `DELETE` only. The listing at `GET /admin/layers` carries both facts for every layer, so the answer exists at a different address and a walk that goes to this one gets a method refusal |
+| 2 | ~~`GET /admin/layers/{id}/cache`~~ | When was each zoom level last generated? What is the invalidation policy? | **405.** `/admin/layers/{name}/cache` is `PUT` only — it *sets* a lifetime. Nothing reports generation time per level. `GET /admin/health`'s `tileCache` block answers for the whole cache — entries, megabytes, what is building — and not per layer |
+| 3 | `GET /admin/datasources/{id}/drift` | Has the source schema or content changed since we last looked? (A-023's fingerprint) | **Not built.** A-023's fingerprint does not exist |
+| 4 | `POST /admin/layers/{id}/cache/invalidate` | Fix it, scoped to a bbox or zoom range | **Not built.** The cache is TTL-only ([ADR-010](ADR-010-caching.md) §5.2), so *fix it* today is waiting or restarting |
 
 **What this forces into existence:** the cache index must record *generation
 time per tile set*, not merely hold bytes, and ADR-010's coherence policy must be
@@ -60,14 +65,20 @@ from a bug.
 
 ### 3.2 "This service is slow"
 
-| Step | Endpoint | Answers |
-|---|---|---|
-| 1 | `GET /admin/layers/{id}/health` | Recent latency distribution, error rate, request rate |
-| 2 | `GET /admin/layers/{id}/capability` | Is a filter being **refused** and the client retrying? Is it falling back? (ADR-008 §2) |
-| 3 | `GET /admin/workers` | Which worker holds this service's context? Is it warm or being evicted repeatedly? |
-| 4 | `GET /admin/workers/{id}` | **Allocation rate and GC pause share** — A-037 measured 80.9% GC pause at 18% CPU, so a CPU graph alone will show an idle worker and explain nothing |
-| 5 | `GET /admin/datasources/{id}/pool` | Pool saturation, wait time, and whether attachment streaming is holding connections (ADR-013 §4b) |
-| 6 | `POST /admin/layers/{id}/pin` | Pin the context if thrash is the cause (ADR-007 §4.12) |
+**Walked 2026-08-27: not one of the six addresses exists — and five of the six questions
+are answerable anyway.** That gap between *the address* and *the answer* is the finding, and
+it is why this section is rewritten rather than left as a list of things to build. What was
+actually missing was never the information; it was that a reader following this walk in order
+hits six 404s and concludes the server cannot say.
+
+| Step | Endpoint | Answers | Walked |
+|---|---|---|---|
+| 1 | ~~`GET /admin/layers/{id}/health`~~ | Recent latency distribution, error rate, request rate | **404, and answered elsewhere.** `GET /admin/logs/requests` ([ADR-045](ADR-045-the-server-keeps-a-log-you-can-ask-questions-of.md)) carries `durationMs`, `status` and the path per request. Not distribution — rows |
+| 2 | ~~`GET /admin/layers/{id}/capability`~~ | Is a filter being **refused** and the client retrying? | **404, and answered in two places.** `GET /admin/services/{name}/capabilities` says what is configured off; the request log shows the refusals as they happen |
+| 3 | `GET /admin/workers` | Which worker holds this service's context? Is it warm or being evicted? | **404, and the question dissolved.** [ADR-029](ADR-029-affinity-routing-is-not-the-default.md) removed the router: there is no *which worker*, and a context is bound in whichever one serves the request. `GET /admin/health`'s `describedShapes` says how many are warm and for how long |
+| 4 | ~~`GET /admin/workers/{id}`~~ | **Allocation rate and GC pause share** | **404, and answered at `/admin/health`.** Its `runtime` block carries `allocatedBytes`, `gcPauseMilliseconds`, `gen0/1/2`, `heapBytes`, `cpuMilliseconds` and `serverGc` — which is this ADR's *single most important consequence*, built, at another address. Process-wide rather than per worker, and there is one worker process |
+| 5 | ~~`GET /admin/datasources/{id}/pool`~~ | Pool saturation, wait time | **404, and answered at `/admin/health`.** Its `admissionControl` block carries `perSource`, `worker`, `queueDepth`, `waitSeconds`, `waitingForSource` and `waitingForWorker` ([ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md)). Per source rather than per source *id* |
+| 6 | `POST /admin/layers/{id}/pin` | Pin the context if thrash is the cause | **Not built, and it should not be.** ADR-029 removed affinity, and [ADR-007](ADR-007-service-runtime.md) condition 2 measured the reason it does not matter: a cold bind is **3.2 ms and 30 KB**, so evicting a context and rebuilding it is cheaper than remembering which ones not to |
 
 **What this forces into existence:** worker introspection must expose
 **allocation and GC pause**, not just CPU and memory. This is the single most
@@ -136,11 +147,16 @@ deliberately.
 The scenario [ADR-014](ADR-014-tls-and-certificates.md) §2c added, and the only
 one with a known date in advance.
 
-| Step | Endpoint | Answers |
-|---|---|---|
-| 1 | `GET /admin/health` | **Certificate expired at 03:14** — stated, not inferred from a TLS handshake error |
-| 2 | `GET /admin/certificates` | Every certificate we hold, with expiry and days remaining: serving, data-source clients, trust anchors |
-| 3 | `PUT /admin/certificates/serving` | Install the replacement — effective on the next handshake, **no restart** (ADR-014 §2b, A-044) |
+**Walked 2026-08-27, and this is the scenario the walk leaves worst.** Step 1's endpoint
+answers and says nothing about a certificate; steps 2 and 3 do not exist. So the one outage
+with a known date in advance is the one an operator would still meet as a TLS handshake
+error — which is what this section was written to prevent.
+
+| Step | Endpoint | Answers | Walked |
+|---|---|---|---|
+| 1 | `GET /admin/health` | **Certificate expired at 03:14** — stated, not inferred | **Answers, and carries no certificate.** Its blocks are `platformStore`, `runtime`, `admissionControl`, `describedShapes`, `tileCache`, `datumShifts`, `unopenableSources`. Expiry is in none of them |
+| 2 | `GET /admin/certificates` | Every certificate we hold, with expiry and days remaining | **Not built** |
+| 3 | `PUT /admin/certificates/serving` | Install the replacement — no restart | **Not built.** [ADR-014](ADR-014-tls-and-certificates.md) condition 1 asks for rotation without a restart to be *verified by test*, and that condition is open for the same reason: there is nothing to rotate through |
 
 **What this forces into existence:** expiry is surfaced **before** it bites,
 30/7/1 days, and the supervisor owns it. An outage with a known date that
@@ -284,6 +300,27 @@ administrator has left.
 2. **Every §3 scenario is walkable against the built skeleton**, in order, with
    no step requiring a log file. A step that needs `docker logs` is a missing
    endpoint.
+   **PARTLY DISCHARGED 2026-08-27, and the walk is a script now rather than an afternoon** —
+   [tools/walk-adr017.sh](../../tools/walk-adr017.sh). **Of sixteen steps, three answer, two
+   exist under a different verb, and eleven are not there.** §3 is rewritten against that
+   run, the way §3.3 was on 2026-08-24, so the tables say what the server does rather than
+   what the section wished for.
+   **The finding is the gap between the address and the answer.** Five of §3.2's six
+   questions are answerable — latency and error rate from the request log, GC pause and
+   allocation from `/admin/health`'s `runtime`, pool saturation from its `admissionControl`,
+   what is configured off from the capabilities route — at addresses this section never
+   named. A reader following the walk in order meets six 404s and concludes the server
+   cannot say. **So what was missing was never the information.** The sixth question
+   dissolved outright: ADR-029 removed affinity, so *which worker holds this context* has no
+   answer and needs none.
+   **What is genuinely absent is worth naming separately**: drift detection (A-023's
+   fingerprint), scoped cache invalidation, per-level cache generation times, a GET for one
+   layer, and **all of §3.4's certificate surface** — which is the scenario this leaves
+   worst, because it is the one outage with a date known in advance and an operator would
+   still meet it as a handshake error.
+   **This discharges when those exist.** It is not discharged by the walk being written
+   down; what the walk bought is that the gap is now sixteen rows with a verdict each rather
+   than a sentence nobody had checked.
 3. **The break-glass path in §6 cannot be used while the platform store is
    reachable**, tested — otherwise it is an authentication bypass.
    **NOT YET APPLICABLE: the break-glass path is not built** (A-051), so there
