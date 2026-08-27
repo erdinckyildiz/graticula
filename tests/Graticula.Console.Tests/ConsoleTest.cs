@@ -758,15 +758,35 @@ public abstract class ConsoleTest : IAsyncLifetime
               // and one of this, which is why the context goes here. `transferSize` is the
               // whole question: a resource that was fetched and delivered nothing accuses
               // the server, and one with no timing entry was never requested.
+              // <b>`transferSize` alone cannot tell *nothing arrived* from *served from
+              // cache*, and that ambiguity is what has stalled D-173.</b> A cache hit reports
+              // `transferSize: 0` with a real `responseEnd`, which is exactly the shape a
+              // lost response reports -- so `96ms/0B` has been read as an accusation against
+              // the server for two days without anything ruling out the browser's own cache.
+              // `decodedBodySize` separates them: bytes the browser *has* after decoding.
+              // Zero transferred with a body is a cache hit; zero of both is nothing.
+              //
+              // <b>And the entry is matched, not popped.</b> `.pop()` takes the last timing
+              // entry for the URL, which on a page that fetched it more than once is not
+              // necessarily the one that failed. The count is reported so a second entry
+              // stops being invisible.
               let how = "no timing entry";
 
               try {
-                const timed = (performance.getEntriesByType("resource") || [])
-                  .filter(r => r.name === url).pop();
+                const all = (performance.getEntriesByType("resource") || [])
+                  .filter(r => r.name === url);
+
+                const timed = all[all.length - 1];
 
                 if (timed) {
+                  const transferred = timed.transferSize || 0;
+                  const decoded = timed.decodedBodySize || 0;
+
                   how = Math.round(timed.responseEnd) + "ms/"
-                    + (timed.transferSize || 0) + "B";
+                    + transferred + "B transferred/"
+                    + decoded + "B decoded"
+                    + (transferred === 0 && decoded > 0 ? " (cache hit)" : "")
+                    + (all.length > 1 ? ", " + all.length + " entries" : "");
                 }
               } catch (ignored) { how = "timing refused"; }
 
@@ -1031,8 +1051,15 @@ public abstract class ConsoleTest : IAsyncLifetime
                     const timings = {};
 
                     for (const r of (performance.getEntriesByType('resource') || [])) {
+                      // The same separation the recorded errors carry -- D-173. A cache
+                      // hit and a response that delivered nothing both report
+                      // `transferSize: 0`, and reading the first as the second is how this
+                      // has been chased for two days.
                       timings[r.name] = Math.round(r.responseEnd) + 'ms/'
-                        + (r.transferSize || 0) + 'B';
+                        + (r.transferSize || 0) + 'B/'
+                        + (r.decodedBodySize || 0) + 'B'
+                        + ((r.transferSize || 0) === 0 && (r.decodedBodySize || 0) > 0
+                            ? '(cached)' : '');
                     }
 
                     // <b>Every script, not one by name — D-176.</b> The first version
