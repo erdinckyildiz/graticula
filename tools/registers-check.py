@@ -2416,6 +2416,84 @@ def an_adr_that_calls_an_answered_question_open():
     return problems
 
 
+# ---------------------------------------------------------------------------
+# <b>Every pattern above must match the thing it was written for, and prove it here.</b>
+#
+# **Seven times on 2026-08-27 alone, a check in this file could not fail**, and five of the
+# seven were the same bug: a regular expression that matched nothing. An anchored pattern used
+# with `search`; `\b` before a name that follows two underscores; `[^.]` between a question
+# and a claim, when the ordinary way to name a question is a link full of full stops; a
+# Perl-mode `grep` with a quoted literal that returned nothing on this machine; a listing that
+# omitted untracked files. Each time the check reported *clean* over a repository that had the
+# defect in it, and each time only a deliberate falsification found out.
+#
+# **A pattern that matches nothing looks exactly like a repository with nothing wrong.** So
+# each one carries an example of what it is for and one of what it must ignore, and this runs
+# at import: a pattern that stops matching its own example fails the build immediately,
+# wherever it is used, instead of quietly passing forever.
+#
+# **This is not a substitute for falsifying a check against the real registers.** It catches
+# the pattern being dead, not the check being wrong about what it reads -- the sixth failure,
+# where *answered* was decided by looking for a word rather than by the register's own rule,
+# would have sailed through this. It removes the cheapest and commonest of the seven.
+PATTERN_EXAMPLES = [
+    (SECRET_NAMES,
+     ['Graticula__SecretKey="bm90LWEta2V5LWp1c3QtYW4tZXhhbXBsZS0zMmJ5dGU="',
+      "  Graticula__SecretKey: $GRATICULA_SECRET_KEY",
+      'password = "hunter2"'],
+     ["nothing here sets anything",
+      "the secret key is discussed but never assigned"]),
+
+    (GENERATED_KEY,
+     # <b>Not the key that leaked.</b> D-191 took it out of this
+     # repository, and putting it back as a test fixture would undo that: base64 of
+     # `not-a-key-just-an-example-32byte`, which has the shape and none of the meaning.
+     ["bm90LWEta2V5LWp1c3QtYW4tZXhhbXBsZS0zMmJ5dGU=",
+      "0123456789abcdef0123456789abcdef"],
+     ["gis", "changeme", "short", "$GRATICULA_SECRET_KEY"]),
+
+    (BACKTICK_PATH,
+     ["see `docs/architecture-debt.md` for the row",
+      "the file is `compose.yaml`",
+      "in `tools/registers-check.py`"],
+     ["a plain `word` in backticks", "`GET /admin/health`"]),
+
+    (AN_ADR_CALLING_A_QUESTION_OPEN,
+     ["[Q-121](../open-questions.md) opens it.",
+      "Q-77 is open and nothing has been decided",
+      "the licence -- [Q-106](../open-questions.md) -- is still open"],
+     ["Q-121 asked this, and ADR-043 3.3 answered it",
+      "This closes most of Q-15's checklist. What remains open there is the grid data.",
+      "Q-49's test with real GIS teams was dissolved"]),
+]
+
+
+def _prove_the_patterns_can_match():
+    """Run at import. A pattern that no longer matches its own example is a dead check."""
+    for pattern, matches, ignores in PATTERN_EXAMPLES:
+        compiled = re.compile(pattern)
+
+        for example in matches:
+            if not compiled.search(example):
+                raise SystemExit(
+                    "tools/registers-check.py: the pattern " + pattern[:60] + "... no longer "
+                    "matches an example it was written for:\n  " + example + "\n"
+                    "A pattern that matches nothing looks exactly like a repository with "
+                    "nothing wrong. Fix the pattern, or -- if the example is genuinely no "
+                    "longer the shape being looked for -- change the example and say why in "
+                    "the commit.")
+
+        for example in ignores:
+            if compiled.search(example):
+                raise SystemExit(
+                    "tools/registers-check.py: the pattern " + pattern[:60] + "... matches "
+                    "something it must ignore:\n  " + example + "\n"
+                    "A check somebody has to ignore is a check somebody turns off.")
+
+
+_prove_the_patterns_can_match()
+
+
 def main() -> int:
     # <b>The same walk conditions.py's own main does</b>, rather than a second
     # implementation of it. CLAUDE.md records what happened when two tools each
