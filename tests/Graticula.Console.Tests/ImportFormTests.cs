@@ -110,7 +110,7 @@ public sealed class ImportFormTests : ConsoleTest
             + "accepted — the server requires `srid` and refuses to infer it from the .prj.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -152,7 +152,7 @@ public sealed class ImportFormTests : ConsoleTest
         Assert.Contains("shapefile", copy, StringComparison.OrdinalIgnoreCase);
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -226,6 +226,6 @@ public sealed class ImportFormTests : ConsoleTest
         Assert.Equal(expected, wrote.Contains("srid", StringComparison.Ordinal));
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

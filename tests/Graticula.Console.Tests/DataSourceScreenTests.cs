@@ -69,7 +69,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
             + "group, so the two-button row looks like the three-button row shifted over.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
             + "group's members.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -204,7 +204,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
                 "document.getElementById('probeFilter').value"));
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -249,7 +249,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
             + "first — and a message a screen reader never hears is half a refusal.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -293,7 +293,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
             + "is on `<body>`, because clearing the panel deleted the button that had focus.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -415,7 +415,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
                 + "guessing.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -486,6 +486,6 @@ public sealed class DataSourceScreenTests : ConsoleTest
         }
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

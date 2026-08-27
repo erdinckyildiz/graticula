@@ -117,6 +117,6 @@ public sealed class ServiceLimitsPageTests : ConsoleTest
         Assert.Contains("one database statement", text, StringComparison.OrdinalIgnoreCase);
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

@@ -81,7 +81,7 @@ public sealed class TileCacheBoxTests : ConsoleTest
                 + "next person to press Set sends an empty box.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {

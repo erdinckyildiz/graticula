@@ -67,7 +67,7 @@ public sealed class SurfaceTests : ConsoleTest
             + "shipped.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -120,7 +120,7 @@ public sealed class SurfaceTests : ConsoleTest
             + "still held focus, so a keyboard reader starts again from the top of the page.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>

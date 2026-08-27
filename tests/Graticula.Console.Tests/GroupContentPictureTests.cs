@@ -141,7 +141,7 @@ public sealed class GroupContentPictureTests : ConsoleTest
             Assert.Equal(shape[1], shape[3]);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {

@@ -164,7 +164,7 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
             "The echo did not follow the field, so it is decoration rather than a control.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -275,7 +275,7 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
                 "The selection screen scrolls the page sideways in a 1024-pixel window.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -363,7 +363,7 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
                 "The report's footer is below the fold.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {

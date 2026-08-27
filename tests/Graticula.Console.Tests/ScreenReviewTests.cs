@@ -98,7 +98,7 @@ public sealed class ScreenReviewTests : ConsoleTest
         Assert.DoesNotContain("No service", toast, StringComparison.OrdinalIgnoreCase);
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -136,7 +136,7 @@ public sealed class ScreenReviewTests : ConsoleTest
             + "router forced the surface before the page set was chosen.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -214,7 +214,7 @@ public sealed class ScreenReviewTests : ConsoleTest
                 "document.getElementById('editCancel')?.getAttribute('href') || ''"));
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -271,7 +271,7 @@ public sealed class ScreenReviewTests : ConsoleTest
                 + "navigation column out with it.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -306,7 +306,7 @@ public sealed class ScreenReviewTests : ConsoleTest
             "A role's name is not focusable, so the roles screen cannot be operated without a mouse.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>Every capability checkbox on the open settings tab, as a string.</summary>

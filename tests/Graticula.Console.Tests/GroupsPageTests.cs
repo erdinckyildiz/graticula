@@ -116,7 +116,7 @@ public sealed class GroupsPageTests : ConsoleTest
                   + "always in, so New group did nothing for a first-time reader."));
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -203,7 +203,7 @@ public sealed class GroupsPageTests : ConsoleTest
             Assert.True(asManager, "There is no way to add somebody as a manager.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -271,7 +271,7 @@ public sealed class GroupsPageTests : ConsoleTest
                 + "work is worse than its absence: it reads as a capability.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -356,7 +356,7 @@ public sealed class GroupsPageTests : ConsoleTest
                 + "mean something.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -495,7 +495,7 @@ public sealed class GroupsPageTests : ConsoleTest
             Assert.Contains("its own sharing scope", content, StringComparison.OrdinalIgnoreCase);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -601,7 +601,7 @@ public sealed class GroupsPageTests : ConsoleTest
             Assert.Empty(unnamed);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -674,7 +674,7 @@ public sealed class GroupsPageTests : ConsoleTest
                 "The owner is not offered Delete on the Settings tab, which only they may do.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {

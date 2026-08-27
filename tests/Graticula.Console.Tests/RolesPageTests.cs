@@ -152,7 +152,7 @@ public sealed class RolesPageTests : ConsoleTest
                 writes.Select(w => w.Replace("%2F", "/", StringComparison.Ordinal)));
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -212,7 +212,7 @@ public sealed class RolesPageTests : ConsoleTest
                 + "refused for a privilege the operator can still see enabled.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -263,7 +263,7 @@ public sealed class RolesPageTests : ConsoleTest
             + "does.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>The screen lists the roles and both privilege sections.</summary>
@@ -308,7 +308,7 @@ public sealed class RolesPageTests : ConsoleTest
         }
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -365,7 +365,7 @@ public sealed class RolesPageTests : ConsoleTest
         Assert.False(from, "Set-from-existing is offered for the one role that cannot be set.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -442,6 +442,6 @@ public sealed class RolesPageTests : ConsoleTest
             stored);
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

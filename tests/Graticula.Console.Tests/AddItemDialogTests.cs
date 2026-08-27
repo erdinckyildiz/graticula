@@ -86,7 +86,7 @@ public sealed class AddItemDialogTests : ConsoleTest
         Assert.EndsWith("(on)", where, StringComparison.Ordinal);
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -161,7 +161,7 @@ public sealed class AddItemDialogTests : ConsoleTest
                 + "that completes it is not.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -220,7 +220,7 @@ public sealed class AddItemDialogTests : ConsoleTest
         await AssertFocusIsInsideAsync("after Next");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     private async Task AssertFocusIsInsideAsync(string when)

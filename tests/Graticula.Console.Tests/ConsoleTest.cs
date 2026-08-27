@@ -1084,6 +1084,35 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// finished. A test that only checks what is visible cannot tell a loaded console from
     /// a half-loaded one.
     /// </remarks>
+    /// <summary>
+    /// Fails with everything the page reported, rather than with the first fifty characters.
+    /// </summary>
+    /// <param name="reported">What <see cref="PageErrorsAsync"/> returned.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-173](../../docs/architecture-debt.md), and this is about the instrument rather
+    /// than the defect.</b> Forty-nine assertions said <c>Assert.Empty(errors)</c>, and xUnit
+    /// renders a non-empty collection as <c>Collection: ["first fifty characters"···]</c>. The
+    /// diagnosis added for exactly this failure — how long the request took, how many bytes
+    /// arrived, what the document's readyState was — is past the truncation, so a CI run that
+    /// finally carried the evidence printed *"never arrived: https://127.0.0.1:8443/studio/previ"*
+    /// and stopped.
+    /// </para>
+    /// <para>
+    /// <b>One line each, because the list is the finding.</b> A run that loses one asset and a
+    /// run that loses the whole deferred batch are different faults with the same first entry.
+    /// </para>
+    /// </remarks>
+    protected static void NothingWentWrong(IReadOnlyCollection<string> reported)
+    {
+        ArgumentNullException.ThrowIfNull(reported);
+
+        Assert.True(
+            reported.Count == 0,
+            $"The page reported {reported.Count} problem(s):"
+            + Environment.NewLine + "  " + string.Join(Environment.NewLine + "  ", reported));
+    }
+
     protected async Task<string[]> PageErrorsAsync() =>
         await Browser.EvaluateAsync<string[]>("window.__pageErrors")
             ?? Array.Empty<string>();

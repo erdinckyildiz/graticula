@@ -66,7 +66,7 @@ public sealed class ListPagingTests : ConsoleTest
                 total.ToString(CultureInfo.InvariantCulture), pager, StringComparison.Ordinal);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -122,7 +122,7 @@ public sealed class ListPagingTests : ConsoleTest
                 + "and the rows disagree.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -173,7 +173,7 @@ public sealed class ListPagingTests : ConsoleTest
                 + "surviving a filter that shortened the list.");
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {

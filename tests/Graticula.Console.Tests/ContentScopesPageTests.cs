@@ -100,7 +100,7 @@ public sealed class ContentScopesPageTests : ConsoleTest
             + "verb at the end; this row opened with two buttons before the name.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -164,7 +164,7 @@ public sealed class ContentScopesPageTests : ConsoleTest
             "An unknown scope in the address did not fall back to Everything.");
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 
     /// <summary>
@@ -228,6 +228,6 @@ public sealed class ContentScopesPageTests : ConsoleTest
         }
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

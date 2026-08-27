@@ -210,6 +210,6 @@ public sealed class ServiceSharingPageTests : ConsoleTest
             chosen.ToLower(CultureInfo.InvariantCulture));
 
         string[] errors = await PageErrorsAsync();
-        Assert.Empty(errors);
+        NothingWentWrong(errors);
     }
 }

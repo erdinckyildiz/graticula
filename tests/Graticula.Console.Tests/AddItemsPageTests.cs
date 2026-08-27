@@ -103,7 +103,7 @@ public sealed class AddItemsPageTests : ConsoleTest
             Assert.Equal(shape[1], shape[3]);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -197,7 +197,7 @@ public sealed class AddItemsPageTests : ConsoleTest
             Assert.Equal($"Select all {mine.Length - 1}", label.Trim());
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
@@ -251,7 +251,7 @@ public sealed class AddItemsPageTests : ConsoleTest
             Assert.Contains("1 item", label, StringComparison.OrdinalIgnoreCase);
 
             string[] errors = await PageErrorsAsync();
-            Assert.Empty(errors);
+            NothingWentWrong(errors);
         }
         finally
         {
