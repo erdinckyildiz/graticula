@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,6 +53,32 @@ public readonly record struct MigrationReport(
         foreach (Migration migration in Pending)
         {
             text.Append(CultureInfo.InvariantCulture, $"\n  {migration}");
+        }
+
+        // <b>What the pending migrations do to rows that already exist -- ADR-018
+        // condition 4.</b> The lines above are descriptions of the *schema*, and a schema
+        // description can be complete and still leave an operator unaware that everything
+        // they have published is about to become invisible. Collected rather than printed
+        // inline so that they are read as consequences rather than as more of the list, and
+        // only when there are any: a caution beside every step is noise, and noise is how
+        // the one that matters gets skipped.
+        // <b>Only on an upgrade, never on a creation.</b> A new store has no rows to change
+        // the meaning of, so *every layer that already exists becomes private* is true and
+        // vacuous there -- and a warning that fires when it does not apply is one an operator
+        // learns to scroll past before the day it does.
+        Migration[] cautions = From is null
+            ? []
+            : Pending.Where(m => !string.IsNullOrWhiteSpace(m.Caution)).ToArray();
+
+        if (cautions.Length > 0)
+        {
+            text.Append("\n\nWhat this does to data that is already there:");
+
+            foreach (Migration migration in cautions)
+            {
+                text.Append(CultureInfo.InvariantCulture,
+                    $"\n  {migration.Version}: {migration.Caution}");
+            }
         }
 
         if (ClosesRollbackWindow)

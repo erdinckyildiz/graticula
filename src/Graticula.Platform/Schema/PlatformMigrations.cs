@@ -435,7 +435,19 @@ public static class PlatformMigrations
         """
         alter table system_service add constraint system_service_status_known
           check (status in ('started', 'stopped'))
-        """);
+        """)
+
+        // <b>ADR-018 condition 4.</b> *Silently privatising somebody's published data
+        // is a worse regression than the closed default was.* The description above is
+        // true and is about the schema; this is the sentence an operator needs before
+        // they run it, and until 2026-08-27 the plan had no way to carry one.
+        .Cautioning(
+            "Every layer that already exists becomes PRIVATE, and none of them will be "
+            + "visible to anybody but an administrator until it is shared again. This "
+            + "server had no sharing scope before this version, so there is no previous "
+            + "setting to preserve and private is the only safe default. Nothing is "
+            + "deleted: re-share with PUT /admin/layers/{name}/sharing, and "
+            + "GET /admin/layers lists what you have.");
 
     /// <summary>
     /// A system service's own bounds, so an administrator can set them.

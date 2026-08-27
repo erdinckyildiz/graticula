@@ -38,13 +38,15 @@ public sealed class Migration
         MigrationPhase phase,
         string description,
         IReadOnlyList<string> statements,
-        SchemaVersion raisesMinimumReaderTo)
+        SchemaVersion raisesMinimumReaderTo,
+        string? caution = null)
     {
         Version = version;
         Phase = phase;
         Description = description;
         Statements = statements;
         RaisesMinimumReaderTo = raisesMinimumReaderTo;
+        Caution = caution;
     }
 
     /// <summary>The level this migration brings the store to.</summary>
@@ -72,6 +74,17 @@ public sealed class Migration
     /// </remarks>
     public SchemaVersion RaisesMinimumReaderTo { get; }
 
+    /// <summary>
+    /// What this does to rows that already exist, or null when it does nothing to them.
+    /// </summary>
+    /// <remarks>
+    /// <b>The description is about the schema; this is about the data.</b> ADR-018
+    /// condition 4. An operator reading *Add ownership and sharing scope to layers* has been
+    /// told the truth and has not been told that everything they published is about to become
+    /// private.
+    /// </remarks>
+    public string? Caution { get; }
+
     /// <summary>Creates an expand migration.</summary>
     /// <param name="version">The level this migration brings the store to.</param>
     /// <param name="description">What it does, for the migration report.</param>
@@ -80,6 +93,49 @@ public sealed class Migration
         SchemaVersion version, string description, params string[] statements) =>
         new(version, MigrationPhase.Expand, Require(description, nameof(description)),
             Validated(statements), SchemaVersion.None);
+
+    /// <summary>
+    /// The same migration, carrying a sentence about what it does to data that is already
+    /// there.
+    /// </summary>
+    /// <param name="caution">
+    /// What it does to rows that already exist, in the operator's terms rather than the
+    /// schema's. Printed by the plan before anything runs.
+    /// </param>
+    /// <returns>A copy with the caution attached.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-018](../../../docs/adr/ADR-018-authorization-and-roles.md) condition 4</b>:
+    /// *the upgrade is walked on a store that already has layers, and the operator is told
+    /// that existing layers became private. Silently privatising somebody's published data is
+    /// a worse regression than the closed default was.*
+    /// </para>
+    /// <para>
+    /// <b>A description is about the schema and a caution is about the data, and until
+    /// 2026-08-27 there was only the first.</b> `SharingV5` reads *Add ownership and sharing
+    /// scope to layers*, which is true, complete as a description, and tells an operator
+    /// nothing about the fact that every layer they have published is about to stop being
+    /// visible. The rollback window already had a warning of this kind; nothing else did.
+    /// </para>
+    /// <para>
+    /// <b>A method rather than an overload, and that is not a style choice.</b> It was written
+    /// first as `Expand(version, description, caution, params string[] statements)`. Every
+    /// existing call passes a description and then SQL, so overload resolution took each
+    /// migration's **first statement** as its caution and dropped it from the statements —
+    /// silently, for the whole history. It was caught only because one migration has exactly
+    /// one statement and became a migration that does nothing, which throws at type
+    /// initialisation. A signature that can reinterpret every existing call site is not one
+    /// to have.
+    /// </para>
+    /// <para>
+    /// <b>Optional, because most migrations have nothing to say.</b> Adding a nullable column
+    /// changes no row's meaning. A caution on every step would be noise, and noise is how the
+    /// one that matters gets skipped.
+    /// </para>
+    /// </remarks>
+    public Migration Cautioning(string caution) =>
+        new(Version, Phase, Description, Statements, RaisesMinimumReaderTo,
+            Require(caution, nameof(caution)));
 
     /// <summary>
     /// Creates a contract migration.

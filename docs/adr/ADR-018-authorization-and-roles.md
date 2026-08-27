@@ -552,6 +552,35 @@ divergence a breaking change to our core.
 4. **The upgrade is walked on a store that already has layers**, and the
    operator is told that existing layers became private. Silently privatising
    somebody's published data is a worse regression than the closed default was.
+   ***(Discharged 2026-08-27 — `UpgradeOnAFullStoreTests`, and the operator was not being
+   told.)*** **The walk is real rather than a fabricated state**: the store is built by
+   running the actual migrations to version 4 — the last before `layer.sharing` exists — a
+   layer is inserted with the columns that table had *then*, and the real migrator takes it to
+   37. Writing today's insert against a four-version-old table is how a walk stops being one,
+   and it failed twice on exactly that before it was right.
+   **The upgrade works and always did.** What the plan said about it was *Add ownership and
+   sharing scope to layers* — true, complete as a description of the schema, and it tells an
+   operator nothing about the fact that everything they have published is about to stop being
+   visible. **A description is about the schema; nothing was about the data.** The rollback
+   window already had a warning of this kind and nothing else did.
+   **So a migration can carry a caution**, and the plan prints them under *what this does to
+   data that is already there*, before anything runs. `SharingV5`'s names the consequence, the
+   reason there is no previous setting to preserve, that nothing is deleted, and the two
+   routes that undo it.
+   **Only on an upgrade, never on a creation** — a new store has no rows whose meaning can
+   change, and a warning that fires when it does not apply is one an operator learns to scroll
+   past before the day it does. Verified both ways against a running `migrate`.
+   **And a caution is deliberately rare**: a second test fails if more than half the
+   migrations carry one, because a warning beside every step is a list nobody reads.
+   **A near-miss worth recording.** This was written first as an `Expand` *overload* taking
+   the caution before `params string[] statements`. Every existing call passes a description
+   and then SQL, so overload resolution silently took each migration's **first statement** as
+   its caution and dropped it from the statements — for the whole history. It was caught only
+   because one migration has exactly one statement and so became a migration that does
+   nothing, which throws at type initialisation. It is a method on the migration now, which
+   cannot capture a statement.
+   **Falsified** by weakening the caution to say nothing about the data: the walk names the
+   missing sentence and fails.
 5. ~~**No route under `/rest/services` is reachable without a sharing decision
    behind it.**~~ **DISCHARGED 2026-08-15.** Every such route carries a
    `SharingGoverned` marker naming what governs it; `GET /admin/routes` lists
