@@ -102,6 +102,50 @@ internal static partial class OgcFeaturesEndpoints
         return RestDirectory.WantsHtml(default, context.Request.Headers.Accept);
     }
 
+    /// <summary>
+    /// Refuses a request the service's capability ceiling excludes, in this face's words.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer behind the collection.</param>
+    /// <param name="capability">What this request needs.</param>
+    /// <returns>True when it has answered and the caller must stop.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>One writer for both halves of this face — [D-180](../../docs/architecture-debt.md).</b>
+    /// The write endpoints grew this check first ([D-179](../../docs/architecture-debt.md))
+    /// and the read endpoints did not have it, which is the same asymmetry one level down: a
+    /// service configured to `Create` refused a `POST` and answered a `GET items` with rows.
+    /// </para>
+    /// <para>
+    /// <b>The collection stays listed.</b> ADR-031 §2a's state is *running and refusing*, not
+    /// absent, so `/collections` still names it and `/collections/{id}` still describes it —
+    /// what changes is the answer to reading its features. Hiding it would be
+    /// [ADR-018](../../docs/adr/ADR-018-authorization-and-roles.md)'s answer to a turned-off
+    /// *face*, which is a different setting.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RefusedByCeilingAsync(
+        HttpContext context, PublishedLayer layer, string capability)
+    {
+        if (layer.CapabilityCeiling is not { } ceiling
+            || ceiling.Contains(capability, StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
+
+        await RefuseAsync(
+            context,
+            OgcProblem.Forbidden(
+                $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
+                + $"{capability} is refused here. The service is running and answering what it "
+                + "does offer; an administrator can change this on its capabilities."))
+            .ConfigureAwait(false);
+
+        return true;
+    }
+
     private static Task RefuseAsync(HttpContext context, OgcProblem problem)
     {
         context.Response.StatusCode = problem.Status;
@@ -269,6 +313,12 @@ internal static partial class OgcFeaturesEndpoints
             return;
         }
 
+        // The ceiling, before the collection is read — D-180.
+        if (await RefusedByCeilingAsync(context, layer, "Query").ConfigureAwait(false))
+        {
+            return;
+        }
+
         OgcLimits limits = new(
             Math.Min(OgcLimits.Default.DefaultLimit, settings.MaximumRecordCount),
             Math.Min(OgcLimits.Default.MaximumLimit, settings.MaximumRecordCount));
@@ -408,6 +458,12 @@ internal static partial class OgcFeaturesEndpoints
         if (layer is null || collection is null)
         {
             await RefuseAsync(context, Missing(collectionId)).ConfigureAwait(false);
+            return;
+        }
+
+        // The ceiling, before the collection is read — D-180.
+        if (await RefusedByCeilingAsync(context, layer, "Query").ConfigureAwait(false))
+        {
             return;
         }
 

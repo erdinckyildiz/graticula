@@ -154,19 +154,8 @@ internal static partial class OgcFeaturesEndpoints
         // worse than one enforced on neither, because an operator who tests the face they
         // know believes it worked everywhere. This is the common gate for POST, PUT, PATCH
         // and DELETE, which is why the check is here rather than four times over.
-        if (layer.CapabilityCeiling is { } ceiling
-            && !ceiling.Contains(capability, StringComparer.Ordinal))
+        if (await RefusedByCeilingAsync(context, layer, capability).ConfigureAwait(false))
         {
-            string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
-
-            await RefuseAsync(
-                context,
-                OgcProblem.Forbidden(
-                    $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
-                    + $"{capability} is refused here. The service is running and answering what "
-                    + "it does offer; an administrator can change this on its capabilities."))
-                .ConfigureAwait(false);
-
             return null;
         }
 

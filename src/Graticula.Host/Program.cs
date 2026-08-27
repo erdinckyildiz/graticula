@@ -3043,6 +3043,30 @@ public static class Program
     }
 
     /// <summary>
+    /// Refuses a request for one capability the service's ceiling excludes.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="capability">What this request needs — `Query`, `Extract`.</param>
+    /// <returns>True when it has answered and the caller must stop.</returns>
+    /// <remarks>
+    /// <b>[D-180](../../docs/architecture-debt.md): reading was the half that kept
+    /// answering.</b> ADR-031 §2a keeps `Query` revocable because *a service that exists and
+    /// answers nothing is a legitimate state during an incident*, and that state was
+    /// advertised and not entered — the document said `Create` and the query returned rows.
+    /// Editing was repaired first ([D-179](../../docs/architecture-debt.md)) and leaving
+    /// reading behind made the setting worse rather than better: half a control is one an
+    /// operator tests once and trusts twice.
+    /// </remarks>
+    private static Task<bool> RefusedByCeilingAsync(
+        HttpContext context, PublishedLayer layer, string capability) =>
+        RefusedByCeilingAsync(
+            context,
+            layer,
+            [capability],
+            layer.CapabilityCeiling);
+
+    /// <summary>
     /// Refuses an edit the service's capability ceiling excludes, and says which.
     /// </summary>
     /// <param name="context">The request.</param>
@@ -3073,27 +3097,45 @@ public static class Program
         string? updates,
         string? deletes)
     {
-        if (layer.CapabilityCeiling is not { } ceiling)
+        List<string> needed = [];
+
+        if (adds is not null)
+        {
+            needed.Add("Create");
+        }
+
+        if (updates is not null)
+        {
+            needed.Add("Update");
+        }
+
+        if (deletes is not null)
+        {
+            needed.Add("Delete");
+        }
+
+        return await RefusedByCeilingAsync(context, layer, needed, layer.CapabilityCeiling)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The one place a ceiling refusal is written, for every capability.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="needed">What this request needs.</param>
+    /// <param name="ceiling">The service's ceiling, or null when it has none.</param>
+    /// <returns>True when it has answered.</returns>
+    private static async Task<bool> RefusedByCeilingAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        IReadOnlyList<string> needed,
+        IReadOnlyList<string>? ceiling)
+    {
+        if (ceiling is null)
         {
             return false;
         }
 
-        List<string> refused = [];
-
-        if (adds is not null && !ceiling.Contains("Create", StringComparer.Ordinal))
-        {
-            refused.Add("Create");
-        }
-
-        if (updates is not null && !ceiling.Contains("Update", StringComparer.Ordinal))
-        {
-            refused.Add("Update");
-        }
-
-        if (deletes is not null && !ceiling.Contains("Delete", StringComparer.Ordinal))
-        {
-            refused.Add("Delete");
-        }
+        List<string> refused = [.. needed.Where(c => !ceiling.Contains(c, StringComparer.Ordinal))];
 
         if (refused.Count == 0)
         {
@@ -3369,6 +3411,15 @@ public static class Program
         long lookedUp = tracing ? Stopwatch.GetTimestamp() : 0;
 
         if (layer is null)
+        {
+            return;
+        }
+
+        // <b>The ceiling, before anything is read — [D-180](../../docs/architecture-debt.md).</b>
+        // Checked here rather than after the parameters are parsed, because a service that is
+        // refusing gives the same answer to a well-formed query and a malformed one, and
+        // spending the parse first would only change how long it takes to say so.
+        if (await RefusedByCeilingAsync(context, layer, "Query").ConfigureAwait(false))
         {
             return;
         }
