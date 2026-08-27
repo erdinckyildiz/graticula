@@ -150,10 +150,24 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                         []);
                 }
 
+                // <b>Reachable is not the same as safely reached -- D-190.</b> The probe's
+                // whole purpose is to tell an operator what they have before they publish,
+                // and it reported a source connected with `Ssl Mode=Require` -- which
+                // encrypts and authenticates nothing -- exactly like a `VerifyFull` one.
+                // ADR-014 3 already asked for verification on a remote source; nothing
+                // enforced it and nothing said it.
+                string connected =
+                    $"Connected. PostGIS {postgis}, {tables.Count} publishable "
+                    + $"table{(tables.Count == 1 ? string.Empty : "s")} visible to this credential.";
+
+                if (TransportPosture.Caution(builder) is { } warning)
+                {
+                    connected += " " + warning;
+                }
+
                 return new ProbeResult(
                     ProbeOutcome.Usable,
-                    $"Connected. PostGIS {postgis}, {tables.Count} publishable "
-                    + $"table{(tables.Count == 1 ? string.Empty : "s")} visible to this credential.",
+                    connected,
                     serverVersion,
                     postgis,
                     tables);

@@ -24,4 +24,10 @@
     <PackageReference Include="Npgsql" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- TransportPosture is internal and its sentences are what D-190 is about, so
+         they are asserted rather than read back. -->
+    <InternalsVisibleTo Include="Graticula.Platform.Postgres.Tests" />
+  </ItemGroup>
+
 </Project>
