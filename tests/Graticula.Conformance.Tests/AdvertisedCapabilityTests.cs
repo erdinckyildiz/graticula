@@ -43,6 +43,14 @@ namespace Graticula.Conformance.Tests;
 /// it exists to prevent.
 /// </para>
 /// </remarks>
+/// <b>In the catalogue walk's collection because it reads a layer other tests reconfigure.</b>
+/// [D-180](../../docs/architecture-debt.md) made the capability ceiling reach WFS and WMS, and
+/// `CeilingReachesEveryReadFaceTests` sets that ceiling on `GRATICULA_TEST_QUERYABLE` to prove
+/// it. Before that change the mutation was invisible to most readers; after it, any class
+/// querying the same layer in parallel can be answered **403** and report it as its own
+/// defect — which is exactly what a CI run did on 2026-09-02, blaming
+/// `supportsQueryWithDistance`. Serialising is the fix the collection already exists for.
+[Collection("catalogue walk")]
 public sealed class AdvertisedCapabilityTests : ArcGisClient
 {
     /// <summary>Which layer to exercise — the same one the query suite uses.</summary>
@@ -180,7 +188,38 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             }
         }
 
-        Assert.Empty(wrong);
+        NothingIsWrong(wrong, "capabilities the document and the server disagree about");
+    }
+
+    /// <summary>
+    /// Fails with every entry on its own line, rather than the first fifty characters of one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because a CI failure here said almost nothing — 2026-09-02.</b> The run reported
+    /// <c>Assert.Empty() Failure: Collection was not empty</c> and then
+    /// <c>Collection: ["`supportsQueryWithDistance` is advertised true and"···]</c>. Each of
+    /// these entries is a written sentence naming a flag, what was asked, and which of two
+    /// things is wrong; xUnit renders a non-empty collection as the first fifty characters of
+    /// its first item, so all of it was thrown away — and the run passes locally, which means
+    /// the message is the only evidence there is.
+    /// </para>
+    /// <para>
+    /// <b>This is [D-173](../../docs/architecture-debt.md)'s repair reaching a second suite.</b>
+    /// The console suite hit the same wall on 2026-08-27 and grew <c>NothingWentWrong</c> for
+    /// it; the conformance suite kept <c>Assert.Empty</c> and kept losing the sentence. Fixing
+    /// one of the places that carries a behaviour and not the others is
+    /// [D-46](../../docs/architecture-debt.md), which is why all three call sites here move
+    /// together.
+    /// </para>
+    /// </remarks>
+    /// <param name="found">What went wrong; empty means nothing did.</param>
+    /// <param name="what">One line saying what the list is, printed above it.</param>
+    private static void NothingIsWrong(List<string> found, string what)
+    {
+        Assert.True(
+            found.Count == 0,
+            $"{what} ({found.Count}):\n  " + string.Join("\n  ", found));
     }
 
     [Fact]
@@ -203,7 +242,9 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             }
         }
 
-        Assert.Empty(unaccounted);
+        NothingIsWrong(
+            unaccounted,
+            "keys the document publishes that this suite neither drives nor excuses");
 
         // And the reverse: a key this suite claims to cover that the document has
         // stopped publishing is a probe testing nothing.
@@ -217,6 +258,8 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             }
         }
 
-        Assert.Empty(gone);
+        NothingIsWrong(
+            gone,
+            "keys this suite claims to cover that the document has stopped publishing");
     }
 }

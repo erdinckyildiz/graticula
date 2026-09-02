@@ -39,6 +39,14 @@ namespace Graticula.Conformance.Tests;
 /// added there and forgotten here fails there.
 /// </para>
 /// </remarks>
+/// <b>In the catalogue walk's collection because it reads a layer other tests reconfigure.</b>
+/// [D-180](../../docs/architecture-debt.md) made the capability ceiling reach WFS and WMS, and
+/// `CeilingReachesEveryReadFaceTests` sets that ceiling on `GRATICULA_TEST_QUERYABLE` to prove
+/// it. Before that change the mutation was invisible to most readers; after it, any class
+/// querying the same layer in parallel can be answered **403** and report it as its own
+/// defect — which is exactly what a CI run did on 2026-09-02, blaming
+/// `supportsQueryWithDistance`. Serialising is the fix the collection already exists for.
+[Collection("catalogue walk")]
 public sealed class IgnoredParameterTests : ArcGisClient
 {
     /// <summary>
