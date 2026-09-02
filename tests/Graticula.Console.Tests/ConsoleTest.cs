@@ -90,6 +90,7 @@ public abstract class ConsoleTest : IAsyncLifetime
 
     private DevTools? _browser;
     private string? _planted;
+    private bool _warmed;
 
     /// <summary>The server root, without a trailing slash.</summary>
     protected string Root { get; private set; } = string.Empty;
@@ -677,8 +678,83 @@ public abstract class ConsoleTest : IAsyncLifetime
         // about one run in three, naming a different service each time. A blank
         // page in between makes every open mean what every test here assumes it
         // means: a fresh document at this address.
+        await WarmAsync();
+
         await Browser.NavigateAsync("about:blank");
         await Browser.NavigateAsync(Root + address);
+    }
+
+    /// <summary>
+    /// Reaches the origin once before the first page under test, and waits for the browser's
+    /// certificate verifier to settle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is [D-173](../../docs/architecture-debt.md), named at last.</b> That row has
+    /// tracked *one console test fails per CI run, never the same test* since 2026-08-26. The
+    /// shape narrowed to: a same-origin asset fires `error`, the server's log records **200**
+    /// for it, a re-fetch seconds later returns the full bytes, and the browser's timing entry
+    /// reads `0B transferred / 0B decoded` with an **empty** protocol while its siblings read
+    /// `h2`. Every cheap explanation was eliminated in turn — the cache, a navigation, the
+    /// file, the build, the connection.
+    /// </para>
+    /// <para>
+    /// <b>Chrome's own net log answered it on the first run that kept all of them.</b> In the
+    /// browser that failed: <c>HTTP2_STREAM_ERROR … ERR_CERT_VERIFIER_CHANGED</c> on
+    /// `/studio/ground.js`, and `ERR_FAILED` on `console.js` beside it — **396 milliseconds
+    /// into that browser's life**, during its very first page load. Chrome reconfigures its
+    /// certificate verifier shortly after start, and abandons whatever is in flight so it can
+    /// be verified again. The server had sent the bytes; the browser threw them away and said
+    /// nothing a page could catch except `error` on the element.
+    /// </para>
+    /// <para>
+    /// <b>So it is start-up, and the repair is to be past it before the assertion.</b> One
+    /// navigation to a cheap endpoint on the same origin, waited out, moves the window that
+    /// produced the failure ahead of the page under test. It costs one request per browser and
+    /// this suite launches one browser per test.
+    /// </para>
+    /// <para>
+    /// <b>It re-warms rather than assuming once is enough.</b> The verifier can change more
+    /// than once; if the warming page recorded a cert-verifier error, that is the event this
+    /// exists to absorb and it goes round again. Three attempts, because a browser that cannot
+    /// settle in three is a browser with a different problem and should say so through the
+    /// test rather than here.
+    /// </para>
+    /// <para>
+    /// <b>What this is not.</b> It is not a retry of the assertion and does not touch what a
+    /// test asks of the page: a genuinely lost asset still fails, on the page under test,
+    /// through the same listener. What it removes is a browser's own start-up from the
+    /// measurement.
+    /// </para>
+    /// </remarks>
+    private async Task WarmAsync()
+    {
+        if (_warmed)
+        {
+            return;
+        }
+
+        _warmed = true;
+
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            // <b>`NavigateAsync` already waits for `readyState === "complete"`</b>, so there is
+            // no second poll here: one round trip to a document with nothing in it.
+            await Browser.NavigateAsync(Root + "/healthz/live");
+
+            // <b>Asked of the browser, not assumed from the clock.</b> A verifier change during
+            // the warming navigation is the thing being waited out, so seeing one means going
+            // round again rather than declaring the browser ready.
+            bool changed = await Browser.EvaluateAsync<bool>(
+                "performance.getEntriesByType('resource')"
+                + ".some(e => e.transferSize === 0 && e.decodedBodySize === 0"
+                + " && e.responseEnd > 0 && !e.nextHopProtocol)");
+
+            if (!changed)
+            {
+                return;
+            }
+        }
     }
 
     /// <summary>
