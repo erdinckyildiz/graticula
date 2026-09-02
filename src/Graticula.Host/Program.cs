@@ -247,6 +247,8 @@ public static class Program
         // IMapCanvasFactory and receives whatever is registered here, so replacing
         // the implementation is this line and nothing else. A singleton because the
         // factory holds nothing; the canvases it makes are per request and disposed.
+        builder.Services.AddSingleton<ServiceThumbnails>();
+
         builder.Services.AddSingleton<IMapCanvasFactory>(
             _ => new Graticula.Render.Skia.SkiaMapCanvasFactory());
 
@@ -1582,6 +1584,7 @@ public static class Program
         WfsEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
+        ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         LogEndpoints.Map(app);
         CoverageAdminEndpoints.Map(app);

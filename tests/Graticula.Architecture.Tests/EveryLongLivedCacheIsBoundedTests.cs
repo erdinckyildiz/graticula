@@ -69,6 +69,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LayerConnections._attachmentPools"] = "one pool per connection string; cleared on reload",
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
         ["ServiceContexts._entries"] = "one per table, and expires",
+        ["ServiceThumbnails._held"] =
+            "explicit capacity of 256 pictures with oldest-drawn eviction, and every "
+            + "entry expires after five minutes (D-58)",
         ["ServiceContexts._known"] = "one per table; removed by Forget on unpublish and refresh",
         ["ServiceContexts._times"] = "one per layer; removed by Forget on unpublish and refresh (D-160)",
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",

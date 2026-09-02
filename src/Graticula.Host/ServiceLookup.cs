@@ -79,17 +79,35 @@ internal static class ServiceLookup
     /// <param name="catalog">The catalogue.</param>
     /// <param name="serviceName">The name from the route.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="inFolder">
+    /// The folder, when the caller knows it and the URL does not say it.
+    /// <para>
+    /// <b>For a route that is not shaped like the ArcGIS one — D-58.</b> Every caller on that
+    /// face reads its folder out of the path, because the path is
+    /// <c>/rest/services/{folder}/{name}/…</c> and the folder is a path segment. The console's
+    /// own routes are not shaped that way and carry the folder as a parameter, and threading it
+    /// here is what lets them resolve, and refuse, exactly as the public faces do rather than
+    /// growing a second visibility rule.
+    /// </para>
+    /// <para>
+    /// <b>An explicit folder also turns off the wrong-folder redirect.</b> That redirect exists
+    /// because a client guessing at a URL should be sent to the right one; a caller that states
+    /// the folder is not guessing, and answering it with a 302 to an ArcGIS path would be
+    /// answering a question it did not ask.
+    /// </para>
+    /// </param>
     /// <returns>The service, or null.</returns>
     public static async Task<PublishedService?> ServiceAsync(
         HttpContext context,
         CatalogFallback catalog,
         string serviceName,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? inFolder = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(catalog);
 
-        string? folder = ServiceFolder.FolderOf(context.Request.Path);
+        string? folder = inFolder ?? ServiceFolder.FolderOf(context.Request.Path);
 
         CatalogAnswer answer = await catalog
             .FindServiceAsync(folder, serviceName, cancellation)
@@ -97,7 +115,7 @@ internal static class ServiceLookup
 
         // Asked for in the wrong folder. Look in the other one and redirect,
         // rather than answering "no such service" about a service that exists.
-        if (answer.Service is null && !answer.Blind)
+        if (answer.Service is null && !answer.Blind && inFolder is null)
         {
             CatalogAnswer elsewhere = await catalog
                 .FindServiceAsync(

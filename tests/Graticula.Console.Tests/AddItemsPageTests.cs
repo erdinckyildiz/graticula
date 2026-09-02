@@ -77,30 +77,56 @@ public sealed class AddItemsPageTests : ConsoleTest
 
             Assert.Equal(rows, ticks);
 
-            // <b>Drawn, not hatched.</b> An empty service is held back from this page precisely so the
-            // picture column has no hatched state — `.thumb.empty` here would mean *this screen did not
-            // ask* where on the Services screen it means *this service has nothing to draw*.
+            // <b>Every row shows one of two things and nothing else — D-58.</b> A picture the
+            // server drew, or the hatch with a reason on it. The first version of this asserted
+            // *no hatch at all*, on the reasoning that an empty service is held back from this
+            // page; that is true and it is not the only reason a row has no picture. A service
+            // an administrator can list and share but whose data is private to somebody else has
+            // no picture **for this caller**, which is the sharing model working rather than a
+            // defect — `ci_on_second` in this fixture is exactly that.
+            await WaitForAsync(
+                "[...document.querySelectorAll('#addRows img.thumb')]"
+                + ".every(i => i.naturalWidth > 0)",
+                "The add page's pictures never decoded. The console asks /admin/thumbnail for "
+                + "each one; if that route is not answering, no row on this page has a picture.");
+
+            int pictures = await Browser.EvaluateAsync<int>(
+                "document.querySelectorAll('#addRows img.thumb').length");
+
             int hatched = await Browser.EvaluateAsync<int>(
                 "document.querySelectorAll('#addRows .thumb.empty').length");
 
-            Assert.Equal(0, hatched);
+            Assert.Equal(rows, pictures + hatched);
 
-            int canvases = await Browser.EvaluateAsync<int>(
-                "document.querySelectorAll('#addRows canvas.thumb[data-preview]').length");
+            Assert.True(
+                pictures > 0,
+                $"All {rows} rows show the hatch and none shows a picture. Something has stopped "
+                + "the thumbnail route answering for every service at once, which is not what a "
+                + "sharing refusal looks like.");
 
-            Assert.Equal(rows, canvases);
+            // <b>And the hatch says why on hover.</b> A placeholder with no explanation is the
+            // ambiguity D-80 recorded: *nothing to draw* and *this screen did not ask* render the
+            // same mark.
+            int mute = await Browser.EvaluateAsync<int>(
+                "[...document.querySelectorAll('#addRows .thumb.empty')]"
+                + ".filter(d => !d.title).length");
 
-            // <b>And the canvas is drawn at the size it is displayed at.</b> It was 104×74 into a
-            // 104×70 box for as long as previews have existed — every picture on the Services screen
-            // squashed 5.4% vertically, which is the kind of thing nobody sees and everybody feels.
+            Assert.Equal(0, mute);
+
+            // <b>And it is not squashed.</b> The canvas this replaced was 104×74 into a 104×70 box
+            // for as long as previews existed — every picture squashed 5.4% vertically, which is
+            // the kind of thing nobody sees and everybody feels.
             int[] shape = await Browser.EvaluateAsync<int[]>(
-                "(() => { const c = document.querySelector('#addRows canvas.thumb');"
-                + " return [c.width, c.height, c.clientWidth, c.clientHeight]; })()")
+                "(() => { const i = document.querySelector('#addRows img.thumb');"
+                + " return i ? [i.naturalWidth, i.naturalHeight, i.clientWidth, i.clientHeight]"
+                + " : []; })()")
                 ?? Array.Empty<int>();
 
             Assert.Equal(4, shape.Length);
-            Assert.Equal(shape[0], shape[2]);
-            Assert.Equal(shape[1], shape[3]);
+
+            Assert.True(
+                Math.Abs(((double)shape[0] / shape[1]) - ((double)shape[2] / shape[3])) < 0.06,
+                $"The picture is {shape[0]}x{shape[1]} shown at {shape[2]}x{shape[3]}.");
 
             string[] errors = await PageErrorsAsync();
             NothingWentWrong(errors);

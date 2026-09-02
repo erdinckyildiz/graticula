@@ -1170,10 +1170,11 @@ button:hover .ico { opacity: 1; }
 .meter .waiting { font-size: 11px; color: var(--faint); }
 
 /*
-  The preview box. ArcGIS Server Manager shows a rendered map image here; we have no renderer
-  (ADR-004 is DEFERRED), so this is a canvas the browser fills from one query — see preview.js for
-  why that is an indication rather than a thumbnail. The border is the lightest one available,
-  because the picture is the thing and its frame is not.
+  The picture box. It holds a map this server rendered — `/admin/thumbnail`, D-58 — drawn from
+  every feature of the cover layer and its own symbology, cached, and shown at two sizes from one
+  render. It was a canvas the browser filled from a sample of up to 800 features until 2026-09-02,
+  which for a dense layer drew a fraction of it and read as *nearly empty*. The border is the
+  lightest one available, because the picture is the thing and its frame is not.
 */
 /*
   <b>The preview sits on the row rather than in a box on it.</b> Owner refinement pass: it *"should
@@ -1194,15 +1195,60 @@ button:hover .ico { opacity: 1; }
   reference's density. The two instructions cannot both be satisfied exactly, and this is the split —
   said out loud because the alternative is silently picking one.
 */
+/*
+  <b>`object-fit: cover` because the picture is one size and the slots are two — D-58.</b> The
+  server renders 336x224 so a high-density screen has pixels to use and one cached picture serves
+  both the 104x70 list slot and the 168x112 one on a service's own page. Without this an `<img>`
+  would be stretched to whichever box it landed in; the ratios are close enough that `cover`
+  crops nothing anybody can see and guarantees no distortion when a future slot is shaped
+  differently.
+*/
 .thumb { display: block; width: 104px; height: 70px; border-radius: 7px;
+         object-fit: cover;
          background: var(--surface);
          box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(16, 24, 38, .05); }
 tr.pick:hover .thumb { box-shadow: 0 0 0 1px var(--rule-strong), 0 2px 6px -2px rgba(16, 24, 38, .12); }
+
+/*
+  <b>While the picture is being fetched, the slot says so — D-58, from the design review.</b> A
+  thumbnail that has not arrived is a flat box, and a flat box is exactly what a genuinely sparse
+  layer's picture looks like: on a cold cache an operator reads a table of them as *there is
+  nothing in any of these*. The sweep clears `data-thumb` as it fills each one, so this selector
+  is true only while the picture is outstanding and needs no second attribute to be maintained.
+
+  <b>A slow shimmer rather than a spinner.</b> Forty spinners in a table is a fairground; what is
+  needed is only that *waiting* and *empty* stop looking the same. `prefers-reduced-motion` gets
+  the flat tint without the movement, which still separates the two.
+*/
+img.thumb[data-thumb]:not([src]) {
+  background: linear-gradient(100deg,
+              var(--surface) 30%, var(--rule) 50%, var(--surface) 70%) var(--surface);
+  background-size: 300% 100%;
+  animation: thumb-waiting 1.4s ease-in-out infinite;
+}
+
+@keyframes thumb-waiting {
+  from { background-position: 150% 0; }
+  to   { background-position: -50% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  img.thumb[data-thumb]:not([src]) { animation: none; background: var(--rule); }
+}
 
 .thumb.empty { position: relative; background: repeating-linear-gradient(
                  135deg, #f7f9fb 0 6px, #f1f4f8 6px 12px); }
 .thumb.empty::after { content: "—"; position: absolute; inset: 0; display: grid;
                       place-items: center; color: var(--faint); font-size: 12px; }
+
+/*
+  <b>The reason in the box, when it is short enough to be read there — D-58.</b> The canvas this
+  replaced wrote *stopped* where the picture would be; the hatch's em dash means *nothing to
+  draw*, which is a different fact and must keep its own mark. D-58's own text calls hover text
+  "a weak place to carry a correction", so a correction that fits goes in the box.
+*/
+.thumb.empty[data-note]::after { content: attr(data-note); font-size: 10.5px;
+                                 letter-spacing: .02em; }
 
 /*
   <b>The name is the row, and its metadata is a caption.</b> Four differences at once, which is what

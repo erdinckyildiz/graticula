@@ -62,3 +62,53 @@ stopwatch.
 **Caching.** The 70 ms is measured warm and uncached. What a cached thumbnail costs to
 invalidate when a layer's data changes is [ADR-010](../../docs/adr/ADR-010-caching.md)'s
 question and is not asked here.
+
+---
+
+## Run 2026-09-02 — the swap, measured after it was made
+
+The three things above under *what this does not settle* were settled, and the numbers moved
+because the implementation is not the same as the probe: the console asks
+`/admin/thumbnail?service={qualified}&layer={n}` rather than `MapServer/export`, the render is
+**336×224** rather than 80×80 so one picture serves both slots on a high-density screen, and the
+answer is **held in memory for five minutes** and revalidated with an `ETag`.
+
+Same server, same fixture store, `curl` against a warmed process.
+
+| layer | old path, per viewer per visit | new path, first ask | new path, held | after that |
+|---|---:|---:|---:|---:|
+| `ci_buildings` | 2,018 B + 1,830 B in two requests, 22–29 ms | 1,807 B, 24 ms | 1,807 B, 13–25 ms | **304, 0 B** |
+| `ci_many` | 2,323 B + **118,954 B**, 23–27 ms | 17,756 B, 58 ms | 17,756 B, 13 ms | **304, 0 B** |
+| `ci_parcels` | — | 2,249 B, 36 ms | — | — |
+| `ci_editable` | — | 1,236 B, 41 ms | — | — |
+| `ci_observations` | — | 2,171 B, 32 ms | — | — |
+
+**The dense layer is where the whole argument lives.** `ci_many` cost **121.3 kB across two
+requests** to draw 800 of its features; it costs **17.8 kB once** to draw all of them, and 0 B on
+every later visit. `ci_buildings` is small enough that the two paths are within a rounding error
+of each other on the wire — which is worth stating plainly, because a reader who tries this on a
+small layer will not see the difference the row is about.
+
+**The pictures are not blank.** Counted from the PNGs themselves, opaque pixels out of 75,264:
+`ci_many` 16,200 (21.5%), `ci_parcels` 3,382 (4.5%), `ci_buildings` 2,397 (3.2%),
+`ci_observations` 446 (0.6%), `ci_editable` 222 (0.3%). The last two are sparse point layers and
+that is what a sparse point layer looks like — the failure this was checking for is a render that
+returns a valid empty PNG, which none of them is.
+
+**The first request in a cold process cost 1.06 s**, and it is not the render: it is the first
+catalogue read and the first connection out of the pool. The second cold render of a *different*
+layer cost 32–58 ms. Quoting the 1.06 s as the cost of a thumbnail would be quoting the cost of
+starting a server.
+
+### What is still not settled
+
+**Invalidation.** The five minutes is a judgement, not a measurement. Nothing tells the cache that
+a symbology changed, so a changed service shows its old picture until the entry ages out. The
+alternative — a hook on every write path that can change what a map looks like — is a list
+nobody can keep complete, and a bounded staleness is a smaller wrong than an unbounded one.
+
+**A list of forty has still not been timed end to end.** Every number here is one request. What
+forty concurrent `fetch`es cost against one process is the question the old preview's
+*one at a time* comment was answering, and the new path has no such comment because each answer is
+a couple of kilobytes from memory — which is reasoning rather than a measurement, and is written
+here as one.

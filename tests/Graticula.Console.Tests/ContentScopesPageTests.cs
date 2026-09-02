@@ -79,10 +79,11 @@ public sealed class ContentScopesPageTests : ConsoleTest
             $"{rows} rows are on screen at once. This screen paginates now, so more than a page of "
             + "them means `pageOf` is not being applied — which is what it looked like at 512.");
 
-        // A picture per row: a canvas where there is a cover, the hatch where the service holds no
-        // layers. Both are legitimate here — unlike the add page, where an empty service is held back.
+        // A picture per row: a rendered thumbnail where there is a cover, the hatch where the
+        // service holds no layers. Both are legitimate here — unlike the add page, where an empty
+        // service is held back.
         int pictures = await Browser.EvaluateAsync<int>(
-            "document.querySelectorAll('#contentRows canvas.thumb, #contentRows .thumb.empty').length");
+            "document.querySelectorAll('#contentRows img.thumb, #contentRows .thumb.empty').length");
 
         Assert.Equal(rows, pictures);
 

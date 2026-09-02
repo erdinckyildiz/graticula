@@ -30,11 +30,13 @@ const SCOPES = ["private", "organization", "public", "group"];
 // an older server, or a layer whose document could not be read.
 const PALETTE = ["#0b6157", "#a63a2b", "#1f5fa8", "#92620d", "#6b3fa0", "#2f7a55"];
 
-// The colour a preview is drawn in before its layer document has been read. The document
-// carries the server's own `drawingInfo`, and `drawPreview` reads it on the way — this is only
-// what the canvas starts with.
-const GENERATED_FALLBACK = PALETTE[0];
 const TILE_COLOUR = "#8fb8cc";
+// <b>One picture per layer per visit.</b> A list of forty services must not re-fetch forty
+// pictures every time a filter redraws the table, and the value is the *promise* rather than the
+// resolved object — two overlapping renders of the same list both find the pending one and only
+// one request goes out. The object URLs live as long as the tab, which for a couple of kilobytes
+// each is cheaper than tracking when the last <img> using one went away.
+const pictures = new Map();
 const shown = new Map();     // layer name -> { colour, layer }
 let esri = null;             // the SDK modules, loaded once
 let view = null;
@@ -604,9 +606,9 @@ function drawGroupContent(one) {
       : pageOf("groupItems", shown).map(i => `
         <tr>
           <td class="thumbcell">${i.cover
-            ? `<canvas class="thumb" width="104" height="70"
-                 data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
-            : `<div class="thumb empty"></div>`}</td>
+            ? `<img class="thumb" alt="" loading="lazy"
+                 data-thumb="${h(thumbnailFor(i.cover.url))}">`
+            : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
           <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
             >${h(i.name)}</a></td>
           <td class="val">${h(i.kind || "service")}</td>
@@ -964,9 +966,9 @@ async function drawGroupAdd(one) {
             ${here || addPicked.has(i.name) ? "checked" : ""}${here ? " disabled" : ""}
             aria-label="${here ? `${h(i.name)}, already in this group` : `Add ${h(i.name)}`}"></td>
           <td class="thumbcell">${i.cover
-            ? `<canvas class="thumb" width="104" height="70"
-                 data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
-            : `<div class="thumb empty"></div>`}</td>
+            ? `<img class="thumb" alt="" loading="lazy"
+                 data-thumb="${h(thumbnailFor(i.cover.url))}">`
+            : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
           <td class="name">${h(i.name)}
             <div class="rowmeta">${h(i.kind)}${i.description
               ? ` · ${h(i.description)}` : ""} · ${num(i.layers)} layer${i.layers === 1 ? "" : "s"}
@@ -2640,9 +2642,9 @@ async function loadMyContent() {
           return `
           <tr>
             <td class="thumbcell">${i.cover
-              ? `<canvas class="thumb" width="104" height="70"
-                   data-preview="${h(i.cover.url)}" data-colour=""></canvas>`
-              : `<div class="thumb empty"></div>`}</td>
+              ? `<img class="thumb" alt="" loading="lazy"
+                   data-thumb="${h(thumbnailFor(i.cover.url))}">`
+              : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name"><a href="#/service/${
               i.name.split("/").map(encodeURIComponent).join("/")}">${h(i.name)}</a>
               <div class="rowmeta">${h(i.kind)} · ${num(i.layers)}
@@ -3619,10 +3621,10 @@ async function saveShare() {
  * discarded: the cover layer's URL, which is what the content list already paints a live preview from;
  * the description, when the create form was given one; and the update date.
  *
- * <b>The preview is the canvas the content list already draws.</b> `paintPreviews` walks every
- * `canvas[data-preview]` in the document, so placing one here needs no new mechanism — and it is
- * generated from the layer's own geometry rather than stored, which is why a product with no thumbnail
- * storage can still show a picture.
+ * <b>The picture is the one the content list shows.</b> It is the server's own render of the
+ * cover layer, addressed the same way from `thumbnailFor`, so placing one here needs no new
+ * mechanism — and it is drawn from the layer's geometry and symbology rather than stored, which
+ * is why a product with no thumbnail storage can still show a picture.
  */
 function drawServiceHead(item) {
   const box = $("serviceHead");
@@ -3631,9 +3633,9 @@ function drawServiceHead(item) {
   box.innerHTML = `
     <div class="itemhead">
       ${item.cover
-        ? `<canvas class="thumb" width="168" height="112"
-             data-preview="${h(item.cover.url)}" data-colour=""></canvas>`
-        : `<div class="thumb empty"></div>`}
+        ? `<img class="thumb" alt="" loading="lazy"
+             data-thumb="${h(thumbnailFor(item.cover.url))}">`
+        : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}
       <div>
         <b>${h(item.bare || item.name || "")}</b>
         <div class="rowmeta">${h(item.kind || "feature service")} · ${num(item.layers || 0)}
@@ -4854,9 +4856,9 @@ async function loadServices() {
       // removed — has room to be a sentence instead of a tooltip.
       return `<tr class="pick" data-service="${h(r.qualified)}">
         <td>${r.cover
-          ? `<canvas class="thumb" width="104" height="70"
-               data-preview="${h(r.cover.url)}" data-colour="${GENERATED_FALLBACK}"></canvas>`
-          : `<div class="thumb empty"></div>`}</td>
+          ? `<img class="thumb" alt="" loading="lazy"
+               data-thumb="${h(thumbnailFor(r.cover.url))}">`
+          : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
 
         <td>
           <span class="name">${h(r.name)}</span>
@@ -4923,18 +4925,152 @@ async function loadServices() {
 }
 
 /**
- * Fills every preview canvas on screen, in reading order.
+ * The address of a layer's rendered thumbnail, from the cover URL a listing gives.
  *
- * <b>One at a time on purpose.</b> Forty rows is forty queries, and firing them together is a
- * load test of our own server dressed up as a screen — the argument the anonymous view's
- * batching already makes. Sequential also means the pictures appear in the order somebody reads
- * them.
+ * <b>D-58, and the reason it is one function is that there are five call sites.</b> The `cover`
+ * object has a different shape at three of them and the same one thing at all five: a URL of the
+ * form `/rest/services/{folder}/{name}/FeatureServer/{index}`. Deriving the picture's address
+ * from that is one place to be wrong instead of five, and it means no caller has to know how the
+ * server names a thumbnail.
+ *
+ * <b>It is the server that draws now.</b> This used to be a canvas the browser painted from up to
+ * 800 sampled features, which for a layer of 46,041 roads drew 1.7% of it and read as *nearly
+ * empty*. The server renders every feature from the layer's own symbology, once, and holds the
+ * picture — measured on `ci_many`: 121.3 kB of GeoJSON per viewer per visit against a 17.8 kB
+ * PNG that revalidates to a 304.
+ *
+ * @param {string} url the cover layer's address
+ * @returns {string|null} the thumbnail address, or null if the URL is not one we can read
+ */
+function thumbnailFor(url) {
+  const parts = /^\/rest\/services\/(.+)\/FeatureServer\/(\d+)$/.exec(url || "");
+
+  if (!parts) return null;
+
+  return `/admin/thumbnail?service=${encodeURIComponent(parts[1])}&layer=${parts[2]}`;
+}
+
+/**
+ * Fills every thumbnail on screen, in reading order.
+ *
+ * <b>The server draws these now — D-58.</b> Each is a map rendered from every feature of the
+ * layer and its own symbology, held for five minutes and revalidated with an `ETag`; this walks
+ * the slots and fills them.
+ *
+ * <b>What a failure looks like matters more than that it is handled.</b> A service whose picture
+ * is refused gets the same hatched slot a service with no drawable layer gets, with the reason on
+ * it — so it looks like a service with no map, which is what it is for this caller. The
+ * alternative is the browser's broken-image glyph, which reads as *this console is broken*.
+ *
+ * <b>One at a time, for the reason the sample it replaces gave.</b> Forty rows is forty
+ * pictures, and on a cold cache each of those is a render — firing them together is a load test
+ * of our own server dressed up as a screen. Warm they cost about fifteen milliseconds each from
+ * memory, so the serial cost is invisible; cold it is the difference between forty concurrent
+ * renders and forty sequential ones. Sequential also means the pictures appear in the order
+ * somebody reads them.
  */
 async function paintPreviews() {
-  for (const canvas of document.querySelectorAll("canvas[data-preview]")) {
-    if (canvas.dataset.drawn) continue;
-    canvas.dataset.drawn = "1";
-    await drawPreview(canvas, canvas.dataset.preview, canvas.dataset.colour);
+  for (const image of document.querySelectorAll("img.thumb[data-thumb]")) {
+    if (image.dataset.drawn) continue;
+    image.dataset.drawn = "1";
+
+    const address = image.dataset.thumb;
+
+    if (!address) {
+      image.replaceWith(emptyThumb("This service has no map to show.", null));
+      continue;
+    }
+
+    let holding = pictures.get(address);
+
+    if (!holding) {
+      holding = drawnPicture(address);
+      pictures.set(address, holding);
+    }
+
+    const drawn = await holding;
+
+    if (drawn.href) {
+      image.src = drawn.href;
+      image.title = "";
+
+      // <b>The attribute is removed, not just read.</b> `img.thumb[data-thumb]:not([src])` is the
+      // waiting shimmer, and leaving the attribute on would keep a filled slot matching a rule
+      // written for an empty one the moment anything else set `src` later.
+      delete image.dataset.thumb;
+    } else {
+      image.replaceWith(emptyThumb(drawn.why, drawn.note));
+    }
+  }
+}
+
+/**
+ * The hatched slot a service with no picture shows.
+ *
+ * <b>A word in the box when there is one, not only on hover — D-58.</b> The canvas this replaced
+ * painted *stopped* or *no preview* where the picture would be, and that row's own text calls
+ * hover *"a weak place to carry a correction"*. So a reason short enough to read at 104 pixels is
+ * shown; the sentence is on hover for the rest. With neither, the box keeps its em dash, which
+ * means *nothing to draw* and always has.
+ *
+ * @param {string} why the sentence, for hover
+ * @param {string|null} note two or three words, shown in the box
+ */
+function emptyThumb(why, note) {
+  const empty = document.createElement("div");
+  empty.className = "thumb empty";
+  empty.title = why;
+  if (note) empty.dataset.note = note;
+  return empty;
+}
+
+/**
+ * Fetches one rendered thumbnail, or says why there is none.
+ *
+ * <b>`fetch` rather than `<img src>`, and it is not a style preference — D-58.</b> Three things
+ * follow from it. The console authenticates with a bearer token, which an `<img>` cannot send.
+ * A refusal here is *expected* — a service listed to an administrator whose data is private to
+ * somebody else has no picture for this caller — and an `<img>` that 404s is a failed
+ * subresource: it paints the browser's broken-image glyph, fills the network tab with red on
+ * every page load, and is recorded by the console test harness as a page error, which is
+ * correct of the harness and wrong about this. A handled outcome should not look like a
+ * failure. And the object URL lets the reason reach the hover text instead of being lost.
+ *
+ * <b>The HTTP cache still applies.</b> `fetch` honours `Cache-Control` and revalidates with
+ * `If-None-Match`, so the server's five-minute window and its 304 work exactly as they would
+ * for an `<img>`; the memo beside it is what stops one visit re-asking per render.
+ *
+ * @param {string} address the thumbnail's URL
+ * @returns {Promise<{href: string|null, note: string|null, why: string}>} the picture, or why there is none
+ */
+async function drawnPicture(address) {
+  try {
+    const headers = token ? { Authorization: "Bearer " + token } : {};
+    const response = await fetch(address, { headers });
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        return {
+          href: null,
+          note: "no query",
+          why: "This service is configured not to answer queries, so it draws nothing.",
+        };
+      }
+
+      if (response.status === 503) {
+        return { href: null, note: "stopped", why: "This service is stopped." };
+      }
+
+      return { href: null, note: null, why: "This service has no map to show." };
+    }
+
+    return { href: URL.createObjectURL(await response.blob()), note: null, why: "" };
+  } catch (e) {
+    return {
+      href: null,
+      note: "no map",
+      why: e.message || "This service has no map to show.",
+    };
   }
 }
 
