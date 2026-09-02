@@ -91,3 +91,7 @@ TestResults/
 # so the second time costs nothing.
 tok
 grp_service.html
+
+# D-173: Chrome's net logs, written only when GRATICULA_NET_LOG names a directory.
+net-logs/
+net-logs-kept/

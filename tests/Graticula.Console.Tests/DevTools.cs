@@ -157,6 +157,43 @@ public sealed class DevTools : IAsyncDisposable
             start.ArgumentList.Add(argument);
         }
 
+        /*
+          <b>The browser's own account of the wire, when somebody asks for it —
+          [D-173](../../docs/architecture-debt.md).</b> That row has narrowed *one test fails per
+          CI run, never the same one* to a single shape: a same-origin asset fires `error`, the
+          server's log records **200** for it, a re-fetch seconds later returns the full bytes, and
+          the browser's timing entry reads `0B transferred / 0B decoded` with an **empty**
+          `nextHopProtocol` while every sibling on the same page reads `h2`.
+
+          <b>Empty is what a failed request reads, so the cheap explanations are finished.</b> Not
+          the cache — `decodedBodySize` is zero too. Not a navigation — one document. Not the file,
+          the build or the copy — the re-fetch works. Not a stream lost while its connection dies —
+          Kestrel closes those connections gracefully with no reset and no minimum-data-rate.
+          What is left is what happened on the wire, and nothing in this repository could see it.
+
+          <b>Chrome can, and it costs a flag.</b> `--log-net-log` writes every socket, every
+          HTTP/2 stream, every header and every error the browser saw — including the reset codes
+          that would name what killed a stream. It is off unless `GRATICULA_NET_LOG` names a
+          directory, because it is megabytes per browser and this suite launches one per test.
+
+          <b>The default capture mode, not `Everything`.</b> `Everything` adds the raw bytes and
+          took **4.0 MB** for a single page load here; the default is a fraction of that and still
+          carries the stream events, which is what the remaining question is about. If the answer
+          ever needs the bytes, it is one flag — but paying for them on every run of a suite that
+          is green on this machine is paying for evidence nobody reads.
+
+          <b>One file per browser, named after the profile</b>, because this suite launches one
+          browser per test and a shared file would interleave two page loads into an account of
+          neither.
+        */
+        if (Environment.GetEnvironmentVariable("GRATICULA_NET_LOG") is { Length: > 0 } netLog)
+        {
+            Directory.CreateDirectory(netLog);
+
+            start.ArgumentList.Add(
+                "--log-net-log=" + Path.Combine(netLog, Path.GetFileName(profile) + ".json"));
+        }
+
         Process process = Process.Start(start)
             ?? throw new InvalidOperationException($"'{chrome}' did not start.");
 

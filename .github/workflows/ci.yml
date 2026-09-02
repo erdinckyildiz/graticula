@@ -260,6 +260,18 @@ jobs:
       # not where the server writes it, and the suite refused with the file name it
       # had been given. The server starts from the workspace root.
       GRATICULA_TEST_LOG: "${{ github.workspace }}/server.log"
+      # <b>The browser's own account of the wire — [D-173](../../docs/architecture-debt.md).</b>
+      # That row has narrowed *one console test fails per run, never the same one* to a shape
+      # nothing in this repository can see the cause of: a same-origin asset fires `error`, the
+      # server logs 200 for it, a re-fetch returns the full bytes, and the browser's timing entry
+      # reads zero transferred, zero decoded and an empty protocol while its siblings read `h2`.
+      # Empty is what a failed request reads, so the cheap explanations are finished and the next
+      # evidence is what happened on the socket.
+      #
+      # <b>On in CI and off everywhere else.</b> It is megabytes per browser and there is one
+      # browser per test, so it is worth its cost exactly where the failure lives and nowhere
+      # else — the suite is green on a developer's machine.
+      GRATICULA_NET_LOG: "${{ github.workspace }}/net-logs"
 
     steps:
       - uses: actions/checkout@v4
@@ -458,6 +470,30 @@ jobs:
         with:
           name: server-log
           path: server.log
+          if-no-files-found: warn
+
+      # <b>Only when something failed, and only the last few — D-173.</b> One browser per test
+      # over a hundred tests is a hundred net logs and hundreds of megabytes; the ones worth
+      # keeping are the ones near the failure, and a green run needs none of them. The step
+      # keeps the largest handful, because a browser that loaded a whole console wrote more than
+      # one that opened `about:blank` and closed.
+      - name: browser net logs
+        if: failure()
+        run: |
+          set -eu
+          test -d net-logs || { echo "no net logs were written"; exit 0; }
+          mkdir -p net-logs-kept
+          ls -S net-logs/*.json 2>/dev/null | head -6 | while read -r f; do
+            cp "$f" net-logs-kept/
+          done
+          du -sh net-logs net-logs-kept || true
+
+      - name: browser net logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-net-logs
+          path: net-logs-kept
           if-no-files-found: warn
 
   registers:
