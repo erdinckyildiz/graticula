@@ -23,7 +23,18 @@ services:
       # The server refuses to start against a store it cannot identify, so
       # starting it before PostgreSQL accepts connections turns a race into a
       # crash loop that looks like a bug in the server.
-      test: ["CMD-SHELL", "pg_isready -U gis -d gis"]
+      #
+      # <b>`-h 127.0.0.1`, and without it this check did not test the thing the
+      # sentence above names.</b> `pg_isready` with no host connects over the
+      # unix socket, and the postgres image runs a temporary server on that
+      # socket while it initialises a fresh volume — deliberately not on TCP.
+      # So the check went green during initialisation, compose reported the
+      # datastore healthy, and the server started and exited with *Failed to
+      # connect to 172.22.0.2:5432 — Connection refused*. Measured on a clean
+      # volume 2026-09-02: `docker compose up` left the datastore healthy and
+      # the server `Exited (1)`, which is the quickstart failing on its first
+      # command. Forcing TCP is what makes the answer mean what it says.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U gis -d gis"]
       interval: 3s
       timeout: 3s
       retries: 20

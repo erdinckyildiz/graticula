@@ -131,7 +131,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U gis"
+          --health-cmd "pg_isready -h 127.0.0.1 -U gis"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -233,7 +233,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U gis"
+          --health-cmd "pg_isready -h 127.0.0.1 -U gis"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -495,6 +495,27 @@ jobs:
           name: browser-net-logs
           path: net-logs-kept
           if-no-files-found: warn
+
+  quickstart:
+    name: quickstart
+    runs-on: ubuntu-latest
+    needs: build
+
+    # <b>Its own job because a red check called `quickstart` says what broke.</b> The four
+    # commands in the README are the first thing anybody runs and the last thing anybody
+    # tests; folding this into another job would put *the quickstart is broken* behind a name
+    # about something else.
+    steps:
+      - uses: actions/checkout@v4
+
+      # <b>The README's commands, from an empty machine — [D-19](../../docs/architecture-debt.md).</b>
+      # Measured 2026-09-02: `docker compose up` on a clean volume reported the datastore
+      # healthy and left the server `Exited (1)` with *Connection refused*, because the
+      # datastore's health check asked over the unix socket while the postgres image was still
+      # initialising and had not opened TCP. The check's own comment named that failure and did
+      # not test for it. This runs what a reader is told to type.
+      - name: the README's four commands
+        run: sh tools/quickstart-rehearsal.sh 8543
 
   registers:
     name: registers
