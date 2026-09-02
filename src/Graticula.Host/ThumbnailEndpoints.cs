@@ -169,7 +169,7 @@ internal static class ThumbnailEndpoints
 
         if (picture is null)
         {
-            (_, LayerDescription described) =
+            (IFeatureSource source, LayerDescription described) =
                 await contexts.GetAsync(drawn, cancellation).ConfigureAwait(false);
 
             if (described.Extent is not { } extent || extent.MinX > extent.MaxX)
@@ -178,14 +178,84 @@ internal static class ThumbnailEndpoints
                 return;
             }
 
+            // <b>Framed on the features that will be drawn, not on the layer's declared extent
+            // — [D-199](../../docs/architecture-debt.md).</b> That extent comes from
+            // `ST_EstimatedExtent`, which reads the GiST index: it grows with every insert and
+            // shrinks only under `VACUUM` or `REINDEX`, so it is an upper bound over everything
+            // the layer has *ever* held. Measured on `ci_editable`, three features left after a
+            // conformance suite: the declared box is 4,611 × 6,042 units and the data occupies
+            // 600 × 0, so the picture was three dots in the corner of an empty frame — which is
+            // exactly the *this layer is nearly empty* reading [D-58](../../docs/architecture-debt.md)
+            // replaced the sampled canvas to end, reached by a different route.
+            //
+            // <b>Correct by construction rather than by approximation.</b> A thumbnail draws at
+            // most `MaximumRecordCount` features; framing on the envelope of the features it
+            // will draw is the right frame for the picture it will produce. When a layer fills
+            // its own extent the two agree and nothing changes.
             byte[] bytes = await RenderAsync(
-                contexts, canvases, drawn, Framed(extent), settings, cancellation)
+                contexts,
+                canvases,
+                drawn,
+                Framed(await DrawnExtentAsync(source, settings, cancellation).ConfigureAwait(false)
+                    ?? extent),
+                settings,
+                cancellation)
                 .ConfigureAwait(false);
 
             picture = held.Keep(key, bytes, now);
         }
 
         await AnswerAsync(context, picture, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The envelope of the features this thumbnail will draw, or null when there are none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One bounded read, and it is the same bound the render uses.</b> `MaximumRecordCount`
+    /// caps both, so this reads exactly the set that will be drawn — not a sample of it. On a
+    /// cold thumbnail it doubles the work, which the cache makes once per layer every five
+    /// minutes; on a warm one it costs nothing because nothing runs.
+    /// </para>
+    /// <para>
+    /// <b>Geometry only.</b> No attributes are asked for, because a frame is made of
+    /// coordinates and reading the columns as well would double the bytes for nothing.
+    /// </para>
+    /// <para>
+    /// <b>Null rather than an empty envelope when the layer has no features.</b> The caller
+    /// falls back to the declared extent, which is what an empty layer had before and is the
+    /// only thing left to frame on.
+    /// </para>
+    /// </remarks>
+    /// <param name="source">The layer's features.</param>
+    /// <param name="settings">For the record ceiling.</param>
+    /// <param name="cancellationToken">The caller's.</param>
+    /// <returns>The envelope, or null.</returns>
+    private static async Task<Envelope?> DrawnExtentAsync(
+        IFeatureSource source, HostSettings settings, CancellationToken cancellationToken)
+    {
+        FeatureQuery query = new(
+            limit: settings.MaximumRecordCount,
+            fields: [],
+            includeGeometry: true);
+
+        Envelope found = Envelope.Empty;
+        bool any = false;
+
+        await foreach (Feature feature in
+            source.ReadAsync(query, cancellationToken).ConfigureAwait(false))
+        {
+            if (feature.Geometry is not { IsEmpty: false } geometry)
+            {
+                continue;
+            }
+
+            found = any ? found.Union(geometry.Envelope) : geometry.Envelope;
+            any = true;
+        }
+
+        return any ? found : null;
     }
 
     /// <summary>
