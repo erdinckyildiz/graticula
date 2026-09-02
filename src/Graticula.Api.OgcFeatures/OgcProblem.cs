@@ -72,6 +72,26 @@ public sealed record OgcProblem(int Status, string Title, string Detail)
     /// <returns>The problem.</returns>
     public static OgcProblem NotAcceptable(string detail) => new(406, "Not Acceptable", detail);
 
+    /// <summary>The row is no longer at the version the caller said it expected.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>412 rather than 409, and the difference is which header was disbelieved —
+    /// D-186.</b> RFC 9110 §15.5.13 gives 412 exactly one meaning: a precondition the client
+    /// stated in a header did not hold. A client that sent <c>If-Match</c> can act on that
+    /// without reading a sentence — re-read the feature, re-apply the edit, send the new tag.
+    /// 409 would say the request conflicts with the resource's state and leave the client to
+    /// guess what to do about it.
+    /// </para>
+    /// <para>
+    /// <b>The detail names the fix, not the fault.</b> The client did what it was asked to do;
+    /// it is out of date, which is a thing it can only learn from here.
+    /// </para>
+    /// </remarks>
+    /// <param name="detail">Which feature moved.</param>
+    /// <returns>The problem.</returns>
+    public static OgcProblem PreconditionFailed(string detail) =>
+        new(412, "Precondition Failed", detail);
+
     /// <summary>The document.</summary>
     /// <returns>The JSON.</returns>
     public string ToJson()

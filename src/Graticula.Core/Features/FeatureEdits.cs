@@ -36,8 +36,23 @@ public sealed record FeatureUpdate(
 /// caller answers it differently</b> — an OGC API Features verb addresses a single
 /// feature by URL, and an unknown URL is 404 rather than 400.
 /// </param>
+/// <param name="VersionMoved">
+/// Whether the write was refused because the row is no longer at the version the caller
+/// said it expected.
+/// <para>
+/// <b>Distinct from <see cref="NoSuchFeature"/> because the two are different answers to
+/// the client — D-186.</b> A row that is not there is <c>404</c> and the client should stop
+/// asking; a row somebody else has written since is <c>412</c> and the client should re-read
+/// and try again. Collapsing them would tell a client its edit is impossible when the truth
+/// is that it is merely out of date.
+/// </para>
+/// </param>
 public readonly record struct EditResult(
-    long Identity, bool Succeeded, string? Error, bool NoSuchFeature = false)
+    long Identity,
+    bool Succeeded,
+    string? Error,
+    bool NoSuchFeature = false,
+    bool VersionMoved = false)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);
@@ -69,6 +84,33 @@ public readonly record struct EditResult(
     /// <returns>The result.</returns>
     public static EditResult Missing(long objectId) =>
         new(objectId, false, $"No feature with object id {objectId} exists.", true);
+
+    /// <summary>
+    /// The row is there, but not at the version the caller expected.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole point of the precondition — D-186.</b> Without this, a second writer's
+    /// edit lands on top of a first writer's and nothing anywhere says so: the first client
+    /// got a success, and its work is gone. Refusing is the only outcome that lets it find
+    /// out.
+    /// </para>
+    /// <para>
+    /// <b>The message names the fix rather than the fault.</b> The client is not wrong — it
+    /// read a version and sent it back — it is out of date, and what it needs to be told is
+    /// to read again.
+    /// </para>
+    /// </remarks>
+    /// <param name="objectId">Which row was asked for.</param>
+    /// <returns>The result.</returns>
+    public static EditResult Stale(long objectId) =>
+        new(
+            objectId,
+            false,
+            $"Feature {objectId} has changed since the version you asked to edit. "
+            + "Re-read it and apply your edit to the current version.",
+            false,
+            true);
 }
 
 /// <summary>One <c>applyEdits</c> call.</summary>
@@ -81,6 +123,39 @@ public readonly record struct EditResult(
 /// <param name="AlreadyFailed">
 /// How many features failed before the writer saw the batch — see
 /// <see cref="AnythingAlreadyFailed"/>.
+/// </param>
+/// <param name="Expects">
+/// The versions each identity may be at for its edit to apply, for the edits that carry a
+/// precondition, or null when none do.
+/// <para>
+/// <b><see href="../../../docs/architecture-debt.md">D-186</see>, and
+/// <see href="../../../docs/adr/ADR-005-api-architecture.md">ADR-005</see> condition 4 calls
+/// getting this wrong <em>the worst defect class an editing API can have</em>.</b> Without a
+/// precondition, <c>PUT</c>, <c>PATCH</c> and <c>DELETE</c> are last-write-wins with no status
+/// code, no log line and no difference a client can see: the loser's edit is simply not there
+/// afterwards.
+/// </para>
+/// <para>
+/// <b>One map on the batch rather than a field on each edit.</b> An identity is unique within a
+/// batch, so one lookup answers for an update and a delete alike, and the two paths cannot
+/// drift into disagreeing about where the expectation lives. It is optional and null by
+/// default, so every existing caller means <em>no precondition</em> without being touched —
+/// which is also the compatible behaviour: a client that sends no <c>If-Match</c> gets what it
+/// got before.
+/// </para>
+/// <para>
+/// <b>A list per identity, because <c>If-Match</c> is a list.</b> RFC 9110 §13.1.1 lets a
+/// client send several entity tags and the precondition passes if <em>any</em> of them matches.
+/// A single value here would have made this server answer 412 to a request the specification
+/// says must succeed, and the shape of the field is what makes that impossible rather than a
+/// rule somebody has to remember.
+/// </para>
+/// <para>
+/// <b>Opaque.</b> The writer compares these and never parses them. Today one is PostgreSQL's
+/// <c>xmin</c>; §3.8 requires it to be something the <em>database</em> maintains, because
+/// anyone with credentials can write around this server and a version we remember would be
+/// wrong exactly when it matters.
+/// </para>
 /// </param>
 /// <remarks>
 /// <b>The default is true, which is not ArcGIS's default.</b> ArcGIS defaults to
@@ -96,7 +171,8 @@ public sealed record EditBatch(
     IReadOnlyList<FeatureUpdate> Updates,
     IReadOnlyList<long> Deletes,
     bool RollbackOnFailure = true,
-    int AlreadyFailed = 0)
+    int AlreadyFailed = 0,
+    IReadOnlyDictionary<long, IReadOnlyList<string>>? Expects = null)
 {
     /// <summary>How many features this batch touches.</summary>
     public int Count => Adds.Count + Updates.Count + Deletes.Count;

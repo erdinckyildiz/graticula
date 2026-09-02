@@ -117,7 +117,9 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             updates.Add(await IsolatedAsync(
                 transaction, savepoint++,
-                () => UpdateAsync(connection, transaction, update, zmFlags, cancellationToken),
+                () => UpdateAsync(
+                    connection, transaction, update, zmFlags,
+                    Expected(batch, update.Identity), cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -125,7 +127,9 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             deletes.Add(await IsolatedAsync(
                 transaction, savepoint++,
-                () => DeleteAsync(connection, transaction, objectId, cancellationToken),
+                () => DeleteAsync(
+                    connection, transaction, objectId,
+                    Expected(batch, objectId), cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -236,11 +240,88 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         }
     }
 
+    /// <summary>
+    /// What version this batch expects one identity to be at, or null for no precondition.
+    /// </summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="identity">The row.</param>
+    /// <returns>The versions the edit will accept, or null for no precondition.</returns>
+    private static string[]? Expected(EditBatch batch, long identity) =>
+        batch.Expects is { } expects
+        && expects.TryGetValue(identity, out IReadOnlyList<string>? versions)
+        && versions.Count > 0
+            ? [.. versions]
+            : null;
+
+    /// <summary>
+    /// What a precondition says about one row: gone, at the version asked for, or moved on.
+    /// </summary>
+    private enum Match
+    {
+        /// <summary>There is no such row.</summary>
+        Gone,
+
+        /// <summary>The row is at one of the versions the caller offered.</summary>
+        Matched,
+
+        /// <summary>The row is there, at a version the caller did not offer.</summary>
+        Moved,
+    }
+
+    /// <summary>
+    /// Asks what a row's version is against the ones the caller offered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Inside the same transaction, so it is not a race - D-186.</b> A versioned write that
+    /// affects no row has two possible causes and they need different answers: the row is gone
+    /// (404) or somebody else wrote it first (412). Separating them needs a second look, and
+    /// taking it inside the transaction that just failed to match means nothing can move
+    /// between the two statements.
+    /// </para>
+    /// <para>
+    /// <b>It never runs on the path that succeeds.</b> The write itself carries the comparison
+    /// in its <c>where</c>; this is only asked when the write changed nothing, or when there is
+    /// nothing to write. Optimistic concurrency costs an extra round trip exactly when it has
+    /// refused something, which is the case nobody is timing.
+    /// </para>
+    /// </remarks>
+    /// <param name="connection">The connection.</param>
+    /// <param name="transaction">The transaction the write ran in.</param>
+    /// <param name="identity">The row.</param>
+    /// <param name="expected">The versions the caller offered; never empty.</param>
+    /// <param name="cancellationToken">The caller's.</param>
+    /// <returns>What the row says.</returns>
+    private async Task<Match> MatchAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        long identity,
+        string[] expected,
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = new(
+            $"select xmin::text = any(@expected) from {_layer.QuotedTable} "
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id",
+            connection,
+            transaction);
+
+        command.Parameters.AddWithValue("id", identity);
+        command.Parameters.AddWithValue("expected", expected);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) switch
+        {
+            null => Match.Gone,
+            true => Match.Matched,
+            _ => Match.Moved,
+        };
+    }
+
     private async Task<EditResult> UpdateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         FeatureUpdate update,
         IReadOnlyDictionary<long, int> zmFlags,
+        string[]? expected,
         CancellationToken cancellationToken)
     {
         if (!zmFlags.TryGetValue(update.Identity, out int zmFlag))
@@ -280,23 +361,62 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // Nothing to do is a success. A client that sends an update with no
             // changed fields has got what it asked for, and reporting a failure
             // would make an idempotent retry look broken.
-            return EditResult.Ok(update.Identity);
+            //
+            // <b>But a precondition is still a precondition - D-186.</b> There is no
+            // `where` to hide it in on this path, so it is asked directly. Skipping it
+            // because the write is empty would let a stale client learn that its version
+            // is current by sending an edit that changes nothing.
+            if (expected is null)
+            {
+                return EditResult.Ok(update.Identity);
+            }
+
+            return await MatchAsync(
+                connection, transaction, update.Identity, expected, cancellationToken)
+                .ConfigureAwait(false) switch
+            {
+                Match.Matched => EditResult.Ok(update.Identity),
+                Match.Moved => EditResult.Stale(update.Identity),
+                _ => EditResult.Missing(update.Identity),
+            };
         }
 
+        // <b>The precondition rides in the `where`, which is what makes it atomic -- D-186.</b>
+        // Reading the version first and comparing it here would be check-then-act: two
+        // clients could both read the same version, both find it current, and both write.
+        // The database compares and writes in one statement or does neither.
         string sql =
             $"update {_layer.QuotedTable} set {string.Join(", ", assignments)} "
-            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id";
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
+            + (expected is null ? string.Empty : " and xmin::text = any(@expected)");
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", update.Identity);
+
+        if (expected is not null)
+        {
+            command.Parameters.AddWithValue("expected", expected);
+        }
+
         Bind(command, bound, update.Geometry);
 
         try
         {
             int affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
-            return affected > 0
-                ? EditResult.Ok(update.Identity)
+            if (affected > 0)
+            {
+                return EditResult.Ok(update.Identity);
+            }
+
+            // Nothing changed. Without a precondition that can only be a missing row; with
+            // one it is either that or a version that moved, and the caller needs to know
+            // which, because one is 404 and the other is 412.
+            return expected is not null
+                && await MatchAsync(
+                        connection, transaction, update.Identity, expected, cancellationToken)
+                        .ConfigureAwait(false) is not Match.Gone
+                ? EditResult.Stale(update.Identity)
                 : EditResult.Missing(update.Identity);
         }
         catch (PostgresException e)
@@ -309,14 +429,21 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         long objectId,
+        string[]? expected,
         CancellationToken cancellationToken)
     {
         string sql =
             $"delete from {_layer.QuotedTable} "
-            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id";
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
+            + (expected is null ? string.Empty : " and xmin::text = any(@expected)");
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", objectId);
+
+        if (expected is not null)
+        {
+            command.Parameters.AddWithValue("expected", expected);
+        }
 
         try
         {
@@ -325,8 +452,18 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // Deleting something that is already gone is reported as a failure
             // rather than shrugged off, because the client believes it deleted a
             // feature it never saw. ArcGIS reports it the same way.
-            return affected > 0
-                ? EditResult.Ok(objectId)
+            if (affected > 0)
+            {
+                return EditResult.Ok(objectId);
+            }
+
+            // A versioned delete that removed nothing may have found the row and
+            // refused it -- D-186. Which one it was decides 404 against 412.
+            return expected is not null
+                && await MatchAsync(
+                        connection, transaction, objectId, expected, cancellationToken)
+                        .ConfigureAwait(false) is not Match.Gone
+                ? EditResult.Stale(objectId)
                 : EditResult.Missing(objectId);
         }
         catch (PostgresException e)

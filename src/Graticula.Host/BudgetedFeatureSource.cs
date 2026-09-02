@@ -33,7 +33,7 @@ internal sealed class BudgetedFeatureSource(
     IFeatureSource inner,
     ConnectionBudget budget,
     string source,
-    SourceBreaker breaker) : IFeatureSource
+    SourceBreaker breaker) : IFeatureSource, IFeatureVersions
 {
     /// <summary>
     /// Refuses at once when this source failed a moment ago, and reports what happens.
@@ -190,6 +190,31 @@ internal sealed class BudgetedFeatureSource(
             cancellationToken).AsTask();
 
     /// <inheritdoc/>
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Through the budget like every other read — D-186.</b> Asking a row's version is a
+    /// round trip to the same database, so a version lookup outside the budget would be a
+    /// hole in [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)'s
+    /// bound of exactly the shape [D-196](../../docs/architecture-debt.md) records: work that
+    /// takes a connection while nothing counts it.
+    ///
+    /// <b>A source that cannot version answers null rather than throwing.</b> Only PostGIS
+    /// implements `IFeatureVersions` today, and a wrapper that demanded it would decide for
+    /// providers that do not exist yet.
+    /// </remarks>
+    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
+        inner is not IFeatureVersions versions
+            ? Task.FromResult<string?>(null)
+            : GuardedAsync(
+                async token =>
+                {
+                    using ConnectionBudget.Lease lease =
+                        await budget.EnterAsync(source, token).ConfigureAwait(false);
+
+                    return await versions.VersionOfAsync(identity, token).ConfigureAwait(false);
+                },
+                cancellationToken).AsTask();
+
     public Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken) =>
         GuardedAsync(
             async token =>

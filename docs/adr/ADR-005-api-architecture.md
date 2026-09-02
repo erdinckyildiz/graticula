@@ -544,6 +544,13 @@ Three possible responses:
    credentials can bypass us — so a design that depends on it is a design that
    is silently wrong.
 
+**Built 2026-09-02, on the baseline — [D-186](../architecture-debt.md).** `xmin` is the row
+version, read straight from the row and never remembered between requests, so it is right even
+for a registered table another client writes to behind this server's back. It reaches clients as
+a strong `ETag` on the OGC single-feature read and comes back as `If-Match`; a write whose
+version has moved is refused with 412 and applies nothing. See
+[ADR-042](ADR-042-ogc-api-features.md) §5b.
+
 Recommendation: **1 as the baseline, 2 where we have write rights.** Optimistic
 concurrency must be built on something the database maintains, not on something
 we remember. That rule holds in both cases and it is the part that must not be
@@ -658,7 +665,17 @@ pipeline, ADR-006.
    both the OGC item route and the ArcGIS query — so a client has nothing to send back as a
    precondition and no request is refused for being stale. That is [D-186](../architecture-debt.md).
    §3.8's recommendation stands and is what the repair follows: a database-maintained row
-   version, not our own record.)*
+   version, not our own record.
+   **PARTLY DISCHARGED 2026-09-02.** The OGC write surface now reads a strong `ETag` from
+   PostgreSQL's `xmin` and honours `If-Match` on `PUT`, `PATCH` and `DELETE`, refusing a stale
+   write with 412 and writing nothing — [ADR-042](ADR-042-ogc-api-features.md) §5b, and a
+   conformance suite drives two writers at one feature and asserts that the loser is refused
+   *and* that the winner's value survives. The comparison is the database's: it rides inside the
+   `update`'s own `where`, so it cannot become check-then-act. **It is partly rather than fully
+   discharged because ArcGIS `applyEdits` still has no precondition at all** — not built on the
+   wrong thing, which is what this condition forbids, but not protected either, and Esri's REST
+   surface defines no per-feature precondition to build one on. Inventing an extension there is
+   an owner decision and is the open half of [D-186](../architecture-debt.md).)*
 
 ## 9. Revisit triggers
 

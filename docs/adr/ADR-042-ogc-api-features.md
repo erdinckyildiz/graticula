@@ -231,6 +231,37 @@ shape rather than read clause by clause, so declaring the class would be the ove
 asserts the *absence* of the claim, so it cannot appear without somebody deciding it
 should.
 
+**Writes are conditional when the client asks — added 2026-09-02 with
+[D-186](../architecture-debt.md).** The single-feature read answers with a strong `ETag`, and
+`PUT`, `PATCH` and `DELETE` honour `If-Match`:
+
+| | |
+|---|---|
+| `GET /collections/{id}/items/{featureId}` | `ETag: "<version>"` on the GeoJSON representation |
+| `If-Match` matches | the edit applies; **204** |
+| `If-Match` names a version that has moved | **412**, and nothing is written |
+| `If-Match` on a feature that is not there | **412** — RFC 9110 §13.2.2 evaluates the precondition first, and no tag matches nothing |
+| `If-Match` this server cannot compare | **400**, rather than applying the edit unconditionally |
+| no `If-Match` | exactly what it did before: last write wins |
+
+**The version is PostgreSQL's `xmin` and needs no DDL.** [ADR-005](ADR-005-api-architecture.md)
+§3.8 requires a version the *database* maintains rather than one we remember, because anyone
+with credentials can write around this server; `xmin` is maintained by the row's own transaction
+and is therefore right even for a registered table this server has never written to.
+
+**The tag is on the GeoJSON representation only, and that is correctness rather than thrift.**
+An entity tag identifies a representation. The HTML view of the same feature is different bytes,
+and giving it the same tag would let a cache serve one where the other was asked for.
+
+**Conditional writes cost a second round trip on the single-feature read, and nothing on the
+collection listing.** The listing is the path that returns thousands of features and it does not
+ask for versions. The write path pays only when it refuses: the comparison rides inside the
+`update`'s own `where`, and the extra query that separates *gone* from *moved* runs only after a
+write has already matched nothing.
+
+**No conformance class is claimed for this either**, for the same reason §5b claims none for the
+verbs.
+
 **One writer underneath, which is the substance.** Every edit becomes an `EditBatch` and
 goes through `IFeatureWriter` — the path ArcGIS `applyEdits` takes, with the same
 rollback rule, the same per-service request and edit ceilings (Q-113), the same

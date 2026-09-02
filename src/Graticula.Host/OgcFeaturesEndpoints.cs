@@ -561,6 +561,33 @@ internal static partial class OgcFeaturesEndpoints
             context.Response.ContentType = OgcNames.GeoJson;
             context.Response.Headers["Content-Crs"] = $"<{crsUri}>";
 
+            /*
+              <b>The version a conditional write will be compared against — D-186.</b>
+              [ADR-005](../../docs/adr/ADR-005-api-architecture.md) §3.8 asks for optimistic
+              concurrency, and a client cannot send `If-Match` it was never given. This is the
+              one place it can be given: the single-feature read is the request a client makes
+              before it edits.
+
+              <b>On this representation only, and that is a correctness point rather than
+              thrift.</b> An entity tag identifies a *representation*, not a row. The HTML view
+              of this feature is different bytes; giving it the same tag would let a cache serve
+              one where the other was asked for.
+
+              <b>It costs a second round trip on this endpoint.</b> A primary-key lookup against
+              the row just read — measured at benchmarks/version-lookup, and the honest answer
+              is that it is not free. It is taken because the alternative is a client that
+              cannot edit safely, and it is confined to the single-feature read: the collection
+              listing, which is the path that returns thousands of features, does not ask.
+            */
+            if (source is IFeatureVersions versions
+                && long.TryParse(
+                    featureId, NumberStyles.Integer, CultureInfo.InvariantCulture, out long known)
+                && await versions.VersionOfAsync(known, cancellation).ConfigureAwait(false)
+                    is { } version)
+            {
+                context.Response.Headers.ETag = EntityTags.For(version);
+            }
+
             await context.Response.WriteAsync(document, cancellation).ConfigureAwait(false);
             return;
         }

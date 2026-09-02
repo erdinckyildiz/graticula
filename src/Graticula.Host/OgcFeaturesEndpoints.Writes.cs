@@ -16,6 +16,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Routing;
 
 namespace Graticula.Host;
@@ -497,6 +498,66 @@ internal static partial class OgcFeaturesEndpoints
             replace: false, cancellation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Reads <c>If-Match</c> into the precondition an <see cref="EditBatch"/> carries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The conditional half of <see href="../../docs/architecture-debt.md">D-186</see>.</b>
+    /// <see href="../../docs/adr/ADR-005-api-architecture.md">ADR-005</see> §3.8 asks for a
+    /// version a client can read and send back; this is where the sending back is understood.
+    /// Without it every <c>PUT</c>, <c>PATCH</c> and <c>DELETE</c> is last-write-wins and the
+    /// client that loses is told it succeeded.
+    /// </para>
+    /// <para>
+    /// <b><c>*</c> asks for nothing extra here, deliberately.</b> It means *the feature must
+    /// exist*, and these three verbs already refuse a feature that does not with 404. Turning
+    /// it into a version comparison would refuse a request the specification says must
+    /// succeed.
+    /// </para>
+    /// <para>
+    /// <b>An unusable header is refused rather than ignored.</b> A client that sent
+    /// <c>If-Match</c> believes its edit is protected. Dropping a header we cannot read would
+    /// apply the edit unconditionally and report success — the exact silent overwrite this
+    /// whole path exists to prevent.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="objectId">The feature being written.</param>
+    /// <param name="expects">The versions to compare against, or null for none.</param>
+    /// <param name="conditional">
+    /// Whether the client sent <c>If-Match</c> at all — separate from
+    /// <paramref name="expects"/>, because <c>*</c> is a precondition that names no version.
+    /// </param>
+    /// <returns><see langword="true"/> when the header could be read.</returns>
+    private static bool TryPrecondition(
+        HttpContext context,
+        long objectId,
+        out IReadOnlyDictionary<long, IReadOnlyList<string>>? expects,
+        out bool conditional)
+    {
+        expects = null;
+
+        StringValues header = context.Request.Headers.IfMatch;
+
+        EntityTags.Precondition asked =
+            EntityTags.Read(header.Count > 0 ? header.ToString() : null);
+
+        conditional = asked.Present;
+
+        if (asked.Unusable)
+        {
+            return false;
+        }
+
+        if (asked.Versions.Count > 0)
+        {
+            expects = new Dictionary<long, IReadOnlyList<string>> { [objectId] = asked.Versions };
+        }
+
+        return true;
+    }
+
     private static async Task ChangeAsync(
         HttpContext context,
         string collectionId,
@@ -549,6 +610,22 @@ internal static partial class OgcFeaturesEndpoints
             return;
         }
 
+        if (!TryPrecondition(
+                context,
+                objectId,
+                out IReadOnlyDictionary<long, IReadOnlyList<string>>? expects,
+                out bool conditional))
+        {
+            await RefuseAsync(
+                context,
+                OgcProblem.BadRequest(
+                    "`If-Match` must be `*` or one or more strong entity tags, each in quotes. "
+                    + "Send back the `ETag` this server returned when you read the feature."))
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         if (await BodyAsync(context, target.Layer, cancellation).ConfigureAwait(false)
             is not { } body)
         {
@@ -568,7 +645,8 @@ internal static partial class OgcFeaturesEndpoints
                 new EditBatch(
                     [],
                     [new FeatureUpdate(objectId, read.Attributes, read.Geometry)],
-                    []),
+                    [],
+                    Expects: expects),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -576,7 +654,8 @@ internal static partial class OgcFeaturesEndpoints
             context, audit, target, replace ? "replace" : "update", outcome, cancellation)
             .ConfigureAwait(false);
 
-        await AnswerChangeAsync(context, target, featureId, outcome.Updates).ConfigureAwait(false);
+        await AnswerChangeAsync(context, target, featureId, outcome.Updates, conditional)
+            .ConfigureAwait(false);
     }
 
     private static async Task DeleteItemAsync(
@@ -626,18 +705,36 @@ internal static partial class OgcFeaturesEndpoints
             return;
         }
 
+        if (!TryPrecondition(
+                context,
+                objectId,
+                out IReadOnlyDictionary<long, IReadOnlyList<string>>? expects,
+                out bool conditional))
+        {
+            await RefuseAsync(
+                context,
+                OgcProblem.BadRequest(
+                    "`If-Match` must be `*` or one or more strong entity tags, each in quotes. "
+                    + "Send back the `ETag` this server returned when you read the feature."))
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         EditOutcome outcome = await target.Writer
-            .ApplyAsync(new EditBatch([], [], [objectId]), cancellation)
+            .ApplyAsync(new EditBatch([], [], [objectId], Expects: expects), cancellation)
             .ConfigureAwait(false);
 
         await AuditWriteAsync(context, audit, target, "delete", outcome, cancellation)
             .ConfigureAwait(false);
 
-        await AnswerChangeAsync(context, target, featureId, outcome.Deletes).ConfigureAwait(false);
+        await AnswerChangeAsync(context, target, featureId, outcome.Deletes, conditional)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
-    /// 204 when the one edit worked, 404 when the row was not there, 400 otherwise.
+    /// 204 when the one edit worked, 404 when the row was not there, 412 when a stated
+    /// precondition did not hold, 400 otherwise.
     /// </summary>
     /// <remarks>
     /// <b>A missing row is 404 and not a failed edit.</b> The writer reports *no such
@@ -649,11 +746,28 @@ internal static partial class OgcFeaturesEndpoints
         HttpContext context,
         WriteTarget target,
         string featureId,
-        IReadOnlyList<EditResult> results)
+        IReadOnlyList<EditResult> results,
+        bool conditional)
     {
         if (results.Count > 0 && results[0].Succeeded)
         {
             context.Response.StatusCode = StatusCodes.Status204NoContent;
+            return;
+        }
+
+        // <b>412 before 404, because a row that moved is a row that is there — D-186.</b>
+        // The writer sets one flag or the other and never both, so the order is a reading
+        // aid rather than a rule; putting the narrower case first keeps it that way if the
+        // writer ever learns to set both.
+        if (results.Count > 0 && results[0].VersionMoved)
+        {
+            await RefuseAsync(
+                context,
+                OgcProblem.PreconditionFailed(
+                    results[0].Error
+                    ?? $"`{featureId}` has changed since the version you asked to edit."))
+                .ConfigureAwait(false);
+
             return;
         }
 
@@ -664,9 +778,25 @@ internal static partial class OgcFeaturesEndpoints
         // producer of the fact says what it is: `EditResult.Missing`.
         if (results.Count == 0 || results[0].NoSuchFeature)
         {
+            /*
+              <b>412 rather than 404 when the client stated a precondition — RFC 9110
+              §13.2.2, and it is deliberate rather than incidental.</b> A precondition on a
+              feature that is not there cannot hold: no entity tag matches nothing, and `*`
+              says *this must exist*. The specification evaluates `If-Match` first and
+              answers 412, and a client that sent one is asking to be told its assumption
+              broke rather than to be told where the feature went.
+
+              <b>The client that sent no `If-Match` still gets 404</b>, which is the answer
+              this surface has always given and the one the write suite asserts.
+            */
             await RefuseAsync(
                 context,
-                OgcProblem.NotFound($"`{featureId}` is not a feature of `{target.Collection.Id}`."))
+                conditional
+                    ? OgcProblem.PreconditionFailed(
+                        $"`{featureId}` is not a feature of `{target.Collection.Id}`, so the "
+                        + "`If-Match` you sent cannot hold.")
+                    : OgcProblem.NotFound(
+                        $"`{featureId}` is not a feature of `{target.Collection.Id}`."))
                 .ConfigureAwait(false);
 
             return;

@@ -42,7 +42,7 @@ namespace Graticula.Providers.PostGis;
 /// and clipping belongs to the tile path where the output is a picture.
 /// </para>
 /// </remarks>
-public sealed class PostGisFeatureSource : IFeatureSource
+public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
 {
     private readonly NpgsqlDataSource _dataSource;
 
@@ -222,6 +222,52 @@ public sealed class PostGisFeatureSource : IFeatureSource
 
             yield return new Feature(id, geometry, schema, values);
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>`xmin`, because PostgreSQL maintains it and we do not — D-186.</b> Every row carries
+    /// the transaction id that last wrote it, whoever wrote it: this server, QGIS, a script, a
+    /// DBA at a psql prompt. [ADR-005](../../docs/adr/ADR-005-api-architecture.md) §3.8 rules
+    /// out a scheme built on our own record of events for exactly that reason, and `xmin`
+    /// needs no DDL, so it works on a registered source where we have no rights to add a
+    /// column.
+    /// </para>
+    /// <para>
+    /// <b>`xmin` wraps, and it does not matter here.</b> It is 32 bits and PostgreSQL reuses
+    /// it after two billion transactions. What this version is compared against is a value the
+    /// client read moments earlier in the same session; a wrap between the read and the write
+    /// would need two billion transactions in that window. What a wrap cannot do is make two
+    /// *different* row states compare equal within one edit, which is the only property being
+    /// relied on.
+    /// </para>
+    /// <para>
+    /// <b>A layer with no integer identity has no version.</b> Editing already requires one --
+    /// `ApplyAsync` refuses a layer it cannot address -- so null here is the same absence
+    /// said earlier.
+    /// </para>
+    /// </remarks>
+    public async Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken)
+    {
+        if (_layer.IntegerIdentityColumn is not { } column)
+        {
+            return null;
+        }
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlCommand command = connection.CreateCommand();
+
+        command.CommandText =
+            $"select xmin::text from {_layer.QuotedTable} "
+            + $"where {LayerDefinition.Quote(column)} = @id";
+
+        command.Parameters.AddWithValue("id", identity);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+            as string;
     }
 
     private string BuildSql(FeatureQuery query, FeatureSchema schema)
