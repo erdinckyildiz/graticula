@@ -54,6 +54,26 @@ def main(argv):
     if not tally:
         print(f"{suite}: the report has no earl:outcome at all, so the run did not happen "
               f"or the file is not an EARL report ({os.path.getsize(path)} bytes).")
+
+        # <b>And what the file says, because it usually says exactly why.</b> TEAM Engine
+        # answers a failed run with an HTML page carrying one sentence -- *Failed to connect
+        # to resource located at http://...* -- and printing only *no earl:outcome* threw that
+        # sentence away. It cost a diagnosis on 2026-09-02: a run against a host name the
+        # container could not resolve looked like a broken report rather than a wrong address.
+        # A tool that has the reason in its hand and does not print it is D-177's rule broken
+        # by the thing that enforces it.
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                said = handle.read(4000)
+        except OSError:
+            return 1
+
+        body = re.sub(r"<[^>]+>", " ", said)
+        body = " ".join(body.split())
+
+        if body:
+            print(f"  what the engine actually returned: {body[:400]}")
+
         return 1
 
     passed = tally.get("passed", 0)

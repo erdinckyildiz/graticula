@@ -289,3 +289,36 @@ recorded evidence did — but a self-signed certificate has to be imported into 
 container's Java truststore first, and that is a step between somebody and a
 measurement. For a timing it changes nothing, and the one failure found was
 reproduced over HTTPS as well.
+
+---
+
+## Run 2026-09-02 — after a day of changes to three of the faces
+
+`tools/cite-run.sh` against the development server on plain HTTP, all three suites, one
+after another. The reason for running them is that this day changed WFS `GetFeature`, WMS
+`GetMap` and `GetFeatureInfo` ([ADR-049](../../docs/adr/ADR-049-a-face-refuses-in-its-own-vocabulary.md)),
+the OGC API Features write path ([D-186](../../docs/architecture-debt.md)) and
+`ServiceLookup`, which every face resolves through.
+
+| Suite | Passed | Failed | Untested | Wall time | Against 2026-08-27 |
+|---|---:|---:|---:|---:|---|
+| WFS 2.0 | **281** | **0** | 244 | 39 s | 279 passed — two better |
+| OGC API Features 1.0 | **308** | **0** | 24 | 9 s | unchanged |
+| WMS 1.3 | **158** | **6** | 0 | 8 s | unchanged, same six |
+
+**Nothing regressed.** WFS gained two assertions against the earlier run, which is not
+explained here and is recorded rather than claimed: the suites are re-run, not diffed.
+
+## The address the container needs, which cost a diagnosis
+
+The first attempt used the machine's own name, which is what the 2026-08-26 section above
+records — and it failed with a 452-byte HTML page. From inside the container,
+`DESKTOP-M804G0L:8445` does not resolve and `host.docker.internal:8445` answers **200**.
+`cite-run.sh`'s own comment says to pass `http://host.docker.internal:PORT` and it is right;
+what was wrong was reading the older section for the recipe.
+
+**And the failure said the wrong thing.** `cite-count.py` reported only *the report has no
+earl:outcome at all*, while the file in its hand held TEAM Engine's own sentence — *Failed
+to connect to resource located at …*. It prints that now. A tool that has the reason and
+does not show it is [D-177](../../docs/architecture-debt.md)'s rule broken by one of the
+tools that exists to enforce it.
