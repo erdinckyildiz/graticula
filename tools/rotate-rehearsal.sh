@@ -39,14 +39,37 @@ say() { printf '\n== %s\n' "$1"; }
 # ---------------------------------------------------------------- two certificates
 say "two certificates, one file"
 
+# <b>`MSYS_NO_PATHCONV=1`, and without it this script did nothing at all on Windows.</b>
+# Git Bash rewrites any argument that looks like an absolute path before the native
+# `openssl.exe` sees it, so `-subj "/CN=first.rehearsal"` arrived as
+# `C:/Program Files/Git/CN=first.rehearsal` and openssl refused it: *this name is not in that
+# format*. The comment above already knew about the path rewriting for `$WORK`; the `-subj`
+# argument is the same trap one line down. Harmless on Linux, where nothing reads the variable.
+#
+# <b>And the output is kept rather than dropped.</b> The first version sent openssl's stderr to
+# `/dev/null`, so the failure produced **no message at all**: the script printed
+# *== two certificates, one file* and exited, and `set -e` made that look like a clean finish.
+# A rehearsal that cannot say why it stopped is a rehearsal nobody can fix -- which is
+# [D-177](../docs/architecture-debt.md)'s rule applied to a tool rather than to a refusal.
 for name in first second; do
-  openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+  if ! MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
     -subj "/CN=$name.rehearsal" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
-    -keyout "$WORK/$name.key" -out "$WORK/$name.crt" >/dev/null 2>&1
+    -keyout "$WORK/$name.key" -out "$WORK/$name.crt" >"$WORK/openssl.log" 2>&1
+  then
+    printf 'openssl could not make the %s certificate:\n' "$name"
+    cat "$WORK/openssl.log"
+    exit 1
+  fi
 
-  openssl pkcs12 -export -out "$WORK/$name.pfx" \
-    -inkey "$WORK/$name.key" -in "$WORK/$name.crt" -passout pass: 2>/dev/null
+  if ! MSYS_NO_PATHCONV=1 openssl pkcs12 -export -out "$WORK/$name.pfx" \
+    -inkey "$WORK/$name.key" -in "$WORK/$name.crt" -passout pass: \
+    >"$WORK/openssl.log" 2>&1
+  then
+    printf 'openssl could not pack the %s certificate into a pfx:\n' "$name"
+    cat "$WORK/openssl.log"
+    exit 1
+  fi
 done
 
 cp "$WORK/first.pfx" "$WORK/serving.pfx"
