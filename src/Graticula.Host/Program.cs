@@ -3311,14 +3311,12 @@ public static class Program
             return false;
         }
 
-        List<string> refused = [.. needed.Where(c => !ceiling.Contains(c, StringComparer.Ordinal))];
+        string[] refused = [.. needed.Where(c => CapabilityCeilings.Refuses(layer, c))];
 
-        if (refused.Count == 0)
+        if (refused.Length == 0)
         {
             return false;
         }
-
-        string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
 
         await Results.Json(
             new
@@ -3326,11 +3324,7 @@ public static class Program
                 error = new
                 {
                     code = 403,
-                    message =
-                        $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
-                        + $"{string.Join(" and ", refused)} is refused here. The service is "
-                        + "running and answering what it does offer; an administrator can "
-                        + "change this on its capabilities.",
+                    message = CapabilityCeilings.Explain(layer, refused),
                     details = Array.Empty<string>(),
                 },
             },

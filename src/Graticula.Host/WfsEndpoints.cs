@@ -602,6 +602,42 @@ internal static class WfsEndpoints
             return;
         }
 
+        /*
+          <b>The configured ceiling, on the face that has no word for it —
+          [D-180](../../docs/architecture-debt.md) and
+          [ADR-049](../../docs/adr/ADR-049-a-face-refuses-in-its-own-vocabulary.md).</b>
+          [ADR-031](../../docs/adr/ADR-031-service-capability-configuration.md) §2a keeps
+          `Query` revocable so that an operator can stop a service answering without stopping
+          it, and until this existed the ArcGIS and OGC faces refused while this one returned
+          a `wfs:FeatureCollection` — the same setting, the same service, two answers.
+
+          <b>`OperationNotSupported` is the closest thing OWS has, and it is not a good fit.</b>
+          ADR-049 §3 is where that is argued rather than glossed: the operation *is* supported,
+          it is this type that is not being read. Every better-fitting code is worse in a
+          concrete way — `InvalidParameterValue` calls a type name invalid while
+          `GetCapabilities` still lists it, and omitting the type from the capabilities document
+          makes *refusing* indistinguishable from *absent*, which is exactly the distinction
+          §2a exists to keep.
+
+          <b>The type stays in `GetCapabilities` and `DescribeFeatureType` still answers.</b>
+          Describing what a service offers is not reading its features, and a client that cannot
+          discover the type cannot be told why it is refused.
+        */
+        if (CapabilityCeilings.Refuses(layer!, "Query"))
+        {
+            await RefuseAsync(
+                    context,
+                    new WfsFault(
+                        WfsFaultCode.OperationNotSupported,
+                        "TYPENAMES",
+                        CapabilityCeilings.Explain(layer!, "Query")),
+                    cancellation,
+                    StatusCodes.Status403Forbidden)
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer!, cancellation).ConfigureAwait(false);
 

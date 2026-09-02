@@ -127,20 +127,13 @@ internal static partial class OgcFeaturesEndpoints
     private static async Task<bool> RefusedByCeilingAsync(
         HttpContext context, PublishedLayer layer, string capability)
     {
-        if (layer.CapabilityCeiling is not { } ceiling
-            || ceiling.Contains(capability, StringComparer.Ordinal))
+        if (!CapabilityCeilings.Refuses(layer, capability))
         {
             return false;
         }
 
-        string offered = ceiling.Count == 0 ? "nothing" : string.Join(", ", ceiling);
-
         await RefuseAsync(
-            context,
-            OgcProblem.Forbidden(
-                $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
-                + $"{capability} is refused here. The service is running and answering what it "
-                + "does offer; an administrator can change this on its capabilities."))
+            context, OgcProblem.Forbidden(CapabilityCeilings.Explain(layer, capability)))
             .ConfigureAwait(false);
 
         return true;

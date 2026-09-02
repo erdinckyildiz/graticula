@@ -660,6 +660,39 @@ internal static class WmsEndpoints
                 return;
             }
 
+            /*
+              <b>The configured ceiling — [D-180](../../docs/architecture-debt.md) and
+              [ADR-049](../../docs/adr/ADR-049-a-face-refuses-in-its-own-vocabulary.md).</b>
+              Until this existed, a service configured to `Create` answered `GetMap` with a
+              picture while the ArcGIS `query` on the same service answered 403.
+
+              <b>`OperationNotSupported` rather than `LayerNotDefined`, and the difference
+              matters.</b> The layer *is* defined and `GetCapabilities` still names it, because
+              [ADR-031](../../docs/adr/ADR-031-service-capability-configuration.md) §2a's state
+              is *running and refusing* rather than absent. `LayerNotQueryable` is not this
+              either: WMS 1.3.0 scopes it to `GetFeatureInfo`, and that is where this code uses
+              it.
+
+              <b>200 rather than 403, which is this face's own rule rather than a new one.</b>
+              `RefuseAsync` above records why: several WMS clients treat a 4xx as a transport
+              failure and never read the body, discarding the one sentence that says what
+              happened. The sentence is the point here, so it is carried the way this face
+              carries sentences.
+            */
+            if (CapabilityCeilings.Refuses(found, "Query"))
+            {
+                await RefuseAsync(
+                    context,
+                    request.Version,
+                    new WmsFault(
+                        WmsFault.OperationNotSupported,
+                        CapabilityCeilings.Explain(found, "Query"),
+                        "LAYERS"),
+                    cancellation).ConfigureAwait(false);
+
+                return;
+            }
+
             wanted.Add(found);
         }
 
@@ -980,6 +1013,29 @@ internal static class WmsEndpoints
                     new WmsFault(
                         WmsFault.LayerNotDefined,
                         $"`{name}` is not a layer this server publishes to you.",
+                        "QUERY_LAYERS"),
+                    cancellation).ConfigureAwait(false);
+
+                return;
+            }
+
+            /*
+              <b>`LayerNotQueryable`, and here it is the right code rather than the nearest one
+              — [D-180](../../docs/architecture-debt.md),
+              [ADR-049](../../docs/adr/ADR-049-a-face-refuses-in-its-own-vocabulary.md).</b> WMS
+              1.3.0 defines it as *GetFeatureInfo applied to a Layer which is not declared
+              queryable*, which is exactly a service whose ceiling excludes `Query`. `GetMap`
+              gets `OperationNotSupported` because this code does not reach that far, and the
+              two are deliberately different for that reason rather than by accident.
+            */
+            if (CapabilityCeilings.Refuses(layer, "Query"))
+            {
+                await RefuseAsync(
+                    context,
+                    request.Version,
+                    new WmsFault(
+                        WmsFault.LayerNotQueryable,
+                        CapabilityCeilings.Explain(layer, "Query"),
                         "QUERY_LAYERS"),
                     cancellation).ConfigureAwait(false);
 
