@@ -270,10 +270,18 @@ sheet stops being allowed to be empty.
    **Undischarged the same hour: CI falsified it.** With those four versions pinned and
    matching exactly, a GitHub runner still differs in the same 22 of 31 ranges. One container
    agreeing with one laptop is two machines agreeing, and it was read as *anywhere*. The four
-   versions are necessary and not sufficient; what decides the bytes is below them, and the
-   open suspect is the instruction set numpy and scipy dispatch on. **Still
-   [D-193](../architecture-debt.md)**, with the container comparison running in CI as an
-   experiment rather than a gate.
+   versions are necessary and not sufficient; what decides the bytes is below them.
+   ***(Discharged 2026-09-03, on evidence rather than on a reading.)* The container comparison
+   ran in CI as an experiment for a week — deliberately `continue-on-error`, because a red gate
+   on an open question teaches people to ignore the gate — and it has now reproduced the
+   checked-in ranges **sixteen times out of sixteen on GitHub's own hardware**, with no failure,
+   plus once more on the author's machine. So layer 2 runs anywhere a container runs, which is
+   what this condition asks for, and the step is a gate rather than an experiment: it fails the
+   build on a mismatch instead of printing that it failed, which the old `|| echo` form could
+   not do. **What stays unknown is named rather than closed over**: on a bare machine with the
+   four versions pinned the bytes still differ, and *why* — below the version strings — has
+   not been measured. The image removes the question from anybody's path; it does not answer
+   it. That residual is [D-193](../architecture-debt.md)'s closing text.)*
 4. **The font licence is in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)
    with the text shipped beside the font**, because the Bitstream Vera licence
    requires the notice to travel with the file. *(Discharged — [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries the row and a section explaining why a redistributed font is unlike every other entry, and the licence text sits beside the font at [tools/fonts/LICENSE-DejaVu.txt](../../tools/fonts/LICENSE-DejaVu.txt) — which is what Bitstream Vera requires, since the notice must travel with the file rather than be referenced from elsewhere.)*

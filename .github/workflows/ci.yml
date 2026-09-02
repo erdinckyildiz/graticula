@@ -571,25 +571,37 @@ jobs:
       - name: glyph ranges match their manifest
         run: python tools/glyphs-check.py
 
-      # <b>Reproducibility defined by an image rather than by four strings.</b> If this agrees
-      # with the checked-in bytes, the ranges are reproducible by anybody who can run the
-      # container, which is what D-193 asks for. If it does not, the artefact depends on
-      # something the image does not fix -- the CPU that numpy and scipy compile for is the
-      # open suspect -- and that is a finding rather than a flake.
+      # <b>Reproducibility defined by an image rather than by four strings — D-193.</b> The
+      # ranges are pre-generated files, and the only check that proves they are the generator's
+      # *output* rather than merely unedited is to regenerate and compare. Doing that with the
+      # four pinned package versions on a bare runner produced different bytes for 22 of 31
+      # ranges; doing it inside this image, whose base is pinned by digest, reproduces them.
       #
-      # `continue-on-error` while D-193 is open: this is the experiment, and a red gate on an
-      # open question teaches people to ignore the gate.
+      # <b>A gate rather than an experiment, since 2026-09-03.</b> It ran `continue-on-error`
+      # for a week because a red gate on an open question teaches people to ignore the gate.
+      # **Sixteen runs on GitHub's own hardware, sixteen reproductions, no failures** — so the
+      # question is answered and the guard is real. It also fails now rather than printing that
+      # it failed: the old form ended in `|| echo`, which turns a mismatch into a sentence
+      # nobody's exit code carries.
       - name: glyph ranges regenerate in the pinned container
-        continue-on-error: true
         run: |
+          set -eu
           docker build -f tools/glyphs.Dockerfile -t graticula-glyphs:pinned tools
           rm -rf /tmp/glyphs && mkdir -p /tmp/glyphs
           docker run --rm -v "$PWD:/repo" -v /tmp/glyphs:/out graticula-glyphs:pinned \
             python /repo/tools/make-glyphs.py /out
-          diff -r "src/Graticula.Host/glyphs/DejaVu Sans Regular" \
-                  "/tmp/glyphs/DejaVu Sans Regular" \
-            && echo "the container reproduces the checked-in ranges" \
-            || echo "the container does not reproduce them -- D-193, and the versions are not the variable"
+
+          if diff -r "src/Graticula.Host/glyphs/DejaVu Sans Regular" \
+                     "/tmp/glyphs/DejaVu Sans Regular"
+          then
+            echo "the container reproduces the checked-in ranges"
+          else
+            echo "The pinned container did not reproduce the checked-in glyph ranges."
+            echo "Either the ranges were changed without regenerating them, or something below"
+            echo "the image decides the bytes -- which is what D-193 spent a week establishing"
+            echo "the image does fix. The diff above says which ranges."
+            exit 1
+          fi
 
   coverage-gap:
     name: what CI does not cover
