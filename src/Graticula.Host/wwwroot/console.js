@@ -2909,6 +2909,24 @@ async function showService(qualified) {
   }
 
   if (kind === "ImageServer") {
+    /*
+      <b>Not a bare return any more — [D-200](../../docs/architecture-debt.md).</b> Everything
+      an image service needs *below* this line is drawn: `loadServiceCapabilities` fills the
+      coverage panel with its size, bands, pixel type, reference and formats, and it was doing
+      that all along. What returning here skipped was the two things every other service on this
+      screen has — the subtitle under its name, which stayed empty, and Studio's address column,
+      which was not drawn at all. Measured on `hosted/ci_imagery`: the coverage facts read
+      *256 × 192 pixels, 1 band, U8, EPSG:4326* while `#serviceFacts` was an empty string and
+      `#svcUrl` was absent from the document.
+
+      <b>It reads as a page that failed rather than a page that is smaller.</b> An empty subtitle
+      beside a filled panel, and no address where every other service has one, is the shape a
+      reviewer reported as *never populates at all*.
+    */
+    $("serviceFacts").textContent = "image service · a coverage rather than layers";
+
+    await drawServiceDetails(qualified, kind);
+
     return;
   }
 
@@ -3116,6 +3134,63 @@ function drawServiceLayers(layers, qualified) {
 }
 
 /**
+ * The caller's own content item for a service, or null when it is not one of theirs.
+ *
+ * <b>Its own function because two things need it and one of them is a fallback — D-200.</b> The
+ * facts list needs the item; the address needs only the kind, which the item carries when there is
+ * one and the services directory carries always.
+ *
+ * @param {string} qualified the service's folder-and-name
+ * @returns {Promise<object|null>} the item, or null
+ */
+async function contentItem(qualified) {
+  try {
+    const answer = await api("/content/items");
+    return (answer.items || []).find(i => i.name === qualified) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A service's kind, from the services directory.
+ *
+ * <b>The directory answers for every kind and needs no privilege.</b> It is the same document a
+ * client reads to find what this server publishes, it is sharing-governed like everything else
+ * under `/rest/services`, and its `type` is a face's name — which is what an address is built
+ * from.
+ *
+ * <b>A service appears once per face, not once.</b> `ci_buildings` is listed as a `FeatureServer`
+ * *and* as a `VectorTileServer` because it serves tiles too, so taking the first match gives
+ * whichever the server happened to write first — a tile address on a page about the service. The
+ * order here is the page's own: the feature face if there is one, the image face otherwise, and
+ * anything else only when those two are absent.
+ *
+ * @param {string} qualified the service's folder-and-name
+ * @returns {Promise<string|null>} `FeatureServer`, `ImageServer`, or null when it cannot be read
+ */
+async function serviceKind(qualified) {
+  const cut = qualified.lastIndexOf("/");
+  const folder = cut < 0 ? "" : qualified.slice(0, cut);
+
+  try {
+    const answer = await api(
+      `/rest/services${folder ? "/" + encodeURIComponent(folder) : ""}?f=json`);
+
+    const faces = (answer.services || [])
+      .filter(s => s.name === qualified)
+      .map(s => s.type);
+
+    return faces.find(f => f === "FeatureServer")
+      || faces.find(f => f === "ImageServer")
+      || faces[0]
+      || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Overview's right-hand column: what this service is, and the address it answers on.
  *
  * <b>The URL is why this column exists.</b> The owner, pointing at it: *"burada da servisin url'i
@@ -3133,15 +3208,27 @@ function drawServiceLayers(layers, qualified) {
  * already answers with the kind, the owner, the sharing scope and the layer count for exactly the
  * services this caller may see, which is the same set they could have navigated here from.
  */
-async function drawServiceDetails(qualified) {
+async function drawServiceDetails(qualified, knownKind) {
   const box = $("serviceDetails");
   if (!box || surfaceOfPath() !== "studio") return;
 
-  const root = `${location.origin}/rest/services/${
-    qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
+  // <b>The face is the service's kind, and hard-coding it was [D-200](../../docs/architecture-debt.md).</b>
+  // Every service in this catalogue is a `FeatureServer` or an `ImageServer` and the kind *is* the
+  // face's name, so an image service was being shown a FeatureServer address that answers 404 —
+  // beside a facts list that stayed empty, because `/content/items` lists feature services only and
+  // the lookup below simply returned. A page that renders empty is read as a product that lost the
+  // service.
+  //
+  // <b>Asked of the services directory, which knows every kind and needs no privilege.</b>
+  // `/content/items` is the caller's own content and `/admin/featureservices` needs
+  // `admin:manageServer`; the directory is sharing-governed and answers for both kinds, which is
+  // what this needs and all it needs.
+  const item = await contentItem(qualified);
+  const kind = knownKind || (item ? item.kind : null) || await serviceKind(qualified);
 
-  // The address first and without waiting, because it is derivable here and is the one thing on this
-  // column somebody came for.
+  const root = `${location.origin}/rest/services/${
+    qualified.split("/").map(encodeURIComponent).join("/")}/${kind || "FeatureServer"}`;
+
   //
   // <b>`title`, because the field truncates.</b> Measured at 1440: a 260-pixel box against a 70-character
   // address, cut off mid-word, so Copy worked and nobody could read what they were about to copy. And
@@ -3168,10 +3255,26 @@ async function drawServiceDetails(qualified) {
     <dl class="facts2" id="svcFacts"></dl>`;
 
   try {
-    const answer = await api("/content/items");
-    const item = (answer.items || []).find(i => i.name === qualified);
+    if (!item) {
+      // <b>What is known, rather than nothing — D-200.</b> `/content/items` lists feature
+      // services, so an image service is not in it and this used to return, leaving the empty
+      // definition list it had just written. The facts that do not need that listing are the
+      // ones a reader came for, and the rest of the page — the coverage panel — carries the
+      // service's own numbers.
+      //
+      // <b>Whether Studio should list every kind in `/content/items`</b> is a decision about
+      // what Studio is for, and it belongs to
+      // [ADR-034](../../docs/adr/ADR-034-server-and-studio.md) rather than to this template.
+      $("svcFacts").innerHTML = `
+        <dt>Kind</dt><dd>${h(kind || "unknown")}</dd>
+        <dt>Folder</dt><dd>${qualified.includes("/")
+          ? h(qualified.slice(0, qualified.lastIndexOf("/")))
+          : `<span class="val">the site root</span>`}</dd>
+        <dt>Sharing</dt><dd><span class="val">set on the Settings tab — this kind is not in
+          your content listing, so the owner and the dates are not read here</span></dd>`;
 
-    if (!item) return;
+      return;
+    }
 
     // <b>The sharing scope is the control that changes it, here as everywhere else.</b> This was the one
     // place on the product where that pill was inert — the content list has wrapped it in `.pillbtn`
