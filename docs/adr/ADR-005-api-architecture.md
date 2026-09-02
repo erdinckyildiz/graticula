@@ -666,16 +666,20 @@ pipeline, ADR-006.
    precondition and no request is refused for being stale. That is [D-186](../architecture-debt.md).
    §3.8's recommendation stands and is what the repair follows: a database-maintained row
    version, not our own record.
-   **PARTLY DISCHARGED 2026-09-02.** The OGC write surface now reads a strong `ETag` from
+   ***(Discharged 2026-09-02.)*** The OGC write surface now reads a strong `ETag` from
    PostgreSQL's `xmin` and honours `If-Match` on `PUT`, `PATCH` and `DELETE`, refusing a stale
    write with 412 and writing nothing — [ADR-042](ADR-042-ogc-api-features.md) §5b, and a
    conformance suite drives two writers at one feature and asserts that the loser is refused
    *and* that the winner's value survives. The comparison is the database's: it rides inside the
-   `update`'s own `where`, so it cannot become check-then-act. **It is partly rather than fully
-   discharged because ArcGIS `applyEdits` still has no precondition at all** — not built on the
-   wrong thing, which is what this condition forbids, but not protected either, and Esri's REST
-   surface defines no per-feature precondition to build one on. Inventing an extension there is
-   an owner decision and is the open half of [D-186](../architecture-debt.md).)*
+   `update`'s own `where`, so it cannot become check-then-act. **And it is fully discharged rather than partly, by owner
+   decision 2026-09-02, on the reading that this condition governs *how* concurrency is built
+   rather than *where* it exists.** Nothing in this server builds concurrency on a version it
+   remembers. ArcGIS `applyEdits` has no precondition at all — Esri's REST surface defines none
+   to build one on, and inventing a field no ArcGIS client sends would defend our own clients and
+   nobody else's on the one face whose purpose is that other people's software works unmodified
+   ([CLAUDE.md](../../CLAUDE.md) §5, §51). That risk is accepted and named: two ArcGIS clients
+   editing one feature are still last-write-wins, which [D-186](../architecture-debt.md) records
+   rather than leaves to be found.)*
 
 ## 9. Revisit triggers
 
