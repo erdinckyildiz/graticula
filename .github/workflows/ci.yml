@@ -472,28 +472,33 @@ jobs:
           path: server.log
           if-no-files-found: warn
 
-      # <b>Only when something failed, and only the last few — D-173.</b> One browser per test
-      # over a hundred tests is a hundred net logs and hundreds of megabytes; the ones worth
-      # keeping are the ones near the failure, and a green run needs none of them. The step
-      # keeps the largest handful, because a browser that loaded a whole console wrote more than
-      # one that opened `about:blank` and closed.
+      # <b>All of them, compressed, and only when something failed — D-173.</b>
+      #
+      # <b>The first version kept the six largest and kept the wrong six.</b> On its first red
+      # run it uploaded 28 MB of net logs and **not one of them contained the failure**: every
+      # errored request in all six was Chrome's own variations seed or an aborted preconnect,
+      # and no console asset failed in any of them. Size is not a proxy for *the browser that
+      # broke*, because a page that lost a script does less work than one that did not — the
+      # heuristic selected against the evidence it was there to collect.
+      #
+      # <b>A tar is cheap enough to make the question moot.</b> These files compress about
+      # tenfold, so a hundred browsers is tens of megabytes rather than hundreds, and picking
+      # which to keep stops being a guess anybody has to be right about.
       - name: browser net logs
         if: failure()
         run: |
           set -eu
           test -d net-logs || { echo "no net logs were written"; exit 0; }
-          mkdir -p net-logs-kept
-          ls -S net-logs/*.json 2>/dev/null | head -6 | while read -r f; do
-            cp "$f" net-logs-kept/
-          done
-          du -sh net-logs net-logs-kept || true
+          echo "net logs: $(ls net-logs/*.json 2>/dev/null | wc -l) files, $(du -sh net-logs | cut -f1)"
+          tar -czf net-logs.tar.gz net-logs
+          du -sh net-logs.tar.gz
 
       - name: browser net logs artifact
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: browser-net-logs
-          path: net-logs-kept
+          path: net-logs.tar.gz
           if-no-files-found: warn
 
   quickstart:
