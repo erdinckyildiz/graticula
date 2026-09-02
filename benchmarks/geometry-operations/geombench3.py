@@ -1,3 +1,5 @@
+import os
+import tempfile
 """The two questions the bands do not answer: one enormous shape, and the pool.
 
 ADR-022 condition 3 names both -- *"nobody has measured what a realistic buffer or
@@ -12,8 +14,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = "https://127.0.0.1:8447"
 GEOM = ROOT + "/rest/services/Utilities/Geometry/GeometryServer"
-HERE = ("C:/Users/Erdinc/AppData/Local/Temp/claude/c--Personal-Projects-GIS/"
-        "9db7f59f-6624-459d-b69c-f9b00b1599e7/scratchpad")
+# The working directory. It named one laptop's scratchpad until 2026-09-02.
+HERE = os.environ.get("GRATICULA_WORK") or tempfile.mkdtemp()
 CONTEXT = ssl._create_unverified_context()
 SRID = 3857
 

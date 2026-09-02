@@ -1,7 +1,8 @@
 #!/bin/sh
 # Real OSM polygons in three vertex bands, as GeoJSON, for the geometry benchmark.
 set -u
-OUT="C:/Users/Erdinc/AppData/Local/Temp/claude/c--Personal-Projects-GIS/9db7f59f-6624-459d-b69c-f9b00b1599e7/scratchpad"
+# The output directory. It named one laptop's scratchpad until 2026-09-02.
+OUT=${GRATICULA_WORK:-$(mktemp -d)}
 
 band() { # name low high count
   docker exec -e PGPASSWORD=gis gis-experiment-postgis psql -U gis -d gis -t -A -c \

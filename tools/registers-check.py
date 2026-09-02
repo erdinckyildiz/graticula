@@ -2151,6 +2151,85 @@ SECRET_NAMES = '(?i)(secret[_a-z]*key|api[_-]?key|private[_-]?key|password|passw
 GENERATED_KEY = '^(?:[A-Za-z0-9+/]{20,}={0,2}|[0-9a-fA-F]{32,})$'
 
 
+# <b>A path that exists on one machine.</b> A Windows or POSIX home directory, or the
+# session-scoped scratchpad this project's tooling writes to, spelled out in a committed file.
+# The scratchpad form is the one that actually happened: it carries a session identifier, so
+# it is not merely unportable, it is unportable *and* different tomorrow.
+MACHINE_PATH = (
+    r"(?i)(?:[A-Z]:[\\/]Users[\\/][^\\/\s\"']+"
+    r"|/(?:home|Users)/[^/\s\"']+/"
+    r"|AppData[\\/]Local[\\/]Temp[\\/]claude)")
+
+
+def a_developers_own_path_in_a_committed_file():
+    """
+    An absolute path into one machine's home or scratch directory, in a file that ships.
+
+    <b>Found 2026-09-02 by running the rehearsals rather than reading them.</b> Two of the six
+    -- `rollback-rehearsal.sh` and `stale-component-rehearsal.sh` -- carried
+    `S="C:/Users/<name>/AppData/Local/Temp/claude/<project>/<session id>/scratchpad"` and
+    `cd "c:/Personal/Projects/GIS"`, so they could not run on any machine but one, in any
+    session but one. Four benchmark scripts carried the same directory. The repository is
+    given away; a tool that only its author can run is a tool that is not really there, and
+    the session identifier is noise nobody meant to publish.
+
+    <b>It reads `tools/` and `.github/` strictly and `benchmarks/` too.</b> `/benchmarks` is
+    disposable by CLAUDE.md §1 and is never promoted, which is a reason not to polish it and
+    not a reason to publish somebody's home directory in it -- the numbers there are evidence
+    other people are invited to reproduce.
+
+    <b>Documentation is exempt, deliberately.</b> A path in prose is often the point: an ADR
+    recording what a run did, or a debt row quoting a message that contained one. What this
+    forbids is a path a program *uses*.
+    """
+    problems = []
+
+    machine = re.compile(MACHINE_PATH)
+
+    try:
+        listing = subprocess.run(
+            ["git", "-C", conditions.ROOT, "ls-files",
+             "--cached", "--others", "--exclude-standard"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return problems
+
+    for path in listing.stdout.split("\n"):
+        path = path.strip()
+
+        if not path.startswith(("tools/", "benchmarks/", ".github/", "src/", "tests/")):
+            continue
+
+        if path.endswith((".md", ".html", ".png", ".jpg", ".gif", ".pdf")):
+            continue
+
+        if path.endswith("registers-check.py"):
+            continue
+
+        whole = os.path.join(conditions.ROOT, path)
+
+        try:
+            with open(whole, encoding="utf-8") as handle:
+                text = handle.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        for number, line in enumerate(text.split("\n"), start=1):
+            if line.lstrip().startswith(("#", "//", "*")):
+                continue
+
+            if machine.search(line):
+                problems.append(
+                    f"{path}:{number} names a path that exists on one machine:\n"
+                    f"    {line.strip()[:120]}\n"
+                    "  A committed script has to run on somebody else's computer. Take the "
+                    "directory from the environment with a temporary default, and find the "
+                    "repository from the script's own location rather than from where it was "
+                    "written.")
+
+    return problems
+
+
 def a_secret_committed_to_a_public_repository():
     """
     A generated key written into a tracked file.
@@ -2437,6 +2516,14 @@ def an_adr_that_calls_an_answered_question_open():
 # where *answered* was decided by looking for a word rather than by the register's own rule,
 # would have sailed through this. It removes the cheapest and commonest of the seven.
 PATTERN_EXAMPLES = [
+    (MACHINE_PATH,
+     ['S="C:/Users/someone/AppData/Local/Temp/claude/p/abc/scratchpad"',
+      'cd /home/someone/work/graticula',
+      'OUT="/Users/someone/tmp"'],
+     ['S=${GRATICULA_WORK:-$(mktemp -d)}',
+      'cd "$(dirname -- "$0")/.."',
+      'the path is /var/lib/graticula and belongs to the deployment']),
+
     (SECRET_NAMES,
      ['Graticula__SecretKey="bm90LWEta2V5LWp1c3QtYW4tZXhhbXBsZS0zMmJ5dGU="',
       "  Graticula__SecretKey: $GRATICULA_SECRET_KEY",
@@ -2543,6 +2630,7 @@ def main() -> int:
                 + a_test_a_register_cites_that_is_not_there()
                 + an_adr_that_does_not_say_where_its_state_lives()
                 + a_port_documented_as_a_contract()
+                + a_developers_own_path_in_a_committed_file()
                 + a_secret_committed_to_a_public_repository()
                 + a_file_a_security_promise_names_that_is_not_there()
                 + an_adr_that_calls_an_answered_question_open())

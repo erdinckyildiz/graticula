@@ -18,8 +18,16 @@ set -u
 #   export GRATICULA_SECRET_KEY="$(openssl rand -base64 32)"
 : "${GRATICULA_TEST_PG:?set GRATICULA_TEST_PG to the platform store connection string}"
 : "${GRATICULA_SECRET_KEY:?set GRATICULA_SECRET_KEY, e.g. from: openssl rand -base64 32}"
-cd "c:/Personal/Projects/GIS" || exit 1
-S="C:/Users/Erdinc/AppData/Local/Temp/claude/c--Personal-Projects-GIS/9db7f59f-6624-459d-b69c-f9b00b1599e7/scratchpad"
+# <b>The repository, from where this script is, not from where it was written.</b>
+cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)" || exit 1
+# <b>A working directory of its own, because this script used to name mine.</b> It carried an
+# absolute path into one session's scratchpad on one laptop -- a directory with a session
+# identifier in it -- so the rehearsal could not run anywhere else, and a repository that is
+# given away published the path. `mktemp -d` gives every run its own; `cygpath -m` makes it a
+# path both the shell and the native `dotnet.exe` can open, which is the trap
+# `rotate-rehearsal.sh` records one directory over.
+S=${GRATICULA_WORK:-$(mktemp -d)}
+command -v cygpath >/dev/null 2>&1 && S=$(cygpath -m "$S")
 FROM=gisconsole
 TO=gisrollback
 PORT=8452
