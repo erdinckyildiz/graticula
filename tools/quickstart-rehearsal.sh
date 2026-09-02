@@ -63,7 +63,11 @@ printf '== 2. migrate --apply ==\n'
 $COMPOSE run --rm server migrate --apply 2>&1 | tail -2
 
 printf '== 3. up ==\n'
-$COMPOSE up -d 2>&1 | tail -2
+
+# <b>`--build`, since `compose.yaml` gained an image name.</b> Without it this would pull the
+# last published image and test that instead of the tree it was run from, which is the one
+# thing a rehearsal in CI must not do.
+$COMPOSE up -d --build 2>&1 | tail -2
 
 # <b>The server, not the datastore.</b> The whole point is that the datastore reporting itself
 # healthy proved nothing about whether the server could reach it.

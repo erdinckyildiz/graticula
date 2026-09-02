@@ -75,6 +75,11 @@ Docker and Docker Compose. Nothing else — no .NET SDK, no PostgreSQL, no
 `openssl`.
 
 ```bash
+# 0. Optional: pin a release rather than following `latest`. Both images are on GHCR
+#    (ADR-050) and `compose.yaml` pulls them; without this it takes `latest`, and
+#    without a network it builds from this repository, which also works.
+export GIS_TAG=0.1.0
+
 # 1. A key to seal registered data source credentials. There is no default,
 #    deliberately: a published default key would make every credential in
 #    every deployment that forgot to change it readable from a backup.

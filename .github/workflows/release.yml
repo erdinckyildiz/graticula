@@ -1,0 +1,110 @@
+# Publish the two images and cut a release, when a version tag is pushed.
+#
+# <b>[D-19](../../docs/architecture-debt.md), and the half of it that is not code.</b> That row
+# says the quickstart needs the repository and a working Docker build rather than a `docker
+# pull`, and calls the difference *most of the adoption*. Both images build and the four
+# commands are a check of their own; what was missing was somewhere to publish to and a rule
+# for what a version means.
+#
+# <b>GHCR, because it needs no second account and no stored credential.</b> The repository is on
+# GitHub, `GITHUB_TOKEN` can write packages, and a registry that needs a secret is a release
+# process that stops working the day somebody rotates one.
+#
+# <b>A tag is the trigger, and nothing else is.</b> Publishing on every push to `main` would
+# make *which image is running* a question about time rather than about a version, which is
+# exactly what [ADR-016](../../docs/adr/ADR-016-packaging-deployment-upgrade.md) §4b's refusal
+# needs an answer to.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  images:
+    name: images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # <b>The four commands are checked before anything is published.</b> A release whose
+      # quickstart does not work is worse than no release: the first thing a reader does is the
+      # thing that fails, and it is published under a version number they will quote back.
+      - name: the README's four commands
+        run: sh tools/quickstart-rehearsal.sh 8543
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: what this release is
+        id: what
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "publishing $version from $GITHUB_SHA"
+
+      # <b>`latest` moves and the label does not, which is the point of having both.</b> A
+      # reader following the quickstart wants a tag that means *the current one*; an operator
+      # asking which component is running needs an answer a moving tag cannot give.
+      # `docker inspect` reads org.opencontainers.image.version and gets the exact release.
+      - name: the serving image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/server.Dockerfile
+          push: true
+          build-args: |
+            VERSION=${{ steps.what.outputs.version }}
+            REVISION=${{ steps.what.outputs.revision }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/graticula:${{ steps.what.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/graticula:latest
+
+      - name: the datastore image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy
+          file: deploy/datastore.Dockerfile
+          push: true
+          build-args: |
+            VERSION=${{ steps.what.outputs.version }}
+            REVISION=${{ steps.what.outputs.revision }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/graticula-datastore:${{ steps.what.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/graticula-datastore:latest
+
+      # <b>Marked a pre-release below 1.0, and that is a statement rather than a formality.</b>
+      # This project is in Phase 1 with its v1 scope unfinished and a debt register that says
+      # so in public. A release that presented itself as finished would be the one claim this
+      # repository has spent its whole life not making.
+      - name: the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          case "${GITHUB_REF_NAME}" in
+            v0.*) pre="--prerelease" ;;
+            *)    pre="" ;;
+          esac
+
+          gh release create "$GITHUB_REF_NAME" $pre \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Images:
+
+              docker pull ghcr.io/${GITHUB_REPOSITORY_OWNER}/graticula:${GITHUB_REF_NAME#v}
+              docker pull ghcr.io/${GITHUB_REPOSITORY_OWNER}/graticula-datastore:${GITHUB_REF_NAME#v}
+
+          The quickstart is in README.md and is checked by this workflow before either image is
+          pushed. What is not finished is in docs/architecture-debt.md and docs/status.html,
+          which are part of the release rather than beside it."

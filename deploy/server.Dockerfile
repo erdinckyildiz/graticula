@@ -71,6 +71,22 @@ ENV Graticula__StatePath=/var/lib/graticula \
 EXPOSE 8443
 USER 64198:64198
 
+# <b>What this image is, for whoever inspects it rather than for whoever pulled it.</b>
+# The release workflow passes the git tag and commit; a build from a working tree leaves them
+# at `dev`, which is the honest answer for an image nobody released. It matters because
+# [ADR-016](../docs/adr/ADR-016-packaging-deployment-upgrade.md) §4b's whole design turns on
+# knowing which component is running, and a moving tag like `latest` cannot answer that -- the
+# label can, and `docker inspect` reads it without starting anything.
+ARG VERSION=dev
+ARG REVISION=unknown
+
+LABEL org.opencontainers.image.title="Graticula" \
+      org.opencontainers.image.description="An ArcGIS-compatible GIS server over PostGIS." \
+      org.opencontainers.image.source="https://github.com/erdinckyildiz/graticula" \
+      org.opencontainers.image.licenses="Elastic-2.0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
 # No automatic migration. ADR-016 §4b: an old image started by accident must not
 # silently rewrite a newer schema, so the entrypoint serves and the operator runs
 # `migrate --apply` deliberately.

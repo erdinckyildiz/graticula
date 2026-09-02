@@ -19,8 +19,15 @@ FROM postgis/postgis:16-3.4
 # `GisServer:*` configuration keys and the `gisserver` schema, both of which exist so
 # that no deployment has to be reconfigured; an image label is neither — it is what the
 # product calls itself to whoever inspects it.
+ARG VERSION=dev
+ARG REVISION=unknown
+
 LABEL org.opencontainers.image.title="Graticula datastore" \
-      org.opencontainers.image.description="PostGIS, configured as the Graticula platform store and hosted datastore."
+      org.opencontainers.image.description="PostGIS, configured as the Graticula platform store and hosted datastore." \
+      org.opencontainers.image.source="https://github.com/erdinckyildiz/graticula" \
+      org.opencontainers.image.licenses="Elastic-2.0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 
 # Renamed with the label, and free to rename because nothing reads it: it is a stamp
 # for a person running `docker inspect`, not a configuration key, and there is no

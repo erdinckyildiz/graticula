@@ -8,6 +8,13 @@ name: graticula
 
 services:
   datastore:
+    # <b>A name as well as a recipe, so this file works before and after a release.</b>
+    # With `image:` set, `docker compose up` pulls the published image when there is one and
+    # builds from source when there is not -- which is the difference [D-19](docs/architecture-debt.md)
+    # records between *clone the repository and build two images* and *docker compose up*.
+    # `--build` forces the source path, which is what `tools/quickstart-rehearsal.sh` does so
+    # that CI tests this tree rather than the last release.
+    image: ghcr.io/erdinckyildiz/graticula-datastore:${GIS_TAG:-latest}
     build:
       context: ./deploy
       dockerfile: datastore.Dockerfile
@@ -41,6 +48,7 @@ services:
     restart: unless-stopped
 
   server:
+    image: ghcr.io/erdinckyildiz/graticula:${GIS_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/server.Dockerfile
