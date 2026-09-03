@@ -4334,9 +4334,10 @@ async function loadSymbology(name) {
 
     drawSwatches(r.drawingInfo);
 
-    // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
-    // appearance a real answer with a version of 0, and a reader who sees nothing cannot
-    // tell that from a layer whose style failed to load.
+    // <b>The state line is written before the slower half.</b> The fields and the preview are
+    // two more round trips; a reader who has already been told *a stored document, 138 bytes*
+    // is not waiting for them to know what they are looking at, and a line still reading
+    // *Reading…* while the derived document is on screen is the page contradicting itself.
     state.innerHTML = r.stored
       ? `A stored document, ${num(JSON.stringify(r.symbology).length)} bytes. `
         + `Both faces are derived from it.`
@@ -4344,11 +4345,519 @@ async function loadSymbology(name) {
         + `derived from its name — the same colour tomorrow and on another deployment. `
         + `Storing one replaces it.`;
 
+    // <b>The layer's fields, for the two families that classify by one.</b> The layer document
+    // is where the console already reads them, so this is the same call the Data page makes
+    // rather than a second answer to the same question.
+    symFields = [];
+
+    try {
+      const described = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
+      symFields = (described.fields || []).map(f => ({ name: f.name, type: f.type }));
+    } catch {
+      // A layer whose document cannot be read still gets the single-symbol controls, and the
+      // field picker says so rather than offering an empty list that looks like no fields.
+    }
+
+    symGeometry = r.geometry || "";
+
+    fillSymbologyForm(r.drawingInfo, symGeometry);
+    await drawSymbologyPreview(name, JSON.stringify(r.symbology || r.drawingInfo));
+
+    $("symPreviewState").textContent = r.stored
+      ? "The stored appearance."
+      : "Generated — no document is stored.";
+
+    // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
+    // appearance a real answer with a version of 0, and a reader who sees nothing cannot
+    // tell that from a layer whose style failed to load.
     drawLosses(r.losses);
   } catch (e) {
     state.textContent = e.message;
     $("symDerived").textContent = "—";
     drawLosses([]);
+  }
+}
+
+/**
+ * Wires the symbology form once, on the document.
+ *
+ * <b>Delegated, because the class rows are rebuilt whenever a family changes.</b> Binding to the
+ * inputs themselves would mean rebinding after every edit, which is the shape that leaves one
+ * control dead and looks like a control that does nothing — this console has met that three
+ * times.
+ */
+function wireSymbologyForm() {
+  const rerender = async () => {
+    // <b>The controls are looked for rather than assumed.</b> This runs a quarter of a second
+    // after the edit, and the router can rebuild `#editPages` in between. No defect has been
+    // attributed to this — the one test written to drive it passed with the check removed, so
+    // it was deleted rather than kept as evidence of something it does not show.
+    if (!editing || symFilling || !$("symKind") || !$("symDoc")) return;
+
+    const kind = $("symKind")?.value;
+
+    if (kind) {
+      $("symFieldRow").hidden = kind === "simple";
+      $("symClassActions").hidden = kind === "simple";
+    }
+
+    await previewSymbology(editing.name, symGeometry);
+  };
+
+  document.addEventListener("change", async e => {
+    // <b>`closest` is an `Element` method</b>, and an event can be dispatched on the document
+    // itself, where it does not exist.
+    if (!(e.target instanceof Element) || !e.target.closest("#page-symbology")) return;
+    if (e.target.id === "symDoc") return;
+
+    // <b>Changing the family rebuilds the rows from what is on screen</b>, so a colour chosen
+    // for a simple renderer survives being turned into the first class of a classified one.
+    if (e.target.id === "symKind") {
+      const previous = symbologyFromForm(symGeometry);
+      const colour = previous.renderer.symbol
+        ? symHex(previous.renderer.symbol.color)
+        : "#888888";
+
+      symFilling = true;
+
+      try {
+        drawSymbologyClasses(
+          e.target.value,
+          e.target.value === "simple"
+            ? { symbol: { color: symColour(colour) } }
+            : { [e.target.value === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]:
+                  [{ value: "", classMaxValue: 0, label: "", symbol: { color: symColour(colour) } }] },
+          symKindOfGeometry(symGeometry));
+      } finally {
+        symFilling = false;
+      }
+    }
+
+    await rerender();
+  });
+
+  document.addEventListener("input", e => {
+    if (!(e.target instanceof Element) || !e.target.closest("#page-symbology")) return;
+    if (e.target.id === "symDoc") return;
+
+    clearTimeout(symDebounce);
+    symDebounce = setTimeout(rerender, 250);
+  });
+
+  // <b>The document box previews too, and it is not wired to the form.</b> Somebody who edits it
+  // by hand is expressing something the controls cannot, so the controls are left alone and only
+  // the picture follows.
+  document.addEventListener("input", e => {
+    if (!(e.target instanceof Element) || e.target.id !== "symDoc" || !editing) return;
+
+    clearTimeout(symDebounce);
+    symDebounce = setTimeout(
+      () => {
+        if (!editing || !$("symDoc")) return;
+
+        drawSymbologyPreview(editing.name, $("symDoc").value);
+      },
+      400);
+  });
+
+  document.addEventListener("click", async e => {
+    const t = e.target;
+
+    if (t.id === "symAddClass" && $("symKind")) {
+      e.preventDefault();
+
+      const kind = $("symKind").value;
+      const built = symbologyFromForm(symGeometry).renderer;
+      const infos = kind === "uniqueValue"
+        ? (built.uniqueValueInfos || [])
+        : (built.classBreakInfos || []);
+
+      infos.push({
+        value: "",
+        classMaxValue: 0,
+        label: "",
+        symbol: { color: symColour("#888888") },
+      });
+
+      symFilling = true;
+
+      try {
+        drawSymbologyClasses(
+          kind,
+          { [kind === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]: infos },
+          symKindOfGeometry(symGeometry));
+      } finally {
+        symFilling = false;
+      }
+
+      await previewSymbology(editing.name, symGeometry);
+      return;
+    }
+
+    if (t.classList && t.classList.contains("symdrop") && $("symKind")) {
+      e.preventDefault();
+
+      const kind = $("symKind").value;
+      const built = symbologyFromForm(symGeometry).renderer;
+      const infos = kind === "uniqueValue"
+        ? (built.uniqueValueInfos || [])
+        : (built.classBreakInfos || []);
+
+      infos.splice(Number(t.dataset.class), 1);
+
+      symFilling = true;
+
+      try {
+        drawSymbologyClasses(
+          kind,
+          { [kind === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]: infos },
+          symKindOfGeometry(symGeometry));
+      } finally {
+        symFilling = false;
+      }
+
+      await previewSymbology(editing.name, symGeometry);
+    }
+  });
+}
+
+/** The geometry of the layer being styled, so the form knows which symbol kind to build. */
+let symGeometry = "";
+
+/** One timer for the form and the document box, because only the last edit matters. */
+let symDebounce = 0;
+
+// ------------------------------------------------------------- the symbology form
+//
+// <b>A graphical editor over the same document — owner request 2026-09-03.</b> The page had a
+// JSON box, the derived `drawingInfo` and colour swatches, which is an editor for somebody who
+// already knows MapLibre. What it did not have is the two things anybody choosing an appearance
+// needs: controls that name what they do, and a picture of the result.
+//
+// <b>One source of truth on screen.</b> The controls write the document box on every change and
+// **Store sends the box** — so there is no rule about which of the two wins, and what is about to
+// be stored is always visible. Editing the box by hand still works and the controls stop claiming
+// to describe it, which is honest: a MapLibre expression has no checkbox.
+//
+// <b>The three families are the ones the product already has</b> — `simple`, `uniqueValue`,
+// `classBreaks`, which is what ADR-033's conversion reads and what the ArcGIS face publishes.
+// Nothing here invents a fourth.
+
+/** The layer this editor is currently describing, and what its fields are. */
+let symFields = [];
+
+/** True while the form is being filled from the server, so its own events do not fire back. */
+let symFilling = false;
+
+/** `#rrggbb` from an Esri colour array, which is what a colour input wants. */
+function symHex(colour) {
+  if (!Array.isArray(colour) || colour.length < 3) return "#888888";
+
+  return "#" + colour.slice(0, 3)
+    .map(c => Math.max(0, Math.min(255, Number(c) || 0)).toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** An Esri colour array from `#rrggbb`, keeping the alpha somebody already had. */
+function symColour(hex, alpha) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  const n = m ? parseInt(m[1], 16) : 0x888888;
+
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha === undefined ? 255 : alpha];
+}
+
+/** The symbol kind this layer's geometry takes: fill, line or marker. */
+function symKindOfGeometry(geometry) {
+  const g = String(geometry || "").toLowerCase();
+
+  if (g.includes("point")) return "marker";
+  if (g.includes("line")) return "line";
+
+  return "fill";
+}
+
+/**
+ * Fills the form from a `drawingInfo`.
+ *
+ * <b>From the derived document rather than from the MapLibre one.</b> `drawingInfo` is the shape
+ * the three families are expressed in, and the conversion has already done the work of getting
+ * there — reading the MapLibre document a second time here would be a second implementation of
+ * the same reading, which is the defect CLAUDE.md §2's rule is about.
+ */
+function fillSymbologyForm(drawingInfo, geometry) {
+  symFilling = true;
+
+  try {
+    const renderer = (drawingInfo && drawingInfo.renderer) || {};
+    const kind = renderer.type === "uniqueValue" || renderer.type === "classBreaks"
+      ? renderer.type
+      : "simple";
+
+    $("symKind").value = kind;
+
+    const shape = symKindOfGeometry(geometry);
+
+    $("symStrokeHead").textContent = shape === "line" ? "Line" : "Outline";
+    $("symSizeRow").hidden = shape !== "marker";
+
+    const first = kind === "simple"
+      ? renderer.symbol
+      : (renderer.uniqueValueInfos || renderer.classBreakInfos || [])[0]?.symbol;
+
+    const outline = first && (first.outline || (shape === "line" ? first : null));
+
+    $("symStroke").value = symHex(outline ? outline.color : [68, 51, 17]);
+    $("symStrokeWidth").value = outline && outline.width !== undefined ? outline.width : 1;
+    $("symSize").value = first && first.size !== undefined ? first.size : 8;
+
+    $("symFieldRow").hidden = kind === "simple";
+    $("symClassActions").hidden = kind === "simple";
+
+    drawSymbologyFields(renderer.field1 || renderer.field || "");
+    drawSymbologyClasses(kind, renderer, shape);
+  } finally {
+    symFilling = false;
+  }
+}
+
+/** The field picker, from the layer's own fields. */
+function drawSymbologyFields(chosen) {
+  const box = $("symField");
+  if (!box) return;
+
+  box.innerHTML = symFields.length === 0
+    ? `<option value="">— this layer's fields could not be read —</option>`
+    : symFields.map(f =>
+        `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
+      .join("");
+}
+
+/** One row per class: what it matches, and what colour it is drawn in. */
+function drawSymbologyClasses(kind, renderer, shape) {
+  const box = $("symClasses");
+  if (!box) return;
+
+  if (kind === "simple") {
+    const symbol = renderer.symbol || {};
+
+    box.innerHTML = `
+      <div class="setting"><span class="q">${shape === "line" ? "Colour" : "Fill"}:</span>
+        <input type="color" class="symfill" data-class="0"
+          value="${h(symHex(symbol.color))}"></div>`;
+
+    return;
+  }
+
+  const infos = kind === "uniqueValue"
+    ? (renderer.uniqueValueInfos || [])
+    : (renderer.classBreakInfos || []);
+
+  if (infos.length === 0) {
+    box.innerHTML = `<p class="hint">No classes yet. <b>Add a class</b> makes one, or paste a
+      renderer into the document below and fetch it back.</p>`;
+    return;
+  }
+
+  box.innerHTML = infos.map((info, i) => `
+    <div class="setting symclass">
+      <span class="q">${kind === "uniqueValue" ? "Value" : "Up to"}:</span>
+      <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
+        data-class="${i}" value="${h(String(
+          kind === "uniqueValue" ? (info.value ?? "") : (info.classMaxValue ?? "")))}">
+      <input type="text" class="symlabel" data-class="${i}"
+        placeholder="label" value="${h(info.label || "")}">
+      <input type="color" class="symfill" data-class="${i}"
+        value="${h(symHex(info.symbol && info.symbol.color))}">
+      <button class="tiny ghost symdrop" data-class="${i}" title="Remove this class">×</button>
+    </div>`).join("");
+}
+
+/**
+ * Builds a `drawingInfo` from the form.
+ *
+ * <b>A `drawingInfo` rather than MapLibre, because the endpoint takes both</b> and this is the
+ * shape the controls are in. The conversion turns it into the canonical document on the way in
+ * and reports what it could not carry, which is the same path a paste from ArcGIS takes — so the
+ * editor cannot produce something the paste path would not.
+ */
+function symbologyFromForm(geometry) {
+  const kind = $("symKind").value;
+  const shape = symKindOfGeometry(geometry);
+
+  const outline = {
+    type: "esriSLS",
+    style: "esriSLSSolid",
+    color: symColour($("symStroke").value),
+    width: Number($("symStrokeWidth").value) || 0,
+  };
+
+  const symbolOf = fill => {
+    if (shape === "marker") {
+      return {
+        type: "esriSMS",
+        style: "esriSMSCircle",
+        color: symColour(fill),
+        size: Number($("symSize").value) || 8,
+        outline,
+      };
+    }
+
+    if (shape === "line") {
+      return {
+        type: "esriSLS",
+        style: "esriSLSSolid",
+        color: symColour(fill),
+        width: Number($("symStrokeWidth").value) || 1,
+      };
+    }
+
+    return { type: "esriSFS", style: "esriSFSSolid", color: symColour(fill), outline };
+  };
+
+  const fills = [...document.querySelectorAll("#symClasses .symfill")];
+  const values = [...document.querySelectorAll("#symClasses .symvalue")];
+  const labels = [...document.querySelectorAll("#symClasses .symlabel")];
+
+  if (kind === "simple") {
+    return {
+      renderer: {
+        type: "simple",
+        symbol: symbolOf(fills[0] ? fills[0].value : "#888888"),
+        label: "",
+        description: "",
+      },
+    };
+  }
+
+  const field = $("symField").value;
+
+  if (kind === "uniqueValue") {
+    return {
+      renderer: {
+        type: "uniqueValue",
+        field1: field,
+        defaultSymbol: null,
+        uniqueValueInfos: fills.map((f, i) => ({
+          value: values[i] ? values[i].value : "",
+          label: labels[i] && labels[i].value ? labels[i].value : (values[i] ? values[i].value : ""),
+          symbol: symbolOf(f.value),
+        })),
+      },
+    };
+  }
+
+  let previous = null;
+
+  return {
+    renderer: {
+      type: "classBreaks",
+      field: field,
+      minValue: null,
+      classBreakInfos: fills.map((f, i) => {
+        const max = Number(values[i] ? values[i].value : 0) || 0;
+        const info = {
+          classMinValue: previous,
+          classMaxValue: max,
+          label: labels[i] && labels[i].value ? labels[i].value : String(max),
+          symbol: symbolOf(f.value),
+        };
+
+        previous = max;
+
+        return info;
+      }),
+    },
+  };
+}
+
+/**
+ * Writes the form into the document box and asks the server what it looks like.
+ *
+ * <b>The server draws it, not the browser.</b> A preview the console painted itself would be a
+ * picture of the console's idea of the style; what is worth showing is the renderer that will
+ * serve it, at the size it will be seen. `/admin/layers/{name}/symbology/preview` is the same
+ * code the thumbnail uses, with the candidate document instead of the stored one.
+ */
+async function previewSymbology(name, geometry) {
+  if (symFilling || !$("symKind") || !$("symDoc")) return;
+
+  const document_ = symbologyFromForm(geometry);
+
+  $("symDoc").value = JSON.stringify(document_, null, 1);
+
+  await drawSymbologyPreview(name, $("symDoc").value);
+}
+
+/** Asks for the picture and shows it, or says why there is none. */
+async function drawSymbologyPreview(name, body) {
+  const image = $("symPreview");
+  const none = $("symPreviewNone");
+  const state = $("symPreviewState");
+
+  if (!image) return;
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = "Bearer " + token;
+
+    const response = await fetch(
+      `/admin/layers/${encodeURIComponent(name)}/symbology/preview`,
+      { method: "POST", headers, body });
+
+    if (!response.ok) {
+      let why = `${response.status}`;
+
+      try {
+        const said = await response.json();
+        why = (said && said.error && said.error.message) || why;
+      } catch { /* not json */ }
+
+      image.hidden = true;
+      none.hidden = false;
+      state.textContent = why;
+
+      return;
+    }
+
+    // <b>A `data:` URL rather than a blob, and it is not a preference.</b> One element gets a
+    // new picture on every edit, and an object URL has a lifetime somebody has to manage:
+    // revoke it early and the load in flight fails, revoke it late and they accumulate. Either
+    // way the element fires `error` for an abandoned load — measured here as the console
+    // harness recording *never arrived* for a picture that was on screen the whole time, which
+    // is the hardest kind of error to notice. A data URL has no lifetime. These are two
+    // kilobytes; a large one would be a different trade.
+    // <b>Checked before it is shown, because a 200 is not a picture.</b> Anything in front of
+    // this console — a proxy, a portal's sign-in page, a test harness that traps writes — can
+    // answer a POST with a cheerful `200 application/json`, and assigning that to an `<img>`
+    // produces a broken-image glyph and a load error, which reads as *this style draws nothing*.
+    // Measured on 2026-09-03: the suite's write trap answered `{}` and the preview showed an
+    // empty frame with no explanation.
+    const kind = response.headers.get("Content-Type") || "";
+
+    if (!kind.startsWith("image/")) {
+      image.hidden = true;
+      none.hidden = false;
+      state.textContent = "The preview is not available here.";
+
+      return;
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+
+    let binary = "";
+
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+
+    image.src = "data:image/png;base64," + btoa(binary);
+    image.hidden = false;
+    none.hidden = true;
+    state.textContent = "Not stored yet — this is what Store would keep.";
+  } catch (e) {
+    image.hidden = true;
+    none.hidden = false;
+    state.textContent = e.message || "The preview could not be drawn.";
   }
 }
 
@@ -5550,11 +6059,64 @@ function showLayer(name, page, pending = null) {
       <h4>How this layer is drawn</h4>
       <p class="hint" id="symState">Reading…</p>
 
+      <!--
+        <b>The picture beside the controls, because the picture is what is being chosen.</b>
+        A colour and a JSON document are both proxies for *what does this layer look like*,
+        and the editor answered that with swatches until 2026-09-03 — a swatch says what
+        colour, not what the map looks like at the size anybody sees it.
+      -->
+      <div class="symlayout">
+        <div class="sympreview">
+          <img id="symPreview" alt="" hidden>
+          <div class="thumb empty" id="symPreviewNone"
+            title="Draw something and this shows what it looks like."></div>
+          <p class="hint" id="symPreviewState">The stored appearance.</p>
+        </div>
+
+        <div class="symform">
+          <div class="setting"><span class="q">Draw:</span>
+            <select id="symKind">
+              <option value="simple">every feature the same</option>
+              <option value="uniqueValue">by the value of a field</option>
+              <option value="classBreaks">by ranges of a number</option>
+            </select></div>
+
+          <div class="setting" id="symFieldRow" hidden><span class="q">Field:</span>
+            <select id="symField"></select></div>
+
+          <div id="symClasses"></div>
+
+          <div class="row" id="symClassActions" hidden>
+            <button class="tiny" id="symAddClass">Add a class</button>
+          </div>
+
+          <h4 id="symStrokeHead">Outline</h4>
+          <div class="setting"><span class="q">Colour:</span>
+            <input type="color" id="symStroke"></div>
+          <div class="setting"><span class="q">Width:</span>
+            <input type="number" id="symStrokeWidth" min="0" max="20" step="0.5">
+            <span class="u">px</span></div>
+          <div class="setting" id="symSizeRow" hidden><span class="q">Size:</span>
+            <input type="number" id="symSize" min="1" max="48" step="1">
+            <span class="u">px</span></div>
+        </div>
+      </div>
+
       <div class="row">
         <button data-symbology="${h(name)}">Fetch current</button>
         <button data-symbology-del="${h(name)}" class="ghost">Back to generated</button>
         <button class="primary" data-symbology-put="${h(name)}">Store</button>
       </div>
+
+      <!--
+        <b>The document stays, and it is the one thing that gets stored.</b> The controls above
+        write into it on every change, so there is never a question about which of the two wins:
+        what is in this box is what Store sends. Somebody who needs something the controls cannot
+        express — a MapLibre expression, a filter, a second layer in the style — edits it
+        directly and the controls stop claiming to describe it.
+      -->
+      <details id="symAdvanced">
+        <summary>The document itself</summary>
 
       <textarea id="symDoc" rows="12" spellcheck="false"
         placeholder="A MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. Both are accepted; a drawingInfo is converted on the way in and you are told what the conversion cost."></textarea>
@@ -5564,6 +6126,8 @@ function showLayer(name, page, pending = null) {
         lossy conversion and the mitigation is that it says so — so the report is a block
         of its own under the editor rather than a line in a toast that scrolls away.
       -->
+      </details>
+
       <div id="symLoss" hidden>
         <h4>What the ArcGIS face cannot carry</h4>
         <ul class="losses" id="symLossList"></ul>
@@ -10599,5 +11163,9 @@ async function section(what, load, placeholder) {
     return null;
   }
 }
+
+// <b>Wired once, before anything is drawn.</b> The symbology form's listeners are
+// delegated on the document, so they survive every rebuild of the page under them.
+wireSymbologyForm();
 
 start().catch(e => toast(e.message));

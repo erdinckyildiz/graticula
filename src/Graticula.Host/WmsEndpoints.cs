@@ -764,6 +764,7 @@ internal static class WmsEndpoints
     /// <param name="limit">The most features to read.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="log">
+    /// <param name="symbology">A candidate document, or null for the layer's stored one.</param>
     /// Where to say that an area was outside what this layer can be projected into, or null
     /// on a path that has no logger — D-163.
     /// </param>
@@ -777,7 +778,8 @@ internal static class WmsEndpoints
         TimeWindow? time,
         int limit,
         CancellationToken cancellation,
-        ILogger? log = null)
+        ILogger? log = null,
+        string? symbology = null)
     {
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(renderer);
@@ -786,7 +788,14 @@ internal static class WmsEndpoints
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        SymbologyPlan plan = layer.Symbology is { Length: > 0 } stored
+        // <b>An override, for a document that is not stored yet.</b> The symbology editor shows
+        // what a change will look like before it is kept, and the only honest way to show that
+        // is to draw the layer with the candidate rather than with what is in the catalogue.
+        // Everything else about the drawing is the same code, which is the point: a preview
+        // rendered by a second path would be a picture of the second path.
+        string? chosen = symbology is { Length: > 0 } ? symbology : layer.Symbology;
+
+        SymbologyPlan plan = chosen is { Length: > 0 } stored
             ? SymbologyPlan.Compile(stored)
             : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
 

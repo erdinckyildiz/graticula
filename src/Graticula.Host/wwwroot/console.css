@@ -2027,3 +2027,57 @@ tr.logdetail pre { margin: 0; padding: var(--gap-3) var(--gap-4);
 */
 html[data-session="held"] #signin { display: none !important; }
 html[data-session="held"] #app { display: block !important; }
+
+/*
+  <b>The symbology editor: the picture beside the controls.</b> Owner request 2026-09-03 — the
+  page had a JSON box, a derived document and swatches, which is an editor for somebody who
+  already knows MapLibre. What was missing is controls that name what they do and a picture of
+  the result, and the picture is the half that decides: a swatch says what colour, not what the
+  map looks like at the size anybody sees it.
+
+  <b>The picture is first in the source and second on a wide screen.</b> Narrow, the preview
+  belongs above the controls, because it is what the reader came to look at; wide, the controls
+  belong on the left where the eye starts and the picture stays beside them while they change.
+*/
+.symlayout {
+  display: grid; gap: var(--gap-3);
+  grid-template-columns: 1fr;
+  margin: 10px 0 14px;
+}
+
+@media (min-width: 900px) {
+  .symlayout { grid-template-columns: minmax(0, 1fr) 340px; }
+  .symlayout .sympreview { order: 2; }
+  .symlayout .symform { order: 1; }
+}
+
+.sympreview img,
+.sympreview .thumb.empty {
+  display: block; width: 336px; max-width: 100%; height: auto; aspect-ratio: 3 / 2;
+  border-radius: var(--round);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(16, 24, 38, .05);
+  object-fit: contain;
+}
+
+.sympreview .hint { margin: 6px 0 0; }
+
+/*
+  <b>One row per class, and the colour last.</b> The value is what a reader scans for, the label
+  is what they write, and the colour is what they adjust — so they sit in that order, and the
+  remove button is a ghost at the end where it cannot be hit on the way to anything else.
+*/
+.setting.symclass { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+.setting.symclass .q { flex: 0 0 auto; }
+.setting.symclass .symvalue { flex: 1 1 120px; min-width: 90px; }
+.setting.symclass .symlabel { flex: 1 1 120px; min-width: 90px; }
+
+.setting input[type="color"] {
+  width: 44px; height: 30px; padding: 2px;
+  border: 1px solid var(--rule); border-radius: var(--round);
+  background: var(--surface); cursor: pointer;
+}
+
+#symAdvanced { margin: 12px 0 0; }
+#symAdvanced summary { cursor: pointer; font: var(--t-small)/1.4 var(--sans); color: var(--muted); }
+#symAdvanced[open] summary { margin-bottom: 8px; }

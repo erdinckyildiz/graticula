@@ -537,6 +537,14 @@ internal static class AdminEndpoints
         app.MapGet("/admin/layers/{name}/symbology", GetSymbologyAsync);
         app.MapPut("/admin/layers/{name}/symbology", SetSymbologyAsync);
         app.MapDelete("/admin/layers/{name}/symbology", DeleteSymbologyAsync);
+
+        // <b>What a change will look like, before it is kept.</b> The symbology editor
+        // could show swatches and a JSON document and never the map, which is the one
+        // thing somebody choosing a colour is actually choosing. This draws the layer
+        // with a candidate document through the same renderer, the same frame and the
+        // same record ceiling the thumbnail uses — a preview drawn by a second path
+        // would be a picture of the second path.
+        app.MapPost("/admin/layers/{name}/symbology/preview", PreviewSymbologyAsync);
     }
 
     /// <summary>
@@ -2352,6 +2360,116 @@ internal static class AdminEndpoints
                 : "The tile face draws the canonical document; the list above is what the "
                     + "feature face cannot express.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+
+    /// <summary>
+    /// Draws a layer with a symbology that is not stored, and answers a PNG.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same privilege as storing one.</b> It renders the layer's own features, so it is
+    /// exactly as revealing as the thumbnail, and it is offered only to somebody who could have
+    /// stored the document and looked at the result anyway.
+    /// </para>
+    /// <para>
+    /// <b>Nothing is written and nothing is cached.</b> The candidate is converted the way a
+    /// `PUT` would convert it — so a `drawingInfo` pasted from ArcGIS previews as it would
+    /// store — and then thrown away. A cache here would hold pictures of documents that do not
+    /// exist.
+    /// </para>
+    /// <para>
+    /// <b>A refusal is a status and a sentence, because the caller is a form.</b> The editor
+    /// shows it under the preview; an image that silently failed to draw would be read as *this
+    /// style draws nothing*, which is a different and much worse message.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="name">The layer.</param>
+    /// <param name="catalog">For the layer's geometry, which the conversion needs.</param>
+    /// <param name="layers">The runtime catalogue, for the layer itself.</param>
+    /// <param name="contexts">Where a layer's source comes from.</param>
+    /// <param name="canvases">The canvas factory.</param>
+    /// <param name="settings">For the record ceiling.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task PreviewSymbologyAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        IMapCanvasFactory canvases,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+            is not { } symbolised)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        string body;
+
+        using (System.IO.StreamReader reader = new(context.Request.Body))
+        {
+            body = await reader.ReadToEndAsync(cancellation).ConfigureAwait(false);
+        }
+
+        string? candidate = null;
+
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                candidate = SymbologyConversion.Read(body, symbolised.Geometry).Canonical;
+            }
+            catch (SymbologyException why)
+            {
+                await Refuse(context, 400, why.Message).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            return;
+        }
+
+        (Graticula.Features.IFeatureSource source,
+            Graticula.Features.LayerDescription described) =
+            await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        if (described.Extent is not { } extent)
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' has no extent, so there is nothing to draw it in. A layer with no "
+                + "features cannot be previewed; store the document and look at it when it has "
+                + "some.").ConfigureAwait(false);
+
+            return;
+        }
+
+        byte[] picture = await ThumbnailEndpoints.PictureAsync(
+            contexts, canvases, source, layer, extent, settings, candidate, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>`no-store`, because the whole point is that this document is not the stored one.</b>
+        // A cached preview would show somebody an earlier edit and let them keep it.
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.ContentType = "image/png";
+        context.Response.ContentLength = picture.Length;
+
+        await context.Response.Body.WriteAsync(picture, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>

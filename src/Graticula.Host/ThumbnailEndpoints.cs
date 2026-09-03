@@ -192,20 +192,51 @@ internal static class ThumbnailEndpoints
             // most `MaximumRecordCount` features; framing on the envelope of the features it
             // will draw is the right frame for the picture it will produce. When a layer fills
             // its own extent the two agree and nothing changes.
-            byte[] bytes = await RenderAsync(
-                contexts,
-                canvases,
-                drawn,
-                Framed(await DrawnExtentAsync(source, settings, cancellation).ConfigureAwait(false)
-                    ?? extent),
-                settings,
-                cancellation)
+            byte[] bytes = await PictureAsync(
+                contexts, canvases, source, drawn, extent, settings, null, cancellation)
                 .ConfigureAwait(false);
 
             picture = held.Keep(key, bytes, now);
         }
 
         await AnswerAsync(context, picture, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One layer's picture, framed on the features it draws.
+    /// </summary>
+    /// <remarks>
+    /// <b>Shared with the symbology editor's preview, deliberately.</b> A preview drawn by a
+    /// second path would be a picture of the second path: the value of showing somebody what
+    /// their change looks like depends entirely on it being the same renderer, the same frame
+    /// and the same record ceiling as the thing they are changing.
+    /// </remarks>
+    /// <param name="contexts">Where a layer's source comes from.</param>
+    /// <param name="canvases">The canvas factory.</param>
+    /// <param name="source">The layer's features, already resolved.</param>
+    /// <param name="layer">What to draw.</param>
+    /// <param name="declared">The layer's declared extent, used when it has no features.</param>
+    /// <param name="settings">For the record ceiling.</param>
+    /// <param name="symbology">A candidate document, or null for the stored one.</param>
+    /// <param name="cancellationToken">The caller's.</param>
+    /// <returns>The encoded picture.</returns>
+    internal static async Task<byte[]> PictureAsync(
+        ServiceContexts contexts,
+        IMapCanvasFactory canvases,
+        IFeatureSource source,
+        PublishedLayer layer,
+        Envelope declared,
+        HostSettings settings,
+        string? symbology,
+        CancellationToken cancellationToken)
+    {
+        Envelope frame = Framed(
+            await DrawnExtentAsync(source, settings, cancellationToken).ConfigureAwait(false)
+            ?? declared);
+
+        return await RenderAsync(
+            contexts, canvases, layer, frame, settings, symbology, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -288,6 +319,7 @@ internal static class ThumbnailEndpoints
     /// <param name="layer">What to draw.</param>
     /// <param name="extent">What the picture covers, in the layer's own reference.</param>
     /// <param name="settings">For the record ceiling.</param>
+    /// <param name="symbology">A candidate document, or null for the stored one.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The encoded picture.</returns>
     private static async Task<byte[]> RenderAsync(
@@ -296,6 +328,7 @@ internal static class ThumbnailEndpoints
         PublishedLayer layer,
         Envelope extent,
         HostSettings settings,
+        string? symbology,
         CancellationToken cancellation)
     {
         PixelTransform transform = new(extent, Width, Height);
@@ -316,7 +349,7 @@ internal static class ThumbnailEndpoints
         await WmsEndpoints
             .DrawLayerAsync(
                 contexts, renderer, transform, layer, layer.Definition.Srid, null,
-                settings.MaximumRecordCount, cancellation)
+                settings.MaximumRecordCount, cancellation, log: null, symbology: symbology)
             .ConfigureAwait(false);
 
         // <b>No labels.</b> `FinishLabels` is what draws them and it is not called: text at 104
