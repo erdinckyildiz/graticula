@@ -2153,3 +2153,26 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symvarystop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .setting.symvarystop input[type="number"]{width:96px}
 #symVaryNote{margin:6px 0 0}
+
+/* The Symbology link beside the Visualization layer picker. It sits on the toolbar
+   baseline rather than the label's, so it lines up with the picker and not its caption. */
+
+#visSymbology{
+  align-self:flex-end;margin-bottom:6px;
+  text-decoration:none;white-space:nowrap;
+}
+
+/* ------------------------------------------------------- the service's Symbology tab
+   One row per layer: what the renderer draws, what it is drawn with, and the way in. */
+
+.symrow{
+  display:flex;align-items:center;gap:14px;
+  padding:10px 4px;border-bottom:1px solid var(--line, #e4e4e4);
+}
+.symrow:last-child{border-bottom:0}
+
+.symrow .thumb{width:84px;height:56px;object-fit:cover;border-radius:4px;flex:0 0 auto}
+.symrowtext{flex:1;min-width:0}
+.symrowname{font-weight:600}
+.symrow .rowmeta{opacity:.75;font-size:12.5px;margin-top:2px}
+.symrow .primarylink{flex:0 0 auto}

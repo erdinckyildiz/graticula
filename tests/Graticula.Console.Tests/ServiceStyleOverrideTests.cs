@@ -132,6 +132,127 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// A service has a Symbology tab, and it says how each of its layers is drawn.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner, 2026-09-03: *symbology'nin kendi sekmesi olsun*.</b> It was reachable only by
+    /// opening a layer and noticing a tab there, and the question is asked of the service.
+    /// Symbology is still stored per layer — the tab answers *how is this service drawn* by
+    /// listing them, which is the question people actually arrive with.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task A_service_has_a_symbology_tab_that_names_every_layers_appearance()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#serviceTabs a').length > 0",
+            "The service page drew no tabs.");
+
+        // <b>In the tab strip, by name.</b> A panel that exists and is not in the strip is the
+        // same as no panel: this whole change is about a screen nobody could find.
+        Assert.Contains(
+            "Symbology",
+            await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#serviceTabs a')]"
+                + ".map(a => a.textContent.trim()).join(' | ')") ?? string.Empty,
+            StringComparison.Ordinal);
+
+        await ClickAsync("#serviceTabs a[data-service-tab='symbology']");
+
+        await WaitForAsync(
+            "(() => { const p = document.getElementById('serviceSymbology');"
+            + " return !!p && !p.hidden; })()",
+            "Clicking Symbology opened nothing.");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#serviceSymbologyRows .symrow').length > 0",
+            "The Symbology tab lists no layers.");
+
+        // <b>One row per drawable layer, and each says something.</b> Rows that all read
+        // *reading…* would pass a count and tell nobody anything.
+        await WaitForAsync(
+            "[...document.querySelectorAll('#serviceSymbologyRows .rowmeta')]"
+            + ".every(r => r.textContent.trim() && r.textContent.trim() !== 'reading…')",
+            "A layer's row never said how it is drawn.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "[...document.querySelectorAll('#serviceSymbologyRows .symrow a')]"
+                + ".every(a => a.offsetParent !== null"
+                + " && a.getAttribute('href').includes('/symbology'))"),
+            "A row offers no visible way into the editor.");
+
+        // <b>And each row opens its own layer.</b> Building every link from the first row is
+        // the easy way to have the right count and the wrong targets.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const hrefs = [...document.querySelectorAll("
+                + "  '#serviceSymbologyRows .symrow a')].map(a => a.getAttribute('href'));"
+                + " return new Set(hrefs).size === hrefs.length; })()"),
+            "Two rows open the same layer's symbology.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The map screen offers the way to the symbology of the layer it is showing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner, standing on the Visualization tab: *nerede ya*.</b> The link added to the
+    /// service's layer table was on another tab. *How is this drawn* is a question asked while
+    /// looking at the map, so the way on belongs beside the picker that chooses what the map is
+    /// showing — and it has to follow that picker, or on a service with several layers it opens
+    /// somebody else's and looks like it worked.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task The_map_screen_offers_the_symbology_of_the_layer_it_is_showing()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        await OpenAsync(
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=visualization", token);
+
+        await WaitForAsync(
+            "(() => { const v = document.getElementById('serviceVis');"
+            + " return !!v && !v.hidden; })()",
+            "The Visualization tab never opened.");
+
+        await WaitForAsync(
+            "(document.getElementById('visSymbology')?.getAttribute('href') || '')"
+            + ".includes('/symbology')",
+            "The map screen offers no way to the symbology of what it is drawing.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('visSymbology').offsetParent !== null"),
+            "The link is in the document and not on screen.");
+
+        string first = await Browser.EvaluateAsync<string>(
+            "document.getElementById('visSymbology').getAttribute('href')") ?? "";
+
+        // <b>It follows the picker.</b> A link fixed to the first layer would pass everything
+        // above and open the wrong page on every service with more than one.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const p = document.getElementById('visLayer');"
+            + " p.selectedIndex = p.options.length - 1;"
+            + " p.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "document.getElementById('visSymbology').getAttribute('href') !== "
+            + JsonSerializer.Serialize(first),
+            "Choosing another layer left the Symbology link pointing at the first one.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A service's layer table offers the way to each layer's symbology.
     /// </summary>
     /// <remarks>

@@ -1371,6 +1371,14 @@
       <div class="toolbar">
         <label class="field" style="flex:0 1 320px">Layer
           <select id="visLayer"></select></label>
+
+        <!--
+          <b>Beside the picker, because this is where the question gets asked.</b> *How is this
+          drawn* is asked while looking at the map, and the Symbology page was reachable only
+          from the layer table on another tab — which the owner found by not finding it.
+        -->
+        <a class="tiny" id="visSymbology" href="#/">Symbology</a>
+
         <span style="flex:1"></span>
         <nav class="tabstrip" id="visModes"></nav>
       </div>
@@ -1433,6 +1441,23 @@
     </div>
     </div>
 
+
+    <!--
+      <b>Symbology is a tab of the service, not a page inside one of its layers.</b> It is
+      stored per layer and always was; what changed on 2026-09-03 is that the question *how is
+      this service drawn* has somewhere to be asked. Each row is a layer, its picture drawn by
+      the renderer that serves it, and one link to the editor.
+    -->
+    <div id="serviceSymbology" hidden>
+      <div class="panel">
+        <h4>How this service is drawn</h4>
+        <p class="hint">
+          Each layer carries its own symbology and the tile face composes a style from them in
+          layer order. A service-wide override lives on the Visualization tab.
+        </p>
+        <div id="serviceSymbologyRows"></div>
+      </div>
+    </div>
 
     <div id="serviceSettings" hidden>
 

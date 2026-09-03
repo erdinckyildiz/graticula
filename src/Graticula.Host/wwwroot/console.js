@@ -2738,6 +2738,12 @@ const SERVICE_TABS = [
   ["overview", "Overview"],
   ["data", "Data"],
   ["visualization", "Visualization"],
+
+  // <b>Its own tab, by owner decision 2026-09-03.</b> How a service is drawn was reachable only
+  // by opening one of its layers and noticing a tab there — *arayüzde yok düğmesi* — and the
+  // question is asked of the service, not of a layer somebody has to pick first.
+  ["symbology", "Symbology"],
+
   ["settings", "Settings"],
 ];
 
@@ -3033,7 +3039,9 @@ function showServiceTab(which) {
   serviceTab = which;
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
-                           ["visualization", "serviceVis"], ["settings", "serviceSettings"]]) {
+                           ["visualization", "serviceVis"],
+                           ["symbology", "serviceSymbology"],
+                           ["settings", "serviceSettings"]]) {
     const panel = $(id);
     if (panel) panel.hidden = key !== which;
   }
@@ -3052,6 +3060,85 @@ function showServiceTab(which) {
 
   if (which === "data") drawServiceData();
   if (which === "visualization") drawServiceVis();
+  if (which === "symbology") drawServiceSymbology();
+}
+
+/**
+ * Every layer in the service, with how it is drawn and the way to change it.
+ *
+ * <b>The service is what somebody opens, so this is what they are asking about.</b> Symbology is
+ * stored per layer (ADR-052 §3.1) and that is right — but *show me this service's symbology* is
+ * the question people arrive with, and answering it with *pick a layer first* is how a screen
+ * ends up unfindable.
+ *
+ * <b>The picture is the server's.</b> Each row draws the layer's own thumbnail through the same
+ * renderer that serves it, so the row says what the map says rather than what the document
+ * claims.
+ */
+async function drawServiceSymbology() {
+  const box = $("serviceSymbologyRows");
+
+  if (!box || !serviceOpen) return;
+
+  const drawable = serviceLayers.filter(
+    l => !(l.type || "").toLowerCase().includes("group"));
+
+  if (drawable.length === 0) {
+    box.innerHTML = `<p class="hint">This service has no layer to draw, so it has no
+      symbology.</p>`;
+
+    return;
+  }
+
+  box.innerHTML = drawable.map(l => `<div class="symrow" data-layer="${h(l.name || "")}">
+      <img class="thumb" alt="" loading="lazy" data-thumb="${h(thumbnailFor(
+        `/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+        + `/FeatureServer/${num(l.id ?? 0)}`))}">
+      <div class="symrowtext">
+        <div class="symrowname">${h(l.name || "")}</div>
+        <div class="rowmeta" data-symsays="${h(l.name || "")}">reading…</div>
+      </div>
+      <a class="tiny primarylink"
+        href="#/layer/${encodeURIComponent(l.name || "")}/symbology">Edit</a>
+    </div>`).join("");
+
+  // <b>Read one at a time rather than all at once.</b> A service with thirty layers would
+  // otherwise open thirty requests in one turn, and the first thing this screen does would be
+  // the heaviest thing the console ever does.
+  for (const l of drawable) {
+    const says = box.querySelector(`[data-symsays="${CSS.escape(l.name || "")}"]`);
+
+    if (!says) continue;
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(l.name || "")}/symbology`);
+
+      const kind = {
+        CIMSimpleRenderer: "one symbol for every feature",
+        CIMUniqueValueRenderer: "by the value of a field",
+        CIMClassBreaksRenderer: "by ranges of a number",
+      }[(r.symbology || {}).type] || "an appearance this console does not name";
+
+      const varies = ((r.symbology || {}).visualVariables || []).length > 0;
+
+      says.textContent = [
+        r.geometry || "",
+        r.stored ? "stored" : "generated",
+        kind,
+        varies ? "varies with a field" : "",
+        (r.losses || []).length > 0
+          ? `${r.losses.length} thing(s) a face cannot carry`
+          : "",
+      ].filter(Boolean).join(" · ");
+
+    } catch (e) {
+      says.textContent = e.message;
+    }
+  }
+
+  // <b>The console's own thumbnail machinery, not a second one.</b> It caches by address, so a
+  // layer already drawn elsewhere on the page costs nothing here.
+  await paintPreviews();
 }
 
 /** The layers in the open service, from its own FeatureServer document. */
@@ -3805,8 +3892,23 @@ function drawServiceVis() {
     `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}
       >${h(l.name || `layer ${l.id}`)}</option>`).join("");
 
+  // <b>The link follows the picker.</b> A Symbology link that always opened the first layer
+  // would be worse than none on a service with several: it would look like it worked.
+  const named = at => {
+    const one = drawable.find(l => String(l.id) === String(at)) || drawable[0];
+    const link = $("visSymbology");
+
+    if (link && one) {
+      link.href = `#/layer/${encodeURIComponent(one.name || "")}/symbology`;
+      link.title = `How ${one.name || "this layer"} is drawn`;
+    }
+  };
+
+  named(wanted);
+
   picker.onchange = () => {
     visLayerIndex = picker.value;
+    named(picker.value);
     drawVisNow();
   };
 
