@@ -1730,6 +1730,12 @@ dialog { color: var(--ink); }
   margin: 8px 0 0;
 }
 .swatches .swatch {
+  /* <b>Stated, because a rule elsewhere states it.</b> `.swatch` at the top of this file is a
+     9x9 status dot and it is the only rule that declares a width — so without these two lines
+     it wins the cascade here and every legend chip collapses to nine pixels while its patch and
+     its label spill out over the next one. Measured on `ci_many`'s three-class legend. */
+  width: auto; height: auto;
+
   display: inline-flex; align-items: center; gap: var(--gap-2);
   padding: 4px 10px 4px 4px;
   border: 1px solid var(--rule); border-radius: var(--round);
@@ -2043,9 +2049,17 @@ html[data-session="held"] #app { display: block !important; }
   display: grid; gap: var(--gap-3);
   grid-template-columns: 1fr;
   margin: 10px 0 14px;
+
+  /* <b>`start`, not the grid default.</b> Stretch makes the picture's column as tall as the
+     controls' column: measured 2026-09-03 at 1655px for a picture that is 230px tall, which is
+     the long empty gap beside it. */
+  align-items: start;
 }
 
-@media (min-width: 900px) {
+/* <b>1180, not 900.</b> The sidebar is 248px wide, so a 1000px viewport leaves the controls
+   column 98 pixels — measured, and no control on this page fits in 98 pixels. The two columns
+   need about 720px of content area between them. */
+@media (min-width: 1180px) {
   .symlayout { grid-template-columns: minmax(0, 1fr) 340px; }
   .symlayout .sympreview { order: 2; }
   .symlayout .symform { order: 1; }
@@ -2090,9 +2104,9 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symclass{cursor:pointer}
 
 .setting.symclass.symchosen{
-  background:var(--accent-soft, rgba(120,140,160,.12));
+  background:var(--accent-soft);
   border-radius:4px;
-  box-shadow:inset 2px 0 0 var(--accent, #4a7);
+  box-shadow:inset 2px 0 0 var(--accent);
   padding-left:8px;
 }
 
@@ -2100,7 +2114,7 @@ html[data-session="held"] #app { display: block !important; }
 
 .setting.symlayer{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  border:1px solid var(--line, #ddd);border-radius:4px;
+  border:1px solid var(--rule);border-radius:4px;
   padding:7px 9px;margin-bottom:6px;
 }
 
@@ -2110,8 +2124,14 @@ html[data-session="held"] #app { display: block !important; }
 
 .setting.symlayer input[type="number"]{width:74px}
 
-.setting.symlayer .tiny{margin-left:auto}
-.setting.symlayer .tiny + .tiny{margin-left:0}
+/* <b>A resting border.</b> These were ghost buttons that appeared on hover, and reordering is
+   the whole idea of a stack — its controls cannot be the ones nobody can see. */
+.setting.symlayer .tiny{
+  border:1px solid var(--rule);
+  background:var(--surface);
+  min-width:30px;
+}
+.setting.symlayer .symup{margin-left:auto}
 
 #symStackActions{gap:6px}
 
@@ -2128,19 +2148,23 @@ html[data-session="held"] #app { display: block !important; }
 .symcard{
   display:flex;flex-direction:column;align-items:center;gap:4px;
   padding:7px 5px 6px;cursor:pointer;
-  background:var(--panel, #fff);
-  border:1px solid var(--line, #ddd);border-radius:5px;
+  background:var(--surface);
+  border:1px solid var(--rule);border-radius:5px;
   font:inherit;font-size:11px;line-height:1.25;color:inherit;text-align:center;
 }
 
-.symcard:hover{border-color:var(--accent, #4a7)}
-.symcard:focus-visible{outline:2px solid var(--accent, #4a7);outline-offset:1px}
+.symcard:hover{border-color:var(--accent)}
+.symcard:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
 .symcard svg{width:100%;height:38px;display:block}
 
+/* <b>Two lines rather than an ellipsis.</b> *Road with ca…* and *Dashed boun…* are the two
+   entries somebody is looking for, and a name clipped before its distinguishing word is a name
+   that does not identify anything. */
 .symcard span{
-  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;
-  opacity:.85;
+  display:block;max-width:100%;
+  line-height:1.2;opacity:.85;
+  overflow-wrap:anywhere;
 }
 
 #symGalleryNote{margin:2px 0 8px}
@@ -2167,12 +2191,31 @@ html[data-session="held"] #app { display: block !important; }
 
 .symrow{
   display:flex;align-items:center;gap:14px;
-  padding:10px 4px;border-bottom:1px solid var(--line, #e4e4e4);
+  padding:10px 4px;border-bottom:1px solid var(--rule);
 }
 .symrow:last-child{border-bottom:0}
 
 .symrow .thumb{width:84px;height:56px;object-fit:cover;border-radius:4px;flex:0 0 auto}
 .symrowtext{flex:1;min-width:0}
 .symrowname{font-weight:600}
-.symrow .rowmeta{opacity:.75;font-size:12.5px;margin-top:2px}
+/* <b>No opacity.</b> `--muted` is 6.18:1 on `--surface` and this row's own three-quarters
+   dropped it to 3.53:1 — measured, and AA asks 4.5 for text this size. The token is already
+   tuned; dimming a tuned token is undoing the tuning. */
+.symrow .rowmeta{color:var(--muted);font-size:12.5px;margin-top:2px}
 .symrow .primarylink{flex:0 0 auto}
+
+/* -------------------------------------------------- the symbology form's own spacing
+   `.setting .q { flex: 1 }` suits a page of numeric fields, where the unit sits at the far
+   right of a fixed row. Here it puts every label at one edge and every control at the other
+   with a hand's width of nothing between, so no label is beside the thing it names. */
+
+#page-symbology .setting .q{ flex:0 1 auto; min-width:104px; }
+#page-symbology .setting{ gap:var(--gap-2); }
+
+/* A class row is a control, so it looks like one when it has focus. */
+.setting.symclass{ border-radius:var(--round); }
+.setting.symclass:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+
+#styleState{margin:0 0 10px}
+#styleAdvanced summary{cursor:pointer;margin-top:10px}
+#styleAdvanced textarea{margin-top:8px}

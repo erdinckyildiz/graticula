@@ -1431,13 +1431,25 @@
         reordered or filtered against each other. The ArcGIS feature face is not affected: it
         reads each layer's symbology either way.
       </p>
+      <p class="hint" id="styleState"><b>Not fetched yet.</b></p>
+
       <div class="row">
         <button data-style="">Fetch current</button>
         <button data-style-del="" class="ghost">Back to the composition</button>
         <button class="primary" data-style-put="">Store</button>
       </div>
-      <textarea id="styleDoc" rows="10" spellcheck="false"
-        placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
+
+      <!--
+        <b>Behind a disclosure, like the per-layer editor's.</b> A raw style document is an
+        expert control on a screen otherwise made of pictures, and the editor one level down
+        already made this decision: the document is there for whoever needs it and is not the
+        first thing anybody meets.
+      -->
+      <details id="styleAdvanced">
+        <summary>The document itself</summary>
+        <textarea id="styleDoc" rows="10" spellcheck="false"
+          placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
+      </details>
     </div>
     </div>
 

@@ -3019,7 +3019,12 @@ function drawServiceTabs() {
     // Data needs a layer to read and Visualization needs one to draw. Overview stays either way:
     // *this service holds no layers* is a fact about the service and belongs on the page that
     // describes it.
-    if (key === "data" || key === "visualization") {
+    // <b>Symbology follows the same rule as the other two, which it did not.</b> ADR-034's
+    // *a control is not drawn for a feature that does not exist* governed Data and
+    // Visualization and the new tab was left out, so a service with nothing drawable kept a tab
+    // whose only content was a sentence saying there was nothing to draw. Two tabs under one
+    // named rule applying it differently is the plainest way to look like two products.
+    if (key === "data" || key === "visualization" || key === "symbology") {
       return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
     }
 
@@ -3075,6 +3080,28 @@ function showServiceTab(which) {
 }
 
 /**
+ * Says whether this service carries a style override, on the page.
+ *
+ * <b>A toast cannot carry this.</b> Which document the tile face serves is the whole subject of
+ * the panel it sits in; seven seconds in a corner is where a fact goes when nobody has decided
+ * where it belongs.
+ *
+ * @param {boolean} stored whether a document is stored
+ * @param {string|null} note what the server said, when it said anything
+ */
+function styleState(stored, note) {
+  const line = $("styleState");
+
+  if (!line) return;
+
+  line.innerHTML = stored
+    ? `<b>Stored.</b> The tile face serves this document instead of the composition.`
+    : `<b>Not stored.</b> The tile face composes a style from each layer's own symbology.`;
+
+  if (note) line.title = note;
+}
+
+/**
  * Every layer in the service, with how it is drawn and the way to change it.
  *
  * <b>The service is what somebody opens, so this is what they are asking about.</b> Symbology is
@@ -3110,7 +3137,8 @@ async function drawServiceSymbology() {
         <div class="rowmeta" data-symsays="${h(l.name || "")}">reading…</div>
       </div>
       <a class="tiny primarylink"
-        href="#/layer/${encodeURIComponent(l.name || "")}/symbology">Edit</a>
+        href="#/layer/${encodeURIComponent(l.name || "")}/symbology"
+        title="How ${h(l.name || "this layer")} is drawn">Symbology</a>
     </div>`).join("");
 
   // <b>Read one at a time rather than all at once.</b> A service with thirty layers would
@@ -4627,6 +4655,20 @@ function wireSymbologyForm() {
     }, 400);
   });
 
+  // <b>Enter and Space open a class row.</b> The row carries `tabindex` and a role, and a
+  // control a keyboard can reach and cannot use is worse than one it cannot reach: it takes the
+  // focus and then does nothing.
+  document.addEventListener("keydown", e => {
+    if (!(e.target instanceof Element) || e.key !== "Enter" && e.key !== " ") return;
+
+    const row = e.target.closest(".symclass[tabindex]");
+
+    if (!row || !row.closest("#page-symbology")) return;
+
+    e.preventDefault();
+    row.click();
+  });
+
   document.addEventListener("click", async e => {
     const t = e.target;
 
@@ -5621,7 +5663,9 @@ function drawSymbologyClasses(kind) {
   box.innerHTML = classes.map((cls, i) => {
     const layers = symSymbolOf(cls).symbolLayers;
     const top = symLayerColour(layers[0]);
-    const chosen = i === symClassIndex ? " symchosen" : "";
+    // <b>Nothing to choose between when there is one.</b> A `simple` renderer has exactly
+    // one row and it was always drawn as selected, which reads as a state somebody set.
+    const chosen = classes.length > 1 && i === symClassIndex ? " symchosen" : "";
 
     if (kind === "simple") {
       return `<div class="setting symclass${chosen}" data-class="${i}">
@@ -5634,7 +5678,11 @@ function drawSymbologyClasses(kind) {
       ? (((cls.values || [])[0] || {}).fieldValues || [])[0] ?? ""
       : cls.upperBound ?? "";
 
-    return `<div class="setting symclass${chosen}" data-class="${i}">
+    // <b>A row a keyboard can focus has to be a row a keyboard can open.</b> The same rule the
+    // log rows follow: `tabindex` and a role, and the click handler answers Enter and Space.
+    return `<div class="setting symclass${chosen}" data-class="${i}"
+      tabindex="0" role="button" aria-pressed="${i === symClassIndex}"
+      aria-label="Edit the symbol for class ${i + 1}">
       <span class="q">${kind === "uniqueValue" ? "Value" : "Up to"}:</span>
       <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
         data-class="${i}" value="${h(String(value))}">
@@ -6993,14 +7041,15 @@ function showLayer(name, page, pending = null) {
         </div>
 
         <div class="symform">
-          <div class="setting"><span class="q">Draw:</span>
+          <div class="setting wide"><label class="q" for="symKind">Draw:</label>
             <select id="symKind">
               <option value="simple">every feature the same</option>
               <option value="uniqueValue">by the value of a field</option>
               <option value="classBreaks">by ranges of a number</option>
             </select></div>
 
-          <div class="setting" id="symFieldRow" hidden><span class="q">Field:</span>
+          <div class="setting wide" id="symFieldRow" hidden>
+            <label class="q" for="symField">Field:</label>
             <select id="symField"></select></div>
 
           <div id="symClasses"></div>
@@ -7023,7 +7072,7 @@ function showLayer(name, page, pending = null) {
             has drawn them since ADR-041 without any way to ask for one.
           -->
           <h4>Vary with a number</h4>
-          <div class="setting"><span class="q">Change:</span>
+          <div class="setting wide"><label class="q" for="symVaryWhat">Change:</label>
             <select id="symVaryWhat">
               <option value="">nothing — the symbol is the same everywhere</option>
               <option value="colour">its colour</option>
@@ -7032,7 +7081,8 @@ function showLayer(name, page, pending = null) {
             </select></div>
 
           <div id="symVaryRows" hidden>
-            <div class="setting"><span class="q">With:</span>
+            <div class="setting wide">
+              <label class="q" for="symVaryField">With:</label>
               <select id="symVaryField"></select></div>
 
             <div class="setting symvarystop"><span class="q">From:</span>
@@ -9881,11 +9931,16 @@ async function handleClick(event) {
       // document, byte for byte. With none stored it is a wrapper saying so —
       // and pasting that wrapper back as a style is what would happen if this
       // filled the box either way.
+      // <b>On the page, not in a toast.</b> Whether a service carries an override decides
+      // what the tile face draws, and a fact that load-bearing cannot live for seven seconds
+      // in a corner. The per-layer editor writes its equivalent into permanent text; this is
+      // the same fact and it gets the same treatment.
       if (r && r.stored === false) {
         $("styleDoc").value = "";
-        toast(r.note || "No style stored; a generated one is served.", true);
+        styleState(false, r.note);
       } else {
         $("styleDoc").value = JSON.stringify(r, null, 1);
+        styleState(true, null);
       }
     } catch (e) { toast(e.message); }
     return;
@@ -10081,6 +10136,7 @@ async function handleClick(event) {
         headers: { "Content-Type": "application/json" },
         body: $("styleDoc").value,
       });
+      styleState(true, null);
       toast(`${r.name}: ${r.replaced ? "style replaced" : "style stored"}, ${num(r.bytes)} bytes.`, true);
     } catch (e) { toast(e.message); }
     return;
@@ -10091,7 +10147,8 @@ async function handleClick(event) {
       const r = await api(`/admin/services/${encodeURIComponent(d.styleDel)}/style`,
         { method: "DELETE" });
       $("styleDoc").value = "";
-      toast(r.note || "Back to the generated style.", true);
+      styleState(false, r.note);
+      toast(r.note || "Back to the composition.", true);
     } catch (e) { toast(e.message); }
     return;
   }
