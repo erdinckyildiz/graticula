@@ -3769,6 +3769,19 @@ function drawServiceVis() {
   const modes = $("visModes");
   if (!picker || !modes) return;
 
+  // <b>The style override is addressed with the service's name, not a layer's.</b> That was the
+  // defect this control was moved for: it lived on a layer's Caching page and sent the layer's
+  // name to a service endpoint, so it worked only where the two happened to match.
+  for (const [attribute, node] of [
+    ["data-style", document.querySelector("#serviceStyle [data-style]")],
+    ["data-style-put", document.querySelector("#serviceStyle [data-style-put]")],
+    ["data-style-del", document.querySelector("#serviceStyle [data-style-del]")],
+  ]) {
+    if (node && serviceOpen) { node.setAttribute(attribute, serviceOpen.name); }
+  }
+
+  if ($("styleDoc")) { $("styleDoc").value = ""; }
+
   const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
 
   if (drawable.length === 0) {
@@ -4344,6 +4357,26 @@ async function loadSymbology(name) {
       : `<b>Generated.</b> No document is stored, so this layer is drawn in a colour `
         + `derived from its name — the same colour tomorrow and on another deployment. `
         + `Storing one replaces it.`;
+
+    // <b>Said here, because this is where somebody would be confused.</b> A service-wide style
+    // override wins for the tile face (ADR-033 §5d), so a layer whose symbology is stored and
+    // correct can still be drawn by something else on a map — with nothing on this screen to
+    // explain it. The check is one GET and it only speaks when there is something to say.
+    if (r.service) {
+      try {
+        const service = await api(
+          `/admin/services/${encodeURIComponent(r.service)}/style`);
+
+        if (service && service.stored) {
+          state.innerHTML += ` <b>This layer's service carries a style override</b>, so the `
+            + `tile face draws it rather than this document. The ArcGIS feature face still `
+            + `reads this one. The override is on the service's Visualization page.`;
+        }
+      } catch {
+        // A service that cannot be read is the service page's problem to report, not this
+        // one's: a layer's own symbology is what this screen is about.
+      }
+    }
 
     // <b>The layer's fields, for the two families that classify by one.</b> The layer document
     // is where the console already reads them, so this is the same call the Data page makes
@@ -6045,14 +6078,6 @@ function showLayer(name, page, pending = null) {
       </div>`
       : `<p class="hint">Tiles come only from hosted data, so this layer has no tile cache.</p>`}
 
-      <h4>Style</h4>
-      <div class="row">
-        <button data-style="${h(name)}">Fetch current</button>
-        <button data-style-del="${h(name)}" class="ghost">Back to generated</button>
-        <button class="primary" data-style-put="${h(name)}">Store</button>
-      </div>
-      <textarea id="styleDoc" rows="8" spellcheck="false"
-        placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored."></textarea>
     </section>
 
     <section class="page" id="page-symbology">

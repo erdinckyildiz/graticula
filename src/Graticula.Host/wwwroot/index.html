@@ -1403,6 +1403,34 @@
       -->
 
     </div>
+
+    <!--
+      <b>The service's own style, on the service's own screen — moved here 2026-09-03.</b>
+      This box used to sit on a *layer's* Caching page and address `/admin/services/{name}/style`
+      with the **layer's** name. It answered 200 for a single-layer hosted service, where the two
+      names happen to be the same, and 404 for every layer inside a service with more than one —
+      measured across the fixture: `ci_buildings` 200, `ci_EarlyAlert_routes` 404.
+
+      It is a service-wide override (ADR-033 §5d): a style names the service's source layers and
+      orders them, which is the cartography a per-layer document cannot express. That makes it a
+      service control, and putting it inside one layer's settings said the opposite.
+    -->
+    <div class="panel" id="serviceStyle">
+      <h4>Style override</h4>
+      <p class="hint">
+        The tile face composes a style from each layer's own symbology, in layer order. Storing a
+        document here replaces that composition for the whole service — which is how layers are
+        reordered or filtered against each other. The ArcGIS feature face is not affected: it
+        reads each layer's symbology either way.
+      </p>
+      <div class="row">
+        <button data-style="">Fetch current</button>
+        <button data-style-del="" class="ghost">Back to the composition</button>
+        <button class="primary" data-style-put="">Store</button>
+      </div>
+      <textarea id="styleDoc" rows="10" spellcheck="false"
+        placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
+    </div>
     </div>
 
 
