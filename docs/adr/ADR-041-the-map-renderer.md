@@ -98,6 +98,11 @@ this ADR.
 ### Alternative B — MapLibre Native, headless
 
 **Argument for.** Our canonical style *is* a MapLibre style ([ADR-033](ADR-033-symbology.md)).
+*(No longer true from 2026-09-03: the canonical document is a CIM renderer
+([ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md)), and MapLibre is one of two
+derived faces. The sentence is left standing because it is the argument as it was made, and
+**this alternative is now weaker than when it was rejected** — the renderer that defines the
+format would be interpreting a document we derive rather than the one we keep.)*
 The renderer that interprets it best is the one that defines it, and everything we
 would otherwise implement — paint properties, expressions, sprite handling — arrives
 finished and exactly consistent with what the vector-tile face already serves.

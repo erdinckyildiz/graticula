@@ -6,8 +6,28 @@
 | **Confidence** | `MEDIUM-HIGH` for the canonical model · `MEDIUM` for the derivation's fidelity |
 | **Decided** | 2026-08-17 |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) — §1 only: the canonical vocabulary |
 | **Amends** | [ADR-028](ADR-028-style-documents.md) — a style stops being *per service* and becomes *per layer, composed into a service* |
+
+---
+
+> **Amended 2026-09-03 by [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md),
+> by owner decision: the canonical document is Esri's CIM, not MapLibre.**
+>
+> **What changed.** §1's *one canonical MapLibre Style Spec v8 document per layer* is
+> the one thing ADR-052 reverses. The stored document is now a CIM renderer, and
+> **both** the MapLibre style and the Esri `drawingInfo` are derived from it.
+>
+> **What did not.** Everything else this ADR decided still stands and is still read
+> here: one document per layer rather than per service; a `PUT` that accepts a
+> foreign vocabulary and converts on the way in; losses reported rather than
+> swallowed; `icon-image` refused for want of a sprite library; an unstyled layer
+> given a deterministic generated appearance. ADR-052 adds that losses are now
+> reported on the way **out** as well, because every face is a derivation.
+>
+> The owner asked for CIM and the recommendation had been to accept it as a third
+> inbound vocabulary instead. That disagreement is recorded in ADR-052 §2 rather
+> than here.
 
 ---
 
