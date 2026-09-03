@@ -2081,3 +2081,36 @@ html[data-session="held"] #app { display: block !important; }
 #symAdvanced { margin: 12px 0 0; }
 #symAdvanced summary { cursor: pointer; font: var(--t-small)/1.4 var(--sans); color: var(--muted); }
 #symAdvanced[open] summary { margin-bottom: 8px; }
+
+/* --------------------------------------------------------- the symbol layer stack
+   ADR-052 §3.7. A symbol is a stack, so the editor is a list of rows rather than one
+   outline shared by every class. The selected class is marked because the panel below
+   belongs to it, and a panel whose subject is not visible is a panel people misread. */
+
+.setting.symclass{cursor:pointer}
+
+.setting.symclass.symchosen{
+  background:var(--accent-soft, rgba(120,140,160,.12));
+  border-radius:4px;
+  box-shadow:inset 2px 0 0 var(--accent, #4a7);
+  padding-left:8px;
+}
+
+#symStackNote{margin:2px 0 8px}
+
+.setting.symlayer{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  border:1px solid var(--line, #ddd);border-radius:4px;
+  padding:7px 9px;margin-bottom:6px;
+}
+
+.setting.symlayer .symlayerkind{
+  min-width:64px;font-weight:600;
+}
+
+.setting.symlayer input[type="number"]{width:74px}
+
+.setting.symlayer .tiny{margin-left:auto}
+.setting.symlayer .tiny + .tiny{margin-left:0}
+
+#symStackActions{gap:6px}

@@ -4393,7 +4393,10 @@ async function loadSymbology(name) {
 
     symGeometry = r.geometry || "";
 
-    fillSymbologyForm(r.drawingInfo, symGeometry);
+    // <b>The stored CIM, not the derived `drawingInfo`.</b> The derived one is flattened to a
+    // single symbol for the Esri face; filling the form from it would throw away every symbol
+    // layer past the first the moment anybody pressed Store.
+    fillSymbologyForm(r.symbology, symGeometry);
     await drawSymbologyPreview(name, JSON.stringify(r.symbology || r.drawingInfo));
 
     $("symPreviewState").textContent = r.stored
@@ -4414,144 +4417,298 @@ async function loadSymbology(name) {
 /**
  * Wires the symbology form once, on the document.
  *
- * <b>Delegated, because the class rows are rebuilt whenever a family changes.</b> Binding to the
+ * <b>Delegated, because every row is rebuilt whenever anything changes.</b> Binding to the
  * inputs themselves would mean rebinding after every edit, which is the shape that leaves one
  * control dead and looks like a control that does nothing — this console has met that three
  * times.
+ *
+ * <b>Every handler edits the model and then calls `symSettled`.</b> One path from a control to
+ * the document box and the picture means the three cannot drift: there is no branch where a
+ * change is drawn and not stored, or stored and not drawn.
  */
 function wireSymbologyForm() {
-  const rerender = async () => {
-    // <b>The controls are looked for rather than assumed.</b> This runs a quarter of a second
-    // after the edit, and the router can rebuild `#editPages` in between. No defect has been
-    // attributed to this — the one test written to drive it passed with the check removed, so
-    // it was deleted rather than kept as evidence of something it does not show.
-    if (!editing || symFilling || !$("symKind") || !$("symDoc")) return;
-
-    const kind = $("symKind")?.value;
-
-    if (kind) {
-      $("symFieldRow").hidden = kind === "simple";
-      $("symClassActions").hidden = kind === "simple";
-    }
-
-    await previewSymbology(editing.name, symGeometry);
-  };
-
   document.addEventListener("change", async e => {
-    // <b>`closest` is an `Element` method</b>, and an event can be dispatched on the document
-    // itself, where it does not exist.
     if (!(e.target instanceof Element) || !e.target.closest("#page-symbology")) return;
-    if (e.target.id === "symDoc") return;
+    if (e.target.id === "symDoc" || symFilling || !symModel) return;
 
-    // <b>Changing the family rebuilds the rows from what is on screen</b>, so a colour chosen
-    // for a simple renderer survives being turned into the first class of a classified one.
     if (e.target.id === "symKind") {
-      const previous = symbologyFromForm(symGeometry);
-      const colour = previous.renderer.symbol
-        ? symHex(previous.renderer.symbol.color)
-        : "#888888";
+      symFamily(e.target.value);
+      await symSettled({ classes: true, stack: true });
 
-      symFilling = true;
-
-      try {
-        drawSymbologyClasses(
-          e.target.value,
-          e.target.value === "simple"
-            ? { symbol: { color: symColour(colour) } }
-            : { [e.target.value === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]:
-                  [{ value: "", classMaxValue: 0, label: "", symbol: { color: symColour(colour) } }] },
-          symKindOfGeometry(symGeometry));
-      } finally {
-        symFilling = false;
-      }
+      return;
     }
 
-    await rerender();
+    if (e.target.id === "symField") {
+      if (symModel.type === "CIMUniqueValueRenderer") symModel.fields = [e.target.value];
+      if (symModel.type === "CIMClassBreaksRenderer") symModel.field = e.target.value;
+
+      await symSettled({});
+
+      return;
+    }
+
+    await symEdited(e.target, true);
   });
 
   document.addEventListener("input", e => {
     if (!(e.target instanceof Element) || !e.target.closest("#page-symbology")) return;
-    if (e.target.id === "symDoc") return;
+    if (e.target.id === "symDoc" || symFilling || !symModel) return;
 
     clearTimeout(symDebounce);
-    symDebounce = setTimeout(rerender, 250);
+    symDebounce = setTimeout(() => symEdited(e.target, false), 250);
   });
 
-  // <b>The document box previews too, and it is not wired to the form.</b> Somebody who edits it
-  // by hand is expressing something the controls cannot, so the controls are left alone and only
-  // the picture follows.
+  // <b>The document box is the one control that edits the model wholesale.</b> ADR-051 §3.3
+  // used to leave the form alone when somebody typed here, because a MapLibre expression had no
+  // checkbox. The canonical document is CIM now and the model keeps whatever it is handed —
+  // including the parts the form has no box for — so adopting the text is safe and the two
+  // stop being able to disagree. ADR-052 §3.7.
   document.addEventListener("input", e => {
     if (!(e.target instanceof Element) || e.target.id !== "symDoc" || !editing) return;
 
     clearTimeout(symDebounce);
-    symDebounce = setTimeout(
-      () => {
-        if (!editing || !$("symDoc")) return;
 
-        drawSymbologyPreview(editing.name, $("symDoc").value);
-      },
-      400);
+    symDebounce = setTimeout(async () => {
+      if (!editing || !$("symDoc")) return;
+
+      let typed = null;
+
+      try {
+        typed = JSON.parse($("symDoc").value);
+      } catch {
+        // Half-typed JSON is the normal state of a box somebody is editing; the picture waits.
+        return;
+      }
+
+      fillSymbologyForm(typed, symGeometry);
+      await drawSymbologyPreview(editing.name, $("symDoc").value);
+    }, 400);
   });
 
   document.addEventListener("click", async e => {
     const t = e.target;
 
-    if (t.id === "symAddClass" && $("symKind")) {
-      e.preventDefault();
+    if (!(t instanceof Element) || !t.closest("#page-symbology") || !symModel) return;
 
-      const kind = $("symKind").value;
-      const built = symbologyFromForm(symGeometry).renderer;
-      const infos = kind === "uniqueValue"
-        ? (built.uniqueValueInfos || [])
-        : (built.classBreakInfos || []);
+    const row = t.closest(".symclass");
 
-      infos.push({
-        value: "",
-        classMaxValue: 0,
-        label: "",
-        symbol: { color: symColour("#888888") },
-      });
+    if (row && !t.matches("input, button")) {
+      symClassIndex = Number(row.dataset.class) || 0;
+      await symSettled({ classes: true, stack: true, quiet: true });
 
-      symFilling = true;
-
-      try {
-        drawSymbologyClasses(
-          kind,
-          { [kind === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]: infos },
-          symKindOfGeometry(symGeometry));
-      } finally {
-        symFilling = false;
-      }
-
-      await previewSymbology(editing.name, symGeometry);
       return;
     }
 
-    if (t.classList && t.classList.contains("symdrop") && $("symKind")) {
+    if (t.id === "symAddClass") {
+      e.preventDefault();
+      symAddClass();
+      await symSettled({ classes: true, stack: true });
+
+      return;
+    }
+
+    if (t.classList.contains("symdrop")) {
+      e.preventDefault();
+      symRemoveClass(Number(t.dataset.class));
+      await symSettled({ classes: true, stack: true });
+
+      return;
+    }
+
+    if (t.dataset.addLayer) {
+      e.preventDefault();
+      symStack().push(symNewLayer(t.dataset.addLayer));
+      await symSettled({ classes: true, stack: true });
+
+      return;
+    }
+
+    if (t.classList.contains("symlayerdrop")) {
+      e.preventDefault();
+      symStack().splice(Number(t.dataset.layer), 1);
+      await symSettled({ classes: true, stack: true });
+
+      return;
+    }
+
+    if (t.classList.contains("symup") || t.classList.contains("symdown")) {
       e.preventDefault();
 
-      const kind = $("symKind").value;
-      const built = symbologyFromForm(symGeometry).renderer;
-      const infos = kind === "uniqueValue"
-        ? (built.uniqueValueInfos || [])
-        : (built.classBreakInfos || []);
+      const layers = symStack();
+      const at = Number(t.dataset.layer);
+      const to = t.classList.contains("symup") ? at - 1 : at + 1;
 
-      infos.splice(Number(t.dataset.class), 1);
-
-      symFilling = true;
-
-      try {
-        drawSymbologyClasses(
-          kind,
-          { [kind === "uniqueValue" ? "uniqueValueInfos" : "classBreakInfos"]: infos },
-          symKindOfGeometry(symGeometry));
-      } finally {
-        symFilling = false;
+      if (to >= 0 && to < layers.length) {
+        [layers[at], layers[to]] = [layers[to], layers[at]];
+        await symSettled({ classes: true, stack: true });
       }
-
-      await previewSymbology(editing.name, symGeometry);
     }
   });
+}
+
+/** The selected class's symbol layers, ready to be mutated. */
+function symStack() {
+  const cls = symClasses()[symClassIndex];
+
+  return cls ? symSymbolOf(cls).symbolLayers : [];
+}
+
+/**
+ * Applies one control's value to the model.
+ *
+ * @param {Element} control what changed
+ * @param {boolean} settled true for `change`, false for a debounced `input`
+ */
+async function symEdited(control, settled) {
+  if (!symModel || !control.isConnected) return;
+
+  const classes = symClasses();
+  const layers = symStack();
+
+  if (control.classList.contains("symfill")) {
+    // The class swatch sets the topmost painted layer, which is the one a reader sees.
+    const paint = symLayerColour(
+      symSymbolOf(classes[Number(control.dataset.class)] || classes[0])?.symbolLayers[0]);
+
+    if (paint) paint.color = symCimColour(control.value, paint.color);
+  } else if (control.classList.contains("symlayercolour")) {
+    const paint = symLayerColour(layers[Number(control.dataset.layer)]);
+
+    if (paint) paint.color = symCimColour(control.value, paint.color);
+  } else if (control.classList.contains("symwidth")) {
+    const layer = layers[Number(control.dataset.layer)];
+
+    if (layer) layer.width = Number(control.value) || 0;
+  } else if (control.classList.contains("symsize")) {
+    const layer = layers[Number(control.dataset.layer)];
+
+    if (layer) layer.size = Number(control.value) || 1;
+  } else if (control.classList.contains("symlabel")) {
+    const cls = classes[Number(control.dataset.class)];
+
+    if (cls) cls.label = control.value;
+  } else if (control.classList.contains("symvalue")) {
+    const cls = classes[Number(control.dataset.class)];
+
+    if (!cls) return;
+
+    if (symModel.type === "CIMClassBreaksRenderer") {
+      cls.upperBound = Number(control.value) || 0;
+    } else {
+      cls.values = [{ type: "CIMUniqueValue", fieldValues: [control.value] }];
+    }
+  } else {
+    return;
+  }
+
+  // <b>Rows are redrawn on `change`, not on every keystroke.</b> Rebuilding the list while
+  // somebody is typing in it takes the caret with it.
+  await symSettled({ classes: settled, stack: settled, keep: settled ? null : control.id });
+}
+
+/**
+ * The one path from an edit to the document, the rows and the picture.
+ *
+ * @param {{classes?: boolean, stack?: boolean, quiet?: boolean}} what to redraw
+ */
+async function symSettled(what) {
+  if (!symModel || !editing) return;
+
+  symFilling = true;
+
+  try {
+    if (what.classes) drawSymbologyClasses($("symKind").value);
+    if (what.stack) drawSymbolLayers();
+  } finally {
+    symFilling = false;
+  }
+
+  if ($("symDoc")) $("symDoc").value = JSON.stringify(symModel, null, 1);
+
+  // Selecting a class changes nothing about the document, so it draws nothing new.
+  if (!what.quiet) await drawSymbologyPreview(editing.name, $("symDoc").value);
+}
+
+/**
+ * Turns the model into another renderer family, keeping the symbol somebody built.
+ *
+ * <b>The first class's symbol survives the change.</b> Losing it would mean choosing *by value*
+ * threw away the colours already chosen, which is the moment somebody stops trusting the form.
+ */
+function symFamily(kind) {
+  const first = symClasses()[0];
+  const symbol = first ? JSON.parse(JSON.stringify(symSymbolOf(first))) : null;
+  const wrap = () => ({ type: "CIMSymbolReference", symbol: JSON.parse(JSON.stringify(symbol)) });
+
+  if (kind === "simple") {
+    symModel = { type: "CIMSimpleRenderer", label: "", description: "", symbol: wrap() };
+  } else if (kind === "uniqueValue") {
+    symModel = {
+      type: "CIMUniqueValueRenderer",
+      fields: [$("symField").value || (symFields[0] || {}).name || ""],
+      groups: [{ classes: [{
+        label: "", visible: true,
+        values: [{ type: "CIMUniqueValue", fieldValues: [""] }],
+        symbol: wrap(),
+      }] }],
+    };
+  } else {
+    symModel = {
+      type: "CIMClassBreaksRenderer",
+      field: $("symField").value || (symFields[0] || {}).name || "",
+      breaks: [{ upperBound: 0, label: "", symbol: wrap() }],
+    };
+  }
+
+  symClassIndex = 0;
+
+  $("symFieldRow").hidden = kind === "simple";
+  $("symClassActions").hidden = kind === "simple";
+}
+
+/** Another class, built from the one that is selected so its symbol carries over. */
+function symAddClass() {
+  const classes = symClasses();
+  const like = classes[symClassIndex] || classes[0];
+  const symbol = like
+    ? JSON.parse(JSON.stringify(like.symbol))
+    : { type: "CIMSymbolReference", symbol: null };
+
+  if (symModel.type === "CIMUniqueValueRenderer") {
+    symModel.groups = symModel.groups || [{ classes: [] }];
+    symModel.groups[0].classes = symModel.groups[0].classes || [];
+    symModel.groups[0].classes.push({
+      label: "", visible: true,
+      values: [{ type: "CIMUniqueValue", fieldValues: [""] }],
+      symbol,
+    });
+  } else if (symModel.type === "CIMClassBreaksRenderer") {
+    symModel.breaks = symModel.breaks || [];
+    symModel.breaks.push({
+      upperBound: (classes[classes.length - 1]?.upperBound || 0) + 1,
+      label: "",
+      symbol,
+    });
+  } else {
+    return;
+  }
+
+  symClassIndex = symClasses().length - 1;
+}
+
+/** Removes a class, refusing to leave a renderer with none. */
+function symRemoveClass(at) {
+  const holder = symModel.type === "CIMUniqueValueRenderer"
+    ? (symModel.groups || [{}])[0]?.classes
+    : symModel.breaks;
+
+  if (!Array.isArray(holder) || holder.length <= 1) {
+    toast("A classified renderer needs at least one class.");
+    return;
+  }
+
+  holder.splice(at, 1);
+  symClassIndex = Math.min(symClassIndex, holder.length - 1);
 }
 
 /** The geometry of the layer being styled, so the form knows which symbol kind to build. */
@@ -4609,45 +4766,169 @@ function symKindOfGeometry(geometry) {
   return "fill";
 }
 
+/** The CIM symbol type a layer of this geometry is drawn with. */
+function symTypeOfGeometry(geometry) {
+  const shape = symKindOfGeometry(geometry);
+
+  if (shape === "marker") return "CIMPointSymbol";
+  if (shape === "line") return "CIMLineSymbol";
+
+  return "CIMPolygonSymbol";
+}
+
 /**
- * Fills the form from a `drawingInfo`.
+ * The renderer being edited, whole.
  *
- * <b>From the derived document rather than from the MapLibre one.</b> `drawingInfo` is the shape
- * the three families are expressed in, and the conversion has already done the work of getting
- * there — reading the MapLibre document a second time here would be a second implementation of
- * the same reading, which is the defect CLAUDE.md §2's rule is about.
+ * <b>The model is the parsed document, not a set of fields read back off the screen.</b> A
+ * symbol can hold layers this console does not understand — a hatch fill, an effect it does not
+ * draw — and ADR-052's whole argument is that those survive. Keeping the parsed object and
+ * touching only the parts the controls own is what makes that true through an edit; rebuilding
+ * a renderer from the inputs would quietly delete everything the form has no box for.
  */
-function fillSymbologyForm(drawingInfo, geometry) {
+let symModel = null;
+
+/** Which class's symbol the stack panel is showing. */
+let symClassIndex = 0;
+
+/** The classes of the model, whatever family it is, as one array to walk. */
+function symClasses() {
+  if (!symModel) return [];
+
+  if (symModel.type === "CIMUniqueValueRenderer") {
+    return (symModel.groups || []).flatMap(g => g.classes || []);
+  }
+
+  if (symModel.type === "CIMClassBreaksRenderer") {
+    return symModel.breaks || [];
+  }
+
+  return [symModel];
+}
+
+/** One class's symbol object, creating the reference chain if it is missing. */
+function symSymbolOf(cls) {
+  if (!cls) return null;
+
+  if (!cls.symbol) {
+    cls.symbol = { type: "CIMSymbolReference", symbol: null };
+  }
+
+  if (!cls.symbol.symbol) {
+    cls.symbol.symbol = {
+      type: symTypeOfGeometry(symGeometry),
+      symbolLayers: [],
+    };
+  }
+
+  if (!Array.isArray(cls.symbol.symbol.symbolLayers)) {
+    cls.symbol.symbol.symbolLayers = [];
+  }
+
+  return cls.symbol.symbol;
+}
+
+/** `#rrggbb` from a CIMRGBColor. */
+function symCimHex(colour) {
+  const v = (colour && colour.values) || [];
+
+  return symHex(v.length >= 3 ? [v[0], v[1], v[2]] : null);
+}
+
+/** A CIMRGBColor from `#rrggbb`, keeping the alpha that was there. */
+function symCimColour(hex, was) {
+  const c = symColour(hex);
+  const alpha = was && Array.isArray(was.values) && was.values.length > 3
+    ? was.values[3]
+    : 100;
+
+  return { type: "CIMRGBColor", values: [c[0], c[1], c[2], alpha] };
+}
+
+/** A fresh symbol layer of the asked kind. */
+function symNewLayer(kind) {
+  if (kind === "CIMSolidStroke") {
+    return {
+      type: "CIMSolidStroke",
+      enable: true,
+      capStyle: "Butt",
+      joinStyle: "Miter",
+      width: 1,
+      color: { type: "CIMRGBColor", values: [68, 51, 17, 100] },
+    };
+  }
+
+  if (kind === "CIMVectorMarker") {
+    return {
+      type: "CIMVectorMarker",
+      enable: true,
+      size: 8,
+      rotation: 0,
+      markerGraphics: [{
+        type: "CIMMarkerGraphic",
+        geometry: { x: 0, y: 0 },
+        symbol: {
+          type: "CIMPolygonSymbol",
+          symbolLayers: [{
+            type: "CIMSolidFill",
+            enable: true,
+            color: { type: "CIMRGBColor", values: [136, 136, 136, 100] },
+          }],
+        },
+      }],
+    };
+  }
+
+  return {
+    type: "CIMSolidFill",
+    enable: true,
+    color: { type: "CIMRGBColor", values: [204, 187, 68, 100] },
+  };
+}
+
+/** Where a symbol layer keeps the colour this console edits. */
+function symLayerColour(layer) {
+  if (!layer) return null;
+
+  if (layer.type === "CIMVectorMarker") {
+    const inner = (layer.markerGraphics || [])[0];
+    const parts = (inner && inner.symbol && inner.symbol.symbolLayers) || [];
+
+    return parts.find(p => p.type === "CIMSolidFill") || null;
+  }
+
+  return layer;
+}
+
+/**
+ * Fills the whole form from a stored CIM renderer.
+ *
+ * <b>From the canonical document, not from the derived `drawingInfo`.</b> The derived one is
+ * flattened to one symbol for the Esri face; reading it here would mean every edit silently
+ * threw away the symbol layers past the first.
+ */
+function fillSymbologyForm(cim, geometry) {
   symFilling = true;
 
   try {
-    const renderer = (drawingInfo && drawingInfo.renderer) || {};
-    const kind = renderer.type === "uniqueValue" || renderer.type === "classBreaks"
-      ? renderer.type
-      : "simple";
+    symModel = cim && typeof cim === "object"
+      ? JSON.parse(JSON.stringify(cim))
+      : { type: "CIMSimpleRenderer", label: "", description: "", symbol: null };
+
+    const kind = symModel.type === "CIMUniqueValueRenderer"
+      ? "uniqueValue"
+      : symModel.type === "CIMClassBreaksRenderer" ? "classBreaks" : "simple";
 
     $("symKind").value = kind;
-
-    const shape = symKindOfGeometry(geometry);
-
-    $("symStrokeHead").textContent = shape === "line" ? "Line" : "Outline";
-    $("symSizeRow").hidden = shape !== "marker";
-
-    const first = kind === "simple"
-      ? renderer.symbol
-      : (renderer.uniqueValueInfos || renderer.classBreakInfos || [])[0]?.symbol;
-
-    const outline = first && (first.outline || (shape === "line" ? first : null));
-
-    $("symStroke").value = symHex(outline ? outline.color : [68, 51, 17]);
-    $("symStrokeWidth").value = outline && outline.width !== undefined ? outline.width : 1;
-    $("symSize").value = first && first.size !== undefined ? first.size : 8;
-
     $("symFieldRow").hidden = kind === "simple";
     $("symClassActions").hidden = kind === "simple";
 
-    drawSymbologyFields(renderer.field1 || renderer.field || "");
-    drawSymbologyClasses(kind, renderer, shape);
+    symClassIndex = Math.min(symClassIndex, Math.max(symClasses().length - 1, 0));
+
+    drawSymbologyFields(
+      (symModel.fields && symModel.fields[0]) || symModel.field || "");
+
+    drawSymbologyClasses(kind);
+    drawSymbolLayers();
   } finally {
     symFilling = false;
   }
@@ -4665,160 +4946,120 @@ function drawSymbologyFields(chosen) {
       .join("");
 }
 
-/** One row per class: what it matches, and what colour it is drawn in. */
-function drawSymbologyClasses(kind, renderer, shape) {
+/**
+ * One row per class: what it matches, what it is called, and the colour of its top layer.
+ *
+ * <b>The swatch is a shortcut into the stack, not a second place the colour lives.</b> It shows
+ * and sets the topmost painted layer, which is the one a reader sees; anything deeper is edited
+ * in the panel below. Two independent colours for one symbol is how a form starts disagreeing
+ * with the document it writes.
+ */
+function drawSymbologyClasses(kind) {
   const box = $("symClasses");
   if (!box) return;
 
-  if (kind === "simple") {
-    const symbol = renderer.symbol || {};
+  const classes = symClasses();
 
-    box.innerHTML = `
-      <div class="setting"><span class="q">${shape === "line" ? "Colour" : "Fill"}:</span>
-        <input type="color" class="symfill" data-class="0"
-          value="${h(symHex(symbol.color))}"></div>`;
-
+  if (classes.length === 0) {
+    box.innerHTML = `<p class="hint">No classes yet. <b>Add a class</b> makes one.</p>`;
     return;
   }
 
-  const infos = kind === "uniqueValue"
-    ? (renderer.uniqueValueInfos || [])
-    : (renderer.classBreakInfos || []);
+  box.innerHTML = classes.map((cls, i) => {
+    const layers = symSymbolOf(cls).symbolLayers;
+    const top = symLayerColour(layers[0]);
+    const chosen = i === symClassIndex ? " symchosen" : "";
 
-  if (infos.length === 0) {
-    box.innerHTML = `<p class="hint">No classes yet. <b>Add a class</b> makes one, or paste a
-      renderer into the document below and fetch it back.</p>`;
-    return;
-  }
+    if (kind === "simple") {
+      return `<div class="setting symclass${chosen}" data-class="${i}">
+        <span class="q">Colour:</span>
+        <input type="color" class="symfill" data-class="${i}"
+          value="${h(symCimHex(top && top.color))}"></div>`;
+    }
 
-  box.innerHTML = infos.map((info, i) => `
-    <div class="setting symclass">
+    const value = kind === "uniqueValue"
+      ? (((cls.values || [])[0] || {}).fieldValues || [])[0] ?? ""
+      : cls.upperBound ?? "";
+
+    return `<div class="setting symclass${chosen}" data-class="${i}">
       <span class="q">${kind === "uniqueValue" ? "Value" : "Up to"}:</span>
       <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
-        data-class="${i}" value="${h(String(
-          kind === "uniqueValue" ? (info.value ?? "") : (info.classMaxValue ?? "")))}">
+        data-class="${i}" value="${h(String(value))}">
       <input type="text" class="symlabel" data-class="${i}"
-        placeholder="label" value="${h(info.label || "")}">
+        placeholder="label" value="${h(cls.label || "")}">
       <input type="color" class="symfill" data-class="${i}"
-        value="${h(symHex(info.symbol && info.symbol.color))}">
+        value="${h(symCimHex(top && top.color))}">
       <button class="tiny ghost symdrop" data-class="${i}" title="Remove this class">×</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 /**
- * Builds a `drawingInfo` from the form.
+ * The selected class's symbol, layer by layer.
  *
- * <b>A `drawingInfo` rather than MapLibre, because the endpoint takes both</b> and this is the
- * shape the controls are in. The conversion turns it into the canonical document on the way in
- * and reports what it could not carry, which is the same path a paste from ArcGIS takes — so the
- * editor cannot produce something the paste path would not.
+ * <b>Top first, which is CIM's own order and Esri's.</b> The renderer reads the stack bottom
+ * first; showing it that way would put the casing above the road in a list whose whole job is
+ * to say which is on top.
  */
-function symbologyFromForm(geometry) {
-  const kind = $("symKind").value;
-  const shape = symKindOfGeometry(geometry);
+function drawSymbolLayers() {
+  const box = $("symStack");
+  if (!box) return;
 
-  const outline = {
-    type: "esriSLS",
-    style: "esriSLSSolid",
-    color: symColour($("symStroke").value),
-    width: Number($("symStrokeWidth").value) || 0,
-  };
+  const cls = symClasses()[symClassIndex];
 
-  const symbolOf = fill => {
-    if (shape === "marker") {
-      return {
-        type: "esriSMS",
-        style: "esriSMSCircle",
-        color: symColour(fill),
-        size: Number($("symSize").value) || 8,
-        outline,
-      };
-    }
-
-    if (shape === "line") {
-      return {
-        type: "esriSLS",
-        style: "esriSLSSolid",
-        color: symColour(fill),
-        width: Number($("symStrokeWidth").value) || 1,
-      };
-    }
-
-    return { type: "esriSFS", style: "esriSFSSolid", color: symColour(fill), outline };
-  };
-
-  const fills = [...document.querySelectorAll("#symClasses .symfill")];
-  const values = [...document.querySelectorAll("#symClasses .symvalue")];
-  const labels = [...document.querySelectorAll("#symClasses .symlabel")];
-
-  if (kind === "simple") {
-    return {
-      renderer: {
-        type: "simple",
-        symbol: symbolOf(fills[0] ? fills[0].value : "#888888"),
-        label: "",
-        description: "",
-      },
-    };
+  if (!cls) {
+    box.innerHTML = `<p class="hint">Pick a class to edit its symbol.</p>`;
+    return;
   }
 
-  const field = $("symField").value;
+  const layers = symSymbolOf(cls).symbolLayers;
+  const head = $("symStackHead");
 
-  if (kind === "uniqueValue") {
-    return {
-      renderer: {
-        type: "uniqueValue",
-        field1: field,
-        defaultSymbol: null,
-        uniqueValueInfos: fills.map((f, i) => ({
-          value: values[i] ? values[i].value : "",
-          label: labels[i] && labels[i].value ? labels[i].value : (values[i] ? values[i].value : ""),
-          symbol: symbolOf(f.value),
-        })),
-      },
-    };
+  if (head) {
+    head.textContent = symClasses().length > 1
+      ? `Symbol layers — ${cls.label || "class " + (symClassIndex + 1)}`
+      : "Symbol layers";
   }
 
-  let previous = null;
+  if (layers.length === 0) {
+    box.innerHTML = `<p class="hint">This symbol has no layers, so it draws nothing.
+      Add a fill, a stroke or a marker.</p>`;
+    return;
+  }
 
-  return {
-    renderer: {
-      type: "classBreaks",
-      field: field,
-      minValue: null,
-      classBreakInfos: fills.map((f, i) => {
-        const max = Number(values[i] ? values[i].value : 0) || 0;
-        const info = {
-          classMinValue: previous,
-          classMaxValue: max,
-          label: labels[i] && labels[i].value ? labels[i].value : String(max),
-          symbol: symbolOf(f.value),
-        };
+  box.innerHTML = layers.map((layer, i) => {
+    const paint = symLayerColour(layer);
+    const known = layer.type === "CIMSolidFill"
+      || layer.type === "CIMSolidStroke"
+      || layer.type === "CIMVectorMarker";
 
-        previous = max;
+    const name = { CIMSolidFill: "Fill", CIMSolidStroke: "Stroke", CIMVectorMarker: "Marker" }
+      [layer.type] || layer.type;
 
-        return info;
-      }),
-    },
-  };
-}
+    // <b>A layer this console cannot edit is shown, not hidden.</b> It is in the document and
+    // it is drawn or reported by the server; a form that skipped it would make Store look like
+    // it had deleted something.
+    const measure = layer.type === "CIMSolidStroke"
+      ? `<input type="number" class="symwidth" data-layer="${i}" min="0" max="40" step="0.25"
+           value="${h(String(layer.width ?? 1))}"><span class="u">pt</span>`
+      : layer.type === "CIMVectorMarker"
+        ? `<input type="number" class="symsize" data-layer="${i}" min="1" max="96" step="1"
+             value="${h(String(layer.size ?? 8))}"><span class="u">pt</span>`
+        : "";
 
-/**
- * Writes the form into the document box and asks the server what it looks like.
- *
- * <b>The server draws it, not the browser.</b> A preview the console painted itself would be a
- * picture of the console's idea of the style; what is worth showing is the renderer that will
- * serve it, at the size it will be seen. `/admin/layers/{name}/symbology/preview` is the same
- * code the thumbnail uses, with the candidate document instead of the stored one.
- */
-async function previewSymbology(name, geometry) {
-  if (symFilling || !$("symKind") || !$("symDoc")) return;
-
-  const document_ = symbologyFromForm(geometry);
-
-  $("symDoc").value = JSON.stringify(document_, null, 1);
-
-  await drawSymbologyPreview(name, $("symDoc").value);
+    return `<div class="setting symlayer" data-layer="${i}">
+      <span class="q symlayerkind">${h(name)}</span>
+      ${known
+        ? `<input type="color" class="symlayercolour" data-layer="${i}"
+             value="${h(symCimHex(paint && paint.color))}">`
+        : `<span class="hint">kept, not editable here</span>`}
+      ${measure}
+      <button class="tiny ghost symup" data-layer="${i}" title="Move up"${i === 0 ? " disabled" : ""}>↑</button>
+      <button class="tiny ghost symdown" data-layer="${i}" title="Move down"${
+        i === layers.length - 1 ? " disabled" : ""}>↓</button>
+      <button class="tiny ghost symlayerdrop" data-layer="${i}" title="Remove this layer">×</button>
+    </div>`;
+  }).join("");
 }
 
 /** Asks for the picture and shows it, or says why there is none. */
@@ -6115,15 +6356,21 @@ function showLayer(name, page, pending = null) {
             <button class="tiny" id="symAddClass">Add a class</button>
           </div>
 
-          <h4 id="symStrokeHead">Outline</h4>
-          <div class="setting"><span class="q">Colour:</span>
-            <input type="color" id="symStroke"></div>
-          <div class="setting"><span class="q">Width:</span>
-            <input type="number" id="symStrokeWidth" min="0" max="20" step="0.5">
-            <span class="u">px</span></div>
-          <div class="setting" id="symSizeRow" hidden><span class="q">Size:</span>
-            <input type="number" id="symSize" min="1" max="48" step="1">
-            <span class="u">px</span></div>
+          <!--
+            <b>A symbol is a stack, so the editor is a stack — ADR-052 §3.7.</b> This used to be
+            one outline and one size shared by every class, which is a symbol one layer deep;
+            the canonical document has held more than that since the CIM reversal, and the only
+            way to author it was to type JSON. The shape is Esri's own Symbol Styler: pick the
+            class, then edit its symbol layer by layer.
+          -->
+          <h4 id="symStackHead">Symbol layers</h4>
+          <p class="hint" id="symStackNote">The first row is drawn on top.</p>
+          <div id="symStack"></div>
+          <div class="row" id="symStackActions">
+            <button class="tiny" data-add-layer="CIMSolidFill">Fill</button>
+            <button class="tiny" data-add-layer="CIMSolidStroke">Stroke</button>
+            <button class="tiny" data-add-layer="CIMVectorMarker">Marker</button>
+          </div>
         </div>
       </div>
 

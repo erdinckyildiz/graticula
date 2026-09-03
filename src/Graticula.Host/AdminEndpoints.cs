@@ -2303,7 +2303,14 @@ internal static class AdminEndpoints
                 // Zero, exactly as ADR-033 §5b asks: a generated appearance is
                 // reported as generated rather than presented as somebody's choice.
                 version = 0,
-                symbology = (object?)null,
+
+                // <b>The generated appearance as CIM, not as null (ADR-052).</b> The editor
+                // authors CIM now, and a form that filled itself from the derived
+                // `drawingInfo` would flatten a stack the moment anybody pressed Store. It is
+                // built by running the generated `drawingInfo` through the same conversion a
+                // paste takes, so there is one implementation of that reading rather than a
+                // second one here.
+                symbology = GeneratedCim(layer.Name, layer.Geometry),
                 drawingInfo = FeatureServerMetadataWriter.DrawingInfo(layer.Name, layer.Geometry),
                 losses = Array.Empty<string>(),
                 note = "This layer has no stored symbology, so both faces draw it in the "
@@ -2362,6 +2369,40 @@ internal static class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+
+    /// <summary>
+    /// The generated appearance as a CIM renderer, for a layer that has stored none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Derived from the generated `drawingInfo` rather than built here.</b> That keeps one
+    /// implementation of *what the generated appearance is*; a second one would drift, and the
+    /// drift would show as an editor whose first draw differs from the map beside it.
+    /// </remarks>
+    /// <param name="name">The layer.</param>
+    /// <param name="geometry">What it is made of.</param>
+    /// <returns>The renderer, or null when it cannot be built.</returns>
+    private static System.Text.Json.Nodes.JsonObject? GeneratedCim(
+        string name, GeometryKind geometry)
+    {
+        try
+        {
+            System.Text.Json.Nodes.JsonNode drawing =
+                System.Text.Json.Nodes.JsonNode.Parse(
+                    System.Text.Json.JsonSerializer.Serialize(
+                        FeatureServerMetadataWriter.DrawingInfo(name, geometry)))!;
+
+            return CimEsri
+                .FromDrawingInfo((System.Text.Json.Nodes.JsonObject)drawing, geometry)
+                .Renderer;
+        }
+        catch (SymbologyException)
+        {
+            // <b>Null rather than a refusal.</b> The generated appearance is this server's own
+            // and cannot normally fail to convert; if it ever does, the page still opens and
+            // says the layer is generated, which is more useful than a 500.
+            return null;
+        }
+    }
 
     /// <summary>
     /// Draws a layer with a symbology that is not stored, and answers a PNG.

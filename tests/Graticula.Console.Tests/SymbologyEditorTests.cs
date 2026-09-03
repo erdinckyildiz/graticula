@@ -272,47 +272,107 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
-    /// The controls name what this layer's geometry actually has.
+    /// A symbol is edited layer by layer, and the layers can be reordered.
     /// </summary>
     /// <remarks>
-    /// <b>A polygon has an outline, a line *is* the stroke, and only a marker has a size.</b>
-    /// Showing all three to everybody is the cheap thing to build and it is what makes an
-    /// editor read as a form somebody else's product generated.
+    /// <b>ADR-052 §3.7, shaped after the reference the owner named.</b> The form used to offer
+    /// one outline and one size shared by every class, which is a symbol one layer deep — and
+    /// the canonical document has held more than that since the CIM reversal. The only way to
+    /// author a road with a casing under it was to type JSON.
     /// </remarks>
     /// <returns>The task.</returns>
     [Fact]
-    public async Task The_controls_match_the_geometry_they_are_drawing()
+    public async Task A_symbol_is_built_from_layers_that_can_be_added_and_reordered()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await ALayerOfAsync(token, "LineString");
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#symStack .symlayer').length > 0",
+            "The Symbology page drew no symbol layers, so a symbol cannot be built from more "
+            + "than one.");
+
+        int before = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#symStack .symlayer').length");
+
+        // <b>A second stroke is the case the whole reversal was for.</b> A road is a wide
+        // casing under a narrow fill, and it is two strokes or it is not a road.
+        await ClickAsync("#symStackActions [data-add-layer='CIMSolidStroke']");
+
+        await WaitForAsync(
+            $"document.querySelectorAll('#symStack .symlayer').length === {before + 1}",
+            "Adding a stroke did not add a row.");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '')"
+            + ".split('CIMSolidStroke').length - 1 >= 2",
+            "The document does not carry two strokes, so the row was drawn and not stored.");
+
+        // <b>Order is the point of a stack.</b> Two layers whose order cannot be changed are
+        // two layers only one of which anybody sees.
+        string first = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#symStack .symlayer .symlayercolour').value") ?? "";
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const c = document.querySelectorAll('#symStack .symlayercolour');"
+            + " c[c.length - 1].value = '#1e1e1e';"
+            + " c[c.length - 1].dispatchEvent(new Event('change', { bubbles: true }));"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '').includes('30')",
+            "The layer's own colour never reached the document.");
+
+        await ClickAsync("#symStack .symlayer:last-child .symup");
+
+        await WaitForAsync(
+            "document.querySelector('#symStack .symlayer .symlayercolour').value === '#1e1e1e'",
+            "Moving a layer up did not move it: the row that was last is not now first.");
+
+        Assert.NotEqual("#1e1e1e", first);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The layers a geometry can carry are the ones offered, and a marker has a size.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task The_stack_offers_what_the_geometry_can_be_drawn_with()
     {
         (string token, _) = await SignInAsync();
 
         string points = await ALayerOfAsync(token, "Point");
-        string lines = await ALayerOfAsync(token, "LineString");
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(points)}/symbology", token);
 
         await WaitForAsync(
-            "document.getElementById('symSize') !== null"
-            + " && document.getElementById('symSizeRow')"
-            + " && !document.getElementById('symSizeRow').hidden",
-            $"'{points}' draws markers and the editor offers no size, so the one dimension a "
+            "document.querySelector('#symStack .symsize') !== null",
+            $"'{points}' draws markers and its symbol offers no size, so the one dimension a "
             + "point symbol has cannot be set.");
 
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "document.getElementById('symSize').offsetParent !== null"),
-            "The size control is in the document and not on screen.");
+                "document.querySelector('#symStack .symsize').offsetParent !== null"),
+            "The marker's size is in the document and not on screen.");
+
+        string lines = await ALayerOfAsync(token, "LineString");
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(lines)}/symbology", token);
 
         await WaitForAsync(
-            "(document.getElementById('symStrokeHead')?.textContent || '') === 'Line'",
-            $"'{lines}' is drawn as lines and the editor calls its colour an *outline*, which "
-            + "is the word for the edge of something filled.");
+            "document.querySelector('#symStack .symwidth') !== null",
+            $"'{lines}' is drawn as strokes and its symbol offers no width.");
 
-        await WaitForAsync(
-            "document.getElementById('symSizeRow')"
-            + " && document.getElementById('symSizeRow').hidden",
-            "A line layer is offered a marker size, which it has no use for.");
+        // <b>A line has no size and a marker has no width.</b> Offering both to both is the
+        // cheap thing to build and it is what makes a form read as generated.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelector('#symStack .symsize') === null"),
+            "A line symbol is offered a marker size, which it has no use for.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

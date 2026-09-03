@@ -198,7 +198,41 @@ turns it into a variable instead. An `interpolate` over the *zoom* is still not 
 a scale rule rather than a statement about the data, and filing it as a visual variable would
 claim the map says something about a field it never mentions.
 
-### 3.7 What happens to documents stored under ADR-033
+### 3.7 The editor authors CIM, and edits the stack
+
+**Owner decision 2026-09-03**, taking the shape from the reference they named: ArcGIS Map
+Viewer's Symbol Styler, where a symbol with several layers is edited *layer by layer* — each
+with its own fill and outline — rather than as one colour and one width.
+
+Three things follow, and the first is a defect the change removes:
+
+1. **The form reads the stored CIM, not the derived `drawingInfo`.** It read the derived one
+   before, which is flattened to a single symbol for the Esri face — so opening a two-layer
+   symbol and pressing Store would have thrown the second layer away. Every edit. Silently.
+
+2. **The form's model is the parsed document, whole.** The controls mutate the object they were
+   handed and write it back; they do not rebuild a renderer from the inputs. That is what makes
+   §3.2's *everything else is kept and not understood* true through an edit rather than only
+   through a read: a hatch fill this console cannot draw is listed as *kept, not editable here*
+   and survives being edited around.
+
+3. **`GET .../symbology` answers a generated appearance as CIM**, where it answered `null`
+   before. The editor always reads one vocabulary. It is built by running the generated
+   `drawingInfo` through the same conversion a paste takes, so there is one implementation of
+   *what the generated appearance is*.
+
+**This amends [ADR-051](ADR-051-an-appearance-is-chosen-by-looking-at-it.md) §3.3.** That said
+editing the document box by hand left the controls alone, because a MapLibre expression had no
+checkbox. With CIM canonical and a model that keeps what it does not understand, the box is
+parsed and adopted instead — so the controls and the text can no longer describe different
+things. Store still sends the box.
+
+**What is not taken from the reference**, and is named rather than approximated: `Join` /
+`Join and merge` / `No join` drawing order, `Alignment` between display and map, and
+`Lock color`. This renderer has no equivalent of any of them, and a control that looks like
+Esri's and does something else is worse than no control.
+
+### 3.8 What happens to documents stored under ADR-033
 
 **Read tolerates both and write always produces CIM.** A stored document whose
 root has `"version": 8` and `"layers"` is a MapLibre style and is converted on
