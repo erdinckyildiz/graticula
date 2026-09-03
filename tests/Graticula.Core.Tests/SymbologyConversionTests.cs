@@ -64,7 +64,11 @@ public sealed class SymbologyConversionTests
         DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(
             stored.Canonical, "roads", GeometryKind.LineString);
 
-        Assert.Contains(derived.Losses, l =>
+        // <b>Reported on the way in from 2026-09-03, where it used to be reported on the way
+        // out.</b> ADR-052 made CIM the canonical document, so a MapLibre style is converted
+        // when it is stored rather than when a face is derived -- which means the person who
+        // pasted it is the person who is told, and that is an improvement rather than a move.
+        Assert.Contains(stored.Losses, l =>
             l.Contains("line-width", StringComparison.Ordinal)
             && l.Contains("zoom", StringComparison.Ordinal));
 
@@ -284,9 +288,15 @@ public sealed class SymbologyConversionTests
         Assert.Equal(DarkestBreak, Rgba(infos[2]!["symbol"]!["color"]!));
 
         // And the top class is declared rather than quietly wrong.
-        Assert.Contains(derived.Losses, l =>
-            l.Contains("last class", StringComparison.Ordinal)
-            && l.Contains("unbounded", StringComparison.Ordinal));
+        // <b>No longer lost, and the assertion is inverted rather than deleted.</b> Under
+        // ADR-033 the canonical document was a MapLibre `step`, whose last class has no upper
+        // bound -- so the Esri face had to report that it was inventing one. A CIM
+        // `CIMClassBreak` carries `upperBound` for every class including the last, so the top
+        // of the range survives storage and there is nothing to report.
+        Assert.DoesNotContain(derived.Losses, l =>
+            l.Contains("unbounded", StringComparison.Ordinal));
+
+        Assert.Equal(100000, infos[2]!["classMaxValue"]!.GetValue<double>());
     }
 
     /// <summary>
@@ -476,7 +486,14 @@ public sealed class SymbologyConversionTests
 
         SymbologyWrite stored = SymbologyConversion.Read(drawingInfo, GeometryKind.Polygon);
 
-        Assert.Contains("0.5", stored.Canonical, StringComparison.Ordinal);
+        // <b>Half, in CIM's own units, read out rather than searched for.</b> A `CIMRGBColor`
+        // writes alpha as a percentage, so half-opaque is `50` where MapLibre wrote `0.5`. The
+        // number changed with the canonical vocabulary (ADR-052); what is asserted -- that the
+        // layer's transparency was folded in once, at storage -- did not.
+        JsonArray channels = (JsonArray)JsonNode.Parse(stored.Canonical)!
+            ["symbol"]!["symbol"]!["symbolLayers"]![0]!["color"]!["values"]!;
+
+        Assert.Equal(50, channels[3]!.GetValue<double>());
 
         DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(
             stored.Canonical, "x", GeometryKind.Polygon);
@@ -576,13 +593,23 @@ public sealed class SymbologyConversionTests
     }
 
     /// <summary>
-    /// A style with no filter still stores everything it stored before.
+    /// Refusing a filter does not disturb what the rest of the layer said.
     /// </summary>
     /// <remarks>
-    /// <b>The control on the refusal's blast radius.</b> <c>filter</c> came out of
-    /// the copied-property list at the same time, and a wrong edit there would take
-    /// <c>minzoom</c> or <c>layout</c> with it — which no test above would catch,
-    /// because every one of them is about colour.
+    /// <para>
+    /// <b>The guard is unchanged; the vocabulary it is written in is not.</b> A style is still
+    /// normalised and refused for a filter on the way in, and this still asserts that the
+    /// properties beside the filter came through untouched. What changed on 2026-09-03 is where
+    /// they come through *to*: ADR-052 made the stored document a CIM renderer.
+    /// </para>
+    /// <para>
+    /// <b>And two of them do not come through, which is asserted rather than discovered.</b> A
+    /// scale range belongs to a CIM *layer* and what is stored is a renderer, so `minzoom` and
+    /// `maxzoom` cannot be expressed; `line-cap` has a CIM spelling this server does not map.
+    /// Both are reported. This is a capability the canonical move costs and it is written down
+    /// here as well as in ADR-052 §4, because a consequence recorded only in a decision document
+    /// is one nobody meets again.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Removing_filter_from_the_copy_left_the_other_properties_alone()
@@ -600,13 +627,30 @@ public sealed class SymbologyConversionTests
         """;
 
         SymbologyWrite stored = SymbologyConversion.Read(style, GeometryKind.LineString);
-        JsonObject layer = (JsonObject)((JsonArray)
-            JsonNode.Parse(stored.Canonical)!["layers"]!)[0]!;
 
-        Assert.Equal(4, layer["minzoom"]!.GetValue<double>());
-        Assert.Equal(14, layer["maxzoom"]!.GetValue<double>());
-        Assert.Equal("round", layer["layout"]!["line-cap"]!.GetValue<string>());
-        Assert.Null(layer["filter"]);
+        JsonObject stroke = (JsonObject)JsonNode.Parse(stored.Canonical)!
+            ["symbol"]!["symbol"]!["symbolLayers"]![0]!;
+
+        // <b>What survived.</b> The colour exactly, and the width converted from pixels to the
+        // points CIM measures in: 2px is 1.5pt.
+        Assert.Equal("CIMSolidStroke", stroke["type"]!.GetValue<string>());
+        Assert.Equal(1.5, stroke["width"]!.GetValue<double>());
+
+        JsonArray channels = (JsonArray)stroke["color"]!["values"]!;
+
+        Assert.Equal(0x12, channels[0]!.GetValue<int>());
+        Assert.Equal(0x34, channels[1]!.GetValue<int>());
+        Assert.Equal(0x56, channels[2]!.GetValue<int>());
+
+        // <b>What did not, said out loud.</b> Silence here would be a layer that used to appear
+        // between two zooms and now appears at all of them, with nothing anywhere to say why.
+        Assert.Contains(stored.Losses, l =>
+            l.Contains("zoom 4", StringComparison.Ordinal)
+            && l.Contains("drawn at every scale", StringComparison.Ordinal));
+
+        Assert.Contains(stored.Losses, l => l.Contains("line-cap", StringComparison.Ordinal));
+
+        Assert.DoesNotContain("filter", stored.Canonical, StringComparison.Ordinal);
     }
 
     private static JsonNode RoundTrip(string drawingInfo, string layer, GeometryKind geometry)

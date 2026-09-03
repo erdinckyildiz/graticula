@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Graticula.Geometries;
 
@@ -64,11 +65,65 @@ public static class CimEsri
             "classBreaks" => Breaks(renderer, geometry, losses),
 
             _ => throw new SymbologyException(
-                $"'{kind}' is not a renderer this server reads. It reads `simple`, "
-                + "`uniqueValue` and `classBreaks`."),
+                $"'{kind}' is not a renderer this server converts. ADR-033 §5e accepts `simple`, "
+                + "`uniqueValue` and `classBreaks`, and nothing beyond them: a renderer stored "
+                + "but not drawn is a layer that looks styled and is not."),
         };
 
+        // <b>Layer transparency folded into the colours, once.</b> An Esri `drawingInfo`
+        // expresses opacity twice — in each symbol's alpha and again in the layer's
+        // `transparency` — and a reader that carried both would multiply them, which is the
+        // 45%-becomes-20% fault. CIM has no layer-level opacity, so folding it in is the only
+        // way to keep it at all, and the derived face writes `transparency: 0` so the two can
+        // never be applied together.
+        if (Number(drawingInfo["transparency"]) is { } transparency and > 0)
+        {
+            Fold(built, Math.Clamp(100 - transparency, 0, 100) / 100.0);
+        }
+
         return new CimWrite(built, losses);
+    }
+
+    /// <summary>Scales every colour's alpha in a renderer, in place.</summary>
+    /// <remarks>
+    /// <b>A walk rather than a parameter threaded through every writer.</b> The colours are
+    /// written in six places and a factor passed to five of them is a factor somebody forgets in
+    /// the sixth, where it fails as one symbol that is opaque when the rest are not.
+    /// </remarks>
+    /// <param name="node">Anywhere in the renderer.</param>
+    /// <param name="factor">What to multiply alpha by, 0 to 1.</param>
+    private static void Fold(JsonNode? node, double factor)
+    {
+        switch (node)
+        {
+            case JsonObject body:
+                if (Text(body["type"]) == "CIMRGBColor"
+                    && body["values"] is JsonArray values
+                    && values.Count > 3)
+                {
+                    values[3] = Num(Math.Clamp((Number(values[3]) ?? 100) * factor, 0, 100));
+
+                    return;
+                }
+
+                foreach (KeyValuePair<string, JsonNode?> each in body)
+                {
+                    Fold(each.Value, factor);
+                }
+
+                break;
+
+            case JsonArray array:
+                foreach (JsonNode? each in array)
+                {
+                    Fold(each, factor);
+                }
+
+                break;
+
+            default:
+                break;
+        }
     }
 
     /// <summary>One symbol per value.</summary>
@@ -172,7 +227,7 @@ public static class CimEsri
 
             breaks.Add(new JsonObject
             {
-                ["upperBound"] = upper,
+                ["upperBound"] = Num(upper),
                 ["label"] = Text(info["label"])
                     ?? upper.ToString(CultureInfo.InvariantCulture),
                 ["symbol"] = Reference(
@@ -195,7 +250,7 @@ public static class CimEsri
 
         if (Number(renderer["minValue"]) is { } minimum)
         {
-            built["minimumBreak"] = minimum;
+            built["minimumBreak"] = Num(minimum);
         }
 
         return built;
@@ -322,7 +377,7 @@ public static class CimEsri
 
             // <b>Esri's line width is in points and so is CIM's</b>, so this one does not
             // convert. The style derivation is where points become pixels.
-            ["width"] = Number(stroke["width"]) ?? 1,
+            ["width"] = Num(Number(stroke["width"]) ?? 1),
             ["color"] = Cim.Colour(Colour(stroke["color"])),
         };
 
@@ -388,16 +443,16 @@ public static class CimEsri
         {
             ["type"] = "CIMVectorMarker",
             ["enable"] = true,
-            ["size"] = Number(marker["size"]) ?? 8,
-            ["rotation"] = Number(marker["angle"]) ?? 0,
+            ["size"] = Num(Number(marker["size"]) ?? 8),
+            ["rotation"] = Num(Number(marker["angle"]) ?? 0),
             ["markerGraphics"] = new JsonArray(
                 new JsonObject
                 {
                     ["type"] = "CIMMarkerGraphic",
                     ["geometry"] = new JsonObject
                     {
-                        ["x"] = 0,
-                        ["y"] = 0,
+                        ["x"] = Num(0),
+                        ["y"] = Num(0),
                     },
                     ["symbol"] = new JsonObject
                     {
@@ -426,15 +481,13 @@ public static class CimEsri
     /// </remarks>
     /// <param name="renderer">The stored CIM renderer.</param>
     /// <param name="layerName">What the layer is called, for messages.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <returns>The <c>drawingInfo</c> and what it could not carry.</returns>
-    public static DerivedDrawingInfo ToDrawingInfo(
-        JsonObject renderer, string layerName, GeometryKind geometry)
+    public static DerivedDrawingInfo ToDrawingInfo(JsonObject renderer, string layerName)
     {
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
-        CimProjection projection = Cim.Project(renderer, geometry);
+        CimProjection projection = Cim.Project(renderer);
         List<string> losses = [.. projection.NotDrawn];
 
         JsonObject built = projection.Kind switch
@@ -442,7 +495,7 @@ public static class CimEsri
             Cim.Simple => new JsonObject
             {
                 ["type"] = "simple",
-                ["symbol"] = Flatten(projection.Classes[0].Symbol, "the symbol", losses),
+                ["symbol"] = Flatten(projection.Classes[0].Symbol, "this layer", losses),
                 ["label"] = projection.Classes[0].Label,
                 ["description"] = string.Empty,
             },
@@ -454,7 +507,16 @@ public static class CimEsri
                 $"'{projection.Kind}' has no Esri renderer to derive for '{layerName}'."),
         };
 
-        return new DerivedDrawingInfo(new JsonObject { ["renderer"] = built }, losses);
+        // <b>`transparency: 0`, said rather than left out.</b> The layer's opacity is already
+        // inside every colour's alpha; a face that omitted the property would let a client
+        // supply its own default and a face that echoed it would apply it twice.
+        return new DerivedDrawingInfo(
+            new JsonObject
+            {
+                ["renderer"] = built,
+                ["transparency"] = Num(0),
+            },
+            losses);
     }
 
     /// <summary>A `uniqueValue` renderer from the projection.</summary>
@@ -510,8 +572,8 @@ public static class CimEsri
         {
             infos.Add(new JsonObject
             {
-                ["classMinValue"] = previous,
-                ["classMaxValue"] = one.UpperBound,
+                ["classMinValue"] = previous is { } bottom ? Num(bottom) : null,
+                ["classMaxValue"] = one.UpperBound is { } top ? Num(top) : null,
                 ["label"] = one.Label,
                 ["description"] = string.Empty,
                 ["symbol"] = Flatten(one.Symbol, $"the break '{one.Label}'", losses),
@@ -524,7 +586,7 @@ public static class CimEsri
         {
             ["type"] = "classBreaks",
             ["field"] = projection.Field,
-            ["minValue"] = 0,
+            ["minValue"] = Num(0),
             ["classBreakInfos"] = infos,
         };
     }
@@ -549,7 +611,7 @@ public static class CimEsri
         if (symbol.Paints.Count > carried)
         {
             losses.Add(
-                $"The symbol at {where} is built from {symbol.Paints.Count} layers and an Esri "
+                $"The symbol for {where} is built from {symbol.Paints.Count} layers and an Esri "
                 + $"symbol carries {carried}. The topmost of each kind is published; the rest are "
                 + "drawn by this server and by the tile style, and are kept in the stored "
                 + "document.");
@@ -562,10 +624,10 @@ public static class CimEsri
                 ["type"] = "esriSMS",
                 ["style"] = "esriSMSCircle",
                 ["color"] = Esri(marker.Colour),
-                ["size"] = marker.Size,
-                ["angle"] = 0,
-                ["xoffset"] = 0,
-                ["yoffset"] = 0,
+                ["size"] = Num(marker.Size),
+                ["angle"] = Num(0),
+                ["xoffset"] = Num(0),
+                ["yoffset"] = Num(0),
             };
 
             if (stroke is not null)
@@ -641,7 +703,7 @@ public static class CimEsri
             ["type"] = "esriSLS",
             ["style"] = style,
             ["color"] = Esri(stroke.Colour),
-            ["width"] = stroke.Width,
+            ["width"] = Num(stroke.Width),
         };
     }
 
@@ -649,7 +711,7 @@ public static class CimEsri
     /// <param name="colour">The colour.</param>
     /// <returns>The array.</returns>
     private static JsonArray Esri(Rgba colour) =>
-        new((int)colour.R, (int)colour.G, (int)colour.B, (int)colour.A);
+        new(Num(colour.R), Num(colour.G), Num(colour.B), Num(colour.A));
 
     /// <summary>Reports a symbol style this server draws as if it were the plain one.</summary>
     /// <param name="symbol">The symbol.</param>
@@ -662,8 +724,9 @@ public static class CimEsri
         if (Text(symbol["style"]) is { Length: > 0 } style && style != plain)
         {
             losses.Add(
-                $"The symbol at {where} has style `{style}`. This server paints solid fills and "
-                + $"round markers, so it is drawn as `{plain}`.");
+                $"The symbol at {where} has style `{style}`, and was converted to `{plain}`. A "
+                + "hatch or a picture fill needs a sprite image, and this server has no sprite "
+                + "library (ADR-027 condition 5), so the shape is drawn as a flat colour.");
         }
     }
 
@@ -683,6 +746,24 @@ public static class CimEsri
 
         return new Rgba(At(0), At(1), At(2), array.Count > 3 ? At(3) : (byte)255);
     }
+
+    /// <summary>
+    /// A number that reads back as whatever type asks for it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not <c>JsonValue.Create</c>, and the difference is a whole class of defect.</b> A
+    /// <c>JsonValue</c> created from an <c>int</c> is a <c>JsonValue&lt;int&gt;</c> and refuses
+    /// <c>GetValue&lt;double&gt;</c>; one created from a <c>double</c> refuses
+    /// <c>GetValue&lt;int&gt;</c>. Both serialise identically, so the document on the wire looks
+    /// right and every consumer that reads it in memory throws. Going through a
+    /// <c>JsonElement</c> gives a value backed by the parser, which converts the way a document
+    /// read from text does. Measured twice on 2026-09-03, in the round trip and in the Esri
+    /// face.
+    /// </remarks>
+    /// <param name="value">The number.</param>
+    /// <returns>The node.</returns>
+    private static JsonValue Num(double value) =>
+        JsonValue.Create(JsonSerializer.SerializeToElement(value))!;
 
     /// <summary>The objects of an array property.</summary>
     /// <param name="node">The property.</param>

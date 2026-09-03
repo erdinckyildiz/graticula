@@ -43,8 +43,7 @@ public sealed class CimEsriTests
 
         CimWrite stored = CimEsri.FromDrawingInfo(drawingInfo, GeometryKind.Polygon);
 
-        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(
-            stored.Renderer, "parcels", GeometryKind.Polygon);
+        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(stored.Renderer, "parcels");
 
         JsonObject symbol = (JsonObject)back.DrawingInfo["renderer"]!["symbol"]!;
 
@@ -85,8 +84,7 @@ public sealed class CimEsriTests
         Assert.Equal("CIMSolidStroke", (string?)layers[0]!["type"]);
         Assert.Equal("CIMSolidFill", (string?)layers[1]!["type"]);
 
-        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(
-            stored.Renderer, "parcels", GeometryKind.Polygon);
+        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(stored.Renderer, "parcels");
 
         JsonObject symbol = (JsonObject)back.DrawingInfo["renderer"]!["symbol"]!;
 
@@ -119,8 +117,7 @@ public sealed class CimEsriTests
 
         CimWrite stored = CimEsri.FromDrawingInfo(drawingInfo, GeometryKind.LineString);
 
-        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(
-            stored.Renderer, "roads", GeometryKind.LineString);
+        DerivedDrawingInfo back = CimEsri.ToDrawingInfo(stored.Renderer, "roads");
 
         JsonObject renderer = (JsonObject)back.DrawingInfo["renderer"]!;
 
@@ -159,8 +156,7 @@ public sealed class CimEsriTests
             }
             """)!;
 
-        DerivedDrawingInfo derived = CimEsri.ToDrawingInfo(
-            renderer, "roads", GeometryKind.LineString);
+        DerivedDrawingInfo derived = CimEsri.ToDrawingInfo(renderer, "roads");
 
         JsonObject symbol = (JsonObject)derived.DrawingInfo["renderer"]!["symbol"]!;
 
@@ -177,7 +173,7 @@ public sealed class CimEsriTests
 
         // <b>And the map draws both.</b> The whole claim is that only this one face loses the
         // casing, so the style derivation has to still have it.
-        DerivedStyle style = CimStyle.ToMapLibre(renderer, "roads", GeometryKind.LineString);
+        DerivedStyle style = CimStyle.ToMapLibre(renderer, "roads");
 
         Assert.Equal(2, ((JsonArray)style.Style["layers"]!).Count);
     }

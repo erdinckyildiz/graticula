@@ -259,8 +259,14 @@ public static class VectorTileServerMetadataWriter
 
         try
         {
-            if (System.Text.Json.Nodes.JsonNode.Parse(symbology)
-                is not System.Text.Json.Nodes.JsonObject document
+            // <b>Derived, not parsed (ADR-052).</b> The stored document is a CIM renderer now,
+            // so reading it here as a MapLibre style would find no `layers` array, answer null,
+            // and fall through to the generated appearance -- a styled layer quietly reverting
+            // to its default colour on this face only, with both faces then disagreeing about
+            // the same layer. That is the drift ADR-033 §7's first condition exists to stop, and
+            // it would have arrived by the back door of a half-finished change.
+            if (SymbologyConversion.ToStyle(symbology, sourceLayerName, geometryType).Style
+                is not { } document
                 || document["layers"] is not System.Text.Json.Nodes.JsonArray layers)
             {
                 return null;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Graticula.Geometries;
 
@@ -67,9 +68,8 @@ public static class Cim
     /// Projects a CIM renderer onto what this server can draw.
     /// </summary>
     /// <param name="body">The stored renderer.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <returns>The projection, and one sentence per thing it could not carry.</returns>
-    public static CimProjection Project(JsonObject body, GeometryKind geometry)
+    public static CimProjection Project(JsonObject body)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -78,9 +78,9 @@ public static class Cim
 
         return kind switch
         {
-            Simple => ProjectSimple(body, geometry, notDrawn),
-            UniqueValue => ProjectUniqueValue(body, geometry, notDrawn),
-            ClassBreaks => ProjectClassBreaks(body, geometry, notDrawn),
+            Simple => ProjectSimple(body, notDrawn),
+            UniqueValue => ProjectUniqueValue(body, notDrawn),
+            ClassBreaks => ProjectClassBreaks(body, notDrawn),
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
                 + $"`{UniqueValue}` and `{ClassBreaks}`. A renderer it cannot read is refused "
@@ -91,13 +91,11 @@ public static class Cim
 
     /// <summary>One symbol for every feature.</summary>
     /// <param name="body">The renderer.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <param name="notDrawn">Collects what could not be carried.</param>
     /// <returns>The projection.</returns>
-    private static CimProjection ProjectSimple(
-        JsonObject body, GeometryKind geometry, List<string> notDrawn)
+    private static CimProjection ProjectSimple(JsonObject body, List<string> notDrawn)
     {
-        CimSymbol symbol = ReadSymbol(body["symbol"], geometry, "the renderer's symbol", notDrawn);
+        CimSymbol symbol = ReadSymbol(body["symbol"], "the renderer's symbol", notDrawn);
 
         return new CimProjection(
             Simple,
@@ -109,11 +107,9 @@ public static class Cim
 
     /// <summary>One symbol per distinct value.</summary>
     /// <param name="body">The renderer.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <param name="notDrawn">Collects what could not be carried.</param>
     /// <returns>The projection.</returns>
-    private static CimProjection ProjectUniqueValue(
-        JsonObject body, GeometryKind geometry, List<string> notDrawn)
+    private static CimProjection ProjectUniqueValue(JsonObject body, List<string> notDrawn)
     {
         // <b>`fields` is an array and this server classifies by one.</b> Esri allows three,
         // combined; saying so is better than drawing by the first and letting somebody find out
@@ -174,7 +170,7 @@ public static class Cim
                     values,
                     UpperBound: null,
                     Text(one["label"]) ?? string.Join(", ", values),
-                    ReadSymbol(one["symbol"], geometry, "a unique-value class", notDrawn)));
+                    ReadSymbol(one["symbol"], "a unique-value class", notDrawn)));
             }
         }
 
@@ -188,17 +184,15 @@ public static class Cim
             UniqueValue,
             fields[0],
             classes,
-            Fallback(body, geometry, notDrawn),
+            Fallback(body, notDrawn),
             notDrawn);
     }
 
     /// <summary>One symbol per range of a number.</summary>
     /// <param name="body">The renderer.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <param name="notDrawn">Collects what could not be carried.</param>
     /// <returns>The projection.</returns>
-    private static CimProjection ProjectClassBreaks(
-        JsonObject body, GeometryKind geometry, List<string> notDrawn)
+    private static CimProjection ProjectClassBreaks(JsonObject body, List<string> notDrawn)
     {
         if (Text(body["field"]) is not { Length: > 0 } field)
         {
@@ -222,7 +216,7 @@ public static class Cim
                 Values: [],
                 upper,
                 Text(one["label"]) ?? upper.ToString(CultureInfo.InvariantCulture),
-                ReadSymbol(one["symbol"], geometry, "a class break", notDrawn)));
+                ReadSymbol(one["symbol"], "a class break", notDrawn)));
         }
 
         if (classes.Count == 0)
@@ -236,16 +230,14 @@ public static class Cim
         classes.Sort((a, b) => (a.UpperBound ?? 0).CompareTo(b.UpperBound ?? 0));
 
         return new CimProjection(
-            ClassBreaks, field, classes, Fallback(body, geometry, notDrawn), notDrawn);
+            ClassBreaks, field, classes, Fallback(body, notDrawn), notDrawn);
     }
 
     /// <summary>The symbol for features no class matches, when the renderer offers one.</summary>
     /// <param name="body">The renderer.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <param name="notDrawn">Collects what could not be carried.</param>
     /// <returns>The symbol, or null.</returns>
-    private static CimSymbol? Fallback(
-        JsonObject body, GeometryKind geometry, List<string> notDrawn)
+    private static CimSymbol? Fallback(JsonObject body, List<string> notDrawn)
     {
         // <b>`useDefaultSymbol` decides, and a missing flag means the symbol is used.</b> A
         // renderer that carries a default symbol and never draws it is the rarer intent.
@@ -258,19 +250,18 @@ public static class Cim
 
         return body["defaultSymbol"] is null
             ? null
-            : ReadSymbol(body["defaultSymbol"], geometry, "the default symbol", notDrawn);
+            : ReadSymbol(body["defaultSymbol"], "the default symbol", notDrawn);
     }
 
     /// <summary>
     /// Reads a <c>CIMSymbolReference</c> down to the layers this server paints with.
     /// </summary>
     /// <param name="node">The reference, or a bare symbol.</param>
-    /// <param name="geometry">What the layer is made of.</param>
     /// <param name="where">Where this symbol sits, for a message that can be acted on.</param>
     /// <param name="notDrawn">Collects what could not be carried.</param>
     /// <returns>The symbol.</returns>
     private static CimSymbol ReadSymbol(
-        JsonNode? node, GeometryKind geometry, string where, List<string> notDrawn)
+        JsonNode? node, string where, List<string> notDrawn)
     {
         if (node is not JsonObject reference)
         {
@@ -366,7 +357,7 @@ public static class Cim
                 + "`CIMSolidFill`, `CIMSolidStroke` and `CIMVectorMarker`.");
         }
 
-        return new CimSymbol(geometry, paints);
+        return new CimSymbol(paints);
     }
 
     /// <summary>A stroke's own dash template, when it carries one.</summary>
@@ -491,8 +482,26 @@ public static class Cim
         {
             ["type"] = "CIMRGBColor",
             ["values"] = new JsonArray(
-                (int)colour.R, (int)colour.G, (int)colour.B, Percent(colour.A)),
+                Num(colour.R), Num(colour.G), Num(colour.B), Num(Percent(colour.A))),
         };
+
+    /// <summary>
+    /// A number that reads back as whatever type asks for it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not <c>JsonValue.Create</c>, and the difference is a whole class of defect.</b> A
+    /// <c>JsonValue</c> created from an <c>int</c> is a <c>JsonValue&lt;int&gt;</c> and refuses
+    /// <c>GetValue&lt;double&gt;</c>; one created from a <c>double</c> refuses
+    /// <c>GetValue&lt;int&gt;</c>. Both serialise identically, so the document on the wire looks
+    /// right and every consumer that reads it in memory throws. Going through a
+    /// <c>JsonElement</c> gives a value backed by the parser, which converts the way a document
+    /// read from text does. Measured twice on 2026-09-03, in the round trip and in the Esri
+    /// face.
+    /// </remarks>
+    /// <param name="value">The number.</param>
+    /// <returns>The node.</returns>
+    private static JsonValue Num(double value) =>
+        JsonValue.Create(JsonSerializer.SerializeToElement(value))!;
 
     /// <summary>The objects of an array property, skipping anything that is not one.</summary>
     /// <param name="node">The property.</param>
@@ -592,9 +601,14 @@ public sealed record CimClass(
     IReadOnlyList<string> Values, double? UpperBound, string Label, CimSymbol Symbol);
 
 /// <summary>A symbol, as a stack of the layers this server paints with.</summary>
-/// <param name="Geometry">What the layer it draws is made of.</param>
+/// <remarks>
+/// <b>It does not carry the layer's geometry, and that is deliberate.</b> Which symbol layers
+/// a stack holds is what decides how it is painted; the layer's declared geometry decides
+/// nothing here, and a parameter that decides nothing is one somebody eventually passes wrongly
+/// with no test able to notice.
+/// </remarks>
 /// <param name="Paints">Bottom first, so a casing precedes the line that sits on it.</param>
-public sealed record CimSymbol(GeometryKind Geometry, IReadOnlyList<CimPaint> Paints);
+public sealed record CimSymbol(IReadOnlyList<CimPaint> Paints);
 
 /// <summary>One layer of a symbol.</summary>
 public abstract record CimPaint;

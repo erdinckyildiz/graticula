@@ -77,6 +77,18 @@ public abstract record StyleExpression
     /// <param name="Value">A value that selects it, or null for the fallback class.</param>
     public readonly record struct ClassCase(string Label, object? Value);
 
+    /// <summary>
+    /// Whether this expression can answer differently for two features or two zooms.
+    /// </summary>
+    /// <remarks>
+    /// <b>Asked so that a caller can tell folding from flattening.</b> Evaluating an
+    /// expression once and keeping the answer is only sound when the expression has one
+    /// answer. Everything except a literal is assumed to vary, because being wrong that way
+    /// costs an evaluation per feature and being wrong the other way draws every feature the
+    /// same — see <c>SymbologyPlan.Opacity</c>, where exactly that happened.
+    /// </remarks>
+    public virtual bool Varies => true;
+
     /// <summary>Every classification this expression makes over a feature attribute.</summary>
     /// <remarks>
     /// <b>A walk, like <see cref="Fields"/>, and for the same reason.</b> A style's
@@ -411,6 +423,9 @@ public abstract record StyleExpression
     /// <summary>A value that does not depend on the feature.</summary>
     private sealed record Constant(object? Held) : StyleExpression
     {
+        /// <summary>A literal is the one thing that does not vary.</summary>
+        public override bool Varies => false;
+
         public override object? Evaluate(in Context context) => Held;
 
         public override void Fields(ISet<string> into)

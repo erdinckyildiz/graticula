@@ -183,6 +183,31 @@ cache, nothing node-local. The document is read on every render through
   vocabulary of a thing already in scope; it does not add cartographic features.
   What `MapRenderer` draws is unchanged on the day this lands.
 
+**What the move costs, found while implementing rather than while deciding.**
+Both are reported to whoever stores a document, and neither is recoverable by
+changing a face — they are gone from the canonical model:
+
+- **A style layer's zoom range.** MapLibre puts `minzoom` and `maxzoom` on a
+  layer and `SymbologyPlan` honours them; CIM puts a scale range on a
+  *`CIMFeatureLayer`*, and what is stored here is a renderer (§3.1). So a style
+  that appeared only between two zooms is stored without that and drawn at every
+  scale. This is a real capability the reversal costs and it is written down
+  because it was not foreseen in §2.
+- **A style layer's `layout`.** `line-cap`, `line-join` and the rest have CIM
+  spellings on `CIMSolidStroke`; this server does not map them across, so they are
+  not carried. That one is a gap in the implementation rather than in the model,
+  and it can be closed without another decision.
+
+**And one defect the move surfaced rather than caused.** `SymbologyPlan` folded a
+static opacity into its colour by evaluating the colour expression with no
+feature — which for a literal is the colour and for a `match` is the *fallback*.
+A layer classified by a column and given `fill-opacity` therefore drew every
+feature in the fallback colour, with a one-row legend that agreed. It was
+reachable before this ADR and nothing reached it, because stored styles rarely
+carried an opacity; the derivation here writes one every time, and a two-class
+fixture turned grey within a minute of the first migration. Fixed by folding only
+what does not vary.
+
 ## 5. Conditions
 
 1. **The alpha range is verified against a CIM document that ArcGIS Pro wrote**,
@@ -190,6 +215,12 @@ cache, nothing node-local. The document is read on every render through
    for round trips. A test asserts that an opaque colour survives
    `drawingInfo → CIM → drawingInfo` as `255`, and a half-transparent one as
    `128 ± 1`.
+   **PARTLY DISCHARGED 2026-09-03** — the round trip is asserted for all 256
+   values (`CimEsriTests`), and the range comes from the specification's own
+   worked examples. **The half that is still open is the one the condition
+   names**: no document written by ArcGIS Pro has been read. Until one is, the
+   evidence is a published example rather than a product's behaviour, and the two
+   have been different before.
 2. **Every property in §3.2's table is checked against the published schema by a
    test that reads the schema**, so that a rename in a later CIM version fails
    here rather than in a map. Where that is not practical, the table is re-read
@@ -197,10 +228,26 @@ cache, nothing node-local. The document is read on every render through
 3. **A document stored under ADR-033 still serves after this lands**, asserted by
    a test that writes a MapLibre style directly into the column and then asks for
    a rendered tile, a `drawingInfo` and a style.
+   *(Discharged 2026-09-03 —
+   `CimTests.A_document_stored_before_the_reversal_still_answers_every_face` asks
+   all three, and the whole conformance suite ran 428/428 against a store holding
+   MapLibre documents before the migration and again after it.)*
 4. **The gap between what CIM can express and what `MapRenderer` draws is
    reported, not hidden.** `GET` says which parts of a stored document are not
    drawn. Without this the model's whole advantage — that it keeps what it was
    given — becomes a way to store an appearance nobody gets.
+   *(Discharged 2026-09-03 — `Cim.Project` collects a sentence per unread symbol
+   layer, effect, colour model and invisible class, every face carries them, and
+   `CimTests.What_the_renderer_cannot_draw_is_reported_rather_than_dropped` fails
+   when one is dropped.)*
 5. **A round trip through the richest supported shape is asserted**: a two-layer
    `CIMLineSymbol` with a dash effect survives store, read, and re-store
    byte-comparably.
+   *(Discharged 2026-09-03 —
+   `CimTests.A_style_derived_from_a_stack_reads_back_as_the_same_stack` asserts
+   the widths, the colours and the order after a full trip out to MapLibre and
+   back. Byte-comparison was not used: the two documents differ in properties
+   neither side reads, and asserting on the parts that mean something is the
+   stronger test rather than the weaker one. Measured end to end as well — a
+   two-stroke road symbol PUT through the API drew 5,161 casing pixels under
+   2,287 road pixels, which under ADR-033 could not have been stored at all.)*

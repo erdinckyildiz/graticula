@@ -103,134 +103,157 @@ public static class SymbologyConversion
         // drawingInfo has a renderer and a MapLibre style has layers; neither has the
         // other's key, so asking is unambiguous and a caller never has to declare
         // which format they pasted.
+        // <b>CIM first, because it is the canonical one now (ADR-052).</b> It is stored exactly
+        // as it arrived: projecting it is a check that something can be drawn with it, and the
+        // parts this server does not understand travel through untouched, which is the whole
+        // argument for the reversal.
+        if (Cim.IsRenderer(body))
+        {
+            CimProjection projection = Cim.Project(body);
+
+            return new SymbologyWrite(Serialise(body), projection.NotDrawn, "CIM");
+        }
+
         if (body.ContainsKey("renderer"))
         {
-            List<string> losses = new();
-            JsonObject layers = FromDrawingInfo(body, geometry, losses);
+            CimWrite written = CimEsri.FromDrawingInfo(body, geometry);
 
-            return new SymbologyWrite(Serialise(layers), losses, "drawingInfo");
+            return new SymbologyWrite(
+                Serialise(written.Renderer), written.Losses, "drawingInfo");
         }
 
         if (body.ContainsKey("layers"))
         {
+            // <b>Normalised first, then converted.</b> `Normalise` is where a style is refused
+            // for a filter, for an absolute URL and for being written for the wrong geometry,
+            // and where a layer's transparency is folded into its colour. Converting straight to
+            // CIM would have taken every one of those refusals out of the write path, and two of
+            // them exist because a style got through that should not have.
             List<string> losses = new();
             JsonObject normalised = Normalise(body, geometry, losses);
+            CimWrite written = CimStyle.FromMapLibre(normalised, geometry);
 
-            return new SymbologyWrite(Serialise(normalised), losses, "MapLibre");
+            losses.AddRange(written.Losses);
+
+            return new SymbologyWrite(Serialise(written.Renderer), losses, "MapLibre");
         }
 
         throw new SymbologyException(
-            "The document has neither a `layers` array nor a `renderer`, so it is neither a "
-            + "MapLibre style nor an Esri drawingInfo.");
+            "The document is none of the three this server reads. It reads a CIM renderer (its "
+            + "`type` begins `CIM`), an Esri drawingInfo (it has a `renderer`), and a MapLibre "
+            + "style (it has a `layers` array).");
     }
 
     /// <summary>
-    /// Derives the Esri feature face from a canonical document.
+    /// Derives the Esri <c>drawingInfo</c> face from a layer's stored document.
     /// </summary>
-    /// <param name="canonical">A stored canonical document.</param>
-    /// <param name="layerName">The layer, for the renderer's label.</param>
-    /// <param name="geometry">Its geometry, which decides the symbol family.</param>
-    /// <returns>A <c>drawingInfo</c> ready to serialise, and what it could not carry.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-052](../../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md): the
+    /// stored document is a CIM renderer, so this is a derivation from it.</b> The flattening a
+    /// one-symbol-deep `drawingInfo` needs happens here, on the way out, and what did not fit is
+    /// reported. Under ADR-033 the same flattening happened at the moment of storage, where it
+    /// could not be undone.
+    /// </para>
+    /// <para>
+    /// <b>A document stored before the reversal still answers.</b> ADR-052 §3.6: a MapLibre
+    /// style is recognised by its `layers` array and converted on read. It is not rewritten
+    /// here — a read that quietly migrated the store would make the migration untestable and
+    /// unrepeatable.
+    /// </para>
+    /// </remarks>
+    /// <param name="canonical">What the layer has stored.</param>
+    /// <param name="layerName">The layer, for messages.</param>
+    /// <param name="geometry">What the layer is made of.</param>
+    /// <returns>The <c>drawingInfo</c> and what this face could not carry.</returns>
     public static DerivedDrawingInfo ToDrawingInfo(
         string canonical, string layerName, GeometryKind geometry)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(canonical);
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
-        List<string> losses = new();
+        CimWrite stored = ToCim(canonical, geometry);
+        DerivedDrawingInfo derived = CimEsri.ToDrawingInfo(stored.Renderer, layerName);
 
-        JsonObject style = JsonNode.Parse(canonical) as JsonObject
-            ?? throw new SymbologyException("The stored canonical document is not an object.");
-
-        string wanted = MapLibreTypeFor(geometry);
-        JsonArray layers = style["layers"] as JsonArray ?? new JsonArray();
-
-        List<JsonObject> painting = layers
-            .OfType<JsonObject>()
-            .Where(l => string.Equals(Text(l["type"]), wanted, StringComparison.Ordinal))
-            .ToList();
-
-        // <b>Labels are named as lost rather than skipped.</b> A style with a symbol
-        // layer is a style with labels, and ADR-033 §5g leaves labelling for later —
-        // so the honest report is that this face carries none, not silence.
-        if (layers.OfType<JsonObject>().Any(l =>
-                string.Equals(Text(l["type"]), "symbol", StringComparison.Ordinal)))
-        {
-            losses.Add(
-                "The style has a `symbol` layer, so it labels features. This face carries no "
-                + "labelling: `labelingInfo` is null. ADR-033 §5g leaves labelling for later.");
-        }
-
-        if (painting.Count == 0)
-        {
-            throw new SymbologyException(
-                $"The canonical document has no `{wanted}` layer, so there is nothing to draw a "
-                + $"{geometry} layer with.");
-        }
-
-        if (painting.Count > 1)
-        {
-            losses.Add(
-                $"The style has {painting.Count} `{wanted}` layers and an Esri renderer is one "
-                + "symbol set. The first is used; the rest are drawn by the tile face only.");
-        }
-
-        JsonObject layer = painting[0];
-        JsonObject paint = layer["paint"] as JsonObject ?? new JsonObject();
-
-        // <b>Reachable only for a document stored before 2026-08-25.</b> The write
-        // path refuses a filter now (Q-128), so no newly-stored canonical carries
-        // one -- and a deployment that stored one earlier still gets told what its
-        // Esri face does with it rather than being left to find out.
-        if (layer["filter"] is not null)
-        {
-            losses.Add(
-                "The layer carries a `filter`, which this server no longer accepts and stored "
-                + "before it stopped. Esri renderers select a symbol by value and cannot hide a "
-                + "feature, so every feature is drawn on this face.");
-        }
-
-        object renderer = wanted switch
-        {
-            "fill" => FillRenderer(paint, layerName, losses),
-            "line" => LineRenderer(paint, layerName, losses),
-            _ => CircleRenderer(paint, layerName, losses),
-        };
-
-        JsonNode drawingInfo = JsonSerializer.SerializeToNode(new
-        {
-            renderer,
-
-            // Zero, and the opacity is in each symbol's alpha instead. Both are
-            // honoured and applying both multiplies them — see the generated writer,
-            // which made the same choice for the same reason.
-            transparency = 0,
-            labelingInfo = (object?)null,
-        })!;
-
-        return new DerivedDrawingInfo(drawingInfo, losses);
+        return stored.Losses.Count == 0
+            ? derived
+            : derived with { Losses = [.. stored.Losses, .. derived.Losses] };
     }
 
-    // ------------------------------------------------------------------ MapLibre in
+    /// <summary>
+    /// Derives the MapLibre style face from a layer's stored document.
+    /// </summary>
+    /// <param name="canonical">What the layer has stored.</param>
+    /// <param name="layerName">The source layer the style points at.</param>
+    /// <param name="geometry">What the layer is made of.</param>
+    /// <returns>The style and what this face could not carry.</returns>
+    public static DerivedStyle ToStyle(
+        string canonical, string layerName, GeometryKind geometry)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(canonical);
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+
+        CimWrite stored = ToCim(canonical, geometry);
+        DerivedStyle derived = CimStyle.ToMapLibre(stored.Renderer, layerName);
+
+        return stored.Losses.Count == 0
+            ? derived
+            : derived with { Losses = [.. stored.Losses, .. derived.Losses] };
+    }
 
     /// <summary>
-    /// Keeps the authored parts of a style and regenerates nothing.
+    /// A layer's stored document as a CIM renderer, converting one stored before the reversal.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>ADR-033 §5c: <c>sources</c>, <c>sprite</c> and <c>glyphs</c> are generated
-    /// on read and never stored.</b> A stored absolute URL is a fact with an expiry
-    /// date — it names a host, a scheme and a port that a deployment moved away from,
-    /// and it is served to clients long after it stopped resolving.
-    /// </para>
-    /// <para>
-    /// <b>So this refuses an absolute URL anywhere in the document, not only in the
-    /// three blocks it strips.</b> §7's fourth condition is a rule about the stored
-    /// form, and stripping the obvious places would leave <c>fill-pattern</c>,
-    /// <c>icon-image</c> and any future property free to carry one. Checking every
-    /// string is the only version of the rule that does not decay.
-    /// </para>
+    /// <b>The tolerance ADR-052 §3.6 promises, in one place.</b> Every face goes through here,
+    /// so a document written under ADR-033 behaves identically to one written after — and when
+    /// it does not, it is one function that is wrong rather than three.
     /// </remarks>
+    /// <param name="canonical">What the layer has stored.</param>
+    /// <param name="geometry">What the layer is made of.</param>
+    /// <returns>The renderer, and what the conversion could not carry.</returns>
+    public static CimWrite ToCim(string canonical, GeometryKind geometry)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(canonical);
+
+        JsonObject body;
+
+        try
+        {
+            body = JsonNode.Parse(canonical) as JsonObject
+                ?? throw new SymbologyException("The stored document is not an object.");
+        }
+        catch (JsonException e)
+        {
+            throw new SymbologyException($"The stored document is not JSON: {e.Message}", e);
+        }
+
+        if (Cim.IsRenderer(body))
+        {
+            return new CimWrite(body, []);
+        }
+
+        if (body["layers"] is not JsonArray)
+        {
+            throw new SymbologyException(
+                "The stored document is neither a CIM renderer nor a MapLibre style, so nothing "
+                + "can be derived from it.");
+        }
+
+        CimWrite converted = CimStyle.FromMapLibre(body, geometry);
+
+        return converted with
+        {
+            Losses =
+            [
+                "This layer's document was stored before the canonical vocabulary became CIM "
+                + "(ADR-052). It is read as a MapLibre style on every request and converted; PUT "
+                + "it again, or run the migration, to store it as CIM.",
+                .. converted.Losses,
+            ],
+        };
+    }
+
     private static JsonObject Normalise(JsonObject style, GeometryKind geometry, List<string> losses)
     {
         JsonArray layers = style["layers"] as JsonArray

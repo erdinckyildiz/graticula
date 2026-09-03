@@ -156,10 +156,29 @@ public sealed class SymbologyPlan
             throw new SymbologyException($"The symbology document is not JSON: {e.Message}", e);
         }
 
-        if (root is not JsonObject body || body["layers"] is not JsonArray layers)
+        if (root is not JsonObject body)
+        {
+            throw new SymbologyException("A symbology document is an object.");
+        }
+
+        // <b>CIM is compiled through the style derivation, not through a second reader
+        // (ADR-052 §3.5).</b> Everything below understands MapLibre paint expressions and is
+        // the most tested code in this area; a CIM front end here would be a second
+        // implementation of the same reading, and the two would drift. It also means the
+        // picture this renderer paints and the style the tile face publishes come from one
+        // function, so *what is drawn* and *what is advertised* cannot disagree.
+        if (Cim.IsRenderer(body))
+        {
+            // The name is not read: `CompileLayer` looks at `type` and `paint` only. It is
+            // written here so the derived document is well formed rather than nearly so.
+            body = CimStyle.ToMapLibre(body, "layer").Style;
+        }
+
+        if (body["layers"] is not JsonArray layers)
         {
             throw new SymbologyException(
-                "A canonical symbology document is an object with a `layers` array.");
+                "A stored symbology document is either a CIM renderer or a MapLibre style with "
+                + "a `layers` array, and this is neither.");
         }
 
         List<PlanLayer> plan = [];
@@ -381,6 +400,21 @@ public sealed class SymbologyPlan
         double? fraction = Static(node);
 
         if (fraction is null)
+        {
+            return StyleExpression.Fade(expression, StyleExpression.Compile(node));
+        }
+
+        // <b>Folded only when the colour is a literal, and this guard is the whole fix.</b>
+        // The line below evaluates the colour with no feature and no zoom. For a literal that
+        // is the colour; for `["match", ["get", "kind"], …]` it is the *fallback*, and keeping
+        // it as a constant draws every feature in the fallback colour and empties the legend.
+        //
+        // Measured 2026-09-03 on a layer classified by `kind` with `fill-opacity` beside it:
+        // two classes and an *Other* became one grey swatch, and the map matched the legend --
+        // consistently, quietly, and wrongly. It was unreachable while stored styles rarely
+        // carried an opacity; ADR-052's derivation writes one every time, which is how it
+        // surfaced.
+        if (expression.Varies)
         {
             return StyleExpression.Fade(expression, StyleExpression.Compile(node));
         }
