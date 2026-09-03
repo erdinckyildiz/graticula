@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>44b5563</code> · 2026-09-03 13:31</p>
+<p class="stamp">Generated from commit <code>4dfdaaf</code> · 2026-09-03 13:56</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADRs</div><div class="kpi-n">6 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">open debts</div><div class="kpi-n">183 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2195</div><div class="kpi-l">tests</div><div class="kpi-n">260 source files, 101,993 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2196</div><div class="kpi-l">tests</div><div class="kpi-n">260 source files, 101,993 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -387,13 +387,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.7%"></div></div><div class="bar-n">147</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:29.6%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.0%"></div></div><div class="bar-n">110</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.2%"></div></div><div class="bar-n">111</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.5%"></div></div><div class="bar-n">31</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:5.4%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.0%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>4dfdaaf</code><time>2026-09-03</time><span>The second axis gets a control: vary a property with a number</span></li>
+<li><code>691c0ab</code><time>2026-09-03</time><span>ADR-052 section 3.8: a shipped library of symbols, and the line it stops at</span></li>
 <li><code>44b5563</code><time>2026-09-03</time><span>ADR-052 section 3.7: the editor authors CIM, layer by layer</span></li>
 <li><code>fde49a1</code><time>2026-09-03</time><span>ADR-052 section 3.6: visual variables, the axis the renderer already drew</span></li>
 <li><code>9472a13</code><time>2026-09-03</time><span>The service style override was on a layer&#x27;s page, sending a layer&#x27;s name</span></li>
@@ -406,8 +408,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1f0d0bb</code><time>2026-09-03</time><span>D-201: an intermittent console failure is recorded rather than guessed at</span></li>
 <li><code>4d88faa</code><time>2026-09-03</time><span>ADR-051: the symbology editor is controls and a picture, not a JSON box</span></li>
 <li><code>594ff71</code><time>2026-09-03</time><span>D-95 repaid: a valid geodatabase is built at test time and read end to end</span></li>
-<li><code>3a9ae77</code><time>2026-09-03</time><span>Q-144 and Q-136 answered; D-46 is a practice, not a debt</span></li>
-<li><code>8f453c7</code><time>2026-09-03</time><span>D-193 closes on sixteen runs, having closed once on a reading</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
