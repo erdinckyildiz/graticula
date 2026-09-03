@@ -78,9 +78,15 @@ public static class Cim
 
         return kind switch
         {
-            Simple => ProjectSimple(body, notDrawn),
-            UniqueValue => ProjectUniqueValue(body, notDrawn),
-            ClassBreaks => ProjectClassBreaks(body, notDrawn),
+            Simple => ProjectSimple(body, notDrawn) with { Vary = Varying(body, notDrawn) },
+            UniqueValue => ProjectUniqueValue(body, notDrawn) with
+            {
+                Vary = Varying(body, notDrawn),
+            },
+            ClassBreaks => ProjectClassBreaks(body, notDrawn) with
+            {
+                Vary = Varying(body, notDrawn),
+            },
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
                 + $"`{UniqueValue}` and `{ClassBreaks}`. A renderer it cannot read is refused "
@@ -231,6 +237,267 @@ public static class Cim
 
         return new CimProjection(
             ClassBreaks, field, classes, Fallback(body, notDrawn), notDrawn);
+    }
+
+    /// <summary>
+    /// Reads the renderer's visual variables.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The second of ADR-052's three axes, and it rides on top of the first.</b> A renderer
+    /// says which feature gets which symbol; a visual variable says how one property of that
+    /// symbol slides continuously with a number. `Counts and Amounts`, `Age` and half of
+    /// `Predominance` in ArcGIS are a renderer plus one of these, not renderers of their own.
+    /// </para>
+    /// <para>
+    /// <b>Esri names the field three different ways and this reads all three.</b> Colour and size
+    /// carry an Arcade `expression`, usually `$feature.POP`; transparency carries a plain
+    /// `field`. Refusing the ones that do not match one spelling would refuse documents ArcGIS
+    /// Pro itself writes.
+    /// </para>
+    /// </remarks>
+    /// <param name="body">The renderer.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>One entry per variable this server can draw.</returns>
+    private static List<CimVary> Varying(JsonObject body, List<string> notDrawn)
+    {
+        List<CimVary> found = [];
+
+        foreach (JsonObject variable in Objects(body["visualVariables"]))
+        {
+            string kind = Text(variable["type"]) ?? string.Empty;
+
+            if (Field(variable) is not { Length: > 0 } field)
+            {
+                notDrawn.Add(
+                    $"A `{kind}` names no field this server can read. It reads a plain field "
+                    + "name, `$feature.NAME` and `$feature[\"NAME\"]`; an Arcade expression that "
+                    + "computes something is not evaluated.");
+
+                continue;
+            }
+
+            switch (kind)
+            {
+                case "CIMColorVisualVariable":
+                    if (Ramp(variable["colorRamp"], kind, notDrawn) is { Count: > 1 } colours)
+                    {
+                        found.Add(new CimVary(
+                            CimVaries.Colour, field, Range(variable), colours, []));
+                    }
+
+                    break;
+
+                case "CIMSizeVisualVariable":
+                    (double[] data, double[] sizes) = Sizes(variable);
+
+                    if (sizes.Length > 1)
+                    {
+                        found.Add(new CimVary(CimVaries.Size, field, data, [], sizes));
+                    }
+                    else
+                    {
+                        notDrawn.Add(
+                            "A `CIMSizeVisualVariable` gives no size range this server can read. "
+                            + "It reads `minSize`/`maxSize` with `minValue`/`maxValue`, and the "
+                            + "`dataValues`/`sizeValues` pair.");
+                    }
+
+                    break;
+
+                case "CIMTransparencyVisualVariable":
+                    double[] steps = Numbers(variable["dataValues"]) ?? [];
+                    double[] alphas = Numbers(variable["transparencyValues"]) ?? [];
+
+                    if (steps.Length > 1 && steps.Length == alphas.Length)
+                    {
+                        // <b>Transparency, turned into opacity here and only here.</b> CIM's 0
+                        // is fully opaque and 100 is invisible; every renderer below this line
+                        // thinks in opacity, and converting in one place is what stops half of
+                        // them from being inverted.
+                        found.Add(new CimVary(
+                            CimVaries.Opacity,
+                            field,
+                            steps,
+                            [],
+                            [.. alphas.Select(a => Math.Clamp(100 - a, 0, 100) / 100)]));
+                    }
+                    else
+                    {
+                        notDrawn.Add(
+                            "A `CIMTransparencyVisualVariable` has no matching `dataValues` and "
+                            + "`transparencyValues`, so nothing varies.");
+                    }
+
+                    break;
+
+                default:
+                    notDrawn.Add(
+                        $"The renderer has a `{kind}`. This server varies colour, size and "
+                        + "transparency by a field; that one is not drawn and is kept in the "
+                        + "stored document.");
+
+                    break;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The field a visual variable reads, however it spells it.</summary>
+    /// <param name="variable">The variable.</param>
+    /// <returns>The column, or null.</returns>
+    private static string? Field(JsonObject variable)
+    {
+        if (Text(variable["field"]) is { Length: > 0 } plain)
+        {
+            return plain;
+        }
+
+        if (Text(variable["expression"]) is not { Length: > 0 } expression)
+        {
+            return null;
+        }
+
+        // `$feature.POP`, `$feature["POP"]`, or a bare name.
+        string trimmed = expression.Trim();
+
+        if (trimmed.StartsWith("$feature", StringComparison.OrdinalIgnoreCase))
+        {
+            string rest = trimmed["$feature".Length..].Trim();
+
+            if (rest.StartsWith('.'))
+            {
+                // <b>Still checked after the prefix comes off.</b> `$feature.a / $feature.b`
+                // is an Arcade expression that begins exactly like a field reference, and
+                // taking everything after the dot would ask the source for a column called
+                // `a / $feature.b`.
+                return Plain(rest[1..]);
+            }
+
+            if (rest.StartsWith('[') && rest.EndsWith(']'))
+            {
+                return Plain(rest[1..^1].Trim().Trim('"', '\''));
+            }
+
+            return null;
+        }
+
+        return Plain(trimmed);
+    }
+
+    /// <summary>A column name, or null when the text computes rather than names.</summary>
+    /// <remarks>
+    /// <b>Anything with an operator in it is Arcade.</b> This server does not evaluate Arcade,
+    /// and reading such a string as a column would fail as a database error a long way from the
+    /// document that caused it.
+    /// </remarks>
+    /// <param name="text">What the document said.</param>
+    /// <returns>The name, trimmed, or null.</returns>
+    private static string? Plain(string text)
+    {
+        string name = text.Trim();
+
+        return name.Length > 0 && name.All(c => char.IsLetterOrDigit(c) || c == '_')
+            ? name
+            : null;
+    }
+
+    /// <summary>The two ends of a colour variable's range.</summary>
+    /// <param name="variable">The variable.</param>
+    /// <returns>Its stops.</returns>
+    private static double[] Range(JsonObject variable) =>
+        [Number(variable["minValue"]) ?? 0, Number(variable["maxValue"]) ?? 1];
+
+    /// <summary>A size variable's data stops and the sizes they map to.</summary>
+    /// <remarks>
+    /// <b>Two spellings, because Esri writes both.</b> `minSize`/`maxSize` against
+    /// `minValue`/`maxValue` is the two-stop form; `dataValues`/`sizeValues` are parallel arrays
+    /// for more than two. Reading only one of them would silently flatten half the documents.
+    /// </remarks>
+    /// <param name="variable">The variable.</param>
+    /// <returns>The stops and the sizes.</returns>
+    private static (double[] Data, double[] Sizes) Sizes(JsonObject variable)
+    {
+        double[] data = Numbers(variable["dataValues"]) ?? [];
+        double[] sizes = Numbers(variable["sizeValues"]) ?? [];
+
+        if (data.Length > 1 && data.Length == sizes.Length)
+        {
+            return (data, sizes);
+        }
+
+        if (Number(variable["minSize"]) is { } small && Number(variable["maxSize"]) is { } large)
+        {
+            return (Range(variable), [small, large]);
+        }
+
+        return ([], []);
+    }
+
+    /// <summary>A colour ramp, as the list of colours this server interpolates between.</summary>
+    /// <param name="node">The ramp.</param>
+    /// <param name="where">Which variable, for a message that can be acted on.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>Two or more colours, or fewer when the ramp cannot be read.</returns>
+    private static List<Rgba> Ramp(JsonNode? node, string where, List<string> notDrawn)
+    {
+        if (node is not JsonObject ramp)
+        {
+            notDrawn.Add($"A `{where}` has no colour ramp, so nothing varies.");
+
+            return [];
+        }
+
+        switch (Text(ramp["type"]))
+        {
+            case "CIMLinearContinuousColorRamp":
+            case "CIMPolarContinuousColorRamp":
+                return
+                [
+                    Colour(ramp["fromColor"], where, notDrawn),
+                    Colour(ramp["toColor"], where, notDrawn),
+                ];
+
+            case "CIMFixedColorRamp":
+                List<Rgba> fixedColours =
+                    [.. Objects(ramp["colors"]).Select(c => Colour(c, where, notDrawn))];
+
+                if (fixedColours.Count < 2)
+                {
+                    notDrawn.Add($"A `{where}`'s fixed ramp has fewer than two colours.");
+                }
+
+                return fixedColours;
+
+            case "CIMMultipartColorRamp":
+                // <b>Flattened end to end.</b> A multipart ramp's weights bend where each part
+                // begins; this server spaces the parts evenly and says so, which is a visible
+                // difference on a ramp built to emphasise one end.
+                List<Rgba> parts = [];
+
+                foreach (JsonObject inner in Objects(ramp["colorRamps"]))
+                {
+                    parts.AddRange(Ramp(inner, where, notDrawn));
+                }
+
+                if (ramp["weights"] is JsonArray { Count: > 0 })
+                {
+                    notDrawn.Add(
+                        $"A `{where}` uses a multipart ramp with weights. This server spaces the "
+                        + "parts evenly, so the ramp changes colour at slightly different values "
+                        + "than it was authored to.");
+                }
+
+                return parts;
+
+            default:
+                notDrawn.Add(
+                    $"A `{where}` uses a `{Text(ramp["type"]) ?? "(unnamed)"}` colour ramp. This "
+                    + "server reads the continuous and fixed ramps; that one is not drawn.");
+
+                return [];
+        }
     }
 
     /// <summary>The symbol for features no class matches, when the renderer offers one.</summary>
@@ -590,7 +857,37 @@ public sealed record CimProjection(
     string? Field,
     IReadOnlyList<CimClass> Classes,
     CimSymbol? Default,
-    IReadOnlyList<string> NotDrawn);
+    IReadOnlyList<string> NotDrawn)
+{
+    /// <summary>What slides continuously with a number, on top of the classes.</summary>
+    public IReadOnlyList<CimVary> Vary { get; init; } = [];
+}
+
+/// <summary>Which property of a symbol a visual variable moves.</summary>
+public enum CimVaries
+{
+    /// <summary>The colour it is painted in.</summary>
+    Colour = 1,
+
+    /// <summary>How wide a stroke is, or how large a marker.</summary>
+    Size = 2,
+
+    /// <summary>How opaque it is, from 0 to 1.</summary>
+    Opacity = 3,
+}
+
+/// <summary>One property of a symbol, sliding with the value of one field.</summary>
+/// <param name="What">Which property moves.</param>
+/// <param name="Field">The column it reads.</param>
+/// <param name="Stops">The values, ascending.</param>
+/// <param name="Colours">One per stop, for a colour variable.</param>
+/// <param name="Numbers">One per stop, for a size or opacity variable.</param>
+public sealed record CimVary(
+    CimVaries What,
+    string Field,
+    IReadOnlyList<double> Stops,
+    IReadOnlyList<Rgba> Colours,
+    IReadOnlyList<double> Numbers);
 
 /// <summary>One symbol and what it stands for.</summary>
 /// <param name="Values">The field values this class matches, for a unique-value renderer.</param>

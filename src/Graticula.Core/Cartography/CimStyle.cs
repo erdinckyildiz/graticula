@@ -73,6 +73,7 @@ public static class CimStyle
         {
             if (Layer(projection, level, layerName, losses) is { } one)
             {
+                Vary(one, projection, losses);
                 layers.Add(one);
             }
         }
@@ -91,6 +92,155 @@ public static class CimStyle
         };
 
         return new DerivedStyle(style, losses);
+    }
+
+    /// <summary>
+    /// Slides a style layer's paint with the renderer's visual variables.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The variable wins where it and the classes want the same property.</b> That is Esri's
+    /// own precedence and it is the only one that makes sense: somebody who asked for colour to
+    /// follow a number asked for it to stop following the class. It is reported, because a class
+    /// list whose colours are not what the map draws is confusing precisely because both look
+    /// deliberate.
+    /// </para>
+    /// <para>
+    /// <b>Nothing new had to be built to draw this.</b> `SymbologyPlan` has compiled
+    /// `interpolate` since ADR-041 and evaluates its input per feature, so a continuous colour
+    /// is a style expression this renderer already executes. Measured by reading
+    /// `Interpolate.Evaluate` rather than assumed: it takes the value from the feature's own
+    /// context, not from the zoom.
+    /// </para>
+    /// </remarks>
+    /// <param name="layer">The style layer, already painted from its classes.</param>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    private static void Vary(JsonObject layer, CimProjection projection, List<string> losses)
+    {
+        if (projection.Vary.Count == 0)
+        {
+            return;
+        }
+
+        string kind = (string?)layer["type"] ?? string.Empty;
+        JsonObject paint = layer["paint"] as JsonObject ?? [];
+
+        foreach (CimVary variable in projection.Vary)
+        {
+            string? property = (variable.What, kind) switch
+            {
+                (CimVaries.Colour, "fill") => "fill-color",
+                (CimVaries.Colour, "line") => "line-color",
+                (CimVaries.Colour, "circle") => "circle-color",
+
+                (CimVaries.Opacity, "fill") => "fill-opacity",
+                (CimVaries.Opacity, "line") => "line-opacity",
+                (CimVaries.Opacity, "circle") => "circle-opacity",
+
+                // <b>A fill has no size.</b> Saying so beats widening its outline instead,
+                // which is what a renderer guessing here would do.
+                (CimVaries.Size, "line") => "line-width",
+                (CimVaries.Size, "circle") => "circle-radius",
+
+                _ => null,
+            };
+
+            if (property is null)
+            {
+                if (variable.What == CimVaries.Size && kind == "fill")
+                {
+                    losses.Add(
+                        $"The renderer varies size by `{variable.Field}`, and a fill has no size. "
+                        + "That variable is kept in the stored document and changes nothing on "
+                        + "this layer.");
+                }
+
+                continue;
+            }
+
+            if (paint[property] is JsonArray existing
+                && (existing.ElementAtOrDefault(0) as JsonValue)?.ToString() is "match" or "step")
+            {
+                losses.Add(
+                    $"`{property}` is set both by the renderer's classes and by a visual variable "
+                    + $"over `{variable.Field}`. The variable wins, which is what asking for a "
+                    + "continuous value means; the class colours are still in the legend.");
+            }
+
+            paint[property] = Sliding(variable, property);
+        }
+
+        layer["paint"] = paint;
+    }
+
+    /// <summary>One paint value as an `interpolate` over the variable's field.</summary>
+    /// <remarks>
+    /// <b>Sorted, because `interpolate` needs ascending stops and CIM does not promise them.</b>
+    /// Esri writes a size variable's `dataValues` descending often enough that taking the array
+    /// as given produces a style no client will load.
+    /// </remarks>
+    /// <param name="variable">What varies.</param>
+    /// <param name="property">The property being written, so radius can halve.</param>
+    /// <returns>The expression.</returns>
+    private static JsonArray Sliding(CimVary variable, string property)
+    {
+        List<(double Stop, JsonNode? Output)> pairs = [];
+
+        for (int i = 0; i < variable.Stops.Count; i++)
+        {
+            JsonNode? output = variable.What switch
+            {
+                CimVaries.Colour => i < variable.Colours.Count ? Hex(variable.Colours[i]) : null,
+
+                // <b>Rounded once, after the halving.</b> Rounding to three places and then
+                // dividing leaves a number rounded to half a place -- 2.6665 where 2.667 was
+                // meant -- which is the kind of value that makes a document look wrong.
+                CimVaries.Size => i < variable.Numbers.Count
+                    ? Num(Math.Round(
+                        property == "circle-radius"
+                            ? variable.Numbers[i] / 0.75 / 2
+                            : variable.Numbers[i] / 0.75,
+                        3,
+                        MidpointRounding.AwayFromZero))
+                    : null,
+
+                _ => i < variable.Numbers.Count
+                    ? Num(Math.Round(variable.Numbers[i], 4, MidpointRounding.AwayFromZero))
+                    : null,
+            };
+
+            if (output is not null)
+            {
+                pairs.Add((variable.Stops[i], output));
+            }
+        }
+
+        pairs.Sort((a, b) => a.Stop.CompareTo(b.Stop));
+
+        JsonArray expression =
+        [
+            "interpolate",
+            new JsonArray("linear"),
+            new JsonArray("get", variable.Field),
+        ];
+
+        double last = double.NegativeInfinity;
+
+        foreach ((double stop, JsonNode? output) in pairs)
+        {
+            // <b>Two stops at the same value is a style no client loads.</b> Nudging the second
+            // one up by the smallest representable amount keeps both colours and keeps the
+            // document valid, which is better than dropping one of them silently.
+            double at = stop <= last ? Math.BitIncrement(last) : stop;
+
+            expression.Add(Num(at));
+            expression.Add(output);
+
+            last = at;
+        }
+
+        return expression;
     }
 
     /// <summary>One style layer, for one level of the symbol stack.</summary>
@@ -494,6 +644,8 @@ public static class CimStyle
             }
         }
 
+        JsonArray variables = Continuous(painting, losses);
+
         int classes = classified?.Keys.Count ?? 1;
         JsonArray symbols = [];
 
@@ -504,15 +656,20 @@ public static class CimStyle
 
         if (classified is not { } over)
         {
-            return new CimWrite(
-                new JsonObject
-                {
-                    ["type"] = Cim.Simple,
-                    ["label"] = string.Empty,
-                    ["description"] = string.Empty,
-                    ["symbol"] = symbols[0]!.DeepClone(),
-                },
-                losses);
+            JsonObject one = new()
+            {
+                ["type"] = Cim.Simple,
+                ["label"] = string.Empty,
+                ["description"] = string.Empty,
+                ["symbol"] = symbols[0]!.DeepClone(),
+            };
+
+            if (variables.Count > 0)
+            {
+                one["visualVariables"] = variables;
+            }
+
+            return new CimWrite(one, losses);
         }
 
         // <b>Index -1 asks `Choose` for the otherwise.</b> No class has that key, so every
@@ -523,11 +680,16 @@ public static class CimStyle
                 ? Symbol(painting, geometry, classified, -1, losses)
                 : null;
 
-        return new CimWrite(
-            over.Kind == "match"
-                ? UniqueIn(over, symbols, otherwise)
-                : BreaksIn(over, symbols),
-            losses);
+        JsonObject built = over.Kind == "match"
+            ? UniqueIn(over, symbols, otherwise)
+            : BreaksIn(over, symbols);
+
+        if (variables.Count > 0)
+        {
+            built["visualVariables"] = variables;
+        }
+
+        return new CimWrite(built, losses);
     }
 
     /// <summary>A `CIMUniqueValueRenderer` from a `match`.</summary>
@@ -796,6 +958,16 @@ public static class CimStyle
             // somebody with a line that quietly stopped changing with the scale.
             if (value is JsonArray other && Read(other) is null)
             {
+                // <b>An interpolate over a column is not lost any more: it is stored.</b> It
+                // becomes a visual variable (ADR-052 §3.6), so the symbol keeps the value at the
+                // lowest stop and the variation travels beside it rather than being reported
+                // gone. Only an interpolate over something else -- the zoom, an expression --
+                // still has nowhere to go.
+                if (Continuous(other) is not null)
+                {
+                    return other.Count > 4 ? other[4]?.DeepClone() : null;
+                }
+
                 string head = (other.ElementAtOrDefault(0) as JsonValue)?.ToString()
                     ?? "an expression";
 
@@ -955,6 +1127,205 @@ public static class CimStyle
     /// <returns>The node.</returns>
     private static JsonValue Num(double value) =>
         JsonValue.Create(JsonSerializer.SerializeToElement(value))!;
+
+    /// <summary>
+    /// Turns every `interpolate` over a column into a visual variable.
+    /// </summary>
+    /// <remarks>
+    /// <b>The inverse of <see cref="Vary"/>, and the reason a continuous style stopped being a
+    /// loss.</b> Before ADR-052 §3.6 a style that faded a colour with population was flattened to
+    /// the colour at the lowest stop and reported gone. The canonical model has somewhere to keep
+    /// it now, so it is kept.
+    /// </remarks>
+    /// <param name="painting">The style's painting layers.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The `visualVariables` array, possibly empty.</returns>
+    private static JsonArray Continuous(List<JsonObject> painting, List<string> losses)
+    {
+        JsonArray variables = [];
+        HashSet<string> seen = new(StringComparer.Ordinal);
+
+        foreach (JsonObject layer in painting)
+        {
+            if (layer["paint"] is not JsonObject paint)
+            {
+                continue;
+            }
+
+            foreach (KeyValuePair<string, JsonNode?> property in paint)
+            {
+                if (property.Value is not JsonArray expression
+                    || Continuous(expression) is not { } over)
+                {
+                    continue;
+                }
+
+                // <b>One variable per property kind, not one per style layer.</b> A renderer's
+                // visual variables are the renderer's; a casing and a road that both fade with
+                // the same column are one variable, and writing it twice would apply it twice.
+                string what = property.Key.Split('-')[^1];
+
+                if (!seen.Add(what + "|" + over.Field))
+                {
+                    continue;
+                }
+
+                if (Written(what, over, losses) is { } written)
+                {
+                    variables.Add(written);
+                }
+            }
+        }
+
+        return variables;
+    }
+
+    /// <summary>One visual variable, in the vocabulary CIM keeps it in.</summary>
+    /// <param name="what">`color`, `width`, `radius` or `opacity`.</param>
+    /// <param name="over">The field and the stops.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The variable, or null when this property does not become one.</returns>
+    private static JsonObject? Written(string what, Slide over, List<string> losses)
+    {
+        string field = over.Field;
+
+        switch (what)
+        {
+            case "color":
+                List<Rgba> colours = [];
+
+                foreach (JsonNode? output in over.Outputs)
+                {
+                    if (Rgba.TryParse((output as JsonValue)?.ToString(), out Rgba parsed))
+                    {
+                        colours.Add(parsed);
+                    }
+                }
+
+                if (colours.Count < 2)
+                {
+                    return null;
+                }
+
+                JsonObject ramp = colours.Count == 2
+                    ? new JsonObject
+                    {
+                        ["type"] = "CIMLinearContinuousColorRamp",
+                        ["colorSpace"] = new JsonObject { ["type"] = "CIMICCColorSpace" },
+                        ["fromColor"] = Cim.Colour(colours[0]),
+                        ["toColor"] = Cim.Colour(colours[^1]),
+                    }
+                    : new JsonObject
+                    {
+                        ["type"] = "CIMFixedColorRamp",
+                        ["colors"] = new JsonArray(
+                            [.. colours.Select(c => (JsonNode?)Cim.Colour(c))]),
+                    };
+
+                if (colours.Count > 2)
+                {
+                    losses.Add(
+                        $"The colour over `{field}` has {colours.Count} stops at uneven values. "
+                        + "A CIM colour ramp spaces its colours evenly between the smallest and "
+                        + "largest value, so the colour changes at slightly different numbers "
+                        + "than the style asked for.");
+                }
+
+                return new JsonObject
+                {
+                    ["type"] = "CIMColorVisualVariable",
+                    ["expression"] = "$feature." + field,
+                    ["minValue"] = Num(over.Stops[0]),
+                    ["maxValue"] = Num(over.Stops[^1]),
+                    ["colorRamp"] = ramp,
+                };
+
+            case "width":
+            case "radius":
+                List<double> sizes = [];
+
+                foreach (JsonNode? output in over.Outputs)
+                {
+                    sizes.Add(Points(Figure(output) ?? 0) * (what == "radius" ? 2 : 1));
+                }
+
+                return new JsonObject
+                {
+                    ["type"] = "CIMSizeVisualVariable",
+                    ["expression"] = "$feature." + field,
+                    ["dataValues"] = new JsonArray([.. over.Stops.Select(s => (JsonNode?)Num(s))]),
+                    ["sizeValues"] = new JsonArray([.. sizes.Select(s => (JsonNode?)Num(s))]),
+                    ["minValue"] = Num(over.Stops[0]),
+                    ["maxValue"] = Num(over.Stops[^1]),
+                    ["minSize"] = Num(sizes[0]),
+                    ["maxSize"] = Num(sizes[^1]),
+                };
+
+            case "opacity":
+                JsonArray transparency = [];
+
+                foreach (JsonNode? output in over.Outputs)
+                {
+                    // CIM stores transparency, which is the other way up from opacity.
+                    transparency.Add(Num(Math.Clamp(
+                        Math.Round(100 - ((Figure(output) ?? 1) * 100), 2), 0, 100)));
+                }
+
+                return new JsonObject
+                {
+                    ["type"] = "CIMTransparencyVisualVariable",
+                    ["field"] = field,
+                    ["dataValues"] = new JsonArray([.. over.Stops.Select(s => (JsonNode?)Num(s))]),
+                    ["transparencyValues"] = transparency,
+                };
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Reads `["interpolate", ["linear"], ["get", f], …]`, or nothing.</summary>
+    /// <remarks>
+    /// <b>Over a column only.</b> `["interpolate", …, ["zoom"], …]` is a scale rule, not a
+    /// statement about the data, and storing it as a visual variable would claim the map says
+    /// something about a field it never mentions.
+    /// </remarks>
+    /// <param name="expression">The paint value.</param>
+    /// <returns>The field and its stops, or null.</returns>
+    private static Slide? Continuous(JsonArray expression)
+    {
+        if (expression.Count < 5
+            || (expression[0] as JsonValue)?.ToString() != "interpolate"
+            || expression[2] is not JsonArray input
+            || input.Count < 2
+            || (input[0] as JsonValue)?.ToString() != "get")
+        {
+            return null;
+        }
+
+        List<double> stops = [];
+        List<JsonNode?> outputs = [];
+
+        for (int i = 3; i + 1 < expression.Count; i += 2)
+        {
+            if (Figure(expression[i]) is { } stop)
+            {
+                stops.Add(stop);
+                outputs.Add(expression[i + 1]?.DeepClone());
+            }
+        }
+
+        return stops.Count < 2
+            ? null
+            : new Slide(input[1]?.ToString() ?? string.Empty, stops, outputs);
+    }
+
+    /// <summary>A paint property that slides with a column.</summary>
+    /// <param name="Field">The column.</param>
+    /// <param name="Stops">Its values, in the order the style gave them.</param>
+    /// <param name="Outputs">One per stop.</param>
+    private sealed record Slide(
+        string Field, IReadOnlyList<double> Stops, IReadOnlyList<JsonNode?> Outputs);
 
     /// <summary>Whether two nodes say the same thing.</summary>
     /// <param name="left">One.</param>

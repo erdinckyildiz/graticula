@@ -153,7 +153,52 @@ the reason this is written down rather than left as an implementation detail:
    *what is stored and not drawn*. There is no third answer to that question that
    could disagree with this one.
 
-### 3.6 What happens to documents stored under ADR-033
+### 3.6 Visual variables are the second axis, and they are stored
+
+**Owner decision 2026-09-03, after the research note.** Esri's model has three axes, not one:
+a *renderer* decides which feature gets which symbol; a *visual variable* slides one property
+of that symbol continuously with a number; a *symbol* is a stack of layers. Map Viewer's
+twenty-three named styles are cells of that product — `Counts and Amounts (color)` is a simple
+renderer plus a colour variable, `Predominant category` is a unique-value renderer plus an
+opacity one. Storing only the first axis means those styles have nowhere to live.
+
+**Three of the four are read**, by the names the specification gives them:
+
+| CIM | Reads | Becomes |
+|---|---|---|
+| `CIMColorVisualVariable` | `expression`, `minValue`, `maxValue`, `colorRamp` | `interpolate` on the colour property |
+| `CIMSizeVisualVariable` | `expression`, `minSize`/`maxSize` or `dataValues`/`sizeValues` | `interpolate` on `line-width` or `circle-radius` |
+| `CIMTransparencyVisualVariable` | `field`, `dataValues`/`transparencyValues` | `interpolate` on the opacity property |
+| `CIMRotationVisualVariable` | — | refused in a sentence: this renderer does not rotate a symbol |
+
+**Colour ramps**: `CIMLinearContinuousColorRamp`, `CIMPolarContinuousColorRamp` and
+`CIMFixedColorRamp` are read. A `CIMMultipartColorRamp` is flattened end to end with its parts
+spaced evenly, and the weights it loses are reported — a ramp built to emphasise one end
+changes colour at slightly different values than it was authored to.
+
+**Nothing new was built to draw them.** `SymbologyPlan` has compiled `interpolate` since
+[ADR-041](ADR-041-the-map-renderer.md) and `Interpolate.Evaluate` takes its input from the
+*feature's* context, not from the zoom — so a continuous colour over a column was already a
+style this renderer executed. It had simply never been reachable, because no vocabulary the
+server accepted could express it. That was measured by reading the evaluator, not assumed.
+
+**Where a variable and the classes want the same property, the variable wins**, which is Esri's
+own precedence and the only reading that makes sense: somebody who asked for colour to follow a
+number asked for it to stop following the class. It is reported rather than done quietly,
+because a legend whose colours are not the map's is confusing exactly because both look
+deliberate.
+
+**A size variable on a fill changes nothing and says so.** A fill has no size, and the nearest
+plausible guess — widening its outline instead — would be a renderer inventing an intent.
+
+**One loss stopped being a loss.** Before this, a MapLibre style that faded a colour with
+population was flattened to the colour at its lowest stop and the variation was reported gone
+(§3.7's conversion). The canonical model has somewhere to keep it now, so `CimStyle.FromMapLibre`
+turns it into a variable instead. An `interpolate` over the *zoom* is still not stored: that is
+a scale rule rather than a statement about the data, and filing it as a visual variable would
+claim the map says something about a field it never mentions.
+
+### 3.7 What happens to documents stored under ADR-033
 
 **Read tolerates both and write always produces CIM.** A stored document whose
 root has `"version": 8` and `"layers"` is a MapLibre style and is converted on

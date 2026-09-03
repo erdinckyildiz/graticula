@@ -76,6 +76,11 @@ public static class CimEsri
         // 45%-becomes-20% fault. CIM has no layer-level opacity, so folding it in is the only
         // way to keep it at all, and the derived face writes `transparency: 0` so the two can
         // never be applied together.
+        if (Continuous(renderer, losses) is { Count: > 0 } variables)
+        {
+            built["visualVariables"] = variables;
+        }
+
         if (Number(drawingInfo["transparency"]) is { } transparency and > 0)
         {
             Fold(built, Math.Clamp(100 - transparency, 0, 100) / 100.0);
@@ -124,6 +129,185 @@ public static class CimEsri
             default:
                 break;
         }
+    }
+
+    /// <summary>The renderer's visual variables, in Esri's REST vocabulary.</summary>
+    /// <param name="projection">What the stored renderer says.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The `visualVariables` array.</returns>
+    private static JsonArray Continuous(CimProjection projection, List<string> losses)
+    {
+        JsonArray variables = [];
+
+        foreach (CimVary variable in projection.Vary)
+        {
+            JsonArray stops = [];
+
+            for (int i = 0; i < variable.Stops.Count; i++)
+            {
+                JsonObject stop = new() { ["value"] = Num(variable.Stops[i]) };
+
+                switch (variable.What)
+                {
+                    case CimVaries.Colour when i < variable.Colours.Count:
+                        stop["color"] = Esri(variable.Colours[i]);
+                        break;
+
+                    case CimVaries.Size when i < variable.Numbers.Count:
+                        stop["size"] = Num(variable.Numbers[i]);
+                        break;
+
+                    case CimVaries.Opacity when i < variable.Numbers.Count:
+                        // Esri says transparency where this server says opacity.
+                        stop["transparency"] = Num(Math.Clamp(
+                            Math.Round(100 - (variable.Numbers[i] * 100), 2), 0, 100));
+                        break;
+
+                    default:
+                        continue;
+                }
+
+                stops.Add(stop);
+            }
+
+            if (stops.Count < 2)
+            {
+                losses.Add(
+                    $"A visual variable over `{variable.Field}` has fewer than two usable stops, "
+                    + "so this face does not publish it.");
+
+                continue;
+            }
+
+            variables.Add(new JsonObject
+            {
+                ["type"] = variable.What switch
+                {
+                    CimVaries.Colour => "colorInfo",
+                    CimVaries.Size => "sizeInfo",
+                    _ => "transparencyInfo",
+                },
+                ["field"] = variable.Field,
+                ["stops"] = stops,
+            });
+        }
+
+        return variables;
+    }
+
+    /// <summary>
+    /// Reads Esri's `visualVariables` into the CIM ones.
+    /// </summary>
+    /// <remarks>
+    /// <b>`rotationInfo` is named rather than read.</b> This renderer does not rotate a symbol,
+    /// so accepting one would store a rotation that never happens and give somebody a map they
+    /// cannot explain.
+    /// </remarks>
+    /// <param name="renderer">The Esri renderer.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The CIM `visualVariables`, possibly empty.</returns>
+    private static JsonArray Continuous(JsonObject renderer, List<string> losses)
+    {
+        JsonArray variables = [];
+
+        foreach (JsonObject variable in Objects(renderer["visualVariables"]))
+        {
+            string kind = Text(variable["type"]) ?? string.Empty;
+            string field = Text(variable["field"]) ?? Text(variable["valueExpression"]) ?? string.Empty;
+
+            if (field.Length == 0)
+            {
+                losses.Add($"A `{kind}` names no field, so nothing varies.");
+                continue;
+            }
+
+            List<double> values = [];
+            List<JsonNode?> outputs = [];
+
+            foreach (JsonObject stop in Objects(variable["stops"]))
+            {
+                if (Number(stop["value"]) is not { } at)
+                {
+                    continue;
+                }
+
+                JsonNode? output = kind switch
+                {
+                    "colorInfo" => stop["color"]?.DeepClone(),
+                    "sizeInfo" => stop["size"]?.DeepClone(),
+                    "transparencyInfo" => stop["transparency"]?.DeepClone(),
+                    _ => null,
+                };
+
+                if (output is not null)
+                {
+                    values.Add(at);
+                    outputs.Add(output);
+                }
+            }
+
+            if (values.Count < 2)
+            {
+                losses.Add(
+                    kind is "colorInfo" or "sizeInfo" or "transparencyInfo"
+                        ? $"A `{kind}` over `{field}` has fewer than two stops this server can "
+                            + "read, so nothing varies."
+                        : $"A `{kind}` is not a visual variable this server draws. It varies "
+                            + "colour, size and transparency by a field.");
+
+                continue;
+            }
+
+            JsonArray data = new([.. values.Select(v => (JsonNode?)Num(v))]);
+
+            variables.Add(kind switch
+            {
+                "colorInfo" => new JsonObject
+                {
+                    ["type"] = "CIMColorVisualVariable",
+                    ["expression"] = "$feature." + field,
+                    ["minValue"] = Num(values[0]),
+                    ["maxValue"] = Num(values[^1]),
+                    ["colorRamp"] = outputs.Count == 2
+                        ? new JsonObject
+                        {
+                            ["type"] = "CIMLinearContinuousColorRamp",
+                            ["fromColor"] = Cim.Colour(Colour(outputs[0])),
+                            ["toColor"] = Cim.Colour(Colour(outputs[^1])),
+                        }
+                        : new JsonObject
+                        {
+                            ["type"] = "CIMFixedColorRamp",
+                            ["colors"] = new JsonArray(
+                                [.. outputs.Select(o => (JsonNode?)Cim.Colour(Colour(o)))]),
+                        },
+                },
+
+                "sizeInfo" => new JsonObject
+                {
+                    ["type"] = "CIMSizeVisualVariable",
+                    ["expression"] = "$feature." + field,
+                    ["dataValues"] = data,
+                    ["sizeValues"] = new JsonArray(
+                        [.. outputs.Select(o => (JsonNode?)Num(Number(o) ?? 0))]),
+                    ["minValue"] = Num(values[0]),
+                    ["maxValue"] = Num(values[^1]),
+                    ["minSize"] = Num(Number(outputs[0]) ?? 0),
+                    ["maxSize"] = Num(Number(outputs[^1]) ?? 0),
+                },
+
+                _ => new JsonObject
+                {
+                    ["type"] = "CIMTransparencyVisualVariable",
+                    ["field"] = field,
+                    ["dataValues"] = data,
+                    ["transparencyValues"] = new JsonArray(
+                        [.. outputs.Select(o => (JsonNode?)Num(Number(o) ?? 0))]),
+                },
+            });
+        }
+
+        return variables;
     }
 
     /// <summary>One symbol per value.</summary>
@@ -510,6 +694,14 @@ public static class CimEsri
         // <b>`transparency: 0`, said rather than left out.</b> The layer's opacity is already
         // inside every colour's alpha; a face that omitted the property would let a client
         // supply its own default and a face that echoed it would apply it twice.
+        // <b>The variables ride on the renderer, exactly as they do in CIM.</b> Esri's REST
+        // face spells them `colorInfo`, `sizeInfo` and `transparencyInfo` and hangs them off the
+        // renderer, so this is a rename rather than a restructuring.
+        if (Continuous(projection, losses) is { Count: > 0 } variables)
+        {
+            built["visualVariables"] = variables;
+        }
+
         return new DerivedDrawingInfo(
             new JsonObject
             {
