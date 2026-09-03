@@ -132,6 +132,68 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// Every service opens on Overview, and the way back goes where the reader came from.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner, 2026-09-03, standing on a Settings tab they had not chosen.</b> Two faults, one
+    /// screen: the tab was remembered across services, so leaving one on Settings and opening
+    /// the next put somebody on a delete button; and the first breadcrumb said *Services* on
+    /// both surfaces and pointed at `#/services`, which is a Server screen — so on Studio, where
+    /// they had arrived from *My content*, the way back led nowhere.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task A_service_opens_on_overview_and_the_crumb_goes_back_to_my_content()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        // Leave one service on a tab that is not Overview.
+        await OpenAsync(
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=settings", token);
+
+        await WaitForAsync(
+            "(() => { const p = document.getElementById('serviceSettings');"
+            + " return !!p && !p.hidden; })()",
+            "The Settings tab never opened, so this test cannot set up what it is about.");
+
+        // <b>The same tab, opened again without asking for one.</b> Navigating within the one
+        // document is how a reader moves between services, and it is where the memory lived.
+        await Browser.EvaluateAsync<bool>(
+            $"(() => {{ location.hash = '#/service/{Uri.EscapeDataString(service)}';"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "(() => { const p = document.getElementById('serviceOverview');"
+            + " return !!p && !p.hidden; })()",
+            "Opening a service left the tab where the last one was, so a reader who had been on "
+            + "Settings arrives on a delete button.");
+
+        // <b>And the way back is where they came from.</b>
+        string crumb = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#serviceCrumb a')?.getAttribute('href') || ''")
+            ?? string.Empty;
+
+        Assert.Equal("#/content", crumb);
+
+        Assert.Equal(
+            "My content",
+            await Browser.EvaluateAsync<string>(
+                "document.querySelector('#serviceCrumb a')?.textContent.trim() || ''"));
+
+        // <b>Followed, not just read.</b> A link with the right text and a dead target is the
+        // fault this replaces.
+        await ClickAsync("#serviceCrumb a");
+
+        await WaitForAsync(
+            "document.getElementById('contentRows') !== null"
+            + " && document.getElementById('contentRows').offsetParent !== null",
+            "The way back does not reach My content.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A service has a Symbology tab, and it says how each of its layers is drawn.
     /// </summary>
     /// <remarks>

@@ -2797,7 +2797,11 @@ async function showService(qualified) {
 
   serviceTabWanted = SERVICE_TABS.some(([key]) => key === askedTab) ? askedTab : null;
 
-  if (serviceTabWanted) serviceTab = serviceTabWanted;
+  // <b>Every service opens on Overview unless the address asks otherwise.</b> The tab used to
+  // be remembered across services, so leaving one on Settings and opening the next put somebody
+  // on a delete button they had not asked for. A tab is a place inside one service, not a
+  // preference that follows the reader from service to service.
+  serviceTab = serviceTabWanted ?? "overview";
 
   // <b>Consumed here and never read again, which the first version got wrong.</b> `drawServiceVis` was
   // re-reading `?mode=` on every redraw, so pressing *Tiles* set the mode and the next draw put it back
@@ -2809,8 +2813,15 @@ async function showService(qualified) {
   if (askedLayer !== null) visLayerIndex = askedLayer;
   if (askedMode === "tiles" || askedMode === "features") visMode = askedMode;
 
+  // <b>The first crumb is the screen this surface came from.</b> It said *Services* on both,
+  // and `#/services` is a Server screen — so on Studio, where the reader arrived from *My
+  // content*, the way back led nowhere. A breadcrumb that does not go back is decoration.
+  const backTo = surfaceOfPath() === "studio"
+    ? { hash: "#/content", label: "My content" }
+    : { hash: `#/services${folder ? "/" + encodeURIComponent(folder) : ""}`, label: "Services" };
+
   $("serviceCrumb").innerHTML =
-    `<a href="#/services${folder ? "/" + encodeURIComponent(folder) : ""}">Services</a>
+    `<a href="${h(backTo.hash)}">${h(backTo.label)}</a>
      › ${folder ? h(folder) : "root"} › <b>${h(name)}</b>`;
   $("serviceFacts").textContent = "";
 
