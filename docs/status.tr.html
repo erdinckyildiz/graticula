@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>1f0d0bb</code> · 2026-09-03 09:35</p>
+<p class="stamp">Şu commit’ten üretildi: <code>ad6033c</code> · 2026-09-03 09:42</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADR</div><div class="kpi-n">6 koşulsuz kabul</div></div>
@@ -360,7 +360,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-074</td><td>A QGIS or GDAL client asking a WFS feature type for its default output format gets GML 3.2 — so a WFS offering only GeoJSON would not have connected, and the GML writer is…</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-075</td><td>ArcGIS Pro&#x27;s portal connection works against a portal API this project implements, rather than requiring something only Esri&#x27;s own portal returns</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-076</td><td>A CPU rasteriser meets the latency a WMS client expects at typical image sizes on this runtime, without the allocation profile ADR-007 §4.14&#x27;s worker sizing has no term for</td><td><span class="pill good">VALIDATED</span></td></tr>
-<tr><td class="id">A-077</td><td>ADR-033&#x27;s canonical symbology document carries enough to draw a map a cartographer would accept, rather than enough to describe one</td><td><span class="pill warn">PARTLY</span></td></tr>
+<tr><td class="id">A-077</td><td>The canonical symbology document carries enough to draw a map a cartographer would accept, rather than enough to describe one.</td><td><span class="pill warn">PARTLY</span></td></tr>
 <tr><td class="id">A-052</td><td>Enforcing the user-type ceiling costs nothing in deployments that never use it</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-053</td><td>A fused deployable remains operable at the top of the stated scale target — 1,000 services</td><td><span class="pill warn">UNVALIDATED.</span></td></tr>
 <tr><td class="id">A-054</td><td>Catalogue load and serving load stay similar enough that separate scaling is never forced</td><td><span class="pill warn">UNVALIDATED,</span></td></tr>
@@ -394,6 +394,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>ad6033c</code><time>2026-09-03</time><span>ADR-052: the canonical symbology document is CIM, by owner decision</span></li>
 <li><code>1f0d0bb</code><time>2026-09-03</time><span>D-201: an intermittent console failure is recorded rather than guessed at</span></li>
 <li><code>4d88faa</code><time>2026-09-03</time><span>ADR-051: the symbology editor is controls and a picture, not a JSON box</span></li>
 <li><code>594ff71</code><time>2026-09-03</time><span>D-95 repaid: a valid geodatabase is built at test time and read end to end</span></li>
@@ -407,7 +408,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>422d8c9</code><time>2026-09-02</time><span>CITE re-run after a day of changes to three faces, and the counter says why it failed</span></li>
 <li><code>12026ea</code><time>2026-09-02</time><span>Six committed scripts named one laptop, and the build refuses that now</span></li>
 <li><code>b67ec41</code><time>2026-09-02</time><span>The rotation rehearsal could not run on Windows, and said nothing about it</span></li>
-<li><code>a741c6e</code><time>2026-09-02</time><span>D-173: the net-log step kept the wrong six, and now keeps all of them</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
