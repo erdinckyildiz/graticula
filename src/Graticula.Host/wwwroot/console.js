@@ -3121,6 +3121,9 @@ function drawServiceLayers(layers, qualified) {
             : `<a href="#/layer/${encodeURIComponent(layer.name || "")}">${h(layer.name || "")}</a>`}
           <div class="rowmeta">${h(said)}</div></td>
         <td class="acts">${group ? "" : `<a class="tiny"
+          href="#/layer/${encodeURIComponent(layer.name || "")}/symbology"
+          title="How this layer is drawn">Symbology</a>
+        <a class="tiny"
           href="${h(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`)}/FeatureServer/${
             num(layer.id ?? 0)}?f=json" target="_blank" rel="noreferrer">document</a>`}</td>
       </tr>`;

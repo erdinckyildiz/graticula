@@ -132,6 +132,60 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// A service's layer table offers the way to each layer's symbology.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner, 2026-09-03: *arayüzde yok düğmesi. Gönül gözüyle mi bakacağım.*</b> The
+    /// Symbology page existed and was reachable only by opening a layer — which lands on
+    /// *Maintenance* — and then finding the tab. From a service, which is what *My content*
+    /// actually lists, there was no route to it at all. A screen that can only be reached by
+    /// somebody who already knows it is there is a screen that does not exist.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task A_services_layers_each_offer_the_way_to_their_symbology()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('a[href*=\"#/layer/\"]').length > 0",
+            "The service page lists no layers, so this test cannot look for the way on.");
+
+        await WaitForAsync(
+            "document.querySelectorAll('a[href*=\"/symbology\"]').length > 0",
+            "A service's layer table offers no way to any layer's symbology. The page can only "
+            + "be reached by somebody who already knows it is there.");
+
+        // <b>Visible, and one per layer.</b> A single link at the bottom of the table would
+        // pass a count and answer for the wrong layer.
+        int layers = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('a[href*=\"#/layer/\"]:not([href*=\"/symbology\"])').length");
+
+        int ways = await Browser.EvaluateAsync<int>(
+            "[...document.querySelectorAll('a[href*=\"/symbology\"]')]"
+            + ".filter(a => a.offsetParent !== null).length");
+
+        Assert.Equal(layers, ways);
+
+        // <b>And it goes to that layer.</b> An easy way to have the right count and the wrong
+        // targets is to build every link from the first row.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(() => {"
+                + " const seen = new Set();"
+                + " for (const a of document.querySelectorAll('a[href*=\"/symbology\"]'))"
+                + "   seen.add(a.getAttribute('href'));"
+                + " return seen.size === document.querySelectorAll("
+                + "   'a[href*=\"/symbology\"]').length; })()"),
+            "Two layers share a symbology link, so at least one of them opens somebody else's.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A published service with more than one layer.
     /// </summary>
     /// <remarks>
