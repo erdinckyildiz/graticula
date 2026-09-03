@@ -130,7 +130,30 @@ invisible with nothing in the document to say which is meant. Condition 1.
 - **Losses are reported per face**, not once on the way in. `GET` answers what
   each derivation could not carry.
 
-### 3.5 What happens to documents stored under ADR-033
+### 3.5 How the renderer reads it
+
+**Through the MapLibre derivation, not through a second compiler.**
+`SymbologyPlan` compiles MapLibre paint values — constants, `match`, `step`,
+`interpolate` — into the expressions `MapRenderer` evaluates per feature, and it
+is the most heavily tested part of this area. Giving it a second front end that
+read CIM directly would be a second implementation of the same reading, which is
+the defect §2 of [CLAUDE.md](../../CLAUDE.md) exists to prevent.
+
+So the render path is **CIM → MapLibre → `SymbologyPlan`**, using the same
+derivation the tile style face publishes. Three consequences, and the third is
+the reason this is written down rather than left as an implementation detail:
+
+1. A `CIMUniqueValueRenderer` becomes a `match` and a `CIMClassBreaksRenderer` a
+   `step`, which is what those two things are.
+2. **A multi-layer symbol draws.** A casing under a fill is two MapLibre layers,
+   and `SymbologyPlan` already compiles a list of them — so the structural gain
+   that motivated this decision arrives without a new renderer.
+3. **The renderer's ceiling is the derivation's ceiling**, and therefore the
+   losses reported by `CIM → MapLibre` are exactly the list condition 4 asks for:
+   *what is stored and not drawn*. There is no third answer to that question that
+   could disagree with this one.
+
+### 3.6 What happens to documents stored under ADR-033
 
 **Read tolerates both and write always produces CIM.** A stored document whose
 root has `"version": 8` and `"layers"` is a MapLibre style and is converted on
