@@ -138,13 +138,32 @@ internal static class ThumbnailEndpoints
             return;
         }
 
-        if (index < 0 || index >= found.Layers.Count)
+        // <b>`layer` is the id in the URL, not a position in a list.</b> `PublishedLayer`
+        // says so itself: *its number within that service — the `{id}` in the URL. Assigned
+        // once and never reused. Gaps in the sequence are correct.* A group layer takes an id
+        // and is not drawable, so on a service that has one the two stop agreeing — measured
+        // 2026-09-03 on `ci_EarlyAlert`, whose ids are 0, 1, 2 (a group) and 3: asking for
+        // layer 3, which every caller means, indexed past the end and answered 404, and asking
+        // for the group's id 2 answered 200 with the *third drawable layer's* picture. A wrong
+        // picture with a 200 is the worse half.
+        PublishedLayer? match = null;
+
+        foreach (PublishedLayer candidate in found.Layers)
+        {
+            if (candidate.LayerIndex == index)
+            {
+                match = candidate;
+                break;
+            }
+        }
+
+        if (match is null)
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
-        PublishedLayer drawn = found.Layers[index];
+        PublishedLayer drawn = match;
 
         // The same ceiling every other read honours — D-180, ADR-049. A service configured to
         // offer Create only must not hand out a picture of the features it will not query.
