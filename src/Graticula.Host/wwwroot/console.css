@@ -2144,3 +2144,12 @@ html[data-session="held"] #app { display: block !important; }
 }
 
 #symGalleryNote{margin:2px 0 8px}
+
+/* -------------------------------------------------------- varying with a number
+   ADR-052 §3.6. Two stops, side by side, with the colour or the number showing
+   according to what is being varied — the other is hidden rather than disabled,
+   because a greyed control still reads as something that ought to work. */
+
+.setting.symvarystop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.setting.symvarystop input[type="number"]{width:96px}
+#symVaryNote{margin:6px 0 0}

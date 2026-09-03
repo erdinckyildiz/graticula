@@ -337,6 +337,84 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// A property can be made to slide with a number, and it reaches the document.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-052 §3.6, the second axis.</b> The renderer has drawn a continuous colour since
+    /// ADR-041 — `SymbologyPlan` compiles `interpolate` and evaluates it per feature — and
+    /// nothing could ask for one, because no vocabulary the server accepted could say it. This
+    /// is the asking.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task A_colour_can_be_made_to_slide_with_a_field()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await ALayerOfAsync(token, "Polygon");
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.getElementById('symVaryWhat') !== null",
+            "The Symbology page offers no way to vary a property with a number, so half of what "
+            + "ArcGIS calls a style cannot be authored.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('symVaryWhat').offsetParent !== null"),
+            "The control is in the document and not on screen.");
+
+        // <b>Hidden until something is chosen.</b> Two stop rows above an empty select is a
+        // form asking a question nobody has been asked yet.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('symVaryRows').hidden"),
+            "The stops are shown before anything is being varied.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const s = document.getElementById('symVaryWhat');"
+            + " s.value = 'colour';"
+            + " s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "!document.getElementById('symVaryRows').hidden",
+            "Choosing to vary the colour did not show the stops.");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '')"
+            + ".includes('CIMColorVisualVariable')",
+            "The variable never reached the document, so Store would keep a symbol that does "
+            + "not vary.");
+
+        // <b>The two ends are editable and both land.</b> A form that stored its defaults and
+        // ignored the boxes would pass every assertion above.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const to = document.getElementById('symVaryToColour');"
+            + " to.value = '#123456';"
+            + " to.dispatchEvent(new Event('change', { bubbles: true }));"
+            + " const at = document.getElementById('symVaryTo');"
+            + " at.value = '4321';"
+            + " at.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '').includes('4321')",
+            "The upper stop never reached the document.");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '').includes('86')",
+            "The upper colour never reached the document.");
+
+        // <b>Colour boxes for a colour, numbers for a size.</b> Showing both is how a form
+        // gets a value nobody meant.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('symVaryToNumber').hidden"),
+            "A colour variable offers a number box beside its colour.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The library offers this geometry's symbols and applying one changes the document.
     /// </summary>
     /// <remarks>

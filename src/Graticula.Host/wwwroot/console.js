@@ -4438,6 +4438,22 @@ function wireSymbologyForm() {
       return;
     }
 
+    if (e.target.id === "symVaryWhat") {
+      if (e.target.value !== "") varyStarted(e.target.value);
+
+      varyFromForm();
+      await symSettled({ vary: true });
+
+      return;
+    }
+
+    if (e.target.closest("#symVaryRows")) {
+      varyFromForm();
+      await symSettled({});
+
+      return;
+    }
+
     if (e.target.id === "symField") {
       if (symModel.type === "CIMUniqueValueRenderer") symModel.fields = [e.target.value];
       if (symModel.type === "CIMClassBreaksRenderer") symModel.field = e.target.value;
@@ -4455,6 +4471,16 @@ function wireSymbologyForm() {
     if (e.target.id === "symDoc" || symFilling || !symModel) return;
 
     clearTimeout(symDebounce);
+
+    if (e.target.closest("#symVaryRows")) {
+      symDebounce = setTimeout(async () => {
+        varyFromForm();
+        await symSettled({});
+      }, 250);
+
+      return;
+    }
+
     symDebounce = setTimeout(() => symEdited(e.target, false), 250);
   });
 
@@ -4631,6 +4657,7 @@ async function symSettled(what) {
   try {
     if (what.classes) drawSymbologyClasses($("symKind").value);
     if (what.stack) drawSymbolLayers();
+    if (what.vary) drawVarying();
   } finally {
     symFilling = false;
   }
@@ -4766,6 +4793,232 @@ function symColour(hex, alpha) {
   const n = m ? parseInt(m[1], 16) : 0x888888;
 
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha === undefined ? 255 : alpha];
+}
+
+/**
+ * Reads the model's visual variables into the two-stop form.
+ *
+ * <b>One variable, two stops, and that is a deliberate floor rather than the model's.</b> CIM
+ * carries as many stops as somebody wants and the reader keeps them all; this form edits the
+ * common case and says so when it is looking at something richer, instead of silently
+ * rewriting a five-stop ramp as two.
+ */
+function drawVarying() {
+  const rows = $("symVaryRows");
+  const what = $("symVaryWhat");
+
+  if (!rows || !what || !symModel) return;
+
+  const variables = Array.isArray(symModel.visualVariables) ? symModel.visualVariables : [];
+  const first = variables[0];
+
+  const kind = !first
+    ? ""
+    : first.type === "CIMColorVisualVariable"
+      ? "colour"
+      : first.type === "CIMSizeVisualVariable"
+        ? "size"
+        : first.type === "CIMTransparencyVisualVariable" ? "opacity" : "";
+
+  what.value = kind;
+  rows.hidden = kind === "";
+
+  const colour = kind === "colour";
+
+  for (const [id, on] of [
+    ["symVaryFromColour", colour], ["symVaryToColour", colour],
+    ["symVaryFromNumber", !colour], ["symVaryToNumber", !colour],
+    ["symVaryFromUnit", !colour], ["symVaryToUnit", !colour],
+  ]) {
+    if ($(id)) $(id).hidden = !on;
+  }
+
+  if (kind === "") return;
+
+  drawVaryFields(symVaryFieldOf(first));
+
+  const stops = symVaryStops(first);
+
+  $("symVaryFrom").value = stops.from.at;
+  $("symVaryTo").value = stops.to.at;
+
+  if (colour) {
+    $("symVaryFromColour").value = stops.from.colour;
+    $("symVaryToColour").value = stops.to.colour;
+  } else {
+    $("symVaryFromNumber").value = stops.from.number;
+    $("symVaryToNumber").value = stops.to.number;
+
+    const unit = kind === "opacity" ? "%" : "pt";
+
+    $("symVaryFromUnit").textContent = unit;
+    $("symVaryToUnit").textContent = unit;
+  }
+
+  const many = variables.length > 1 || symVaryStopCount(first) > 2;
+
+  $("symVaryNote").textContent = many
+    ? "This layer's document carries more than these two stops. They are kept; only the two "
+      + "ends are edited here."
+    : "";
+}
+
+/** The field a stored variable reads, in the spelling this form shows. */
+function symVaryFieldOf(variable) {
+  if (!variable) return "";
+
+  if (variable.field) return variable.field;
+
+  const e = String(variable.expression || "");
+
+  return e.startsWith("$feature.") ? e.slice("$feature.".length) : e;
+}
+
+/** How many stops a stored variable carries. */
+function symVaryStopCount(variable) {
+  if (!variable) return 0;
+
+  if (Array.isArray(variable.dataValues)) return variable.dataValues.length;
+
+  return 2;
+}
+
+/** The two ends of a stored variable, in the units the form edits. */
+function symVaryStops(variable) {
+  const data = Array.isArray(variable.dataValues) && variable.dataValues.length > 1
+    ? variable.dataValues
+    : [variable.minValue ?? 0, variable.maxValue ?? 1];
+
+  const from = { at: data[0], colour: "#ffffff", number: 1 };
+  const to = { at: data[data.length - 1], colour: "#000000", number: 10 };
+
+  if (variable.type === "CIMColorVisualVariable") {
+    const ramp = variable.colorRamp || {};
+    const colours = Array.isArray(ramp.colors) ? ramp.colors : null;
+
+    from.colour = symCimHex(colours ? colours[0] : ramp.fromColor);
+    to.colour = symCimHex(colours ? colours[colours.length - 1] : ramp.toColor);
+  } else if (variable.type === "CIMSizeVisualVariable") {
+    const sizes = Array.isArray(variable.sizeValues) && variable.sizeValues.length > 1
+      ? variable.sizeValues
+      : [variable.minSize ?? 1, variable.maxSize ?? 10];
+
+    from.number = sizes[0];
+    to.number = sizes[sizes.length - 1];
+  } else {
+    const alphas = Array.isArray(variable.transparencyValues)
+      && variable.transparencyValues.length > 1
+      ? variable.transparencyValues
+      : [100, 0];
+
+    // The form asks how solid, which is the other way up from what CIM stores.
+    from.number = Math.round(100 - alphas[0]);
+    to.number = Math.round(100 - alphas[alphas.length - 1]);
+  }
+
+  return { from, to };
+}
+
+/** The field picker for the variable, from the layer's own fields. */
+function drawVaryFields(chosen) {
+  const box = $("symVaryField");
+  if (!box) return;
+
+  box.innerHTML = symFields.length === 0
+    ? `<option value="">— this layer's fields could not be read —</option>`
+    : symFields.map(f =>
+        `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
+      .join("");
+}
+
+/**
+ * Writes the form's two stops back into the model.
+ *
+ * <b>Replaces the first variable and leaves any others alone.</b> A document that carries two
+ * of them was authored somewhere richer than this form, and dropping the second because this
+ * screen only shows one would be the form deciding what the document may contain.
+ */
+function varyFromForm() {
+  if (!symModel) return;
+
+  const kind = $("symVaryWhat").value;
+  const rest = (Array.isArray(symModel.visualVariables) ? symModel.visualVariables : []).slice(1);
+
+  if (kind === "") {
+    if (rest.length > 0) symModel.visualVariables = rest;
+    else delete symModel.visualVariables;
+
+    return;
+  }
+
+  const field = $("symVaryField").value;
+  const from = Number($("symVaryFrom").value) || 0;
+  const to = Number($("symVaryTo").value) || 0;
+
+  let built;
+
+  if (kind === "colour") {
+    built = {
+      type: "CIMColorVisualVariable",
+      expression: "$feature." + field,
+      minValue: from,
+      maxValue: to,
+      colorRamp: {
+        type: "CIMLinearContinuousColorRamp",
+        fromColor: symCimColour($("symVaryFromColour").value),
+        toColor: symCimColour($("symVaryToColour").value),
+      },
+    };
+  } else if (kind === "size") {
+    const small = Number($("symVaryFromNumber").value) || 0;
+    const large = Number($("symVaryToNumber").value) || 0;
+
+    built = {
+      type: "CIMSizeVisualVariable",
+      expression: "$feature." + field,
+      dataValues: [from, to],
+      sizeValues: [small, large],
+      minValue: from,
+      maxValue: to,
+      minSize: small,
+      maxSize: large,
+    };
+  } else {
+    built = {
+      type: "CIMTransparencyVisualVariable",
+      field,
+      dataValues: [from, to],
+      transparencyValues: [
+        Math.max(0, 100 - (Number($("symVaryFromNumber").value) || 0)),
+        Math.max(0, 100 - (Number($("symVaryToNumber").value) || 0)),
+      ],
+    };
+  }
+
+  symModel.visualVariables = [built, ...rest];
+}
+
+/** The stops a variable starts with, so choosing one draws something immediately. */
+function varyStarted(kind) {
+  const field = (symFields.find(f => /int|double|float|number|small|single/i.test(f.type || ""))
+    || symFields[0] || {}).name || "";
+
+  $("symVaryField").innerHTML = "";
+  drawVaryFields(field);
+
+  $("symVaryFrom").value = 0;
+  $("symVaryTo").value = 100;
+
+  if (kind === "colour") {
+    $("symVaryFromColour").value = "#fff5eb";
+    $("symVaryToColour").value = "#8c2d04";
+  } else if (kind === "size") {
+    $("symVaryFromNumber").value = 1;
+    $("symVaryToNumber").value = 12;
+  } else {
+    $("symVaryFromNumber").value = 20;
+    $("symVaryToNumber").value = 100;
+  }
 }
 
 // ------------------------------------------------------------------ the symbol library
@@ -5212,6 +5465,7 @@ function fillSymbologyForm(cim, geometry) {
     drawSymbologyClasses(kind);
     drawSymbolLayers();
     drawSymbolGallery();
+    drawVarying();
   } finally {
     symFilling = false;
   }
@@ -6646,6 +6900,40 @@ function showLayer(name, page, pending = null) {
             way to author it was to type JSON. The shape is Esri's own Symbol Styler: pick the
             class, then edit its symbol layer by layer.
           -->
+          <!--
+            <b>The second axis, ADR-052 §3.6.</b> A renderer says which feature gets which
+            symbol; this says how one property of that symbol slides with a number. Half of
+            what ArcGIS calls a style is a renderer plus one of these, and the renderer here
+            has drawn them since ADR-041 without any way to ask for one.
+          -->
+          <h4>Vary with a number</h4>
+          <div class="setting"><span class="q">Change:</span>
+            <select id="symVaryWhat">
+              <option value="">nothing — the symbol is the same everywhere</option>
+              <option value="colour">its colour</option>
+              <option value="size">its width or size</option>
+              <option value="opacity">how solid it is</option>
+            </select></div>
+
+          <div id="symVaryRows" hidden>
+            <div class="setting"><span class="q">With:</span>
+              <select id="symVaryField"></select></div>
+
+            <div class="setting symvarystop"><span class="q">From:</span>
+              <input type="number" id="symVaryFrom" step="any">
+              <input type="color" id="symVaryFromColour">
+              <input type="number" id="symVaryFromNumber" step="0.5" min="0">
+              <span class="u" id="symVaryFromUnit">pt</span></div>
+
+            <div class="setting symvarystop"><span class="q">To:</span>
+              <input type="number" id="symVaryTo" step="any">
+              <input type="color" id="symVaryToColour">
+              <input type="number" id="symVaryToNumber" step="0.5" min="0">
+              <span class="u" id="symVaryToUnit">pt</span></div>
+
+            <p class="hint" id="symVaryNote"></p>
+          </div>
+
           <h4>Symbol sets</h4>
           <p class="hint" id="symGalleryNote">
             Ready-made symbols for this geometry. Choosing one replaces the selected class's
