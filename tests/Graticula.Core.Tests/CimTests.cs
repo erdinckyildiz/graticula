@@ -593,6 +593,45 @@ public sealed class CimTests
             l => l.Contains("run the migration", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void A_dash_pattern_is_data_and_compiling_it_does_not_throw()
+    {
+        // <b>`line-dasharray` is `[6, 3]`: two lengths, no operator.</b> Every other array in a
+        // paint value is an expression whose head names one, so the compiler read the `6` as an
+        // operator name and threw *An element of type 'Number' cannot be converted to a
+        // 'System.String'* — which reached the caller as a 500 with the reason only in the log.
+        // The symbol library ships two dashed presets, so this was one click away.
+        JsonObject style = (JsonObject)JsonNode.Parse(
+            """
+            {
+              "version": 8,
+              "layers": [{
+                "id": "yollar-0", "type": "line", "source-layer": "yollar",
+                "paint": {
+                  "line-color": "#783c8c",
+                  "line-width": 1.6,
+                  "line-dasharray": [6, 3]
+                }
+              }]
+            }
+            """)!;
+
+        SymbologyPlan plan = SymbologyPlan.Compile(style.ToJsonString());
+
+        Assert.NotEmpty(plan.Layers);
+
+        // <b>And it is still a dash when it comes out.</b> Swallowing the array and drawing a
+        // solid line would pass an assertion that only asked whether compiling threw.
+        PlanLayer.Line line = Assert.IsType<PlanLayer.Line>(plan.Layers[0]);
+
+        MapSymbol.Stroke stroke = Assert.IsType<MapSymbol.Stroke>(
+            line.Resolve(new StyleExpression.Context(
+                new Dictionary<string, object?>(StringComparer.Ordinal), 0)));
+
+        Assert.NotNull(stroke.Dash);
+        Assert.Equal(2, stroke.Dash!.Count);
+    }
+
     /// <summary>Wraps a symbol in the simplest renderer that carries one.</summary>
     /// <param name="symbol">The symbol's JSON.</param>
     /// <returns>The renderer.</returns>

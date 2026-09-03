@@ -123,7 +123,15 @@ public abstract record StyleExpression
             return new Constant(Value(node));
         }
 
-        string head = array[0]?.GetValue<string>() ?? string.Empty;
+        // <b>An array whose head is not a string is data, not an expression.</b>
+        // `line-dasharray` is `[6, 3]` -- two lengths, no operator -- and reading its first
+        // element as an operator name threw *An element of type 'Number' cannot be converted to
+        // a 'System.String'*, which arrived at the caller as a 500 with the reason only in the
+        // log. Measured 2026-09-03 on a dashed line symbol; the symbol library ships two.
+        if (array[0] is not JsonValue first || !first.TryGetValue(out string? head))
+        {
+            return new Constant(Value(node));
+        }
 
         switch (head)
         {
