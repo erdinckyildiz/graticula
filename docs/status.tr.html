@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>846dbc8</code> · 2026-09-03 00:00</p>
+<p class="stamp">Şu commit’ten üretildi: <code>8f453c7</code> · 2026-09-03 02:35</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">50</div><div class="kpi-l">ADR</div><div class="kpi-n">5 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">149/197</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">48 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">açık soru</div><div class="kpi-n">117 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">16</div><div class="kpi-l">açık borç</div><div class="kpi-n">181 ödendi · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">182 ödendi · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">2148</div><div class="kpi-l">test</div><div class="kpi-n">256 kaynak dosya, 98,063 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">7 açık</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">68 madde</span></div><p><b>48 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>16 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">67 madde</span></div><p><b>48 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -275,7 +275,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58c lands — domains, subtypes and editor tracking.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-33</td><td>layer.sharing, layer.status and layer.ownerprincipalid still exist and mean nothing.</td><td class="muted-t">The release after the one that ships migration 11</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-46</td><td>A behaviour is fixed in one of the several places that carry it, and the others keep the bug.</td><td class="muted-t">Whenever a behaviour is about to be fixed, and the fix is not done until the question what else carries this?</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-94</td><td>The geodatabase inspector runs inside the serving process, where ADR-016 §2 puts it in its own container.</td><td class="muted-t">The first deployment that serves and imports at the same time, or the first report of an upload slowing requests</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-95</td><td>Nothing automated reads a real geodatabase, and nothing can without somebody&#x27;s data.</td><td class="muted-t">A public-domain geodatabase small enough to commit, with its licence recorded in DEPENDENCY-LICENSES.md — and as of…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -285,7 +284,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">181 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">182 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -392,6 +391,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>8f453c7</code><time>2026-09-03</time><span>D-193 closes on sixteen runs, having closed once on a reading</span></li>
 <li><code>846dbc8</code><time>2026-09-03</time><span>D-199 repaid where the harm was: the picture frames on its own features</span></li>
 <li><code>51f5ce5</code><time>2026-09-02</time><span>D-173 closes: it was the browser&#x27;s certificate verifier, 396 ms after start</span></li>
 <li><code>c5843ed</code><time>2026-09-02</time><span>D-19 closes: a release is a tag, and it publishes two images to GHCR</span></li>
@@ -405,7 +405,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>24476f1</code><time>2026-09-02</time><span>D-173: the protocol field answered, and the browser can now be asked what it saw</span></li>
 <li><code>2595121</code><time>2026-09-02</time><span>D-200 repaid: Studio draws an image service&#x27;s page, address and all</span></li>
 <li><code>546ada5</code><time>2026-09-02</time><span>D-199 corrected: the extent only grows, and the two earlier diagnoses were wrong</span></li>
-<li><code>0f4445b</code><time>2026-09-02</time><span>D-58 repaid: the thumbnail is the layer now, not a sample of it</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

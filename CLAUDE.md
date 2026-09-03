@@ -127,6 +127,18 @@ becomes a specification with a measured target attached.
   Added after adversarial review F12: editing scope inverted twice in one
   session because an inference was recorded as fact, and nothing in the process
   distinguished the two.
+- **A fix is not finished until *what else carries this?* has an answer.** A
+  behaviour usually lives in more than one place, and repairing the copy in
+  front of you leaves the others — where the next reader cannot tell a partial
+  fix from no fix at all. Ask before the edit, not after somebody reports the
+  second one. Moved here 2026-09-03 by owner decision
+  ([Q-136](docs/open-questions.md)) from
+  [architecture-debt.md](docs/architecture-debt.md), where it had been paid ten
+  times and had never come closer to closing, because §62 says an entry without
+  a trigger is *"an undocumented permanent decision wearing a disguise"* and a
+  trigger that is always true fails that test from the other side. **The row
+  stays as the instance log** — ten of them, each with what it cost — because
+  a rule with no evidence behind it is a rule people talk themselves out of.
 
 ## 3. Evidence over taste
 
