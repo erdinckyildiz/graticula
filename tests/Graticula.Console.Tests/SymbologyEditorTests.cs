@@ -337,6 +337,83 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// The library offers this geometry's symbols and applying one changes the document.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-052 §3.8.</b> A complex symbol is not something anybody builds twice by hand, so
+    /// the console ships sets. Only the ones the geometry can be drawn with: a line layer
+    /// offered an area fill is a gallery that mostly does not work, and finding that out costs
+    /// a click each time.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task The_library_offers_this_geometrys_symbols_and_applying_one_is_stored()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await ALayerOfAsync(token, "LineString");
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#symGallery .symcard').length > 0",
+            "The Symbology page shows no symbol sets, so a complex symbol has to be typed.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelector('#symGallery .symcard').offsetParent !== null"),
+            "The library is in the document and not on screen.");
+
+        // <b>Each card draws itself.</b> A grid of empty boxes is a gallery nobody can choose
+        // from, and it would pass an assertion that only counted the cards.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "[...document.querySelectorAll('#symGallery .symcard')]"
+                + ".every(c => c.querySelector('svg') && c.querySelector('svg').children.length > 0)"),
+            "A symbol card drew nothing, so the gallery is a row of blank buttons.");
+
+        // <b>The road with a casing is the case ADR-052 was decided for.</b>
+        await ClickAsync("#symGallery [data-symbol='line-casing']");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#symStack .symlayer').length === 2",
+            "Choosing the road with a casing did not put two layers in the stack.");
+
+        await WaitForAsync(
+            "(document.getElementById('symDoc')?.value || '')"
+            + ".split('CIMSolidStroke').length - 1 === 2",
+            "The chosen symbol never reached the document, so Store would keep the old one.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// A point layer is not offered line symbols.
+    /// </summary>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task The_library_shows_only_the_sets_this_geometry_can_be_drawn_with()
+    {
+        (string token, _) = await SignInAsync();
+        string points = await ALayerOfAsync(token, "Point");
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(points)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#symGallery .symcard').length > 0",
+            "The point layer's Symbology page shows no symbol sets.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelector(\"#symGallery [data-symbol='line-casing']\") === null"),
+            "A point layer is offered a line symbol, which it cannot be drawn with.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelector(\"#symGallery [data-symbol='point-haloed']\") !== null"),
+            "A point layer is not offered any point symbol.");
+    }
+
+    /// <summary>
     /// The layers a geometry can carry are the ones offered, and a marker has a size.
     /// </summary>
     /// <returns>The task.</returns>

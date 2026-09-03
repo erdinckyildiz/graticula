@@ -2114,3 +2114,33 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symlayer .tiny + .tiny{margin-left:0}
 
 #symStackActions{gap:6px}
+
+/* ------------------------------------------------------------- the symbol library
+   ADR-052 §3.8. A grid of shipped symbols, each drawn from the same stack the editor
+   below edits. The swatch is an icon; the picture beside the form is the renderer's. */
+
+#symGallery{
+  display:grid;gap:8px;
+  grid-template-columns:repeat(auto-fill,minmax(84px,1fr));
+  margin-bottom:14px;
+}
+
+.symcard{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:7px 5px 6px;cursor:pointer;
+  background:var(--panel, #fff);
+  border:1px solid var(--line, #ddd);border-radius:5px;
+  font:inherit;font-size:11px;line-height:1.25;color:inherit;text-align:center;
+}
+
+.symcard:hover{border-color:var(--accent, #4a7)}
+.symcard:focus-visible{outline:2px solid var(--accent, #4a7);outline-offset:1px}
+
+.symcard svg{width:100%;height:38px;display:block}
+
+.symcard span{
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;
+  opacity:.85;
+}
+
+#symGalleryNote{margin:2px 0 8px}

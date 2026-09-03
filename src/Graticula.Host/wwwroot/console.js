@@ -4515,6 +4515,18 @@ function wireSymbologyForm() {
       return;
     }
 
+    const card = t.closest("[data-symbol]");
+
+    if (card) {
+      e.preventDefault();
+
+      if (symApplyLibrary(card.dataset.symbol)) {
+        await symSettled({ classes: true, stack: true });
+      }
+
+      return;
+    }
+
     if (t.dataset.addLayer) {
       e.preventDefault();
       symStack().push(symNewLayer(t.dataset.addLayer));
@@ -4756,6 +4768,276 @@ function symColour(hex, alpha) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha === undefined ? 255 : alpha];
 }
 
+// ------------------------------------------------------------------ the symbol library
+//
+// <b>ADR-052 §3.8.</b> Esri's Symbol Styler opens on *Current symbol* and a set to pick from,
+// and the sets are what make a complex symbol reachable by somebody who is not going to type
+// `CIMSolidStroke` twice. These are that, for the symbols this server actually draws.
+//
+// <b>Every entry is a stack, because a single fill needs no gallery.</b> The library earns its
+// place on the road with a casing under it, the boundary that is a dash over a solid, the
+// polygon whose edge is heavier than its fill — the cases ADR-052 was decided for and the ones
+// nobody builds by hand twice.
+//
+// <b>No sprites, and that is a boundary rather than an omission.</b> A picture marker needs a
+// sprite sheet, which [ADR-027](../../../docs/adr/ADR-027-glyphs-and-sprites.md) condition 5
+// still refuses; every symbol here is drawn from solid fills, solid strokes and vector markers,
+// which is exactly what `MapRenderer` paints.
+
+/** A CIMRGBColor, written the short way these presets are read in. */
+const symRgb = (r, g, b, a = 100) => ({ type: "CIMRGBColor", values: [r, g, b, a] });
+
+/** A solid stroke, optionally dashed. */
+const symStroke = (colour, width, dashes) => {
+  const layer = {
+    type: "CIMSolidStroke",
+    enable: true,
+    capStyle: dashes ? "Butt" : "Round",
+    joinStyle: "Round",
+    width,
+    color: colour,
+  };
+
+  if (dashes) {
+    layer.effects = [{
+      type: "CIMGeometricEffectDashes",
+      dashTemplate: dashes,
+      lineDashEnding: "NoConstraint",
+    }];
+  }
+
+  return layer;
+};
+
+/** A solid fill. */
+const symFill = colour => ({ type: "CIMSolidFill", enable: true, color: colour });
+
+/** A round vector marker of one colour. */
+const symMarker = (colour, size) => ({
+  type: "CIMVectorMarker",
+  enable: true,
+  size,
+  rotation: 0,
+  markerGraphics: [{
+    type: "CIMMarkerGraphic",
+    geometry: { x: 0, y: 0 },
+    symbol: { type: "CIMPolygonSymbol", symbolLayers: [symFill(colour)] },
+  }],
+});
+
+/**
+ * The shipped symbol sets.
+ *
+ * <b>Layers are listed the way CIM lists them: the first one is drawn on top.</b> A casing is
+ * therefore the *last* entry of a road, which is the one thing to get right when reading these.
+ */
+const SYMBOL_LIBRARY = [
+  {
+    name: "Lines",
+    shape: "line",
+    symbols: [
+      {
+        id: "line-plain",
+        name: "Plain line",
+        layers: [symStroke(symRgb(60, 60, 60), 1)],
+      },
+      {
+        id: "line-casing",
+        name: "Road with casing",
+        layers: [
+          symStroke(symRgb(255, 255, 255), 2),
+          symStroke(symRgb(40, 40, 40), 6),
+        ],
+      },
+      {
+        id: "line-major",
+        name: "Major road",
+        layers: [
+          symStroke(symRgb(250, 200, 90), 3.5),
+          symStroke(symRgb(160, 110, 20), 6.5),
+        ],
+      },
+      {
+        id: "line-dashed-boundary",
+        name: "Dashed boundary",
+        layers: [
+          symStroke(symRgb(120, 60, 140), 1.2, [6, 3]),
+          symStroke(symRgb(235, 225, 240), 3.5),
+        ],
+      },
+      {
+        id: "line-railway",
+        name: "Railway",
+        layers: [
+          symStroke(symRgb(255, 255, 255), 2, [4, 4]),
+          symStroke(symRgb(40, 40, 40), 2.6),
+        ],
+      },
+      {
+        id: "line-stream",
+        name: "Stream",
+        layers: [symStroke(symRgb(80, 150, 210), 1.4)],
+      },
+    ],
+  },
+  {
+    name: "Areas",
+    shape: "fill",
+    symbols: [
+      {
+        id: "area-plain",
+        name: "Plain fill",
+        layers: [symFill(symRgb(204, 187, 68))],
+      },
+      {
+        id: "area-hairline",
+        name: "Hairline edge",
+        layers: [
+          symStroke(symRgb(90, 90, 90), 0.4),
+          symFill(symRgb(220, 220, 214)),
+        ],
+      },
+      {
+        id: "area-heavy-edge",
+        name: "Heavy edge",
+        layers: [
+          symStroke(symRgb(60, 70, 90), 2.4),
+          symFill(symRgb(198, 212, 232)),
+        ],
+      },
+      {
+        id: "area-outline-only",
+        name: "Outline only",
+        layers: [symStroke(symRgb(150, 50, 40), 1.6)],
+      },
+      {
+        id: "area-dashed-edge",
+        name: "Dashed edge",
+        layers: [
+          symStroke(symRgb(120, 90, 40), 1.2, [5, 3]),
+          symFill(symRgb(244, 236, 218)),
+        ],
+      },
+      {
+        id: "area-water",
+        name: "Water",
+        layers: [
+          symStroke(symRgb(90, 150, 200), 0.6),
+          symFill(symRgb(178, 214, 238)),
+        ],
+      },
+    ],
+  },
+  {
+    name: "Points",
+    shape: "marker",
+    symbols: [
+      {
+        id: "point-plain",
+        name: "Plain marker",
+        layers: [symMarker(symRgb(200, 60, 50), 8)],
+      },
+      {
+        id: "point-haloed",
+        name: "Haloed marker",
+        layers: [
+          symMarker(symRgb(200, 60, 50), 7),
+          symMarker(symRgb(255, 255, 255), 12),
+        ],
+      },
+      {
+        id: "point-ringed",
+        name: "Ringed marker",
+        layers: [
+          symMarker(symRgb(255, 255, 255), 5),
+          symMarker(symRgb(40, 90, 150), 12),
+        ],
+      },
+      {
+        id: "point-small",
+        name: "Small dot",
+        layers: [symMarker(symRgb(70, 70, 70), 4)],
+      },
+    ],
+  },
+];
+
+/**
+ * Draws the gallery for the geometry being edited.
+ *
+ * <b>Only the sets this geometry can be drawn with.</b> A line layer offered an area fill is a
+ * gallery that mostly does not work, and finding that out costs a click each time.
+ */
+function drawSymbolGallery() {
+  const box = $("symGallery");
+  if (!box) return;
+
+  const shape = symKindOfGeometry(symGeometry);
+  const set = SYMBOL_LIBRARY.find(s => s.shape === shape);
+
+  if (!set) {
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = set.symbols.map(symbol =>
+    `<button class="symcard" data-symbol="${h(symbol.id)}" title="${h(symbol.name)}">
+      ${symSwatch(symbol, shape)}
+      <span>${h(symbol.name)}</span>
+    </button>`).join("");
+}
+
+/**
+ * A small drawing of one preset.
+ *
+ * <b>Drawn here rather than fetched, and that is the one place this console draws a symbol
+ * itself.</b> A gallery of sixteen server previews is sixteen requests before anybody has
+ * chosen anything. This is an icon; the picture beside the form is still the renderer's, and
+ * that is the one that decides.
+ */
+function symSwatch(symbol, shape) {
+  const parts = [...symbol.layers].reverse().map(layer => {
+    const paint = symLayerColour(layer);
+    const colour = symCimHex(paint && paint.color);
+
+    if (layer.type === "CIMSolidStroke") {
+      const dash = layer.effects && layer.effects[0] && layer.effects[0].dashTemplate;
+
+      return shape === "fill"
+        ? `<rect x="7" y="9" width="44" height="24" fill="none" stroke="${colour}"
+             stroke-width="${(layer.width || 1) * 1.2}"${
+               dash ? ` stroke-dasharray="${dash.join(" ")}"` : ""}/>`
+        : `<path d="M5,32 C 18,32 20,12 30,12 S 46,26 55,26" fill="none" stroke="${colour}"
+             stroke-width="${(layer.width || 1) * 1.6}" stroke-linecap="round"${
+               dash ? ` stroke-dasharray="${dash.join(" ")}"` : ""}/>`;
+    }
+
+    if (layer.type === "CIMVectorMarker") {
+      return `<circle cx="30" cy="21" r="${(layer.size || 8) * 0.9}" fill="${colour}"/>`;
+    }
+
+    return `<rect x="7" y="9" width="44" height="24" fill="${colour}"/>`;
+  });
+
+  return `<svg viewBox="0 0 60 42" aria-hidden="true">${parts.join("")}</svg>`;
+}
+
+/** Puts one preset onto the selected class. */
+function symApplyLibrary(id) {
+  const set = SYMBOL_LIBRARY.find(s => s.shape === symKindOfGeometry(symGeometry));
+  const chosen = set && set.symbols.find(s => s.id === id);
+  const cls = symClasses()[symClassIndex];
+
+  if (!chosen || !cls) return false;
+
+  // <b>The symbol is replaced, not merged.</b> Keeping the class's old colour would make the
+  // gallery unpredictable — a preset chosen for its colours would arrive in somebody else's —
+  // and recolouring afterwards is one click in the row below.
+  symSymbolOf(cls).symbolLayers = JSON.parse(JSON.stringify(chosen.layers));
+
+  return true;
+}
+
 /** The symbol kind this layer's geometry takes: fill, line or marker. */
 function symKindOfGeometry(geometry) {
   const g = String(geometry || "").toLowerCase();
@@ -4929,6 +5211,7 @@ function fillSymbologyForm(cim, geometry) {
 
     drawSymbologyClasses(kind);
     drawSymbolLayers();
+    drawSymbolGallery();
   } finally {
     symFilling = false;
   }
@@ -6363,6 +6646,13 @@ function showLayer(name, page, pending = null) {
             way to author it was to type JSON. The shape is Esri's own Symbol Styler: pick the
             class, then edit its symbol layer by layer.
           -->
+          <h4>Symbol sets</h4>
+          <p class="hint" id="symGalleryNote">
+            Ready-made symbols for this geometry. Choosing one replaces the selected class's
+            symbol; its colours are edited in the rows below.
+          </p>
+          <div id="symGallery"></div>
+
           <h4 id="symStackHead">Symbol layers</h4>
           <p class="hint" id="symStackNote">The first row is drawn on top.</p>
           <div id="symStack"></div>

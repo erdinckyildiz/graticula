@@ -232,7 +232,42 @@ things. Store still sends the box.
 `Lock color`. This renderer has no equivalent of any of them, and a control that looks like
 Esri's and does something else is worse than no control.
 
-### 3.8 What happens to documents stored under ADR-033
+### 3.8 A shipped library of symbols, and the line it stops at
+
+**Owner decision 2026-09-03.** Esri's Symbol Styler opens on *Current symbol* and a set to pick
+from, because a complex symbol is not something people build twice by hand. The console ships
+sets of its own: sixteen symbols across *Lines*, *Areas* and *Points*, only the ones whose
+geometry is being edited, each a **stack** — the road with a casing under it, the dashed
+boundary over a solid halo, the polygon whose edge is heavier than its fill.
+
+**Every one is drawn from `CIMSolidFill`, `CIMSolidStroke` and `CIMVectorMarker`**, which is
+exactly what `MapRenderer` paints. Choosing one replaces the selected class's symbol rather than
+merging with it: a preset chosen for its colours arriving in somebody else's is a gallery nobody
+can predict, and recolouring is one click in the row below.
+
+**The gallery swatch is drawn by the console and the preview is not.** Sixteen server previews
+is sixteen requests before anybody has chosen anything. The swatch is an icon; the picture
+beside the form remains the renderer's, and that is the one that decides.
+
+**What this library cannot contain, and why it is a decision rather than a gap.** Esri's
+*Classic Symbols* are shapes — square, triangle, cross, star — and a picture marker is an image.
+Measured 2026-09-03 rather than assumed:
+
+- `MapSymbol.Marker` is `(Colour, Radius, OutlineColour, OutlineWidth)` and the canvas draws it
+  with `DrawCircle`. There is no shape.
+- MapLibre, which §3.5 makes the renderer's only route to a stored document, has **no shape on
+  `circle`** either. The one way to draw a square is `symbol` with `icon-image`, which needs a
+  sprite sheet.
+- [ADR-027](ADR-027-glyphs-and-sprites.md) condition 5 is still open and says the refusal of
+  `icon-image` is *deleted rather than relaxed when sprites can be uploaded*.
+
+So marker shapes are not a small addition to this library: they need either a sprite store —
+upload, licensing, a size ceiling, a served sheet — or a second route from CIM to the renderer
+that bypasses §3.5's single derivation. **Both are decisions, and neither is taken here.** The
+library ships what can be drawn today and says what it is missing, which is the honest half of a
+gallery.
+
+### 3.9 What happens to documents stored under ADR-033
 
 **Read tolerates both and write always produces CIM.** A stored document whose
 root has `"version": 8` and `"layers"` is a MapLibre style and is converted on
