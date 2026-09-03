@@ -70,8 +70,15 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
         // deleting leaves the service behind, and the next run's publish is refused with *there
         // is already a service called this* -- a failure about the previous run rather than
         // about the code.
-        await DeleteAsync(
+        string cleared = await DeleteAsync(
             $"{root}/admin/featureservices/{Service}?folder=hosted&drop=true", token!);
+
+        Assert.True(
+            cleared.Length == 0,
+            "The fixture from a previous run could not be removed, so this run's publish would "
+            + $"be refused for a reason that is not about the code. {cleared}");
+
+        string tidied = string.Empty;
 
         try
         {
@@ -226,8 +233,8 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
         }
         finally
         {
-            await DeleteAsync(
-            $"{root}/admin/featureservices/{Service}?folder=hosted&drop=true", token!);
+            tidied = await DeleteAsync(
+                $"{root}/admin/featureservices/{Service}?folder=hosted&drop=true", token!);
 
             try
             {
@@ -238,6 +245,14 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
                 // A fixture left in the temporary directory is not worth failing a green run.
             }
         }
+
+        // <b>After the `finally`, so it can mask nothing.</b> This line is reached only when
+        // the test itself passed; a service left behind then is a defect in its own right,
+        // because the next run's publish is refused for a reason that has nothing to do with
+        // the code being tested.
+        Assert.True(
+            tidied.Length == 0,
+            $"The test passed and its fixture is still published. {tidied}");
     }
 
     /// <summary>The reader executable, found from this test's own location.</summary>
@@ -419,13 +434,32 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
-    private async Task DeleteAsync(string url, string token)
+    /// <summary>
+    /// Removes the fixture service, and says what went wrong rather than deciding.
+    /// </summary>
+    /// <remarks>
+    /// <b>Returned rather than asserted, because one of the two callers is a `finally`.</b>
+    /// Throwing from there would replace the failure the test was actually about with a message
+    /// about tidying up after it — which is D-177's shape running backwards. The answer is read
+    /// and carried out instead, and the caller asserts on it after the `try` has finished, where
+    /// a throw can mask nothing.
+    /// </remarks>
+    /// <param name="url">What to delete.</param>
+    /// <param name="token">The caller's token.</param>
+    /// <returns>An empty string, or one sentence saying what the server said.</returns>
+    private async Task<string> DeleteAsync(string url, string token)
     {
         using HttpRequestMessage request = new(HttpMethod.Delete, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
 
-        _ = response.StatusCode;
+        // <b>404 is a success here.</b> Both calls exist to make sure the service is gone, and
+        // *it was never there* is that.
+        return response.StatusCode is HttpStatusCode.OK or HttpStatusCode.NoContent
+                or HttpStatusCode.NotFound
+            ? string.Empty
+            : $"DELETE {url} answered {(int)response.StatusCode}: {body}";
     }
 }
