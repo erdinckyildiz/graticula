@@ -155,8 +155,15 @@ public sealed class GeodatabaseReaderTests
 
         named.Remove("sing");
 
+        // <b>`fixture` joined the list on 2026-09-03</b>, when Q-138 was answered by generating
+        // a geodatabase at test time rather than committing one. It is named here because this
+        // test's whole point is that the refusal and the switch cannot drift apart, and the
+        // first change after it was written did exactly that.
         Assert.Equal(
-            new HashSet<string>(StringComparer.Ordinal) { "ping", "layers", "convert", "features" },
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "ping", "layers", "convert", "features", "fixture",
+            },
             named);
 
         foreach (string operation in named)
