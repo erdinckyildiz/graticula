@@ -171,10 +171,172 @@ internal static class Program
             "features" => Features(
                 Text(request, "archive"), Text(request, "layer"), Encoding(request)),
 
+            // <b>A geodatabase this repository can commit to a test rather than to git —
+            // [D-95](../../docs/architecture-debt.md), [Q-138](../../docs/open-questions.md),
+            // owner decision 2026-09-03.</b> Nothing automated read a *valid* archive: the only
+            // test walked the pipeline with four empty files and asserted the refusal. The
+            // corpus that would have tested the read path is the owner's client data, and a
+            // public-domain File Geodatabase would put somebody else's bytes and a data licence
+            // into a repository that is given away. So the fixture is built here, from geometry
+            // this project already generates, by the same GDAL the reader uses.
+            //
+            // <b>The cost is stated rather than hidden, and it is the one Q-138 named.</b> This
+            // tests that the reader reads what **GDAL's own writer** produces, not what Esri's
+            // does — and most of the format risk lives in that difference. It is still a long
+            // way from *no test reads a valid archive at all*: field types, geometry, encoding
+            // and the multi-layer case are all exercised end to end, and a regression in the
+            // reader is found by the suite rather than by a person.
+            //
+            // <b>In the reader because GDAL is in the reader.</b> The alternative was a test
+            // project carrying its own hundred megabytes of native payload, or a second tool
+            // with the same dependency — one more place for the version to drift from the one
+            // that does the reading.
+            "fixture" => Fixture(request),
+
             _ => throw new ArgumentException(
-                $"'{operation}' is not an operation. This reader answers 'ping', 'layers', 'convert' "
-                + "and 'features'."),
+                $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
+                + "'convert', 'features' and 'fixture'."),
         };
+    }
+
+
+    /// <summary>
+    /// Writes a small File Geodatabase, for a test that needs a valid one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two layers, because one would not test the case that matters.</b> A geodatabase holds
+    /// many, and [ADR-038](../../docs/adr/ADR-038-how-a-geodatabase-becomes-a-service.md) turns
+    /// each into a layer of one service — so a fixture with a single layer would leave the
+    /// multi-layer path unexercised, which is the path the owner's archives actually take.
+    /// </para>
+    /// <para>
+    /// <b>A field of each kind the importer infers.</b> Text, integer, real and date, because
+    /// what a reader gets wrong is types rather than coordinates, and a fixture with one string
+    /// column would pass while the inference was broken.
+    /// </para>
+    /// <para>
+    /// <b>Points and polygons, in EPSG:4326.</b> Two geometry kinds so the geometry-type
+    /// declaration is exercised on both sides, and a reference the whole product understands so
+    /// that a failure is about the archive rather than about a projection.
+    /// </para>
+    /// </remarks>
+    /// <param name="request">Carries <c>path</c>, the directory to create.</param>
+    /// <returns>What was written.</returns>
+    private static object Fixture(JsonElement request)
+    {
+        string path = request.TryGetProperty("path", out JsonElement given)
+            ? given.GetString() ?? string.Empty
+            : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentException("'fixture' needs a 'path' to write the geodatabase to.");
+        }
+
+        OSGeo.OGR.Driver driver = Ogr.GetDriverByName("OpenFileGDB")
+            ?? throw new InvalidOperationException(
+                "This build has no OpenFileGDB driver, so it cannot write a geodatabase. "
+                + "GDAL has been able to since 3.6; ask 'ping' what this one carries.");
+
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+
+        using DataSource made = driver.CreateDataSource(path, []);
+
+        SpatialReference wgs84 = new(null);
+        wgs84.ImportFromEPSG(4326);
+
+        int written = 0;
+
+        written += Write(made, wgs84, "places", wkbGeometryType.wkbPoint);
+        written += Write(made, wgs84, "parcels", wkbGeometryType.wkbPolygon);
+
+        made.FlushCache();
+
+        return new { path, layers = 2, features = written };
+    }
+
+    /// <summary>One layer of the fixture, with its fields and a handful of features.</summary>
+    /// <param name="into">The geodatabase.</param>
+    /// <param name="reference">EPSG:4326.</param>
+    /// <param name="name">The layer's name.</param>
+    /// <param name="kind">Point or polygon.</param>
+    /// <returns>How many features were written.</returns>
+    private static int Write(
+        DataSource into, SpatialReference reference, string name, wkbGeometryType kind)
+    {
+        Layer layer = into.CreateLayer(name, reference, kind, []);
+
+        foreach ((string field, FieldType type) in new[]
+        {
+            ("name", FieldType.OFTString),
+            ("count", FieldType.OFTInteger),
+            ("area", FieldType.OFTReal),
+            ("seen", FieldType.OFTDate),
+        })
+        {
+            using FieldDefn defined = new(field, type);
+
+            if (type == FieldType.OFTString)
+            {
+                defined.SetWidth(64);
+            }
+
+            layer.CreateField(defined, 1);
+        }
+
+        int written = 0;
+
+        for (int i = 1; i <= 5; i++)
+        {
+            using Feature feature = new(layer.GetLayerDefn());
+
+            feature.SetField("name", $"{name} {i}");
+            feature.SetField("count", i * 3);
+            feature.SetField("area", i * 1.5);
+            feature.SetField("seen", 2026, 9, 3, 12, 0, 0, 0);
+
+            double x = 32.0 + (i * 0.01);
+            double y = 39.0 + (i * 0.01);
+
+            using Geometry geometry = kind == wkbGeometryType.wkbPoint
+                ? Point(x, y)
+                : Square(x, y);
+
+            feature.SetGeometry(geometry);
+            layer.CreateFeature(feature);
+            written++;
+        }
+
+        layer.SyncToDisk();
+
+        return written;
+    }
+
+    private static Geometry Point(double x, double y)
+    {
+        Geometry point = new(wkbGeometryType.wkbPoint);
+        point.AddPoint_2D(x, y);
+        return point;
+    }
+
+    private static Geometry Square(double x, double y)
+    {
+        Geometry ring = new(wkbGeometryType.wkbLinearRing);
+
+        ring.AddPoint_2D(x, y);
+        ring.AddPoint_2D(x + 0.005, y);
+        ring.AddPoint_2D(x + 0.005, y + 0.005);
+        ring.AddPoint_2D(x, y + 0.005);
+        ring.AddPoint_2D(x, y);
+
+        Geometry polygon = new(wkbGeometryType.wkbPolygon);
+        polygon.AddGeometry(ring);
+
+        return polygon;
     }
 
     /// <summary>
