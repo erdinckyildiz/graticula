@@ -227,29 +227,34 @@ public static class VectorTileServerMetadataWriter
             // The alternative is a naming policy on the serialiser, which would
             // then apply to every other document this assembly writes and rename
             // fields ArcGIS clients match exactly.
-            layers = sourceLayers.Select(StyleLayer).ToArray(),
+            layers = sourceLayers.SelectMany(StyleLayers).ToArray(),
         });
     }
 
     /// <summary>
-    /// A layer's stored paint, wired to this service's source, or null if none.
+    /// The style layers a stored symbology asks for, or null when there is none.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The canonical document carries paint and nothing else</b> — ADR-033 §5c
-    /// strips <c>source</c>, <c>source-layer</c>, <c>sources</c>, <c>sprite</c> and
-    /// <c>glyphs</c> on write, because a stored one names a host that a deployment
-    /// moves away from. So this puts them back: the source is this service's, and the
-    /// source layer is this layer's name.
+    /// <b>Every layer of the stack, not the one that matches the geometry.</b> This returned a
+    /// single style layer until 2026-09-03 and dropped the rest, so a road authored as a casing
+    /// under a fill drew correctly in WMS and in MapServer and arrived here as one line —
+    /// measured on a two-layer polygon symbol whose outline vanished from the published style
+    /// while both drawing faces painted it. A stack surviving to the map and not to the style is
+    /// the drift ADR-033 §7's first condition exists to stop.
     /// </para>
     /// <para>
-    /// <b>A document that cannot be read falls back to the generated appearance.</b>
-    /// The write path refuses anything malformed, so reaching that means an older
-    /// build wrote what a newer one cannot read — and a tile style that fails to parse
-    /// is a blank map, which is a worse answer than a colour somebody did not choose.
+    /// <b>Derived, not parsed (ADR-052).</b> The stored document is a CIM renderer, so reading
+    /// it here as a MapLibre style would find no `layers` array, answer null, and fall through
+    /// to the generated appearance — a styled layer quietly reverting to its default colour on
+    /// this face alone.
     /// </para>
     /// </remarks>
-    private static Dictionary<string, object>? Authored(
+    /// <param name="sourceLayerName">The source layer these draw from.</param>
+    /// <param name="geometryType">What it is made of.</param>
+    /// <param name="symbology">The stored document, or null.</param>
+    /// <returns>One style layer per symbol layer, bottom first, or null.</returns>
+    private static List<object>? Authored(
         string sourceLayerName, GeometryKind geometryType, string? symbology)
     {
         if (string.IsNullOrWhiteSpace(symbology))
@@ -259,12 +264,6 @@ public static class VectorTileServerMetadataWriter
 
         try
         {
-            // <b>Derived, not parsed (ADR-052).</b> The stored document is a CIM renderer now,
-            // so reading it here as a MapLibre style would find no `layers` array, answer null,
-            // and fall through to the generated appearance -- a styled layer quietly reverting
-            // to its default colour on this face only, with both faces then disagreeing about
-            // the same layer. That is the drift ADR-033 §7's first condition exists to stop, and
-            // it would have arrived by the back door of a half-finished change.
             if (SymbologyConversion.ToStyle(symbology, sourceLayerName, geometryType).Style
                 is not { } document
                 || document["layers"] is not System.Text.Json.Nodes.JsonArray layers)
@@ -272,52 +271,56 @@ public static class VectorTileServerMetadataWriter
                 return null;
             }
 
-            string wanted = geometryType switch
-            {
-                GeometryKind.Point or GeometryKind.MultiPoint => "circle",
-                GeometryKind.LineString or GeometryKind.MultiLineString => "line",
-                _ => "fill",
-            };
+            List<object> drawn = [];
 
             foreach (System.Text.Json.Nodes.JsonNode? node in layers)
             {
                 if (node is not System.Text.Json.Nodes.JsonObject layer
-                    || layer["type"]?.GetValue<string>() != wanted)
+                    || layer["type"]?.GetValue<string>() is not { Length: > 0 } kind)
                 {
                     continue;
                 }
 
-                Dictionary<string, object> drawn = new()
+                // <b>The id is the derivation's, which numbers the levels.</b> Two style layers
+                // sharing one id is a style no client loads, and that is what naming them all
+                // after the source layer would produce.
+                Dictionary<string, object> one = new()
                 {
-                    ["id"] = sourceLayerName,
-                    ["type"] = wanted,
+                    ["id"] = layer["id"]?.GetValue<string>() is { Length: > 0 } given
+                        ? given
+                        : $"{sourceLayerName}-{drawn.Count}",
+                    ["type"] = kind,
                     ["source"] = "esri",
                     ["source-layer"] = sourceLayerName,
                 };
 
-                foreach (string property in new[] { "paint", "layout", "filter", "minzoom", "maxzoom" })
+                foreach (string property in
+                         new[] { "paint", "layout", "filter", "minzoom", "maxzoom" })
                 {
                     if (layer[property] is { } value)
                     {
-                        drawn[property] = value.DeepClone();
+                        one[property] = value.DeepClone();
                     }
                 }
 
-                return drawn;
+                drawn.Add(one);
             }
 
-            return null;
+            return drawn.Count == 0 ? null : drawn;
         }
         catch (System.Text.Json.JsonException)
         {
             return null;
         }
+        catch (SymbologyException)
+        {
+            // <b>A document this server cannot derive falls back to the generated appearance.</b>
+            // The layer is still drawn and the admin page is where the refusal is explained; a
+            // style service that answered 500 would take the whole map down for one layer.
+            return null;
+        }
     }
 
-    /// <summary>
-    /// Folds the optional keys in ahead of the rest, keeping the order a reader
-    /// expects: version, sources, glyphs, sprite, layers.
-    /// </summary>
     private static Dictionary<string, object> Merge(
         Dictionary<string, object> head, object tail)
     {
@@ -340,7 +343,7 @@ public static class VectorTileServerMetadataWriter
     /// not fix from here. The same call decides the feature service's `drawingInfo`, so
     /// the two faces agree by construction rather than by two people remembering.
     /// </remarks>
-    private static object StyleLayer(
+    private static List<object> StyleLayers(
         (string Name, GeometryKind Geometry, string? Symbology) source)
     {
         (string sourceLayerName, GeometryKind geometryType, string? symbology) = source;
@@ -352,7 +355,7 @@ public static class VectorTileServerMetadataWriter
         // while this face kept generating its own would have made the two disagree
         // about the same layer — which is exactly the drift §7's first condition was
         // written to prevent, arriving by the back door of a half-finished change.
-        if (Authored(sourceLayerName, geometryType, symbology) is { } authored)
+        if (Authored(sourceLayerName, geometryType, symbology) is { Count: > 0 } authored)
         {
             return authored;
         }
@@ -390,14 +393,14 @@ public static class VectorTileServerMetadataWriter
             _ => "fill",
         };
 
-        return new Dictionary<string, object>
+        return [new Dictionary<string, object>
         {
             ["id"] = sourceLayerName,
             ["type"] = type,
             ["source"] = "esri",
             ["source-layer"] = sourceLayerName,
             ["paint"] = paint,
-        };
+        }];
     }
 
     /// <summary>An extent, or the whole world when the layer's is unknown.</summary>

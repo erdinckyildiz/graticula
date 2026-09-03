@@ -197,6 +197,63 @@ public sealed class VectorTileServerMetadataWriterTests
 
     // ---------- the style ----------
 
+    /// <summary>
+    /// A symbol built from several layers is published as several style layers.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found by asking whether every face serves the stored symbology, and measuring rather
+    /// than answering.</b> This face returned one style layer per source layer and picked the
+    /// one matching the geometry, so a polygon symbol with an outline arrived here as a fill
+    /// with no edge — while WMS and MapServer, measured on the same document, painted 588
+    /// magenta pixels *and* 924 black ones. A stack that survives to the map and not to the
+    /// style is exactly the drift ADR-033 §7's first condition exists to stop.
+    /// </remarks>
+    [Fact]
+    public void A_symbol_of_several_layers_becomes_several_style_layers()
+    {
+        const string stored =
+            """
+            {
+              "type": "CIMSimpleRenderer",
+              "symbol": { "type": "CIMSymbolReference", "symbol": {
+                "type": "CIMPolygonSymbol",
+                "symbolLayers": [
+                  { "type": "CIMSolidStroke", "width": 2,
+                    "color": { "type": "CIMRGBColor", "values": [0, 0, 0, 100] } },
+                  { "type": "CIMSolidFill",
+                    "color": { "type": "CIMRGBColor", "values": [255, 0, 255, 100] } }
+                ] } }
+            }
+            """;
+
+        JsonElement layers = Parse(
+            VectorTileServerMetadataWriter.Style([("parcels", GeometryKind.Polygon, stored)]))
+            .GetProperty("layers");
+
+        Assert.Equal(2, layers.GetArrayLength());
+
+        // <b>Bottom first, which is the order a renderer paints in.</b> CIM lists the stroke
+        // first because it draws on top; publishing them in that order would put the outline
+        // under the fill and hide it.
+        Assert.Equal("fill", layers[0].GetProperty("type").GetString());
+        Assert.Equal("line", layers[1].GetProperty("type").GetString());
+
+        Assert.Equal(
+            "#ff00ff", layers[0].GetProperty("paint").GetProperty("fill-color").GetString());
+
+        Assert.Equal(
+            "#000000", layers[1].GetProperty("paint").GetProperty("line-color").GetString());
+
+        // <b>Distinct ids, because two style layers sharing one is a style no client loads.</b>
+        Assert.NotEqual(
+            layers[0].GetProperty("id").GetString(),
+            layers[1].GetProperty("id").GetString());
+
+        // Both still read from the one source layer inside the tile.
+        Assert.Equal("parcels", layers[0].GetProperty("source-layer").GetString());
+        Assert.Equal("parcels", layers[1].GetProperty("source-layer").GetString());
+    }
+
     [Fact]
     public void The_style_names_the_layer_inside_the_tile_under_the_hyphenated_key()
     {
