@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -2795,9 +2796,35 @@ internal static class AdminEndpoints
             return;
         }
 
-        byte[] picture = await ThumbnailEndpoints.PictureAsync(
-            contexts, canvases, source, layer, extent, settings, candidate, cancellation)
-            .ConfigureAwait(false);
+        // <b>An extent the caller names, or the one the features occupy.</b> Added 2026-09-04
+        // to measure whether this editor can sit beside a map the reader pans, rather than
+        // beside one still picture of a fixed frame — the question ADR-051 could not ask,
+        // because a fixed frame cannot answer *what does this look like at z14 over Ankara*.
+        //
+        // <b>Additive on purpose.</b> Without `bbox` this is the same request it was: the frame
+        // is computed from the drawn features and the size is the thumbnail's. If the map-shaped
+        // editor is not built, this parameter goes with it.
+        //
+        // <b>In the layer's own coordinates</b>, because that is what `RenderAsync` draws in and
+        // what the extent it computes for itself is already in. A caller working in a different
+        // reference is asking for a reprojection this route does not do, and would get a picture
+        // of the wrong place rather than a refusal — so it is stated here and asserted below.
+        (Envelope frame, int wide, int tall)? asked =
+            ReadPreviewFrame(context, out string? badFrame);
+
+        if (badFrame is not null)
+        {
+            await Refuse(context, 400, badFrame).ConfigureAwait(false);
+            return;
+        }
+
+        byte[] picture = asked is { } want
+            ? await ThumbnailEndpoints.RenderAsync(
+                contexts, canvases, layer, want.frame, settings, candidate, cancellation,
+                want.wide, want.tall).ConfigureAwait(false)
+            : await ThumbnailEndpoints.PictureAsync(
+                contexts, canvases, source, layer, extent, settings, candidate, cancellation)
+                .ConfigureAwait(false);
 
         // <b>`no-store`, because the whole point is that this document is not the stored one.</b>
         // A cached preview would show somebody an earlier edit and let them keep it.
@@ -2806,6 +2833,85 @@ internal static class AdminEndpoints
         context.Response.ContentLength = picture.Length;
 
         await context.Response.Body.WriteAsync(picture, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The frame and size a preview request asked for, or null for the layer's own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Both or neither, and both are bounded.</b> `bbox` is four numbers in the layer's own
+    /// coordinate reference, `size` is `width x height` in pixels. A caller naming an extent
+    /// without a size gets the thumbnail's 336×224 stretched over it, which is a picture of the
+    /// right place at the wrong shape — so the size is optional and defaults, but a degenerate
+    /// extent is refused rather than drawn as a division by nothing.
+    /// </para>
+    /// <para>
+    /// <b>2048 is the ceiling and it is arbitrary in the way a ceiling has to be.</b> The
+    /// renderer draws every feature within the record count into a canvas the caller sized;
+    /// without a bound, one request asks this server for a 16,000-pixel square. Twice a 4K
+    /// viewport's long edge is past anything a map panel needs and short of anything that
+    /// hurts.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="why">The refusal, when the parameters are present and wrong.</param>
+    /// <returns>The frame and size, or null when none was asked for.</returns>
+    private static (Envelope Frame, int Wide, int Tall)? ReadPreviewFrame(
+        HttpContext context, out string? why)
+    {
+        why = null;
+
+        string? bbox = context.Request.Query["bbox"];
+
+        if (string.IsNullOrWhiteSpace(bbox))
+        {
+            return null;
+        }
+
+        string[] parts = bbox.Split(',', StringSplitOptions.TrimEntries);
+
+        if (parts.Length != 4
+            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double minX)
+            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double minY)
+            || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double maxX)
+            || !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double maxY))
+        {
+            why = "'bbox' is four numbers separated by commas — minx,miny,maxx,maxy — in the "
+                + "layer's own coordinate reference.";
+
+            return null;
+        }
+
+        if (!(maxX > minX) || !(maxY > minY))
+        {
+            why = "'bbox' has no width or no height, so there is nothing to draw into. The "
+                + "order is minx,miny,maxx,maxy.";
+
+            return null;
+        }
+
+        int wide = ThumbnailEndpoints.Width;
+        int tall = ThumbnailEndpoints.Height;
+
+        string? size = context.Request.Query["size"];
+
+        if (!string.IsNullOrWhiteSpace(size))
+        {
+            string[] two = size.Split('x', StringSplitOptions.TrimEntries);
+
+            if (two.Length != 2
+                || !int.TryParse(two[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out wide)
+                || !int.TryParse(two[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out tall)
+                || wide < 1 || tall < 1 || wide > 2048 || tall > 2048)
+            {
+                why = "'size' is two whole numbers as 'width x height', each between 1 and 2048.";
+
+                return null;
+            }
+        }
+
+        return (new Envelope(minX, minY, maxX, maxY), wide, tall);
     }
 
     /// <summary>

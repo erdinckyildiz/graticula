@@ -340,19 +340,29 @@ internal static class ThumbnailEndpoints
     /// <param name="settings">For the record ceiling.</param>
     /// <param name="symbology">A candidate document, or null for the stored one.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="width">How wide to draw, or null for a thumbnail's width.</param>
+    /// <param name="height">How tall to draw, or null for a thumbnail's height.</param>
     /// <returns>The encoded picture.</returns>
-    private static async Task<byte[]> RenderAsync(
+    internal static async Task<byte[]> RenderAsync(
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         PublishedLayer layer,
         Envelope extent,
         HostSettings settings,
         string? symbology,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        int? width = null,
+        int? height = null)
     {
-        PixelTransform transform = new(extent, Width, Height);
+        // <b>The thumbnail's size unless a caller names one.</b> The symbology preview asks for
+        // its own when it is drawing into a map viewport rather than into a fixed slot; every
+        // other caller wants the two constants above and passes nothing.
+        int wide = width ?? Width;
+        int tall = height ?? Height;
 
-        using IMapCanvas canvas = canvases.Create(Width, Height);
+        PixelTransform transform = new(extent, wide, tall);
+
+        using IMapCanvas canvas = canvases.Create(wide, tall);
 
         // <b>Transparent, not white.</b> The slot has a rounded corner and a background that
         // follows the viewer's theme; a white rectangle would sit inside it as a white
@@ -373,6 +383,11 @@ internal static class ThumbnailEndpoints
 
         // <b>No labels.</b> `FinishLabels` is what draws them and it is not called: text at 104
         // pixels across is a smear, and the picture is about shape and density.
+        //
+        // <b>Still none at map size, and that is a question rather than a decision.</b> A
+        // preview drawn into a viewport is a map, and a map has labels; whether this path should
+        // start drawing them is part of whatever decides the editor's shape, not something to
+        // slip in with a size parameter.
         //
         // <b>But the density surface, which is exactly what this picture is about.</b> A heat map
         // accumulates while the features go past and is composited at the end, and this path skips

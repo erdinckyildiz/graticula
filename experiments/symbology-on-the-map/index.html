@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Symbology on the map — experiment</title>
+<!--
+  <b>Disposable, and it is here to answer one question.</b> CLAUDE.md §1: /experiments is never
+  promoted. What this asks is whether the symbology editor can sit beside a map the reader pans,
+  with the layer drawn by *this server's own renderer* rather than by the browser — which is the
+  condition ADR-051 imposed and the reason it rejected a browser-drawn preview.
+
+  <b>What it is not.</b> Not a design, not a panel, not a proposal about where controls go. One
+  map, one image drawn by the preview endpoint at the viewport's own extent, redrawn on every
+  view change, with the round trip timed on screen.
+
+  <b>Why OpenLayers.</b> It is already in wwwroot and it can hold a single-image layer whose URL
+  is computed per view — which is exactly the shape the real thing would have. The map furniture
+  (the tiles under the data) is the same ground the viewer uses.
+-->
+<link rel="stylesheet" href="../ol.css">
+<style>
+  :root {
+    --paper: #f6f8fa; --surface: #fff; --ink: #101826; --muted: #566275;
+    --rule: #e3e8ef; --accent: #0d7d70; --warn: #8a5a08; --alert: #a5342a;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.5 system-ui, -apple-system, sans-serif; color: var(--ink); }
+  #frame { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100%; }
+  #mapwrap { position: relative; overflow: hidden; }
+  #map { position: absolute; inset: 0; background: #dce7ec; }
+  /* <b>Over the ground, and not in the way.</b> The picture is the server's drawing of the
+     layer; the map underneath is what is panned. `pointer-events: none` keeps every gesture on
+     the map rather than on the image sitting over it. */
+  #over { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  aside {
+    background: var(--surface); border-left: 1px solid var(--rule);
+    padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 14px;
+  }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .sub { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  select, input { font: inherit; padding: 5px 7px; border: 1px solid #cfd7e3; border-radius: 4px; }
+
+  .rows { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: grid; grid-template-columns: 26px 1fr 54px; gap: 8px; align-items: center; font-size: 12.5px; }
+  .row input[type=color] { width: 26px; height: 22px; padding: 2px; border: 1px solid var(--rule); border-radius: 4px; }
+  .row .n { font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; }
+
+  .timing {
+    border-top: 1px solid var(--rule); padding-top: 12px;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .timing b { color: var(--ink); font-weight: 600; }
+  .timing .slow { color: var(--warn); }
+  .timing .bad { color: var(--alert); }
+
+  .hint { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="mapwrap"><div id="map"></div><img id="over" alt=""></div>
+  <aside>
+    <div>
+      <h1>Symbology on the map</h1>
+      <p class="sub">The layer is drawn by this server, at this viewport, on every view change.</p>
+    </div>
+
+    <label>Layer
+      <select id="layer"></select></label>
+
+    <div class="rows" id="classes"></div>
+
+    <div class="timing" id="timing">
+      <div>waiting for the first draw…</div>
+    </div>
+
+    <p class="hint">Pan and zoom. Every move asks the preview endpoint for one PNG at the
+      viewport's own extent and size — the same renderer, the same record ceiling and the same
+      candidate document the editor would send. Change a colour and the map redraws from the
+      edited document, which is never stored.</p>
+  </aside>
+</div>
+
+<script src="../ol.js"></script>
+<script src="./probe.js"></script>
+</body>
+</html>
