@@ -750,14 +750,21 @@ public static class Cim
                 + "`valueExpressionInfo`, so there is nothing to classify by.");
         }
 
-        if (fields.Count > 1)
+        if (fields.Count > 3)
         {
             notDrawn.Add(
                 $"The renderer classifies by {fields.Count} fields combined "
-                + $"({string.Join(", ", fields)}); this server classifies by one and uses "
-                + $"`{fields[0]}`. Features whose values differ only in the other fields are "
-                + "drawn the same.");
+                + $"({string.Join(", ", fields)}); ArcGIS allows three and this server carries "
+                + $"three, so the classes are built from {string.Join(", ", fields.Take(3))}. "
+                + "Features whose values differ only in the fields past the third are drawn the "
+                + "same.");
+
+            fields = [.. fields.Take(3)];
         }
+
+        string delimiter = Text(body["fieldDelimiter"]) is { Length: > 0 } between
+            ? between
+            : ", ";
 
         List<CimClass> classes = [];
 
@@ -775,18 +782,23 @@ public static class Cim
                         + "drawn with the class's own symbol rather than hidden.");
                 }
 
-                // <b>One value per class, and the first of a multi-field tuple.</b> `values` is
-                // a list of `CIMUniqueValue`, each with a `fieldValues` array as long as
-                // `fields`.
+                // <b>The whole tuple, joined.</b> `values` is a list of `CIMUniqueValue`, each
+                // with a `fieldValues` array as long as `fields` — so a class of a two-field
+                // renderer matches a *pair*. Both faces want the same joined key: the tile
+                // face's `match` runs over a `concat` of the fields and Esri's `value` is the
+                // delimiter-joined string, so joining here means one reading rather than two.
                 List<string> values = [];
 
                 foreach (JsonObject value in Objects(one["values"]))
                 {
-                    if ((value["fieldValues"] as JsonArray)?.FirstOrDefault() is { } first
-                        && Text(first) is { } text)
+                    if (value["fieldValues"] is not JsonArray tuple || tuple.Count == 0)
                     {
-                        values.Add(text);
+                        continue;
                     }
+
+                    values.Add(string.Join(
+                        delimiter,
+                        tuple.Take(fields.Count).Select(v => Text(v) ?? string.Empty)));
                 }
 
                 classes.Add(new CimClass(
@@ -808,7 +820,11 @@ public static class Cim
             fields[0],
             classes,
             Fallback(body, notDrawn),
-            notDrawn);
+            notDrawn)
+        {
+            Fields = fields,
+            Delimiter = delimiter,
+        };
     }
 
     /// <summary>One symbol per range of a number.</summary>
@@ -1553,6 +1569,20 @@ public sealed record CimProjection(
 {
     /// <summary>What slides continuously with a number, on top of the classes.</summary>
     public IReadOnlyList<CimVary> Vary { get; init; } = [];
+
+    /// <summary>Every field a unique-value renderer classifies by, in order.</summary>
+    /// <remarks>
+    /// <b>Up to three, because ArcGIS allows three and people use them.</b> A classification of
+    /// *land use within district* is two fields combined, and CIM stores it as <c>fields</c> with
+    /// each class's <c>fieldValues</c> as long as that list. This server read the first and
+    /// reported the rest as lost until 2026-09-04, which meant a two-field renderer drew as
+    /// though the second field were not there — a map with the right shape and the wrong
+    /// classes. ADR-052 §3.17.
+    /// </remarks>
+    public IReadOnlyList<string> Fields { get; init; } = [];
+
+    /// <summary>What joins the values of several fields into one class key.</summary>
+    public string Delimiter { get; init; } = ", ";
 
     /// <summary>The chart, for a chart renderer. Null for every other.</summary>
     public CimPie? Pie { get; init; }

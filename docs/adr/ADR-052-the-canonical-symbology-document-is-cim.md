@@ -669,6 +669,56 @@ and `CIMRepresentationRenderer` needs a geodatabase's representation classes,
 which PostGIS has no equivalent of. Neither is a matter of effort, and that is
 the honest end of the list rather than a pause in it.
 
+### 3.17 Three fields, and "Other" instead of a refusal — 2026-09-04
+
+**Both halves of this were the owner reading the documentation and pushing back**,
+and both were things this project had decided rather than measured.
+
+**A unique-value renderer classifies by up to three fields.** `field1`, `field2`,
+`field3` and a `fieldDelimiter` — a class matches a *tuple*, and CIM stores it as
+`fields` with each class's `fieldValues` as long as that list. This server read
+the first and reported the rest as lost, so a two-field renderer drew with the
+right shape and the wrong classes.
+
+The joined key is the same string on both faces, which is what makes one reading
+enough: the tile face matches on `["concat", ["to-string", ["get", a]], " / ",
+["to-string", ["get", b]]]` and Esri's `value` is the delimiter-joined string. So
+the projection joins once, carries `Fields` and `Delimiter`, and both faces use
+it. `concat` and `to-string` are new in the expression compiler and are the whole
+reason the tile face can carry this at all.
+
+**Splitting back is from the left, with the last field keeping the remainder.** A
+value containing the delimiter — " / " is not rare in Turkish place names — would
+otherwise turn one class into three and match none of them.
+
+**And too many values is an "Other" class rather than a refusal.** This is what
+ArcGIS does, in as many words:
+[Style categories](https://doc.arcgis.com/en/arcgis-online/create-maps/style-categories-mv.htm)
+says *"If you include more than 10, only the 10 with the highest counts are shown.
+The remaining are automatically grouped into the Other category"*, with a stated
+limit of 200 unique values and ten colours. Refusing the whole classification
+turned a field with many values into no map at all.
+
+**Which needed the query engine to order a grouped result by its own count.**
+*Which values are the most common* is `group by field order by count desc`, and
+the statistics path ordered only by the group. It now honours the caller's
+`orderBy` when it names a grouped column or one of the statistics the query
+computes — every name checked against that vocabulary before it reaches SQL,
+because `order by` is one of the two places a caller's string would otherwise
+become an identifier. Reading in alphabetical order and taking the first N would
+put the classes somebody cares about into Other for beginning with a late letter.
+
+Measured on the owner's own store: `ad`, with **1,394** distinct values, now
+answers **256 classes plus "Other (1,138 more values, 1,138 features)"** rather
+than a refusal, and a two-field classification of `name` and `floors` comes back
+with `fields: ["name", "floors"]`, a proper tuple per class and **no losses**.
+
+**And a correction about how a claim was sourced.** The 200-value limit above was
+first quoted here from a search summary rather than from the page, and the owner
+asked where it came from. The page does say it — but *quoting a summary as though
+it were the source* is exactly the failure this repository's §5 conditions exist
+to prevent, and it was caught by somebody asking rather than by anything here.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

@@ -603,6 +603,39 @@ public static class CimStyle
         return new DerivedStyle(style, losses);
     }
 
+    /// <summary>What a classified renderer matches on: one field, or several joined.</summary>
+    /// <remarks>
+    /// <b>`concat` of `to-string`, which is what MapLibre needs and what a client expects.</b>
+    /// One field is a plain `get`; two or three are joined by the renderer's own delimiter, in
+    /// the order the document lists them, so the key a class matches is the same string Esri's
+    /// `value` carries. `to-string` is explicit because `concat` in MapLibre takes strings and a
+    /// numeric column would otherwise make the whole expression invalid in a client that checks.
+    /// ADR-052 §3.17.
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <returns>The expression to match on.</returns>
+    private static JsonArray MatchOn(CimProjection projection)
+    {
+        if (projection.Fields.Count <= 1)
+        {
+            return new JsonArray("get", projection.Field);
+        }
+
+        JsonArray joined = ["concat"];
+
+        for (int i = 0; i < projection.Fields.Count; i++)
+        {
+            if (i > 0)
+            {
+                joined.Add(projection.Delimiter);
+            }
+
+            joined.Add(new JsonArray("to-string", new JsonArray("get", projection.Fields[i])));
+        }
+
+        return joined;
+    }
+
     /// <summary>A `match` over the classified field.</summary>
     /// <param name="projection">What the renderer says.</param>
     /// <param name="values">One per class, in order.</param>
@@ -615,7 +648,7 @@ public static class CimStyle
         JsonNode? fallback,
         List<string> losses)
     {
-        JsonArray expression = ["match", new JsonArray("get", projection.Field)];
+        JsonArray expression = ["match", MatchOn(projection)];
         HashSet<string> seen = new(StringComparer.Ordinal);
 
         for (int i = 0; i < projection.Classes.Count; i++)

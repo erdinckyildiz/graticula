@@ -161,12 +161,24 @@ public abstract record StyleExpression
             case "interpolate-hcl":
                 return CompileInterpolate(array, ColourSpace.Interpolation.Hcl);
 
+            case "concat":
+            case "to-string":
+                // <b>Both, because a unique-value renderer over more than one field needs
+                // them.</b> ArcGIS classifies by up to three fields at once and joins their
+                // values with a delimiter — `field1`, `field2`, `field3` and `fieldDelimiter` in
+                // its own vocabulary — so the derived style's `match` runs over
+                // `["concat", ["to-string", ["get", a]], ",", ["to-string", ["get", b]]]`.
+                // Without these the tile face could carry a two-field classification and this
+                // renderer could not draw it. ADR-052 §3.17.
+                return new Joined(
+                    [.. Enumerable.Range(1, array.Count - 1).Select(i => Compile(array[i]))]);
+
             default:
                 throw new SymbologyException(
-                    $"This server draws with `get`, `zoom`, `literal`, `match`, `step` and "
-                    + $"`interpolate`; the style uses `{head}`. It is refused rather than "
-                    + "approximated, because a map drawn from an expression the server did not "
-                    + "understand is wrong in a way nobody can see.");
+                    $"This server draws with `get`, `zoom`, `literal`, `match`, `step`, "
+                    + $"`interpolate`, `concat` and `to-string`; the style uses `{head}`. It is "
+                    + "refused rather than approximated, because a map drawn from an expression "
+                    + "the server did not understand is wrong in a way nobody can see.");
         }
     }
 
@@ -448,6 +460,36 @@ public abstract record StyleExpression
             context.Attributes.TryGetValue(Name, out object? value) ? value : null;
 
         public override void Fields(ISet<string> into) => into.Add(Name);
+    }
+
+    /// <summary>["concat", …] and ["to-string", x], which is a concat of one.</summary>
+    /// <remarks>
+    /// <b>Null joins as nothing rather than as "null".</b> A feature missing one of the fields a
+    /// classification combines should fall to the default symbol, and it does — the joined key
+    /// simply will not match any class. Writing the word null into the key would make a class
+    /// somebody could match by accident.
+    /// </remarks>
+    private sealed record Joined(IReadOnlyList<StyleExpression> Parts) : StyleExpression
+    {
+        public override object? Evaluate(in Context context)
+        {
+            System.Text.StringBuilder built = new();
+
+            foreach (StyleExpression part in Parts)
+            {
+                built.Append(Text(part.Evaluate(context)));
+            }
+
+            return built.ToString();
+        }
+
+        public override void Fields(ISet<string> into)
+        {
+            foreach (StyleExpression part in Parts)
+            {
+                part.Fields(into);
+            }
+        }
     }
 
     /// <summary>["zoom"].</summary>

@@ -4614,7 +4614,7 @@ function wireSymbologyForm() {
     }
 
     if (e.target.id === "symField") {
-      if (symModel.type === "CIMUniqueValueRenderer") symModel.fields = [e.target.value];
+      if (symModel.type === "CIMUniqueValueRenderer") symModel.fields = symChosenFields();
       if (symModel.type === "CIMClassBreaksRenderer") symModel.field = e.target.value;
 
       await symSettled({});
@@ -4694,6 +4694,13 @@ function wireSymbologyForm() {
     if (row && !t.matches("input, button")) {
       symClassIndex = Number(row.dataset.class) || 0;
       await symSettled({ classes: true, stack: true, quiet: true });
+
+      return;
+    }
+
+    if (t.id === "symField2" || t.id === "symField3") {
+      // The third picker appears once the second is answered.
+      drawExtraFields(symChosenFields());
 
       return;
     }
@@ -4887,8 +4894,10 @@ function symFamily(kind) {
 
   // <b>Redrawn, because the two families can use different fields.</b> Switching to ranges with
   // a text field selected would otherwise leave the name of a column the new family cannot
-  // classify sitting in the picker.
+  // classify sitting in the picker. The extra pickers go with it: only the unique-value family
+  // has anything to do with them.
   drawSymbologyFields($("symField").value);
+  drawExtraFields(symChosenFields());
 }
 
 /**
@@ -4911,6 +4920,20 @@ function symShowClassify(kind) {
   $("symClassify").textContent = kind === "uniqueValue"
     ? "Read the values"
     : "Read the data";
+}
+
+/**
+ * Every field the form is classifying by, in order, with the empty ones dropped.
+ *
+ * <b>Order is the whole point.</b> A class of a two-field renderer is a pair, and the pair is
+ * read in the order the fields are listed — swap them and every class key changes.
+ *
+ * @returns {Array<string>} one to three field names
+ */
+function symChosenFields() {
+  return [$("symField"), $("symField2"), $("symField3")]
+    .map(box => (box && box.value) || "")
+    .filter(name => name.length > 0);
 }
 
 /**
@@ -4943,7 +4966,8 @@ async function symClassify() {
 
   const asked = new URLSearchParams({
     type: kind,
-    field,
+    field: kind === "uniqueValue" ? symChosenFields().join(",") : field,
+    delimiter: ", ",
     method: $("symMethod").value,
     classes: $("symClassCount").value || "5",
   });
@@ -5817,6 +5841,8 @@ function fillSymbologyForm(cim, geometry) {
     drawSymbologyFields(
       (symModel.fields && symModel.fields[0]) || symModel.field || "");
 
+    drawExtraFields(symModel.fields || []);
+
     drawSymbologyClasses(kind);
     drawSymbolLayers();
     drawSymbolGallery();
@@ -5862,6 +5888,36 @@ function drawSymbologyFields(chosen) {
   box.innerHTML = usable.map(f =>
       `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
     .join("");
+}
+
+/**
+ * The second and third field pickers, shown only when the family can use them.
+ *
+ * <b>One at a time.</b> The third stays hidden until the second is chosen — a control that
+ * cannot yet do anything is a control somebody tries and then wonders about. Each offers a blank
+ * first option, because dropping back to one field has to be as easy as adding a second.
+ *
+ * @param {Array} chosen the fields the model currently classifies by
+ */
+function drawExtraFields(chosen) {
+  const many = $("symKind") && $("symKind").value === "uniqueValue";
+
+  for (const [at, id] of [[1, "symField2"], [2, "symField3"]]) {
+    const box = $(id);
+    const row = $(id + "Row");
+
+    if (!box || !row) continue;
+
+    // The third appears once the second is answered, and never before.
+    const earlier = at === 1 || (chosen[1] || "").length > 0;
+
+    row.hidden = !many || !earlier;
+
+    box.innerHTML = `<option value="">— none —</option>` + symFields
+      .map(f => `<option value="${h(f.name)}"${
+        f.name === chosen[at] ? " selected" : ""}>${h(f.name)}</option>`)
+      .join("");
+  }
 }
 
 /**
@@ -7291,6 +7347,22 @@ function showLayer(name, page, pending = null) {
           <div class="setting wide" id="symFieldRow" hidden>
             <label class="q" for="symField">Field:</label>
             <select id="symField"></select></div>
+
+          <!--
+            <b>Two more, for the family that can use them - ADR-052 §3.17.</b> ArcGIS classifies
+            by up to three fields at once and joins their values, so a class can be "land use
+            within district". This form offered one, which was offering half the renderer. They
+            appear only for the unique-value family, and only one at a time: the third is hidden
+            until the second is chosen, so a reader is never looking at a control that cannot
+            yet do anything.
+          -->
+          <div class="setting wide" id="symField2Row" hidden>
+            <label class="q" for="symField2">and:</label>
+            <select id="symField2"></select></div>
+
+          <div class="setting wide" id="symField3Row" hidden>
+            <label class="q" for="symField3">and:</label>
+            <select id="symField3"></select></div>
 
           <!--
             <b>The step the editor was missing - ADR-052 §3.12.</b> A unique-value renderer is

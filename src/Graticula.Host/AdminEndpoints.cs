@@ -2464,12 +2464,28 @@ internal static class AdminEndpoints
 
         try
         {
-            if (kind.Equals("uniqueValue", StringComparison.OrdinalIgnoreCase))
+                if (kind.Equals("uniqueValue", StringComparison.OrdinalIgnoreCase))
             {
+                // <b>Up to three, comma separated.</b> ArcGIS classifies by three fields at once
+                // and Map Viewer's own panel lets you add them one at a time; a classification
+                // of *land use within district* is two fields, and offering one was offering
+                // half the renderer. ADR-052 §3.17.
+                System.Text.Json.Nodes.JsonArray several = [];
+
+                foreach (string one in field.Split(
+                    ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    several.Add(one);
+                }
+
                 asked = new System.Text.Json.Nodes.JsonObject
                 {
                     ["type"] = "uniqueValueDef",
-                    ["uniqueValueFields"] = new System.Text.Json.Nodes.JsonArray(field),
+                    ["uniqueValueFields"] = several,
+                    ["fieldDelimiter"] =
+                        context.Request.Query["delimiter"].ToString() is { Length: > 0 } between
+                            ? between
+                            : ", ",
                 };
             }
             else if (kind.Equals("classBreaks", StringComparison.OrdinalIgnoreCase))
@@ -2525,7 +2541,7 @@ internal static class AdminEndpoints
 
             foreach (Graticula.Features.FieldDescription one in described.Fields)
             {
-                if (one.Name.Equals(field, StringComparison.OrdinalIgnoreCase))
+                if (one.Name.Equals(field.Trim(), StringComparison.OrdinalIgnoreCase))
                 {
                     column = one;
                     break;

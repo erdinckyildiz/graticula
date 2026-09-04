@@ -956,8 +956,55 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
 
         if (query.GroupBy.Count > 0)
         {
-            sql.Append(" order by ")
-               .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
+            // <b>By the caller's order when they gave one, and by the group otherwise.</b>
+            // *Which values are the most common* is a grouped query ordered by its own count,
+            // and it is what a unique-value classification needs before it can decide which
+            // classes to draw and which to leave to the default symbol — ArcGIS's own
+            // `orderByFields` over an `outStatistics` query is the same request. The group's own
+            // order stays the default, because a grouped answer with no order at all is one
+            // whose rows move between identical requests.
+            //
+            // <b>Every name is checked against the query's own vocabulary before it reaches
+            // SQL.</b> A sort key naming neither a grouped column nor a statistic this query
+            // computes is dropped rather than quoted and passed through: `order by` is one of
+            // the two places in this file where a caller's string would otherwise become an
+            // identifier.
+            List<string> ordering = [];
+
+            foreach (Graticula.Features.SortKey key in query.OrderBy)
+            {
+                string? named = null;
+
+                foreach (string group in query.GroupBy)
+                {
+                    if (group.Equals(key.Field, StringComparison.OrdinalIgnoreCase))
+                    {
+                        named = LayerDefinition.Quote(group);
+                        break;
+                    }
+                }
+
+                foreach (StatisticRequest statistic in query.Statistics)
+                {
+                    if (statistic.OutName.Equals(key.Field, StringComparison.OrdinalIgnoreCase))
+                    {
+                        named = LayerDefinition.Quote(statistic.OutName);
+                        break;
+                    }
+                }
+
+                if (named is not null)
+                {
+                    ordering.Add(key.Descending ? $"{named} desc" : named);
+                }
+            }
+
+            if (ordering.Count == 0)
+            {
+                ordering.AddRange(query.GroupBy.Select(LayerDefinition.Quote));
+            }
+
+            sql.Append(" order by ").Append(string.Join(", ", ordering));
 
             // A grouped statistic can produce as many rows as there are distinct
             // values, which is unbounded. The query's own limit applies.

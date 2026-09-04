@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>98ffd9b</code> · 2026-09-04 11:58</p>
+<p class="stamp">Generated from commit <code>9c6ed42</code> · 2026-09-04 12:09</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADRs</div><div class="kpi-n">6 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">152/202</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">50 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">183 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">open debts</div><div class="kpi-n">183 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2310</div><div class="kpi-l">tests</div><div class="kpi-n">265 source files, 106,212 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2317</div><div class="kpi-l">tests</div><div class="kpi-n">265 source files, 106,455 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">77 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>23 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">78 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -294,6 +294,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-207</td><td>Three different maps share one renderer type and the enum that tells them apart was not read.</td><td class="muted-t">Already fired for any layer authored as an unclassed colour ramp; the ADR&#x27;s own read-subset table did not list the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-208</td><td>Two of the three PollerPoolTests fail whenever a second server is running against the same database, and the message reads like a product defect.</td><td class="muted-t">Already fired, twice in one afternoon, both times mistaken for a regression in unrelated work before being traced.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-209</td><td>The unique-value ceiling was a judgement dressed as a limit, and it refused an ordinary map.</td><td class="muted-t">Already fired, on the first real dataset it met.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-210</td><td>A unique-value renderer classified by one field when ArcGIS classifies by three, and refused a field with many values when ArcGIS groups the rest into Other.</td><td class="muted-t">Already fired on the owner&#x27;s own data, on the first field they tried.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">183 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -390,7 +391,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">492</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.2%"></div></div><div class="bar-n">424</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:84.3%"></div></div><div class="bar-n">415</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:85.8%"></div></div><div class="bar-n">422</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:73.8%"></div></div><div class="bar-n">363</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:28.9%"></div></div><div class="bar-n">142</div></div>
@@ -402,6 +403,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>9c6ed42</code><time>2026-09-04</time><span>D-209: the refusal said &quot;more than 256&quot; and never said how many</span></li>
 <li><code>98ffd9b</code><time>2026-09-04</time><span>D-209: the unique-value ceiling was taste written as a constraint</span></li>
 <li><code>1171ac3</code><time>2026-09-04</time><span>ADR-052 Â§3.16: the chart renderer, and the list closes at seven of nine</span></li>
 <li><code>dbf2841</code><time>2026-09-04</time><span>ADR-052 Â§3.15: dot density, and the one place the plan leaves the faces</span></li>
@@ -415,7 +417,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f29ee7d</code><time>2026-09-04</time><span>D-206: a renderer that named its field in Arcade was refused as unreadable</span></li>
 <li><code>7bf4e99</code><time>2026-09-04</time><span>The unauthored-renderer message answered two of a reader&#x27;s three questions</span></li>
 <li><code>31f16b7</code><time>2026-09-04</time><span>D-205: the classification&#x27;s floor was written and never read</span></li>
-<li><code>f998953</code><time>2026-09-04</time><span>The refusal said &quot;no primitive for it&quot; and three of the five have one</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

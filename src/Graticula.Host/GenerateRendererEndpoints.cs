@@ -370,64 +370,78 @@ public static class GenerateRendererEndpoints
                 "`uniqueValueFields` is empty, so there is nothing to classify by.");
         }
 
-        if (named.Count > 1)
+        if (named.Count > 3)
         {
             throw new SymbologyException(
-                $"`uniqueValueFields` names {named.Count} fields. This server classifies by one "
-                + "(ADR-052 §3.2); combining several would produce classes it could not then "
-                + "read back from its own document.");
+                $"`uniqueValueFields` names {named.Count} fields and ArcGIS classifies by at "
+                + "most three, so a renderer built from more could not be read back by any "
+                + "client — including this server's own reader.");
         }
 
-        string field = Column(named[0], described, "uniqueValueFields");
+        List<string> fields = [.. named.Select(n => Column(n, described, "uniqueValueFields"))];
+        string delimiter = Text(asked["fieldDelimiter"]) is { Length: > 0 } between
+            ? between
+            : ", ";
 
-        // <b>Well past the ceiling, so the refusal can say how many there are.</b> Reading one
-        // more than the limit is enough to enforce it and produces *more than 256*, which tells
-        // an operator nothing they did not already suspect: whether the field has 300 values or
-        // 300,000 decides whether to look for a different field or a different question. Reading
-        // to `Counted` gives the real number for anything a person would plausibly have meant to
-        // classify, and costs the same shape of query either way -- `DISTINCT` is computed over
-        // the whole column before the limit applies, so the limit buys transfer rather than work.
+        // <b>Grouped and counted, ordered by the count.</b> Which values are the most common is
+        // the question a classification has to answer before it can decide what to draw and what
+        // to leave to the default symbol — ArcGIS's own answer, in Map Viewer, is *only the ten
+        // with the highest counts are shown; the remaining are automatically grouped into the
+        // Other category*. Reading them in alphabetical order and taking the first N would put
+        // the classes somebody cares about into Other because their names begin with a late
+        // letter.
+        List<StatisticRequest> counting =
+        [
+            new(StatisticKind.Count, fields[0], "n"),
+        ];
+
         FeatureQuery query = new(
             limit: Counted,
-            fields: [field],
             includeGeometry: false,
-            distinct: true);
+            statistics: counting,
+            groupBy: fields,
+            orderBy: [new Graticula.Features.SortKey("n", Descending: true)]);
 
-        List<string> values = [];
+        List<(string Value, long Count)> counted = [];
 
-        await foreach (Feature feature in source.ReadAsync(query, cancellation)
-            .ConfigureAwait(false))
+        foreach (IReadOnlyDictionary<string, object?> row in
+            await source.StatisticsAsync(query, cancellation).ConfigureAwait(false))
         {
-            if (feature[field] is { } value)
+            List<string> parts = [];
+
+            foreach (string one in fields)
             {
-                values.Add(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
+                parts.Add(row.TryGetValue(one, out object? held) && held is not null
+                    ? Convert.ToString(held, CultureInfo.InvariantCulture) ?? string.Empty
+                    : string.Empty);
             }
+
+            counted.Add((
+                string.Join(delimiter, parts),
+                row.TryGetValue("n", out object? many) && many is not null
+                    ? Convert.ToInt64(many, CultureInfo.InvariantCulture)
+                    : 0));
         }
 
-        if (values.Count == 0)
+        if (counted.Count == 0)
         {
             throw new SymbologyException(
-                $"'{field}' has no values in this layer, so there is nothing to classify.");
+                $"'{string.Join(delimiter, fields)}' has no values in this layer, so there is "
+                + "nothing to classify.");
         }
 
-        if (values.Count > MostValues)
+        // <b>What falls to Other, said as a number rather than as "the rest".</b>
+        int shown = Math.Min(counted.Count, MostValues);
+        int hidden = counted.Count - shown;
+        long behind = 0;
+
+        for (int i = shown; i < counted.Count; i++)
         {
-            // <b>Two sentences: what is true, and what to do.</b> The first version of this
-            // explained the 262,144-character document limit and then added a paragraph about
-            // how many colours a reader can tell apart — an essay in front of somebody trying to
-            // get work done, and it never said how many values the field actually has, which is
-            // the one number that decides what they do next.
-            string many = values.Count >= Counted
-                ? $"more than {Counted - 1:N0}"
-                : $"{values.Count:N0}";
-
-            throw new SymbologyException(
-                $"'{field}' has {many} distinct values and a renderer holds {MostValues} — one "
-                + "class each would not fit in a stored document. Colour by a field with fewer "
-                + "values, or by ranges of a number.");
+            behind += counted[i].Count;
         }
 
-        values.Sort(StringComparer.Ordinal);
+        List<string> values = [.. counted.Take(shown).Select(c => c.Value)];
+
 
         JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
 
@@ -454,15 +468,31 @@ public static class GenerateRendererEndpoints
             });
         }
 
-        return new JsonObject
+        JsonObject built = new()
         {
             ["type"] = "uniqueValue",
-            ["field1"] = field,
-            ["field2"] = null,
-            ["field3"] = null,
-            ["fieldDelimiter"] = Text(asked["fieldDelimiter"]) ?? ",",
+            ["field1"] = fields[0],
+            ["field2"] = fields.Count > 1 ? fields[1] : null,
+            ["field3"] = fields.Count > 2 ? fields[2] : null,
+            ["fieldDelimiter"] = delimiter,
             ["uniqueValueInfos"] = infos,
         };
+
+        // <b>An "Other" class rather than a refusal, which is what ArcGIS does.</b> Map Viewer
+        // shows only the ten most common categories and groups the rest into Other; this server
+        // refused the whole classification until 2026-09-04, which turned a field with too many
+        // values into no map at all. The label carries the numbers, because *Other* on its own
+        // does not say whether it is three features or three hundred thousand.
+        if (hidden > 0)
+        {
+            built["defaultSymbol"] = Painted(baseSymbol, new Rgba(170, 170, 170, 255));
+            built["defaultLabel"] = string.Create(
+                CultureInfo.InvariantCulture,
+                $"Other ({hidden:N0} more value{(hidden == 1 ? string.Empty : "s")}, "
+                + $"{behind:N0} feature{(behind == 1 ? string.Empty : "s")})");
+        }
+
+        return built;
     }
 
     /// <summary>Runs one statistics query and returns its single row.</summary>

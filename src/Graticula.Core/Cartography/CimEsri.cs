@@ -331,15 +331,24 @@ public static class CimEsri
                 "A `uniqueValue` renderer names no `field1`, so there is nothing to classify by.");
         }
 
+        // <b>All three, because ArcGIS classifies by three.</b> This reported the second and
+        // third as lost until 2026-09-04, so a two-field renderer pasted in came back drawing as
+        // though the second field were not there — the right shape and the wrong classes. Each
+        // `uniqueValueInfo`'s `value` is the fields' values joined by `fieldDelimiter`, so the
+        // split below is the inverse of what wrote it. ADR-052 §3.17.
+        List<string> fields = [field];
+
         foreach (string extra in new[] { "field2", "field3" })
         {
             if (Text(renderer[extra]) is { Length: > 0 } also)
             {
-                losses.Add(
-                    $"The renderer also classifies by `{also}` ({extra}). This server classifies "
-                    + $"by one field and uses `{field}`.");
+                fields.Add(also);
             }
         }
+
+        string delimiter = Text(renderer["fieldDelimiter"]) is { Length: > 0 } between
+            ? between
+            : ", ";
 
         JsonArray classes = [];
 
@@ -355,7 +364,7 @@ public static class CimEsri
                     new JsonObject
                     {
                         ["type"] = "CIMUniqueValue",
-                        ["fieldValues"] = new JsonArray(value),
+                        ["fieldValues"] = Split(value, delimiter, fields.Count),
                     }),
                 ["symbol"] = Reference(
                     info["symbol"], geometry, $"the class '{value}'", losses),
@@ -371,7 +380,8 @@ public static class CimEsri
         JsonObject built = new()
         {
             ["type"] = Cim.UniqueValue,
-            ["fields"] = new JsonArray(field),
+            ["fields"] = new JsonArray([.. fields.Select(f => (JsonNode?)f)]),
+            ["fieldDelimiter"] = delimiter,
             ["groups"] = new JsonArray(new JsonObject { ["classes"] = classes }),
         };
 
@@ -900,15 +910,50 @@ public static class CimEsri
         {
             ["type"] = "uniqueValue",
             ["field1"] = projection.Field,
-            ["field2"] = null,
-            ["field3"] = null,
-            ["fieldDelimiter"] = ",",
+
+            // <b>Three fields, because ArcGIS classifies by three and this server now carries
+            // them.</b> `field2` and `field3` were written as literal nulls until 2026-09-04 and
+            // the delimiter as a literal comma, which was honest while the reader took only the
+            // first field and became a lie the moment it took three. ADR-052 §3.17.
+            ["field2"] = projection.Fields.Count > 1 ? projection.Fields[1] : null,
+            ["field3"] = projection.Fields.Count > 2 ? projection.Fields[2] : null,
+            ["fieldDelimiter"] = projection.Delimiter,
             ["defaultSymbol"] = projection.Default is null
                 ? null
                 : Flatten(projection.Default, "the default symbol", losses),
             ["defaultLabel"] = projection.Default is null ? null : "Other",
             ["uniqueValueInfos"] = infos,
         };
+    }
+
+    /// <summary>One class key split back into a value per field.</summary>
+    /// <remarks>
+    /// <b>Split from the left, and the last part keeps whatever is left.</b> A delimiter that
+    /// appears inside a value would otherwise turn one class into two — *Ada / Bahce / 3* split
+    /// on " / " for two fields is `Ada` and `Bahce / 3`, which is what the writer joined and so
+    /// what the reader must return. Splitting into as many parts as there are fields is the only
+    /// way back that survives a value containing the delimiter.
+    /// </remarks>
+    /// <param name="value">The joined key.</param>
+    /// <param name="delimiter">What joined it.</param>
+    /// <param name="fields">How many fields the renderer classifies by.</param>
+    /// <returns>One entry per field.</returns>
+    private static JsonArray Split(string value, string delimiter, int fields)
+    {
+        if (fields <= 1)
+        {
+            return new JsonArray(value);
+        }
+
+        string[] parts = value.Split(delimiter, fields, StringSplitOptions.None);
+        JsonArray built = [];
+
+        for (int i = 0; i < fields; i++)
+        {
+            built.Add(i < parts.Length ? parts[i] : string.Empty);
+        }
+
+        return built;
     }
 
     /// <summary>A `classBreaks` renderer from the projection.</summary>
