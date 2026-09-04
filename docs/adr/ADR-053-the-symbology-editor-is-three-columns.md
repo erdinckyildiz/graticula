@@ -278,6 +278,26 @@ whichever layer the Data tab chose for itself, so on a four-layer service all fo
 same table. Each of the three buttons carries its own layer now. A group layer gets a sentence —
 *its children carry the symbology* — rather than three buttons that would fail on press.
 
+## 9b. The layer the tab opens, decided 2026-09-05
+
+**The Symbology tab opens the service's first drawable layer, and that is the decision rather
+than a default nobody chose.** A design review escalated it above the visual inconsistency the
+owner had asked about: on `ci_EarlyAlert`, which holds three, the tab always lands on `_sites`,
+so somebody who came to restyle `_routes` is put in front of the wrong document without being
+told. Two alternatives were put to the owner — remember the layer they last looked at on that
+service, or open with nothing chosen and ask — and both were declined. *ilk katman seçili olsun.
+tek katman varsa o zaten seçili olsun.*
+
+**What makes it defensible is the rail.** The list of the service's layers is the first thing in
+the editor's own left column, the chosen one carries a 2px accent edge, and each entry says
+whether it is authored and into how many classes. The screen is not silent about which layer it
+opened; it names it, marks it, and offers the others one click away. That is the difference
+between a default and a guess.
+
+**Measured on every entry path, 2026-09-05:** from the tab, the first layer; from an address or
+an Overview row, the layer that was asked for; on a one-layer service, that layer. The third is
+not an exception to the rule — a caller who names a layer has already chosen.
+
 ## 10. Dissent
 
 **Recorded, and it is about §3's second paragraph.** Reversing a one-day-old repair
