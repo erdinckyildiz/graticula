@@ -346,10 +346,18 @@ what antialiasing does to the same edge.
 
 **`CIMRepresentationRenderer` stays refused**, and so do the four the SDK also
 lists: `CIMChartRenderer`, `CIMDictionaryRenderer`, `CIMDotDensityRenderer` and
-`CIMHeatMapRenderer`. Each needs a drawing primitive this server does not have —
-chart markers, a scattering, a kernel-density raster, a dictionary style file —
-and none of them reduces to something it already draws. The refusal messages on
-both write paths name them, so a paste is diagnosed rather than merely rejected.
+`CIMHeatMapRenderer`. None of them reduces to something this server already draws,
+so each is work rather than a reading. **Corrected 2026-09-04, the same day this
+section was written:** the first version of this paragraph said each *needs a
+drawing primitive this server does not have*, and that is false for three of the
+five. `IMapCanvas` carries `DrawImage`, implemented — so a heat map is a density
+buffer composited, not a missing primitive; a dot density is `DrawMarker` over
+sampled points; a pie is a tessellated arc through `FillArea`. **Two are genuinely
+blocked, and for the same reason: they need data this server does not hold** — a
+dictionary style, and a geodatabase's representation classes. Overstating the
+obstacle in a shipped refusal message would have told an operator their document
+was impossible when it was merely unwritten. The refusal messages on both write
+paths name all five, so a paste is diagnosed rather than merely rejected.
 
 ## 4. Consequences
 

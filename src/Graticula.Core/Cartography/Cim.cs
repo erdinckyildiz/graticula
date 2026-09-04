@@ -140,8 +140,11 @@ public static class Cim
                 + "draw is a layer that looks styled and is not. The other five the "
                 + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer`, "
                 + "`CIMDotDensityRenderer`, `CIMHeatMapRenderer` and "
-                + "`CIMRepresentationRenderer`; each needs a drawing primitive this server does "
-                + "not have."),
+                + "`CIMRepresentationRenderer`. None reduces to a renderer this server already "
+                + "draws, so each is work rather than a reading -- but only two are blocked: a "
+                + "dictionary renderer needs a dictionary style this server does not hold, and "
+                + "a representation renderer needs a geodatabase's representation classes. The "
+                + "other three are arithmetic over primitives that already exist."),
         };
     }
 
