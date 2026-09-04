@@ -85,10 +85,16 @@ public sealed class FeatureServerMetadataWriterTests
 
         foreach (string claim in (string[])
             ["supportsSqlExpression", "supportsCountDistinct", "supportsQueryWithResultType",
-             "supportsPercentileStatistics", "supportsReturningGeometryCentroid"])
+             "supportsReturningGeometryCentroid"])
         {
             Assert.False(advanced.GetProperty(claim).GetBoolean(), claim);
         }
+
+        // <b>`supportsPercentileStatistics` left this list on 2026-09-04</b>, when
+        // `PERCENTILE_CONT` and `PERCENTILE_DISC` were implemented (ADR-052 §3.11). It is
+        // asserted true rather than deleted, because a capability that goes from claimed-false
+        // to unmentioned is one nothing audits any more — and this test is the audit.
+        Assert.True(advanced.GetProperty("supportsPercentileStatistics").GetBoolean());
 
         // Geometry is stored without z and m, and a client uses these to decide
         // whether to offer the toggles at all.

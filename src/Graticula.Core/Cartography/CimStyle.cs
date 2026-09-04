@@ -55,6 +55,16 @@ public static class CimStyle
         {
             return Surface(projection, surface, layerName);
         }
+
+        // <b>MapLibre has no dot-density layer, so this face cannot carry the renderer at
+        // all.</b> What it publishes instead is a flat fill in the first field's colour and a
+        // sentence saying so. Inventing a layer type would produce a style that this server
+        // reads and every other client rejects; publishing nothing would make the layer
+        // invisible on the tile face with no explanation anywhere.
+        if (projection.Dots is { } scattered)
+        {
+            return Scattered(projection, scattered, layerName);
+        }
         List<string> losses = [.. projection.NotDrawn];
 
         // <b>The first class decides the shape.</b> Real classified renderers vary colour and
@@ -511,6 +521,43 @@ public static class CimStyle
         };
 
         return new DerivedStyle(style, projection.NotDrawn);
+    }
+
+    /// <summary>The nearest a MapLibre style comes to a dot-density map, and it is not near.</summary>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="dots">The scatter.</param>
+    /// <param name="layerName">The source layer.</param>
+    /// <returns>The style, and the sentence about what it cannot do.</returns>
+    private static DerivedStyle Scattered(
+        CimProjection projection, CimDots dots, string layerName)
+    {
+        List<string> losses =
+        [
+            .. projection.NotDrawn,
+            "The tile face cannot draw a dot-density map: MapLibre has no layer type for one. "
+            + $"It publishes a flat fill in the first counted field's colour ({dots.Fields[0]}) "
+            + "instead. The raster faces — WMS, the map service, the preview — draw the dots "
+            + "from the stored document, so the same layer looks different on the two faces.",
+        ];
+
+        JsonObject style = new()
+        {
+            ["version"] = 8,
+            ["layers"] = new JsonArray(new JsonObject
+            {
+                ["id"] = $"{layerName}-dots",
+                ["type"] = "fill",
+                ["source"] = "graticula",
+                ["source-layer"] = layerName,
+                ["paint"] = new JsonObject
+                {
+                    ["fill-color"] = Hex(dots.Colours[0]),
+                    ["fill-opacity"] = Num(0.35),
+                },
+            }),
+        };
+
+        return new DerivedStyle(style, losses);
     }
 
     /// <summary>A `match` over the classified field.</summary>

@@ -69,6 +69,16 @@ public static class Cim
     /// </remarks>
     public const string HeatMap = "CIMHeatMapRenderer";
 
+    /// <summary>Dots scattered inside an area, one colour per field.</summary>
+    /// <remarks>
+    /// <b>The second renderer whose answer is not a symbol.</b> A dot-density map draws
+    /// <c>value / dotValue</c> dots inside each polygon and the reader judges the mixture, so
+    /// there is no single symbol a feature "gets". It needed no new drawing primitive either —
+    /// <c>DrawMarker</c> over sampled points — only a scatter that is deterministic and does not
+    /// change at a tile boundary. ADR-052 §3.15.
+    /// </remarks>
+    public const string DotDensity = "CIMDotDensityRenderer";
+
     /// <summary>How many colours a heat map's ramp is read into.</summary>
     /// <remarks>
     /// <b>Nine, which is what a continuous ramp costs to carry as stops.</b> Both faces express
@@ -153,19 +163,18 @@ public static class Cim
             },
             Proportional => ProjectProportional(body, notDrawn),
             HeatMap => ProjectHeatMap(body, notDrawn),
+            DotDensity => ProjectDots(body, notDrawn),
 
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
                 + $"`{UniqueValue}`, `{ClassBreaks}` and `{Proportional}`. A renderer it cannot "
                 + "read is refused rather than stored, because a stored document nothing can "
                 + "draw is a layer that looks styled and is not. The other five the "
-                + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer`, "
-                + "`CIMDotDensityRenderer` and `CIMRepresentationRenderer`. None reduces to a "
-                + "renderer this server already draws, so each is work rather than a reading -- "
-                + "but only two are blocked: a dictionary renderer needs a dictionary style this "
-                + "server does not hold, and a representation renderer needs a geodatabase's "
-                + "representation classes. The other two are arithmetic over primitives that "
-                + "already exist."),
+                + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer` and "
+                + "`CIMRepresentationRenderer`. Two of those three are blocked rather than "
+                + "unwritten: a dictionary renderer needs a dictionary style this server does "
+                + "not hold, and a representation renderer needs a geodatabase's representation "
+                + "classes. A chart renderer is arithmetic over primitives that already exist."),
         };
     }
 
@@ -459,6 +468,144 @@ public static class Cim
                 ramp,
                 Number(body["maxPixelIntensity"])),
         };
+    }
+
+    /// <summary>Dots scattered inside an area, one colour per field.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The colours come from the symbol, and the ramp is the fallback.</b>
+    /// `dotDensitySymbol` is a polygon symbol whose fills are the dot colours, one per field, in
+    /// the order `fieldNames` gives them; a document that carries a `colorRamp` instead has its
+    /// colours spread along that. Reading the symbol first is right because it is what an author
+    /// last touched.
+    /// </para>
+    /// <para>
+    /// <b>`maintainDensity` and `referenceScale` are reported rather than honoured.</b> Together
+    /// they mean *keep the dots at the same size and spacing on the ground as you zoom*, which
+    /// this server does not do: it scatters afresh at every scale, so zooming in spreads the
+    /// same count over more pixels. That is a different map from the one the document asks for
+    /// and it is the reader's business to know.
+    /// </para>
+    /// </remarks>
+    /// <param name="body">The renderer.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>The projection.</returns>
+    private static CimProjection ProjectDots(JsonObject body, List<string> notDrawn)
+    {
+        List<string> fields = [];
+
+        foreach (JsonNode? node in body["fieldNames"] as JsonArray ?? [])
+        {
+            if (Text(node) is { Length: > 0 } named && Plain(named) is { } column)
+            {
+                fields.Add(column);
+            }
+        }
+
+        if (fields.Count == 0)
+        {
+            throw new SymbologyException(
+                $"A `{DotDensity}` names no readable field in `fieldNames`, so there is nothing "
+                + "to count dots of.");
+        }
+
+        List<Rgba> colours = DotColours(body, fields.Count, notDrawn);
+
+        double value = Number(body["dotValue"]) ?? 1;
+
+        if (!double.IsFinite(value) || value <= 0)
+        {
+            throw new SymbologyException(
+                "A `dotValue` says how much one dot stands for and must be above zero; this "
+                + $"renderer's is {Say(Number(body["dotValue"]))}.");
+        }
+
+        if (body["maintainDensity"] is JsonValue keep
+            && keep.TryGetValue(out bool wanted) && wanted)
+        {
+            notDrawn.Add(
+                "The renderer asks to maintain density across scales, which keeps the dots the "
+                + "same size and spacing on the ground as you zoom. This server scatters afresh "
+                + "at each scale, so zooming in spreads the same count of dots over more of the "
+                + "screen.");
+        }
+
+        if (body["useMasking"] is JsonValue masked
+            && masked.TryGetValue(out bool on) && on)
+        {
+            notDrawn.Add(
+                "The renderer excludes dots from a masking layer's areas. This server has no "
+                + "masking layer, so the dots are spread over the whole polygon.");
+        }
+
+        return new CimProjection(
+            DotDensity,
+            Field: null,
+            [new CimClass([], null, Text(body["symbolLabel"]) ?? string.Empty, new CimSymbol([]))],
+            Default: null,
+            notDrawn)
+        {
+            Dots = new CimDots(
+                fields,
+                colours,
+                value,
+                Number(body["dotSize"]) ?? 2,
+                (long)(Number(body["randomSeed"]) ?? 0)),
+        };
+    }
+
+    /// <summary>One colour per counted field.</summary>
+    private static List<Rgba> DotColours(JsonObject body, int fields, List<string> notDrawn)
+    {
+        List<Rgba> colours = [];
+
+        // The symbol's fills, in the order the fields are named.
+        if (body["dotDensitySymbol"] is not null)
+        {
+            CimSymbol symbol = ReadSymbol(
+                body["dotDensitySymbol"], "the dot density symbol", notDrawn);
+
+            foreach (CimPaint paint in symbol.Paints)
+            {
+                if (paint is CimFill fill)
+                {
+                    colours.Add(fill.Colour);
+                }
+            }
+
+            // <b>Reversed, because `ReadSymbol` reverses.</b> It hands back painting order,
+            // bottom first, and `fieldNames` is in the order the author listed them, which is
+            // the order CIM lists the symbol layers in — top first.
+            colours.Reverse();
+        }
+
+        if (colours.Count < fields && Ramp(body["colorRamp"], "the dot density ramp", []) is
+            { Count: > 1 } ramp)
+        {
+            colours = [];
+
+            for (int i = 0; i < fields; i++)
+            {
+                double at = fields == 1 ? 0 : (double)i / (fields - 1) * (ramp.Count - 1);
+                int low = (int)Math.Floor(at);
+
+                colours.Add(ramp[Math.Min(low, ramp.Count - 1)]);
+            }
+        }
+
+        while (colours.Count < fields)
+        {
+            // <b>A default rather than a refusal.</b> A dot map with one colour missing still
+            // says where the other fields are, and the missing one is visible as a colour
+            // nobody chose rather than as an absent layer.
+            notDrawn.Add(
+                $"The renderer counts {fields} fields and names {colours.Count} dot colours, so "
+                + "the rest are drawn in a default grey.");
+
+            colours.Add(new Rgba(110, 110, 110, 255));
+        }
+
+        return colours.GetRange(0, fields);
     }
 
     /// <summary>One symbol per distinct value.</summary>
@@ -1302,6 +1449,9 @@ public sealed record CimProjection(
     /// <summary>What slides continuously with a number, on top of the classes.</summary>
     public IReadOnlyList<CimVary> Vary { get; init; } = [];
 
+    /// <summary>The scatter, for a dot-density renderer. Null for every other.</summary>
+    public CimDots? Dots { get; init; }
+
     /// <summary>The density surface, for a heat map. Null for every other renderer.</summary>
     public CimHeat? Heat { get; init; }
 
@@ -1355,6 +1505,22 @@ public sealed record CimVary(
 /// </param>
 public sealed record CimHeat(
     string? Field, double Radius, IReadOnlyList<Rgba> Ramp, double? Ceiling);
+
+/// <summary>Dots scattered inside an area: what to count, in what colours, and how big.</summary>
+/// <param name="Fields">The columns counted, in the order their colours are given.</param>
+/// <param name="Colours">One per field.</param>
+/// <param name="DotValue">How much one dot stands for.</param>
+/// <param name="DotSize">How wide one dot is, in points.</param>
+/// <param name="Seed">
+/// The document's own <c>randomSeed</c>. <b>It is on the renderer for a reason</b>: a scatter
+/// reseeded per request moves every dot when the reader pans, which is unreadable.
+/// </param>
+public sealed record CimDots(
+    IReadOnlyList<string> Fields,
+    IReadOnlyList<Rgba> Colours,
+    double DotValue,
+    double DotSize,
+    long Seed);
 
 /// <summary>One symbol and what it stands for.</summary>
 /// <param name="Values">The field values this class matches, for a unique-value renderer.</param>

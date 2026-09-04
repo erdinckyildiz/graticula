@@ -215,6 +215,74 @@ public sealed class MapRenderer
         }
     }
 
+    /// <summary>Scatters one feature's dots and draws the ones that land in the picture.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Scattered in the feature's own coordinates, then clipped.</b> A district straddling
+    /// two tiles scatters over its whole area and each tile draws the dots that fall in it; the
+    /// alternative — scattering into the visible part — puts the district's whole count into
+    /// each half and doubles the density along every seam. <see cref="DotScatter"/> carries the
+    /// argument.
+    /// </para>
+    /// <para>
+    /// <b>Fields are drawn in order and the last one is on top.</b> That is the order the
+    /// document lists them in, and it matters: on a crowded polygon the last field's dots are
+    /// the ones a reader sees most of. Shuffling them together would be a different and arguably
+    /// better map, and it would not be the one the document describes.
+    /// </para>
+    /// </remarks>
+    private bool Scatter(
+        PlanLayer.Dots layer, Geometry geometry, in StyleExpression.Context context)
+    {
+        if (layer.DotValue <= 0 || layer.DotSize <= 0)
+        {
+            return false;
+        }
+
+        bool drew = false;
+
+        for (int i = 0; i < layer.Counted.Count; i++)
+        {
+            double value = StyleExpression.AsNumber(
+                _attributes[layer.Counted[i]]) ?? 0;
+
+            int dots = (int)Math.Round(value / layer.DotValue);
+
+            if (dots <= 0)
+            {
+                continue;
+            }
+
+            // <b>The field's index is part of the seed.</b> Without it every field scatters into
+            // exactly the same places and the last one drawn hides all the others, which reads
+            // as a map of one variable.
+            ulong seed = DotScatter.SeedFor(
+                layer.Seed + i,
+                _attributes.Current?.Id);
+
+            MapSymbol.Marker mark = new(
+                layer.Colours[i], layer.DotSize, Rgba.Transparent, 0);
+
+            foreach ((double x, double y) in DotScatter.Inside(geometry, dots, seed))
+            {
+                double px = _transform.X(x);
+                double py = _transform.Y(y);
+
+                if (px < -layer.DotSize || py < -layer.DotSize
+                    || px > _canvas.Width + layer.DotSize
+                    || py > _canvas.Height + layer.DotSize)
+                {
+                    continue;
+                }
+
+                _canvas.DrawMarker(px, py, mark);
+                drew = true;
+            }
+        }
+
+        return drew;
+    }
+
     /// <summary>
     /// Composites every density surface this pass accumulated, and says how many it drew.
     /// </summary>
@@ -272,6 +340,11 @@ public sealed class MapRenderer
         if (layer is PlanLayer.Heat heat)
         {
             return Accumulate(heat, geometry, context);
+        }
+
+        if (layer is PlanLayer.Dots dots)
+        {
+            return Scatter(dots, geometry, context);
         }
 
         if (layer.Resolve(context) is not { } symbol)

@@ -252,13 +252,17 @@ public sealed class CimTests
     [Fact]
     public void A_renderer_this_server_cannot_read_is_refused_with_what_it_does_read()
     {
+        // <b>The example moved on 2026-09-04, and moving it is the point.</b> This test used
+        // `CIMDotDensityRenderer`, which is now read (§3.15) — so it had to be given a renderer
+        // that is still refused. A dictionary renderer is one of the two that are blocked rather
+        // than unwritten: it needs a dictionary style this server does not hold.
         JsonObject renderer = (JsonObject)JsonNode.Parse(
-            """{ "type": "CIMDotDensityRenderer", "fields": ["a"] }""")!;
+            """{ "type": "CIMDictionaryRenderer", "dictionaryName": "mil2525d" }""")!;
 
         SymbologyException why = Assert.Throws<SymbologyException>(
             () => Cim.Project(renderer));
 
-        Assert.Contains("CIMDotDensityRenderer", why.Message, StringComparison.Ordinal);
+        Assert.Contains("CIMDictionaryRenderer", why.Message, StringComparison.Ordinal);
         Assert.Contains("CIMSimpleRenderer", why.Message, StringComparison.Ordinal);
     }
 

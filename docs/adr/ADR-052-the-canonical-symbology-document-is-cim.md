@@ -566,6 +566,62 @@ first attempt at the second falsification was also worthless** — it clamped a
 negative coordinate that was already being clamped — and redoing it properly
 failed the seam test as it should.
 
+### 3.15 Dot density, and the one place the plan leaves the faces — 2026-09-04
+
+**The sixth renderer.** `value / dotValue` dots inside each polygon, one colour
+per field, and the reader judges the mixture. The drawing is a marker per dot and
+needed nothing new. Two other things did.
+
+**The scatter is computed in world coordinates and clipped afterwards.** A
+district straddling two tiles scatters over its whole area and each tile draws
+what lands in it. Scattering into the visible part instead gives each half the
+district's entire count, and the density doubles along every seam — on a map made
+of marks somebody can count. Measured: one square drawn as two half-tiles gives
+14 and 18 dots of 30, so two near the boundary are drawn in both, which is
+correct and necessary — a dot whose centre is a pixel outside a tile still has
+most of its circle inside it.
+
+**And it is deterministic**, which is what `randomSeed` is on the CIM renderer
+for: a scatter reseeded per request moves every dot when the reader pans. The
+generator is **SplitMix64**, written out rather than taken from the framework —
+`System.Random` promises no stable sequence across .NET versions, and a dot map
+whose dots move when the runtime is upgraded cannot be compared with last year's.
+The seed mixes the document's own with the feature's identity **and the field's
+index**: without the feature the map looks tiled, and without the index every
+field scatters into the same places and the last drawn hides the rest, which
+reads as a map of one variable.
+
+**Point-in-polygon is even-odd, because that is the rule the canvas fills by.**
+`IMapCanvas.FillArea` says so in as many words. A dot placed by a different rule
+lands in a hole the fill leaves empty — a mark on the map that the map says is
+not there.
+
+**THE ONE PLACE THE PLAN IS BUILT FROM CIM RATHER THAN FROM A FACE.**
+`SymbologyPlan` compiles from the derived MapLibre style on purpose: a CIM front
+end would be a second reading of the same document and the two would drift, and
+it means what is drawn and what is advertised come from one function. **MapLibre
+has no dot-density layer type at all**, so there is nothing for a second reading
+to drift from, and the alternative is emitting an invented layer type into a
+style real clients read and validate. So this renderer, and only this one, builds
+its plan from the canonical document.
+
+**Which makes the tile face genuinely lossy, and it says so.** It publishes a
+flat fill in the first counted field's colour and a sentence: the raster faces
+draw the dots and the tile face cannot, so the same layer looks different on the
+two. That is the first time a face has had to admit it cannot carry a renderer at
+all, and it is exactly the situation ADR-052's argument was for — the canonical
+document holds what the faces cannot.
+
+**Two more falsifications that passed, and both were about coverage rather than
+code.** Reseeding the renderer's scatter from the clock failed nothing: the
+determinism tests called `DotScatter` directly, so the seed the *renderer* builds
+was covered by nothing — and the clock-based version was undetectable anyway
+because both calls fall in the same millisecond. A renderer-level test now draws
+the same feature twice and compares the pixels, and a seed that provably changes
+fails it. **And the seam test's first form asserted the wrong thing** — that the
+halves sum exactly to the whole — which is false and should be: the seam band is
+drawn in both tiles on purpose.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

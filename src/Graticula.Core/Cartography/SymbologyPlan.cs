@@ -169,6 +169,19 @@ public sealed class SymbologyPlan
         // function, so *what is drawn* and *what is advertised* cannot disagree.
         if (Cim.IsRenderer(body))
         {
+            // <b>One renderer takes the other road, and only because there is no road.</b> The
+            // argument above is that a CIM front end here would be a second reading of the same
+            // document, drifting from the first -- and it holds for every renderer MapLibre can
+            // express. MapLibre has no dot-density layer type at all, so there is nothing to
+            // drift from, and the alternative is emitting an invented layer type into a style
+            // that real clients read and validate. ADR-052 §3.15.
+            CimProjection projection = Cim.Project(body);
+
+            if (projection.Dots is { } scattered)
+            {
+                return Scattered(projection, scattered);
+            }
+
             // The name is not read: `CompileLayer` looks at `type` and `paint` only. It is
             // written here so the derived document is well formed rather than nearly so.
             body = CimStyle.ToMapLibre(body, "layer").Style;
@@ -281,6 +294,31 @@ public sealed class SymbologyPlan
         };
 
         return new SymbologyPlan([layer], [], DefaultMargin);
+    }
+
+    /// <summary>A plan for a dot-density renderer, built from the canonical document.</summary>
+    /// <remarks>
+    /// <b>The margin is the polygon's problem rather than the dot's.</b> A dot is two pixels
+    /// across, but a polygon whose centre is far outside the picture can still put dots inside
+    /// it, so the reader has to be given features whose geometry reaches the extent — which is
+    /// what it already does for fills. The margin here only covers the dot's own width.
+    /// </remarks>
+    /// <param name="projection">The projected renderer, for what it could not carry.</param>
+    /// <param name="dots">The scatter.</param>
+    /// <returns>The plan.</returns>
+    private static SymbologyPlan Scattered(CimProjection projection, CimDots dots)
+    {
+        // <b>Points to pixels, the same 1/0.75 every other conversion here uses.</b> CIM
+        // measures a dot in points and this renderer draws in pixels; a dot that ignored the
+        // conversion would be three quarters the size the document asked for and nothing on
+        // screen would say so.
+        double size = dots.DotSize / 0.75;
+
+        return new SymbologyPlan(
+            [new PlanLayer.Dots(
+                dots.Fields, dots.Colours, dots.DotValue, size, dots.Seed)],
+            [.. dots.Fields],
+            Math.Max(size, 2));
     }
 
     private static StyleExpression Constant(Rgba colour) =>

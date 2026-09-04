@@ -295,6 +295,63 @@ public abstract class PlanLayer
         }
     }
 
+    /// <summary>Dots scattered inside an area, one colour per field.</summary>
+    /// <remarks>
+    /// <b>Like <see cref="Heat"/>, it resolves to no symbol.</b> A dot-density map draws a
+    /// handful of marks per feature rather than one, so there is nothing for
+    /// <see cref="Resolve"/> to return; <see cref="MapRenderer"/> recognises the type and
+    /// scatters. ADR-052 §3.15.
+    /// </remarks>
+    /// <param name="fields">The columns counted, in the order their colours are given.</param>
+    /// <param name="colours">One per field.</param>
+    /// <param name="dotValue">How much one dot stands for.</param>
+    /// <param name="dotSize">How wide one dot is, in pixels.</param>
+    /// <param name="seed">The document's own random seed.</param>
+    public sealed class Dots(
+        IReadOnlyList<string> fields,
+        IReadOnlyList<Rgba> colours,
+        double dotValue,
+        double dotSize,
+        long seed) : PlanLayer
+    {
+        /// <summary>The columns counted.</summary>
+        public IReadOnlyList<string> Counted { get; } = fields;
+
+        /// <summary>One colour per counted column.</summary>
+        public IReadOnlyList<Rgba> Colours { get; } = colours;
+
+        /// <summary>How much one dot stands for.</summary>
+        public double DotValue { get; } = dotValue;
+
+        /// <summary>How wide one dot is, in pixels.</summary>
+        public double DotSize { get; } = dotSize;
+
+        /// <summary>The document's own random seed.</summary>
+        public long Seed { get; } = seed;
+
+        /// <inheritdoc/>
+        public override MapSymbol? Resolve(in StyleExpression.Context context) => null;
+
+        /// <inheritdoc/>
+        public override void Fields(ISet<string> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+
+            foreach (string one in Counted)
+            {
+                into.Add(one);
+            }
+        }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            // <b>Nothing.</b> A dot map's legend is one dot and what it stands for, not a list
+            // of classes — the fields are the legend, and they are on the layer rather than in
+            // an expression.
+        }
+    }
+
     /// <summary>A label.</summary>
     public sealed class Text(
         StyleExpression field,

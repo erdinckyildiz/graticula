@@ -501,6 +501,52 @@ public static class CimEsri
         return built;
     }
 
+    /// <summary>An Esri `dotDensity` renderer.</summary>
+    /// <remarks>
+    /// <b>`attributes`, not `fields`.</b> The web map specification names the counted columns in
+    /// an array of objects each carrying its own `field`, `label` and `color`, which is a better
+    /// shape than CIM's three parallel arrays: it cannot be given four fields and three colours.
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The renderer.</returns>
+    private static JsonObject DotsOut(CimProjection projection, List<string> losses)
+    {
+        if (projection.Dots is not { } dots)
+        {
+            throw new SymbologyException(
+                "A dot-density projection carries no scatter, so there is nothing to publish.");
+        }
+
+        JsonArray attributes = [];
+
+        for (int i = 0; i < dots.Fields.Count; i++)
+        {
+            attributes.Add(new JsonObject
+            {
+                ["field"] = dots.Fields[i],
+                ["label"] = dots.Fields[i],
+                ["color"] = Esri(dots.Colours[i]),
+            });
+        }
+
+        losses.Add(
+            "A dot-density renderer scatters its dots at random inside each area, so a client "
+            + "drawing this document and this server drawing it will not put the dots in the "
+            + "same places. Both are correct; only the arrangement differs.");
+
+        return new JsonObject
+        {
+            ["type"] = "dotDensity",
+            ["attributes"] = attributes,
+            ["dotValue"] = Num(dots.DotValue),
+            ["referenceDotValue"] = Num(dots.DotValue),
+            ["dotSize"] = Num(dots.DotSize),
+            ["blendDots"] = false,
+            ["outline"] = null,
+        };
+    }
+
     /// <summary>Wraps a converted symbol the way CIM carries one.</summary>
     /// <param name="node">The Esri symbol.</param>
     /// <param name="geometry">What the layer is made of.</param>
@@ -748,6 +794,7 @@ public static class CimEsri
             Cim.UniqueValue => UniqueOut(projection, losses),
             Cim.ClassBreaks => BreaksOut(projection, losses),
             Cim.HeatMap => HeatOut(projection, losses),
+            Cim.DotDensity => DotsOut(projection, losses),
 
             _ => throw new SymbologyException(
                 $"'{projection.Kind}' has no Esri renderer to derive for '{layerName}'."),
