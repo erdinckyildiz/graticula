@@ -3156,6 +3156,7 @@ async function drawServiceSymbology() {
         CIMSimpleRenderer: "one symbol for every feature",
         CIMUniqueValueRenderer: "by the value of a field",
         CIMClassBreaksRenderer: "by ranges of a number",
+        CIMProportionalRenderer: "one symbol, sized in proportion to a number",
       }[(r.symbology || {}).type] || "an appearance this console does not name";
 
       const varies = ((r.symbology || {}).visualVariables || []).length > 0;
@@ -5599,6 +5600,10 @@ function symLayerColour(layer) {
  * flattened to one symbol for the Esri face; reading it here would mean every edit silently
  * threw away the symbol layers past the first.
  */
+const SYM_AUTHORED = [
+  "CIMSimpleRenderer", "CIMUniqueValueRenderer", "CIMClassBreaksRenderer",
+];
+
 function fillSymbologyForm(cim, geometry) {
   symFilling = true;
 
@@ -5606,6 +5611,28 @@ function fillSymbologyForm(cim, geometry) {
     symModel = cim && typeof cim === "object"
       ? JSON.parse(JSON.stringify(cim))
       : { type: "CIMSimpleRenderer", label: "", description: "", symbol: null };
+
+    // <b>The form authors three renderers and the server reads four.</b> ADR-052 §3.10 added
+    // `CIMProportionalRenderer` to the read subset because it costs no new drawing; authoring it
+    // is a different job, with a minimum symbol and a data range and Flannery's exponent, and
+    // none of that has a control here. Falling through to `simple` -- which is what this did
+    // before the renderer was read at all -- put the form in a state where the picture, the
+    // dropdown and the document disagreed, and the first edit would have written a
+    // `CIMSimpleRenderer` over a document nobody asked to change.
+    if (!SYM_AUTHORED.includes(symModel.type || "CIMSimpleRenderer")) {
+      $("symForm").hidden = true;
+      $("symUnauthored").hidden = false;
+      $("symUnauthored").innerHTML =
+        `<b>This layer is drawn by a <span class="mono">${h(symModel.type || "")}</span>,`
+        + ` which this form does not author.</b> The server reads it and both faces are`
+        + ` derived from it — the picture above is what the map looks like. To change it, edit`
+        + ` the document below, or store a new one.`;
+
+      return;
+    }
+
+    $("symForm").hidden = false;
+    $("symUnauthored").hidden = true;
 
     const kind = symModel.type === "CIMUniqueValueRenderer"
       ? "uniqueValue"
@@ -7040,7 +7067,9 @@ function showLayer(name, page, pending = null) {
           <p class="hint" id="symPreviewState">The stored appearance.</p>
         </div>
 
-        <div class="symform">
+        <p class="hint" id="symUnauthored" hidden></p>
+
+        <div class="symform" id="symForm">
           <div class="setting wide"><label class="q" for="symKind">Draw:</label>
             <select id="symKind">
               <option value="simple">every feature the same</option>

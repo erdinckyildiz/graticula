@@ -93,6 +93,7 @@ on 2026-09-03. **The specification is the citation, not any product.**
 | `CIMUniqueValueClass` | `values[].fieldValues`, `label`, `symbol`, `visible` |
 | `CIMClassBreaksRenderer` | `field`, `breaks[]`, `minimumBreak`, `defaultSymbol` |
 | `CIMClassBreak` | `upperBound`, `label`, `symbol` |
+| `CIMProportionalRenderer` | `field`, `valueExpressionInfo`, `minSymbol`, `minDataValue`, `maxDataValue`, `flanneryCompensation`, `heading` — §3.10 |
 | `CIMSymbolReference` | `symbol` |
 | `CIMPolygonSymbol`, `CIMLineSymbol`, `CIMPointSymbol` | `symbolLayers`, `effects` |
 | `CIMSolidFill` | `color`, `enable` |
@@ -277,6 +278,78 @@ so a layer migrates the first time anybody edits it.
 A one-shot `graticula symbology migrate` rewrites the whole store so that no
 deployment carries two shapes forever. It is not run automatically: a migration
 that runs itself at startup is a migration nobody can decline.
+
+### 3.10 The proportional renderer, added 2026-09-04
+
+**Owner decision 2026-09-04**, after reading the JavaScript SDK's
+[`Renderer`](https://developers.arcgis.com/javascript/latest/references/core/renderers/Renderer/)
+reference against the specification's own
+[`CIMRenderers.md`](https://github.com/Esri/cim-spec/blob/main/docs/v3/CIMRenderers.md).
+CIM defines **nine** renderers and the SDK exposes **seven** in 2D; seven of the
+nine correspond one for one, and the two CIM has alone are
+`CIMProportionalRenderer` and `CIMRepresentationRenderer`.
+
+**The first of those two is missing from the SDK because it is not a separate
+drawing.** The SDK draws the same map with a `SimpleRenderer` and a size visual
+variable, and the specification says so itself, in the note on
+`CIMSizeVisualVariable`: *VariableType = Proportional, unit NOT defined use
+Expression, MinSize, MinValue, could use MaxSize.* So this server reads it by
+projecting it onto what §3.6 already draws — `Cim.Project` returns a projection
+whose `Kind` is `CIMSimpleRenderer`, one class holding `minSymbol`, and one
+synthesised size variable. **Neither face changed.** The stored document is
+untouched and still says `CIMProportionalRenderer`; §3.1 is unaffected.
+
+**The high end is computed, and that is the part being decided.** The renderer
+carries `minSymbol`, `minDataValue` and `maxDataValue` and **no maximum symbol** —
+the size above the minimum comes from the proportional rule, and the rule is the
+one thing the specification does not state. This server uses **area
+proportionality**: a symbol's radius goes as the square root of its value, and
+`flanneryCompensation: true` replaces the exponent with **0.5716**, after
+J. J. Flannery, *The relative effectiveness of some common graduated point symbols
+in the presentation of quantitative data*, Cartographica 8(2), 1971. That is
+published cartography and no part of it is read out of an implementation (§5 of
+`CLAUDE.md`). **A consequence worth stating plainly: a proportional symbol drawn
+here will not match ArcGIS Pro to the pixel**, and cannot be made to without
+knowing a rule nobody has published.
+
+**Twelve stops, spaced geometrically, and both halves were measured.** The faces
+carry straight segments between stops, so approximating a curve costs accuracy.
+Measured against the true curve over three decades of data with a 4pt minimum
+symbol:
+
+| Stops | Spaced evenly by value | Spaced geometrically |
+|---|---|---|
+| 4 | 55.6% | 14.6% |
+| 8 | 46.7% | 2.97% |
+| 12 | 41.5% | **1.22%** |
+
+Even spacing does not converge, because a power curve's relative error is worst
+where the values are smallest and even spacing puts almost no stops there. Over a
+narrower range — a ratio of twenty rather than a thousand — twelve geometric stops
+are wrong by **0.23%**, which on a 4pt dot is a tenth of a point and smaller than
+what antialiasing does to the same edge.
+
+**Four things it refuses, each reported and none guessed at.**
+
+- `unitSymbolization` — the symbol's size *is* the value in ground units, so its
+  size on screen changes with the scale. This server sizes markers in points; a
+  fixed size would be right at one scale and silently wrong at every other. The
+  minimum symbol is drawn and does not grow.
+- `backgroundSymbol` — could be prepended to the symbol's stack, which is
+  bottom-first and would take it, but the size variable moves *every* width in the
+  stack and the background would swell with the data. A missing background is
+  visible; a background that pulses is not obviously wrong.
+- A range reaching zero or below — a proportional size is a ratio to the smallest
+  value, so a minimum of zero divides by it.
+- `useDefaultSymbol` — there is one class here and nothing for a fallback to sit
+  beside.
+
+**`CIMRepresentationRenderer` stays refused**, and so do the four the SDK also
+lists: `CIMChartRenderer`, `CIMDictionaryRenderer`, `CIMDotDensityRenderer` and
+`CIMHeatMapRenderer`. Each needs a drawing primitive this server does not have —
+chart markers, a scattering, a kernel-density raster, a dictionary style file —
+and none of them reduces to something it already draws. The refusal messages on
+both write paths name them, so a paste is diagnosed rather than merely rejected.
 
 ## 4. Consequences
 

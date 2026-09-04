@@ -47,6 +47,50 @@ public static class Cim
     /// <summary>One symbol per range of a number.</summary>
     public const string ClassBreaks = "CIMClassBreaksRenderer";
 
+    /// <summary>One symbol, sized in proportion to a number.</summary>
+    /// <remarks>
+    /// <b>Read as a simple renderer carrying a size variable, because that is what it is.</b>
+    /// The JavaScript SDK has no proportional renderer at all and expresses the same drawing as
+    /// a <c>SimpleRenderer</c> plus a size visual variable, and the specification's own note on
+    /// <c>CIMSizeVisualVariable</c> spells out the correspondence: <i>VariableType =
+    /// Proportional, unit NOT defined use Expression, MinSize, MinValue, could use MaxSize</i>.
+    /// So this needs no new drawing primitive - only the arithmetic that turns one symbol and a
+    /// data range into the stops the other three already carry.
+    /// </remarks>
+    public const string Proportional = "CIMProportionalRenderer";
+
+    /// <summary>The exponent that makes a symbol's area proportional to its value.</summary>
+    /// <remarks>
+    /// <b>Published cartography, not read out of anything.</b> A disc whose area is proportional
+    /// to a value has a radius proportional to the value's square root. Flannery's correction
+    /// replaces the exponent with about 0.57, because readers systematically under-estimate the
+    /// area of larger circles - J. J. Flannery, <i>The relative effectiveness of some common
+    /// graduated point symbols in the presentation of quantitative data</i>, Cartographica 8(2),
+    /// 1971. The specification carries <c>flanneryCompensation</c> as a boolean and does not say
+    /// what either curve is; picking these two from the literature is a decision this project
+    /// takes and records, and it means a symbol drawn here will not match ArcGIS Pro to the
+    /// pixel. ADR-052 §3.10.
+    /// </remarks>
+    private const double AreaExponent = 0.5;
+
+    /// <summary>Flannery's compensated exponent.</summary>
+    private const double FlanneryExponent = 0.5716;
+
+    /// <summary>
+    /// How many points the proportional curve is sampled at.
+    /// </summary>
+    /// <remarks>
+    /// <b>Twelve, spaced geometrically, and both halves were measured.</b> The faces carry
+    /// straight segments between stops, so a curve becomes an error. Measured against the true
+    /// curve over three decades of data with a 4pt minimum symbol: stops spaced evenly by value
+    /// are 41% wrong at twelve and never get much better, because a power curve's error is worst
+    /// where the values are smallest and even spacing puts almost no stops there. Spaced
+    /// geometrically the same twelve stops are wrong by <b>1.22%</b> at worst over three decades
+    /// and <b>0.23%</b> over a range of twenty - under a tenth of a point on a 4pt dot, which is
+    /// smaller than the difference antialiasing makes.
+    /// </remarks>
+    private const int ProportionalStops = 12;
+
     /// <summary>Whether a document is CIM, by its own discriminator.</summary>
     /// <remarks>
     /// <b>Asked of the value, not of the caller.</b> A CIM object names its own type in
@@ -87,16 +131,17 @@ public static class Cim
             {
                 Vary = Varying(body, notDrawn),
             },
+            Proportional => ProjectProportional(body, notDrawn),
+
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
-                + $"`{UniqueValue}` and `{ClassBreaks}`. A renderer it cannot read is refused "
-                + "rather than stored, because a stored document nothing can draw is a layer "
-                + "that looks styled and is not. The other six the specification defines are "
-                + "`CIMChartRenderer`, `CIMDictionaryRenderer`, `CIMDotDensityRenderer`, "
-                + "`CIMHeatMapRenderer`, `CIMProportionalRenderer` and "
-                + "`CIMRepresentationRenderer`; each needs a drawing primitive this server "
-                + "does not have, except the proportional one, which is a size visual "
-                + "variable on a simple renderer and can be written as that."),
+                + $"`{UniqueValue}`, `{ClassBreaks}` and `{Proportional}`. A renderer it cannot "
+                + "read is refused rather than stored, because a stored document nothing can "
+                + "draw is a layer that looks styled and is not. The other five the "
+                + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer`, "
+                + "`CIMDotDensityRenderer`, `CIMHeatMapRenderer` and "
+                + "`CIMRepresentationRenderer`; each needs a drawing primitive this server does "
+                + "not have."),
         };
     }
 
@@ -115,6 +160,209 @@ public static class Cim
             Default: null,
             notDrawn);
     }
+
+    /// <summary>One symbol, grown in proportion to a number.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It becomes a simple projection carrying a size variable, and that is not a
+    /// simplification.</b> <c>Kind</c> is <c>CIMSimpleRenderer</c> here on purpose, and
+    /// falsifying it showed which face cares: the Esri face switches on <c>Kind</c> and throws
+    /// for one it has no branch for, while the tile face never reads it, because a projection
+    /// with no classifying field has already become a constant several lines earlier. So a
+    /// fourth <c>Kind</c> would have bought one new branch in <c>CimEsri</c> emitting exactly
+    /// what its <c>Simple</c> branch emits. The stored document is untouched and still says
+    /// <c>CIMProportionalRenderer</c>; this is the projection, which is by definition the part
+    /// that can be drawn.
+    /// </para>
+    /// <para>
+    /// <b>The high end is computed, because the specification does not carry one.</b> A
+    /// <c>CIMProportionalRenderer</c> has <c>minSymbol</c>, <c>minDataValue</c> and
+    /// <c>maxDataValue</c> and no maximum symbol - the size above the minimum comes from the
+    /// proportional rule rather than from a second endpoint, and that rule is the one thing the
+    /// document does not state. See <see cref="AreaExponent"/> for where the two curves come
+    /// from and what follows from choosing them.
+    /// </para>
+    /// </remarks>
+    /// <param name="body">The renderer.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>The projection.</returns>
+    private static CimProjection ProjectProportional(JsonObject body, List<string> notDrawn)
+    {
+        CimSymbol symbol = ReadSymbol(
+            body["minSymbol"], "the renderer's minimum symbol", notDrawn);
+
+        if (body["backgroundSymbol"] is not null)
+        {
+            // <b>Reported rather than folded in.</b> A background symbol could be prepended to
+            // this stack -- `CimSymbol.Paints` is bottom-first and would take it -- but the size
+            // variable moves every width in the stack, so a background outline would grow with
+            // the data alongside the marker it sits behind. A missing background is visible; a
+            // background that swells with the population is not obviously wrong.
+            notDrawn.Add(
+                "The renderer draws a background symbol underneath its proportional symbols. "
+                + "This server draws the proportional symbol alone, because the size the data "
+                + "sets would move the background's own widths with it.");
+        }
+
+        if (body["useDefaultSymbol"] is JsonValue flag
+            && flag.TryGetValue(out bool wanted)
+            && wanted)
+        {
+            notDrawn.Add(
+                "The renderer has a default symbol for features it cannot size. This server "
+                + "draws one symbol here and has no class for a fallback to sit beside, so "
+                + "those features are drawn with the minimum symbol.");
+        }
+
+        List<CimVary> vary = Varying(body, notDrawn);
+
+        // <b>Only when the document did not already say it.</b> A proportional renderer inherits
+        // `CIMVisualVariableRenderer`, so it may carry a size variable of its own; that one is
+        // what the author wrote and this one is arithmetic, so the author's wins.
+        if (!vary.Any(v => v.What == CimVaries.Size)
+            && Proportion(body, symbol, notDrawn) is { } sizing)
+        {
+            vary.Add(sizing);
+        }
+
+        return new CimProjection(
+            Simple,
+            Field: null,
+            [
+                new CimClass(
+                    Values: [],
+                    UpperBound: null,
+                    Text(body["heading"]) ?? string.Empty,
+                    symbol),
+            ],
+            Default: null,
+            notDrawn)
+        {
+            Vary = vary,
+        };
+    }
+
+    /// <summary>The size variable a proportional renderer stands for.</summary>
+    /// <param name="body">The renderer.</param>
+    /// <param name="symbol">Its minimum symbol, already read.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>The variable, or null with a sentence saying why not.</returns>
+    private static CimVary? Proportion(
+        JsonObject body, CimSymbol symbol, List<string> notDrawn)
+    {
+        if (body["unitSymbolization"] is JsonObject)
+        {
+            // <b>A different sizing model, not a harder one.</b> With `unitSymbolization` the
+            // symbol's size *is* the value, in ground units -- a circle standing for 500 metres
+            // is 500 metres across at every scale, so its size in points changes as you zoom.
+            // This server sizes markers in points. Drawing it at a fixed size would be right at
+            // one scale and wrong at every other, with nothing on the map to say which.
+            notDrawn.Add(
+                "The renderer sizes its symbol in ground units (`unitSymbolization`), so the "
+                + "symbol's size on screen changes with the scale. This server sizes markers in "
+                + "points, so the minimum symbol is drawn and does not grow.");
+
+            return null;
+        }
+
+        if (Field(body) is not { Length: > 0 } field)
+        {
+            notDrawn.Add(
+                $"A `{Proportional}` names no field this server can read in `field` or "
+                + "`valueExpressionInfo`, so there is nothing to size by.");
+
+            return null;
+        }
+
+        double? floor = Number(body["minDataValue"]);
+        double? ceiling = Number(body["maxDataValue"]);
+
+        if (floor is not { } low || ceiling is not { } high || low <= 0 || high <= low)
+        {
+            // <b>Zero and below have no proportional size.</b> The rule is a ratio to the
+            // smallest value, so a minimum of zero divides by it and a negative one asks for the
+            // square root of a negative number. ArcGIS treats those specially and this server
+            // says so rather than inventing a treatment.
+            notDrawn.Add(
+                "The renderer's `minDataValue` and `maxDataValue` are not a range this server "
+                + $"can size across (read as {Say(floor)} to {Say(ceiling)}; it needs a positive "
+                + "minimum below the maximum, because a proportional size is a ratio to the "
+                + "smallest value). The minimum symbol is drawn and does not grow.");
+
+            return null;
+        }
+
+        if (SizeOf(symbol) is not { } smallest || smallest <= 0)
+        {
+            notDrawn.Add(
+                "The renderer's minimum symbol has no marker size or stroke width to grow from, "
+                + "so nothing can be sized in proportion to it.");
+
+            return null;
+        }
+
+        double power = body["flanneryCompensation"] is JsonValue compensate
+            && compensate.TryGetValue(out bool on)
+            && on
+                ? FlanneryExponent
+                : AreaExponent;
+
+        List<double> stops = [];
+        List<double> sizes = [];
+        double step = Math.Pow(high / low, 1.0 / (ProportionalStops - 1));
+
+        for (int i = 0; i < ProportionalStops; i++)
+        {
+            // <b>The last stop is the maximum itself.</b> Eleven multiplications of an
+            // irrational ratio land near it rather than on it, and a legend that reads
+            // 9999.9999998 for a maximum of 10000 is a legend somebody has to explain.
+            double value = i == ProportionalStops - 1 ? high : low * Math.Pow(step, i);
+
+            stops.Add(value);
+            sizes.Add(smallest * Math.Pow(value / low, power));
+        }
+
+        return new CimVary(CimVaries.Size, field, stops, [], sizes);
+    }
+
+    /// <summary>The size a proportional renderer grows from.</summary>
+    /// <remarks>
+    /// <b>A marker first, then the widest stroke.</b> Proportional symbols are markers nearly
+    /// always; a proportional line width is the other real use, and there the thing that grows
+    /// is the widest stroke in the stack rather than a casing under it.
+    /// </remarks>
+    /// <param name="symbol">The minimum symbol.</param>
+    /// <returns>Its size in points, or null when nothing in it has one.</returns>
+    private static double? SizeOf(CimSymbol symbol)
+    {
+        foreach (CimPaint paint in symbol.Paints)
+        {
+            if (paint is CimMarker marker)
+            {
+                return marker.Size;
+            }
+        }
+
+        double widest = 0;
+
+        foreach (CimPaint paint in symbol.Paints)
+        {
+            if (paint is CimStroke stroke && stroke.Width > widest)
+            {
+                widest = stroke.Width;
+            }
+        }
+
+        return widest > 0 ? widest : null;
+    }
+
+    /// <summary>A number as a message can print it.</summary>
+    /// <param name="value">The number, or null when it was absent or unreadable.</param>
+    /// <returns>The number, or the word for its absence.</returns>
+    private static string Say(double? value) =>
+        value is { } number
+            ? number.ToString(CultureInfo.InvariantCulture)
+            : "absent";
 
     /// <summary>One symbol per distinct value.</summary>
     /// <param name="body">The renderer.</param>
