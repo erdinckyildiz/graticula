@@ -376,9 +376,81 @@ public sealed class SymbologyPlan
                     };
                 }
 
+            case "heatmap":
+            {
+                // <b>The radius widens the margin, and by more than it looks.</b> A point half a
+                // radius outside the image still lights pixels inside it, so the reader has to
+                // fetch features beyond the extent it draws or every tile boundary gets a seam.
+                double spreads = Static(paint["heatmap-radius"]) ?? 30;
+
+                Widen(ref margin, spreads);
+
+                if (Stops(paint["heatmap-color"]) is not { Count: > 1 } ramp)
+                {
+                    // <b>Skipped rather than refused, like a missing sprite above.</b> A heat map
+                    // with no readable ramp has nothing to paint with, and the rest of a style
+                    // that carries one still draws.
+                    return null;
+                }
+
+                return new PlanLayer.Heat(
+                    paint["heatmap-weight"] is { } weight
+                        ? StyleExpression.Compile(weight)
+                        : null,
+                    paint["heatmap-radius"] is { } spread
+                        ? StyleExpression.Compile(spread)
+                        : Constant(spreads),
+                    ramp,
+                    Static(paint["heatmap-intensity"]) is { } intensity && intensity > 0
+                        ? 1 / intensity
+                        : null,
+                    Static(paint["heatmap-opacity"]) ?? 1)
+                {
+                    MinimumZoom = minimum,
+                    MaximumZoom = maximum,
+                };
+            }
+
             default:
                 return null;
         }
+    }
+
+    /// <summary>The colours of an interpolate over the heat map's own density.</summary>
+    /// <remarks>
+    /// <b>Read as stops rather than compiled as an expression, and it has to be.</b>
+    /// `["interpolate", ["linear"], ["heatmap-density"], 0, c0, 1, c1]` interpolates over a value
+    /// that is neither a field nor the zoom: it is the surface's own density at a pixel, which
+    /// does not exist until every feature has been read. An expression compiled from it could
+    /// never be evaluated, because there is nothing to evaluate it against.
+    /// </remarks>
+    /// <param name="node">The `heatmap-color` value.</param>
+    /// <returns>Its colours in order, or null when it is not that shape.</returns>
+    private static List<Rgba>? Stops(JsonNode? node)
+    {
+        if (node is not JsonArray expression
+            || expression.Count < 5
+            || expression[0]?.GetValue<string>() != "interpolate")
+        {
+            return null;
+        }
+
+        List<Rgba> ramp = [];
+
+        // ["interpolate", ["linear"], ["heatmap-density"], stop, colour, stop, colour, ...]
+        for (int i = 4; i < expression.Count; i += 2)
+        {
+            if (expression[i] is not JsonValue value
+                || !value.TryGetValue(out string? text)
+                || !Rgba.TryParse(text, out Rgba colour))
+            {
+                return null;
+            }
+
+            ramp.Add(colour);
+        }
+
+        return ramp.Count > 1 ? ramp : null;
     }
 
     /// <summary>A paint colour with its opacity folded in, when both are constants.</summary>

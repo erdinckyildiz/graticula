@@ -516,6 +516,56 @@ text field returns one class per value in a monotone ramp. Falsified: with the
 ramp interpolation removed and the field check removed, exactly the two tests
 that assert them fail and the other eight pass.
 
+### 3.14 The heat map — 2026-09-04
+
+**The fifth renderer, and the first that is not a symbol.** Every other one here
+answers *which symbol does this feature get*. A heat map answers *how crowded is
+this place*, so a pixel's colour depends on every point near it and there is
+nothing to resolve per feature. It accumulates while the features go past and is
+composited once.
+
+**It needed no new drawing primitive**, which is the claim §3.10 was corrected
+for on the same day: `IMapCanvas.DrawImage` was declared and implemented the
+whole time. What it needed was an accumulator and a ramp.
+
+**The kernel is Epanechnikov's** — `1 - t²`, zero beyond the radius — after
+V. A. Epanechnikov, *Non-parametric estimation of a multivariate probability
+density*, Theory of Probability and its Applications 14 (1969). Published
+statistics, and the reason the surface is smooth rather than a pile of discs.
+
+**Three decisions worth reading:**
+
+- **A point outside the image still lights the pixels inside it.** Dropping a
+  feature because its centre is off the edge puts a visible seam down every tile
+  boundary; the plan's margin is widened by the radius so the reader fetches
+  beyond what it draws.
+- **The alpha rises with the density over the bottom fifth of the range.** A ramp
+  painted at full opacity from zero tints every empty pixel and turns a map of
+  three hot spots into a coloured rectangle.
+- **`maxPixelIntensity` is what makes two tiles comparable**, and its absence is
+  reported as a loss rather than passed over: without it every image is scaled
+  against its own densest pixel, so a quiet corner looks as hot as a busy one.
+
+**The faces carry it natively, and neither needed inventing.** MapLibre has a
+`heatmap` layer whose `heatmap-color` interpolates over `heatmap-density` — the
+one paint expression in this whole style vocabulary that cannot be evaluated per
+feature, because its input does not exist until every feature has been read, so
+it is written and read as stops. ArcGIS has a `heatmap` renderer, and this server
+publishes `radius` and `maxDensity` rather than `blurRadius` and
+`maxPixelIntensity`: the web map specification marks the second pair deprecated
+as belonging to the older Gaussian-blur heat map, and what is computed here is a
+kernel density.
+
+**A falsification that passed, and what it cost.** Breaking the kernel to a flat
+disc left all eight tests green — the density tests asserted that a crowded corner
+is hotter than a lonely one and that the middle is empty, and all of that stays
+true for a pile of hard-edged circles, which is exactly what a heat map looks
+like when it is wrong. A ninth test now asserts the one thing that tells them
+apart: with one point, the middle of its circle is hotter than the rim. **The
+first attempt at the second falsification was also worthless** — it clamped a
+negative coordinate that was already being clamped — and redoing it properly
+failed the seam test as it should.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

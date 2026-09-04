@@ -38,6 +38,7 @@ public sealed class MapRenderer
     private readonly PixelPath _path = new();
     private readonly LabelPlacer _labels = new();
     private readonly FeatureAttributes _attributes = new();
+    private readonly Dictionary<PlanLayer.Heat, HeatField> _heat = [];
     private readonly double _zoom;
 
     /// <summary>Opens a renderer over a canvas.</summary>
@@ -167,6 +168,87 @@ public sealed class MapRenderer
         }
     }
 
+    /// <summary>Adds one feature's points to its layer's density surface.</summary>
+    /// <remarks>
+    /// <b>Every point of the geometry, not one per feature.</b> A multipoint of forty stations is
+    /// forty contributions; treating it as one would make a heat map of features rather than of
+    /// what they are made of, which is not what anybody counting incidents means. Lines and
+    /// polygons contribute nothing: a density of areas is a different statistic and this renderer
+    /// does not compute it.
+    /// </remarks>
+    private bool Accumulate(
+        PlanLayer.Heat layer, Geometry geometry, in StyleExpression.Context context)
+    {
+        double radius = layer.RadiusOf(context);
+        double weight = layer.WeightOf(context);
+
+        if (radius <= 0 || weight == 0)
+        {
+            return false;
+        }
+
+        _heat.TryGetValue(layer, out HeatField? field);
+
+        if (field is null)
+        {
+            field = new HeatField(_canvas.Width, _canvas.Height);
+            _heat[layer] = field;
+        }
+
+        switch (geometry)
+        {
+            case Graticula.Geometries.Point point:
+                field.Add(_transform.X(point.X), _transform.Y(point.Y), radius, weight);
+
+                return true;
+
+            case MultiPoint many:
+                foreach (Graticula.Geometries.Point one in many.Parts)
+                {
+                    field.Add(_transform.X(one.X), _transform.Y(one.Y), radius, weight);
+                }
+
+                return many.Parts.Count > 0;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Composites every density surface this pass accumulated, and says how many it drew.
+    /// </summary>
+    /// <remarks>
+    /// <b>Before the labels, and that is the only order that works.</b> A surface covers the
+    /// whole image, so compositing it after the labels would paint over them; compositing it
+    /// before means the labels sit on the map they describe. It is called from
+    /// <see cref="FinishLabels"/> calls it, so a caller that draws labels gets the surface
+    /// without asking. <b>Not every caller draws labels</b>: the thumbnail and preview path
+    /// deliberately skips them — text at a hundred pixels across is a smear — and that path
+    /// previewed a heat map as a fully transparent image while every unit test passed, because
+    /// the comment here used to claim every caller called `FinishLabels`. It calls this one now.
+    /// </remarks>
+    /// <returns>How many surfaces were painted.</returns>
+    public int FinishHeat()
+    {
+        int painted = 0;
+
+        foreach ((PlanLayer.Heat layer, HeatField field) in _heat)
+        {
+            if (field.IsEmpty)
+            {
+                continue;
+            }
+
+            field.Paint(_canvas, layer.Ramp, layer.Ceiling, layer.Opacity);
+            painted++;
+        }
+
+        _heat.Clear();
+
+        return painted;
+    }
+
     /// <summary>Draws the labels that fit, and returns how many did.</summary>
     /// <remarks>
     /// Called once, after every layer of the map. Labels from a layer drawn early
@@ -174,10 +256,24 @@ public sealed class MapRenderer
     /// which is what draw order means on a map.
     /// </remarks>
     /// <returns>How many labels were drawn.</returns>
-    public int FinishLabels() => _labels.Draw(_canvas);
+    public int FinishLabels()
+    {
+        FinishHeat();
+
+        return _labels.Draw(_canvas);
+    }
 
     private bool Apply(PlanLayer layer, Geometry geometry, in StyleExpression.Context context)
     {
+        // <b>Before `Resolve`, because a heat layer has nothing to resolve.</b> A pixel's colour
+        // in a density surface depends on every point near it, so there is no per-feature symbol
+        // to return; the feature is added to a buffer and the surface is composited when the
+        // features run out. ADR-052 §3.14.
+        if (layer is PlanLayer.Heat heat)
+        {
+            return Accumulate(heat, geometry, context);
+        }
+
         if (layer.Resolve(context) is not { } symbol)
         {
             return false;

@@ -373,6 +373,14 @@ internal static class ThumbnailEndpoints
 
         // <b>No labels.</b> `FinishLabels` is what draws them and it is not called: text at 104
         // pixels across is a smear, and the picture is about shape and density.
+        //
+        // <b>But the density surface, which is exactly what this picture is about.</b> A heat map
+        // accumulates while the features go past and is composited at the end, and this path skips
+        // the method that would have done it — so a heat map previewed here came back fully
+        // transparent while every unit test passed. Measured 2026-09-04, on the first live draw.
+        // `FinishHeat` is separate from `FinishLabels` for this caller.
+        renderer.FinishHeat();
+
         return canvas.Encode(MapImageFormat.Png, settings.JpegQuality);
     }
 

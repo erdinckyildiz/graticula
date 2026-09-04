@@ -46,6 +46,15 @@ public static class CimStyle
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
         CimProjection projection = Cim.Project(renderer);
+
+        // <b>A heat map is a layer type rather than a paint on one.</b> MapLibre has `heatmap`
+        // with its own five properties and no `paint` this style builder would recognise, so it
+        // is built here and returns before the per-geometry machinery below ever runs.
+        // ADR-052 §3.14.
+        if (projection.Heat is { } surface)
+        {
+            return Surface(projection, surface, layerName);
+        }
         List<string> losses = [.. projection.NotDrawn];
 
         // <b>The first class decides the shape.</b> Real classified renderers vary colour and
@@ -437,6 +446,71 @@ public static class CimStyle
             : Step(projection, values, fallback);
 
         return expression;
+    }
+
+    /// <summary>A MapLibre `heatmap` layer.</summary>
+    /// <remarks>
+    /// <b>`heatmap-color` interpolates over `["heatmap-density"]`, which is neither a field nor
+    /// the zoom.</b> It is the surface's own value at a pixel, which does not exist until every
+    /// feature has been read — so it cannot be evaluated per feature the way every other paint
+    /// expression here is. It is written as stops and read back as stops.
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="surface">Its density surface.</param>
+    /// <param name="layerName">The source layer.</param>
+    /// <returns>The style.</returns>
+    private static DerivedStyle Surface(
+        CimProjection projection, CimHeat surface, string layerName)
+    {
+        JsonArray colour =
+        [
+            "interpolate",
+            new JsonArray("linear"),
+            new JsonArray("heatmap-density"),
+        ];
+
+        for (int i = 0; i < surface.Ramp.Count; i++)
+        {
+            colour.Add(Num((double)i / (surface.Ramp.Count - 1)));
+            colour.Add(Hex(surface.Ramp[i]));
+        }
+
+        JsonObject paint = new()
+        {
+            ["heatmap-radius"] = Num(surface.Radius),
+            ["heatmap-color"] = colour,
+            ["heatmap-opacity"] = Num(1),
+        };
+
+        if (surface.Field is { Length: > 0 } weighted)
+        {
+            paint["heatmap-weight"] = new JsonArray("get", weighted);
+        }
+
+        // <b>`heatmap-intensity` carries the ceiling, and it is the closest MapLibre has.</b>
+        // CIM's `maxPixelIntensity` fixes the density that reaches the ramp's end; MapLibre has
+        // no such property, and multiplying the accumulated weight is the same lever from the
+        // other side. A client reading this gets the same picture; a client reading the CIM gets
+        // the number.
+        if (surface.Ceiling is { } ceiling && ceiling > 0)
+        {
+            paint["heatmap-intensity"] = Num(1 / ceiling);
+        }
+
+        JsonObject style = new()
+        {
+            ["version"] = 8,
+            ["layers"] = new JsonArray(new JsonObject
+            {
+                ["id"] = $"{layerName}-heat",
+                ["type"] = "heatmap",
+                ["source"] = "graticula",
+                ["source-layer"] = layerName,
+                ["paint"] = paint,
+            }),
+        };
+
+        return new DerivedStyle(style, projection.NotDrawn);
     }
 
     /// <summary>A `match` over the classified field.</summary>

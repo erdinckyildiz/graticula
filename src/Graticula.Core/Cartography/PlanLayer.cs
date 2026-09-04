@@ -226,6 +226,75 @@ public abstract class PlanLayer
         }
     }
 
+    /// <summary>A density surface over points.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The one layer that does not resolve to a symbol.</b> Every other kind answers *what
+    /// does this feature look like*; a heat map has no answer to that, because a pixel's colour
+    /// depends on every point near it. So <see cref="Resolve"/> returns null — meaning *paint
+    /// nothing for this feature on its own* — and <see cref="MapRenderer"/> recognises the type
+    /// and accumulates instead. ADR-052 §3.14.
+    /// </para>
+    /// <para>
+    /// <b>The ramp is a list rather than an expression.</b> MapLibre writes `heatmap-color` as an
+    /// interpolate over `["heatmap-density"]`, which is not a field and not a zoom: it is the
+    /// surface's own value, which does not exist until every feature has been read. Compiling it
+    /// to an expression would produce one that cannot be evaluated per feature, so it is read
+    /// into its stops at compile time.
+    /// </para>
+    /// </remarks>
+    /// <param name="weight">What one feature counts for, or null for one each.</param>
+    /// <param name="radius">How far its heat spreads, in pixels.</param>
+    /// <param name="ramp">Two or more colours, coolest first.</param>
+    /// <param name="ceiling">The density that reaches the ramp's end, or null to use the peak.</param>
+    /// <param name="opacity">How opaque the finished surface is.</param>
+    public sealed class Heat(
+        StyleExpression? weight,
+        StyleExpression radius,
+        IReadOnlyList<Rgba> ramp,
+        double? ceiling,
+        double opacity) : PlanLayer
+    {
+        /// <summary>Two or more colours, coolest first.</summary>
+        public IReadOnlyList<Rgba> Ramp { get; } = ramp;
+
+        /// <summary>The density that reaches the ramp's end, or null to use the peak.</summary>
+        public double? Ceiling { get; } = ceiling;
+
+        /// <summary>How opaque the finished surface is.</summary>
+        public double Opacity { get; } = opacity;
+
+        /// <summary>What one feature counts for, at this feature.</summary>
+        /// <param name="context">The feature and the map.</param>
+        /// <returns>Its weight, one when the style names none.</returns>
+        public double WeightOf(in StyleExpression.Context context) =>
+            Number(weight, context, 1);
+
+        /// <summary>How far this feature's heat spreads, in pixels.</summary>
+        /// <param name="context">The feature and the map.</param>
+        /// <returns>The radius.</returns>
+        public double RadiusOf(in StyleExpression.Context context) =>
+            Number(radius, context, 30);
+
+        /// <inheritdoc/>
+        public override MapSymbol? Resolve(in StyleExpression.Context context) => null;
+
+        /// <inheritdoc/>
+        public override void Fields(ISet<string> into)
+        {
+            weight?.Fields(into);
+            radius.Fields(into);
+        }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            // <b>Nothing.</b> A heat map has no classes: its legend is a continuous scale from
+            // *few* to *many*, and offering the ramp's stops as classes would put numbers in a
+            // legend that stand for nothing anybody can count.
+        }
+    }
+
     /// <summary>A label.</summary>
     public sealed class Text(
         StyleExpression field,

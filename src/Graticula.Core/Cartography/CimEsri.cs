@@ -442,6 +442,65 @@ public static class CimEsri
         return built;
     }
 
+    /// <summary>An Esri `heatmap` renderer.</summary>
+    /// <remarks>
+    /// <b>`radius` and `maxDensity`, not `blurRadius` and `maxPixelIntensity`.</b> The web map
+    /// specification marks the second pair deprecated — they belong to the older Gaussian-blur
+    /// heat map — and names the kernel-density pair as current. This server computes a kernel
+    /// density, so it publishes the properties that mean that.
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The renderer.</returns>
+    private static JsonObject HeatOut(CimProjection projection, List<string> losses)
+    {
+        if (projection.Heat is not { } surface)
+        {
+            throw new SymbologyException(
+                "A heat map projection carries no surface, so there is nothing to publish.");
+        }
+
+        JsonArray stops = [];
+
+        for (int i = 0; i < surface.Ramp.Count; i++)
+        {
+            stops.Add(new JsonObject
+            {
+                ["ratio"] = Num((double)i / (surface.Ramp.Count - 1)),
+                ["color"] = Esri(surface.Ramp[i]),
+            });
+        }
+
+        JsonObject built = new()
+        {
+            ["type"] = "heatmap",
+            ["radius"] = Num(surface.Radius),
+            ["colorStops"] = stops,
+            ["minDensity"] = Num(0),
+        };
+
+        if (surface.Field is { Length: > 0 } weighted)
+        {
+            built["field"] = weighted;
+        }
+
+        if (surface.Ceiling is { } ceiling && ceiling > 0)
+        {
+            built["maxDensity"] = Num(ceiling);
+        }
+        else
+        {
+            // <b>Said out loud rather than left out.</b> Without a ceiling every image scales
+            // against its own peak, so a client that caches two tiles of this layer is holding
+            // two different scales. It is the document's choice and the reader should know.
+            losses.Add(
+                "The heat map has no `maxPixelIntensity`, so each image is scaled against its own "
+                + "densest pixel. Two tiles of this layer are not comparable to each other.");
+        }
+
+        return built;
+    }
+
     /// <summary>Wraps a converted symbol the way CIM carries one.</summary>
     /// <param name="node">The Esri symbol.</param>
     /// <param name="geometry">What the layer is made of.</param>
@@ -688,6 +747,7 @@ public static class CimEsri
 
             Cim.UniqueValue => UniqueOut(projection, losses),
             Cim.ClassBreaks => BreaksOut(projection, losses),
+            Cim.HeatMap => HeatOut(projection, losses),
 
             _ => throw new SymbologyException(
                 $"'{projection.Kind}' has no Esri renderer to derive for '{layerName}'."),

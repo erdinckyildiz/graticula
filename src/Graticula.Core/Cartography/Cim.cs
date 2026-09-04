@@ -59,6 +59,26 @@ public static class Cim
     /// </remarks>
     public const string Proportional = "CIMProportionalRenderer";
 
+    /// <summary>A density surface over points.</summary>
+    /// <remarks>
+    /// <b>The one renderer whose answer does not belong to a feature.</b> Every other kind here
+    /// says which symbol a feature gets; a heat map says how crowded a place is, so a pixel's
+    /// colour depends on every point near it and there is nothing to resolve per feature. It
+    /// needed no new drawing primitive — <c>IMapCanvas.DrawImage</c> was already there — only an
+    /// accumulator and a ramp. ADR-052 §3.14.
+    /// </remarks>
+    public const string HeatMap = "CIMHeatMapRenderer";
+
+    /// <summary>How many colours a heat map's ramp is read into.</summary>
+    /// <remarks>
+    /// <b>Nine, which is what a continuous ramp costs to carry as stops.</b> Both faces express
+    /// the ramp as a list — MapLibre as an interpolate over <c>heatmap-density</c>, Esri as
+    /// <c>colorStops</c> — so a continuous CIM ramp has to be sampled somewhere. Nine is the
+    /// most any published sequential scheme uses (Brewer stops at nine), and past that the steps
+    /// are below what a screen distinguishes on a surface this smooth.
+    /// </remarks>
+    public const int HeatColours = 9;
+
     /// <summary>The exponent that makes a symbol's area proportional to its value.</summary>
     /// <remarks>
     /// <b>Published cartography, not read out of anything.</b> A disc whose area is proportional
@@ -132,6 +152,7 @@ public static class Cim
                 Vary = Varying(body, notDrawn),
             },
             Proportional => ProjectProportional(body, notDrawn),
+            HeatMap => ProjectHeatMap(body, notDrawn),
 
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
@@ -139,12 +160,12 @@ public static class Cim
                 + "read is refused rather than stored, because a stored document nothing can "
                 + "draw is a layer that looks styled and is not. The other five the "
                 + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer`, "
-                + "`CIMDotDensityRenderer`, `CIMHeatMapRenderer` and "
-                + "`CIMRepresentationRenderer`. None reduces to a renderer this server already "
-                + "draws, so each is work rather than a reading -- but only two are blocked: a "
-                + "dictionary renderer needs a dictionary style this server does not hold, and "
-                + "a representation renderer needs a geodatabase's representation classes. The "
-                + "other three are arithmetic over primitives that already exist."),
+                + "`CIMDotDensityRenderer` and `CIMRepresentationRenderer`. None reduces to a "
+                + "renderer this server already draws, so each is work rather than a reading -- "
+                + "but only two are blocked: a dictionary renderer needs a dictionary style this "
+                + "server does not hold, and a representation renderer needs a geodatabase's "
+                + "representation classes. The other two are arithmetic over primitives that "
+                + "already exist."),
         };
     }
 
@@ -366,6 +387,79 @@ public static class Cim
         value is { } number
             ? number.ToString(CultureInfo.InvariantCulture)
             : "absent";
+
+    /// <summary>A density surface, projected onto what this server can paint.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The projection carries no classes and no symbol, and that is honest rather than
+    /// lossy.</b> A heat map has neither: it has a field to weigh by, a radius to spread over
+    /// and a ramp to colour with. `CimProjection` keeps one empty class so every reader that
+    /// walks classes finds nothing rather than throwing, and the surface itself is on `Heat`.
+    /// </para>
+    /// <para>
+    /// <b>`rendererQuality` is not read, and it would not mean the same thing here.</b> In CIM it
+    /// trades pixelation for speed on a raster this server does not build the same way; the
+    /// surface here is computed at the image's own resolution, which is the quality that CIM's
+    /// scale calls best. Costing more than asked is not a loss, so it is not reported as one.
+    /// </para>
+    /// </remarks>
+    /// <param name="body">The renderer.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>The projection.</returns>
+    private static CimProjection ProjectHeatMap(JsonObject body, List<string> notDrawn)
+    {
+        List<Rgba> ramp = Ramp(body["colorScheme"], "the heat map's colour scheme", notDrawn);
+
+        if (ramp.Count < 2)
+        {
+            // <b>A default rather than a refusal.</b> A heat map with no readable ramp still
+            // knows where its points are, and the shape of the surface is most of what it says;
+            // refusing would lose that to keep a colour nobody chose either way.
+            notDrawn.Add(
+                "The heat map's `colorScheme` could not be read as a ramp, so it is drawn in a "
+                + "blue-to-red default. The surface is the layer's own; only the colours are "
+                + "this server's.");
+
+            ramp = [..(Rgba[])
+            [
+                new(12, 44, 132, 255), new(34, 94, 168, 255), new(29, 145, 192, 255),
+                new(65, 182, 196, 255), new(127, 205, 187, 255), new(199, 233, 180, 255),
+                new(255, 237, 160, 255), new(254, 178, 76, 255), new(227, 26, 28, 255),
+            ]];
+        }
+
+        if (Text(body["field"]) is { Length: > 0 } weighted && Plain(weighted) is null)
+        {
+            notDrawn.Add(
+                $"The heat map weighs features by '{weighted}', which this server cannot read as "
+                + "a column name. Every feature is counted as one instead.");
+        }
+
+        double radius = Number(body["radius"]) ?? 10;
+
+        if (body["referenceScale"] is not null && Number(body["referenceScale"]) is > 0)
+        {
+            notDrawn.Add(
+                "The heat map has a reference scale, which fixes the search radius in ground "
+                + "units so the surface keeps its shape as you zoom. This server spreads the "
+                + "radius in points at every scale, so the surface is smoother when zoomed in "
+                + "and tighter when zoomed out.");
+        }
+
+        return new CimProjection(
+            HeatMap,
+            Field: null,
+            [new CimClass([], null, Text(body["heading"]) ?? string.Empty, new CimSymbol([]))],
+            Default: null,
+            notDrawn)
+        {
+            Heat = new CimHeat(
+                Plain(Text(body["field"]) ?? string.Empty),
+                radius,
+                ramp,
+                Number(body["maxPixelIntensity"])),
+        };
+    }
 
     /// <summary>One symbol per distinct value.</summary>
     /// <param name="body">The renderer.</param>
@@ -1208,6 +1302,9 @@ public sealed record CimProjection(
     /// <summary>What slides continuously with a number, on top of the classes.</summary>
     public IReadOnlyList<CimVary> Vary { get; init; } = [];
 
+    /// <summary>The density surface, for a heat map. Null for every other renderer.</summary>
+    public CimHeat? Heat { get; init; }
+
     /// <summary>The bottom of the first class, for a class-breaks renderer.</summary>
     /// <remarks>
     /// <b>The classification's floor, and it is not decoration — [D-205](../../../docs/architecture-debt.md).</b>
@@ -1246,6 +1343,18 @@ public sealed record CimVary(
     IReadOnlyList<double> Stops,
     IReadOnlyList<Rgba> Colours,
     IReadOnlyList<double> Numbers);
+
+/// <summary>A density surface: what to weigh by, how far it spreads, and its colours.</summary>
+/// <param name="Field">The column to weigh by, or null to count every feature as one.</param>
+/// <param name="Radius">How far one feature's heat spreads, in points.</param>
+/// <param name="Ramp">Two or more colours, coolest first.</param>
+/// <param name="Ceiling">
+/// The density that reaches the ramp's last colour, or null to scale each image against its own
+/// peak. <b>A fixed ceiling is what makes two tiles of one layer comparable</b>; without one,
+/// every image is its own scale and a quiet corner looks as hot as a busy one.
+/// </param>
+public sealed record CimHeat(
+    string? Field, double Radius, IReadOnlyList<Rgba> Ramp, double? Ceiling);
 
 /// <summary>One symbol and what it stands for.</summary>
 /// <param name="Values">The field values this class matches, for a unique-value renderer.</param>

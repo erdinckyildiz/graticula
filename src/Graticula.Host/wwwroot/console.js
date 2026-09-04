@@ -3168,6 +3168,7 @@ async function drawServiceSymbology() {
         CIMUniqueValueRenderer: "by the value of a field",
         CIMClassBreaksRenderer: "by ranges of a number",
         CIMProportionalRenderer: "one symbol, sized in proportion to a number",
+        CIMHeatMapRenderer: "a density surface over the points",
       }[(r.symbology || {}).type] || "an appearance this console does not name";
 
       const varies = ((r.symbology || {}).visualVariables || []).length > 0;
