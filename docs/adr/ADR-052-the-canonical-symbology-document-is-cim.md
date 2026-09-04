@@ -791,6 +791,15 @@ and only one of them is edited.
 
 ### 3.19 The class list and the symbol editor are one view, not two — 2026-09-04
 
+> **The mechanism below was reversed the next day by
+> [ADR-053 §3](ADR-053-the-symbology-editor-is-three-columns.md), and the section is kept rather
+> than rewritten.** `Symbol ›` and `‹ All classes` are gone. The property this section was
+> protecting — *a panel is never titled after a row nobody can see* — is protected by adjacency
+> instead: one 336-pixel column, the selected row marked and scrolled into view whenever it
+> moves, and the symbol directly under it, which costs no click to see what a class is made of.
+> The reasoning below is why the property matters, and it still holds; the two views were one
+> way of getting it and not the only one.
+
 The owner looked at this screen and said *"ya ben bu ekranı cidden anlayamıyorum. çok
 karmaşık"* — I genuinely cannot understand this screen, it is too complicated. That is a
 requirement, and this section is the first structural answer to it.
