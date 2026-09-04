@@ -3201,3 +3201,38 @@ tr.rowbad > td { background: var(--alert-soft); }
 .symcols.generated > .sympreview, .symcols.generated > .syminsp { display: none; }
 .symcols.generated > .symempty { grid-column: 2 / -1; }
 .symcols > .symempty { border-left: 1px solid var(--rule); background: var(--paper); }
+
+/* ══════════════════════════════════ the preview column is a map, 2026-09-04
+   Owner, pointing at two ArcGIS Online Map Viewer videos: the map should open the way theirs
+   does, and what the symbology controls change should show on it. The still frame could answer
+   *what colour* and never *what does this look like where I am looking* — which is the question
+   ADR-051 says an appearance is chosen by.
+
+   <b>The ground pans, the picture is drawn by the server.</b> Two elements: an OpenLayers map
+   underneath, and the image the preview endpoint returns for that exact viewport over it. The
+   image takes no pointer events, so every gesture reaches the map. */
+#symMap { position: absolute; inset: 0; }
+#symMap .ol-viewport { border-radius: 0; }
+
+.sympreview > img,
+.sympreview > .thumb.empty { pointer-events: none; z-index: 1; }
+
+/* <b>The ground chips choose what OpenLayers draws, not what is behind a transparent PNG.</b>
+   With a map underneath, *None* is the honest name for no basemap — the hatched checker that
+   used to mean it is what an absent picture looks like, not an absent ground. */
+.sympreview.ground-none #symMap { opacity: 0; }
+.sympreview.ground-dark #symMap { filter: invert(1) hue-rotate(180deg) saturate(.7) brightness(.85); }
+
+/* The overlays sit above both. */
+.symcap, .symground, .symlegend { z-index: 2; }
+
+/* The zoom buttons take the console's own chrome rather than OpenLayers' blue. */
+.sympreview .ol-zoom { top: auto; left: 14px; bottom: 14px; z-index: 2; }
+.sympreview .ol-zoom button {
+  background: var(--surface); color: var(--ink); border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--rule); font: 600 15px/1 var(--sans); margin: 0 0 2px;
+  width: 26px; height: 26px;
+}
+.sympreview .ol-zoom button:hover { background: var(--surface-2); color: var(--accent); }
+/* The legend keeps the bottom-left corner, so it moves up out of the buttons' way. */
+.symlegend { bottom: 74px; }

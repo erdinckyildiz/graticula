@@ -4852,6 +4852,12 @@ async function loadSymbology(name) {
   if ($("symOverride")) $("symOverride").hidden = true;
   symShowFold("", false);
   symShowInspector("classes");
+
+  // <b>The map first, because the preview asks it for the frame.</b> Built once for the page and
+  // framed on each layer; if OpenLayers does not load, both are no-ops and the picture is drawn
+  // the way it was before there was a map.
+  await symBuildMap();
+  await symFrameMap(name);
   symShowGround("light");
 
   try {
@@ -7534,6 +7540,129 @@ function symPreviewSays() {
 }
 
 /**
+ * The symbology screen's map, once OpenLayers has been loaded for it.
+ *
+ * <b>One map for the page, kept across layers.</b> Rebuilding it per layer would throw away the
+ * view somebody had panned to, which is the whole reason the map is here.
+ */
+let symMap = null;
+
+/** Which draw is current, so a stale answer does not paint over a newer view. */
+let symDrawing = 0;
+
+/** The promise that loads OpenLayers, so it is fetched once. */
+let symOlLoading = null;
+
+/** What the map is showing, or null before it has a size. */
+function symExtent() {
+  if (!symMap) return null;
+
+  const size = symMap.getSize();
+
+  if (!size || !(size[0] > 0) || !(size[1] > 0)) return null;
+
+  return {
+    box: symMap.getView().calculateExtent(size),
+    wide: Math.round(size[0]),
+    tall: Math.round(size[1]),
+  };
+}
+
+/**
+ * Loads OpenLayers once, from this server.
+ *
+ * <b>Ours, not a CDN.</b> The file is already in `wwwroot` because the layer viewer uses it, and
+ * the policy on these pages is `script-src 'self'` with no `'unsafe-inline'` (D-44) — a third
+ * party would be refused by the browser before anybody had to refuse it on judgement.
+ *
+ * @returns {Promise<boolean>} whether the library is available
+ */
+function loadOpenLayers() {
+  if (window.ol) return Promise.resolve(true);
+
+  if (!symOlLoading) {
+    symOlLoading = new Promise(done => {
+      const css = document.createElement("link");
+
+      css.rel = "stylesheet";
+      css.href = "ol.css";
+      document.head.appendChild(css);
+
+      const tag = document.createElement("script");
+
+      tag.src = "ol.js";
+      tag.onload = () => done(true);
+      tag.onerror = () => done(false);
+      document.head.appendChild(tag);
+    });
+  }
+
+  return symOlLoading;
+}
+
+/**
+ * Builds the map under the editor's picture, once.
+ *
+ * <b>A redraw on `moveend`, not during the drag.</b> The reader sees the picture they had while
+ * they pan and the new one about a twentieth of a second after they let go, which is what every
+ * map-image layer does and what the measurement was taken against.
+ *
+ * <b>It fails quietly.</b> If the library does not load, the picture is still drawn — at the
+ * layer's own extent, exactly as it was before there was a map. A screen that loses its editor
+ * because a script did not arrive is worse than one that loses its panning.
+ */
+async function symBuildMap() {
+  const box = $("symMap");
+
+  if (!box || symMap) return;
+
+  if (!await loadOpenLayers()) return;
+
+  // <b>Zoom buttons, which the still picture was right not to have.</b> ADR-034's rule is that
+  // a control is not drawn for a feature that does not exist — and until this was a map, a plus
+  // and a minus could not have changed anything. Now they can, so they are here; the rest of
+  // OpenLayers' default furniture is not, because a rotation control and an attribution the
+  // ground already carries would be three more things over a picture.
+  symMap = new ol.Map({
+    target: box,
+    layers: [new ol.layer.Tile({ source: new ol.source.OSM() })],
+    view: new ol.View({ center: [0, 0], zoom: 2 }),
+    controls: [new ol.control.Zoom()],
+  });
+
+  symMap.on("moveend", () => {
+    if (editing && symModel && $("symDoc")) {
+      drawSymbologyPreview(editing.name, $("symDoc").value);
+    }
+  });
+}
+
+/**
+ * Frames the map on a layer's own extent.
+ *
+ * <b>Only when the layer changes.</b> Refitting after every edit would take the view away from
+ * wherever somebody had panned to, which is the fault this map exists to fix.
+ *
+ * @param {string} name the layer
+ * @returns {Promise<void>} when the view has moved, or immediately when it cannot
+ */
+async function symFrameMap(name) {
+  if (!symMap) return;
+
+  try {
+    const described = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
+    const e = described.extent;
+
+    if (e && Number.isFinite(e.xmin) && e.xmax > e.xmin && e.ymax > e.ymin) {
+      symMap.updateSize();
+      symMap.getView().fit([e.xmin, e.ymin, e.xmax, e.ymax], { padding: [24, 24, 24, 24] });
+    }
+  } catch {
+    // A layer whose document cannot be read still gets a map; it opens where the last one was.
+  }
+}
+
+/**
  * Asks for the picture and shows it, or says why there is none.
  *
  * <b>Two lines, and they answer two questions.</b> The strip beside Store says which of the two
@@ -7551,12 +7680,25 @@ async function drawSymbologyPreview(name, body) {
 
   if (!image) return;
 
+  // <b>One draw at a time, and the last one wins.</b> Panning fires faster than the server
+  // answers, so without this the picture somebody ends on is whichever request happened to
+  // return last — the extent they panned away from, painted over the one they are looking at.
+  const mine = ++symDrawing;
+
   try {
     const headers = { "Content-Type": "application/json" };
     if (token) headers.Authorization = "Bearer " + token;
 
+    // <b>The map's own extent and size, when there is a map.</b> Without them the endpoint
+    // frames itself on the features and answers 336x224 — which is still what the thumbnails
+    // and the content list want, and what this screen falls back to when OpenLayers is not
+    // there.
+    const at = symExtent();
+
+    const where = at ? `?bbox=${at.box.join(",")}&size=${at.wide}x${at.tall}` : "";
+
     const response = await fetch(
-      `/admin/layers/${encodeURIComponent(name)}/symbology/preview`,
+      `/admin/layers/${encodeURIComponent(name)}/symbology/preview${where}`,
       { method: "POST", headers, body });
 
     if (!response.ok) {
@@ -7605,6 +7747,8 @@ async function drawSymbologyPreview(name, body) {
       binary += String.fromCharCode(bytes[i]);
     }
 
+    if (mine !== symDrawing) return;
+
     image.src = "data:image/png;base64," + btoa(binary);
     image.hidden = false;
     none.hidden = true;
@@ -7618,7 +7762,7 @@ async function drawSymbologyPreview(name, body) {
     // at the top of the section; this sentence answers a different question — which of the two
     // appearances the picture beside it is of — and now says only that.
     symSayState();
-    says("preview · rendered by this server");
+    says("rendered by this server");
   } catch (e) {
     image.hidden = true;
     none.hidden = false;
@@ -9233,18 +9377,37 @@ function showLayer(name, page, pending = null) {
             </div>
           </div>
 
+
         <!-- --------------------------------------------------------------- the picture -->
         <!--
           <b>The picture is the column now, not a thumbnail in it.</b> It is what somebody
           choosing a colour is actually choosing, and at 336 pixels wide beside a form it was
           smaller than the swatch grid under it.
         -->
+        <!--
+          <b>A map, not a picture of one.</b> Owner 2026-09-04, pointing at two ArcGIS Online Map
+          Viewer videos: the map should open the way theirs does, and what the symbology controls
+          change should show on it. A still frame could never answer *what does this look like at
+          z14 over Ankara*, which is most of what somebody choosing an appearance wants to know.
+
+          <b>Drawn by this server, which is what keeps ADR-051.</b> That decision refused a
+          browser-drawn preview because it would be a picture of the browser's reading of the
+          style rather than of the renderer that serves the layer. This is the same renderer, the
+          same record ceiling and the same candidate document, asked for the viewport's extent
+          instead of a fixed one — measured before it was built at 78 ms for 256 classes and
+          34-58 ms for everything else. See experiments/symbology-on-the-map.
+
+          <b>Two elements, two jobs.</b> OpenLayers pans and zooms the ground; the image carries
+          what the server drew. Neither pretends to do the other's job, which is the line ADR-051
+          drew.
+        -->
         <div class="sympreview ground-light" id="symPreviewBox">
+          <div id="symMap"></div>
           <img id="symPreview" alt="" hidden>
           <div class="thumb empty" id="symPreviewNone"
             title="Draw something and this shows what it looks like."></div>
 
-          <div class="symcap" id="symPreviewCap">preview · rendered by this server</div>
+          <div class="symcap" id="symPreviewCap">rendered by this server</div>
 
           <!--
             <b>Real, because the picture is transparent.</b> ThumbnailEndpoints.RenderAsync
