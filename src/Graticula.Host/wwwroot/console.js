@@ -7338,11 +7338,14 @@ function editedValues() {
   return values;
 }
 
-/** Says, next to Save, that there is something to save. */
-function markUnsaved(dirty) {
-  const marker = $("editDirty");
-  if (marker) marker.hidden = !dirty;
-}
+/*
+ * <b>There is no `markUnsaved` any more, and no Save, and no *unsaved*.</b> Every setting on a
+ * layer's pages applies through its own control — the cache lifetime has Set, the symbology has
+ * Store, sharing applies when it is chosen — so nothing here was ever unsaved in the sense a
+ * marker means. The `unsaved` map above stays: what it does now is remember a half-typed cache
+ * lifetime while the reader looks at Symbology and comes back, which is a convenience rather
+ * than a promise.
+ */
 
 /**
  * Opens a layer's settings page — or flips between its pages if it is already open.
@@ -7725,7 +7728,7 @@ function showLayer(name, page, pending = null) {
   // A background refresh passes its own snapshot; otherwise anything left unsaved
   // from earlier in this session is the snapshot.
   const restore = pending ?? unsaved.get(name) ?? null;
-  markUnsaved(unsaved.has(name));
+
 
   if (restore) {
     // Put back what was on screen, and do not re-read: the server's answer would
@@ -10238,35 +10241,6 @@ async function handleClick(event) {
   // is the only one that throws the typed values away. The link then navigates.
   if (t.id === "editCancel" && editing) {
     unsaved.delete(editing.name);
-    markUnsaved(false);
-    return;
-  }
-
-  if (t.id === "editSave") {
-    t.disabled = true;
-    // <b>The layer editor's Save has nothing left to save, and that is the point.</b> Capabilities
-    // and limits belong to the service and are saved there; a layer's cache TTL and its style have
-    // their own buttons, and its sharing applies when chosen. Kept as a no-op with a sentence rather
-    // than removed, because a reader who remembers pressing Save here should be told where it went.
-    //
-    // <b>And it clears the marker, which it did not.</b> A Save that saves nothing and then leaves
-    // *unsaved* standing beside itself tells the reader it failed — *"save tıklasam da unsaved
-    // kalıyor"*. Nothing here is unsaved after it, because nothing here was ever saved by it.
-    unsaved.delete(editing?.name);
-    markUnsaved(false);
-
-    // <b>It names the button for the page somebody is on.</b> Sending them to *the service's
-    // page* while they are looking at a Store button two inches below is how one screen came to
-    // have two words for saving.
-    toast(
-      $("page-symbology") && !$("page-symbology").hidden
-        ? "Symbology is kept by its own Store button, below the editor — this Save does not "
-          + "touch it. A layer's other settings apply as you set them."
-        : "A layer's own settings apply as you set them. What a service offers — its "
-          + "capabilities and its limits — is one setting per service, on the service's page.",
-      true);
-
-    t.disabled = false;
     return;
   }
 
@@ -11977,16 +11951,13 @@ function noteEdit(target) {
   // an unsaved edit and marking it as one would promise a Save that does nothing.
   if (target.dataset && target.dataset.share) return;
 
-  // <b>And the symbology page is the same rule, unapplied for a day.</b> Its document is kept by
-  // its own button and by nothing else; every keystroke in it lit the page's *unsaved* marker,
-  // which promises a Save that does nothing — the exact sentence written above about sharing.
-  // The owner pressed Save on a 256-class classification, refreshed, and found it gone:
-  // *"save diyorum, refleshleyince hepsi gidiyor. save ne, store ne?"* Two words for saving, one
-  // of which saves nothing, on one screen.
+  // <b>The symbology page is not remembered here, and it would fight itself if it were.</b> Its
+  // form is drawn from `symModel` every time it is filled, so replaying old input values into it
+  // on a page flip would put a stale value beside a model that disagrees. Its document is kept by
+  // its own Store button, and by nothing else.
   if (target.closest("#page-symbology")) return;
 
   unsaved.set(editing.name, editedValues());
-  markUnsaved(true);
 }
 
 document.addEventListener("keydown", event => {
