@@ -523,6 +523,33 @@ internal static class ErrorResponse
                 + "sends its literals as text, and neither the ArcGIS `where` grammar nor Filter "
                 + "Encoding converts them. The request cannot be answered as written."),
 
+        // <b>The third thing 42883 covers, and it is the caller's too.</b> *function avg(text)
+        // does not exist* is not PostGIS missing — it is a numeric statistic asked for over a
+        // text column, which is exactly what classifying a text field by ranges does. It fell
+        // through to the branch below and told the operator to go and check whether PostGIS was
+        // installed: a frightening, wrong diagnosis of an ordinary mistake, on a database that
+        // is entirely healthy.
+        //
+        // <b>Found by a design review on 2026-09-04, and it is the same shape this file already
+        // repaired once</b> for `operator does not exist` above. Asking *what else carries this?*
+        // when that one was fixed would have found this one three weeks earlier; the two arms now
+        // sit together so the next reader sees both.
+        //
+        // <b>Told apart by the function's name.</b> Every function a missing PostGIS takes with
+        // it is spatial and named for it — `st_`, `_st_`, `postgis_`, `geometry_`, `geography_`.
+        // Anything else undefined at this point is a type the caller asked the database to
+        // compute over.
+        PostgresException { SqlState: "42883" } e when NotSpatial(e.MessageText) is { } function
+            => new(
+                StatusCodes.Status400BadRequest,
+                $"The database has no `{function}` for the types this request asks it to compute "
+                + $"over — it reports: {e.MessageText}. The usual case is a numeric statistic over "
+                + "a text column: `avg`, `stddev` and `percentile_cont` all need a number. The "
+                + "database is healthy; the request cannot be answered as written.",
+                $"This asks for `{function}` over a field whose type it cannot be computed over. "
+                + "A numeric statistic — an average, a standard deviation, a percentile — needs a "
+                + "numeric field."),
+
         PostgresException { SqlState: "42883" } => new(
             StatusCodes.Status500InternalServerError,
             "The database is reachable but does not have a function this server needs. The usual "
@@ -675,6 +702,54 @@ internal static class ErrorResponse
     /// *try again*: none of them clear by themselves, and telling a client to retry a
     /// permanent fault is worse advice than none.
     /// </remarks>
+    /// <summary>
+    /// The name of an undefined function, when it is not one a missing PostGIS would explain.
+    /// </summary>
+    /// <remarks>
+    /// <b>The prefix is the whole test.</b> PostGIS installs its functions under `st_`, `_st_`,
+    /// `postgis_`, `geometry_` and `geography_`; nothing else this server calls is spatial. So an
+    /// undefined `avg` or `percentile_cont` is the caller asking for arithmetic over a type that
+    /// has none, and an undefined `st_intersects` is an installation.
+    /// </remarks>
+    /// <param name="message">The database's own message.</param>
+    /// <returns>The function's name, or null when the message is not about one, or is spatial.</returns>
+    private static string? NotSpatial(string message)
+    {
+        const string opening = "function ";
+
+        if (!message.StartsWith(opening, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        int bracket = message.IndexOf('(', StringComparison.Ordinal);
+
+        if (bracket <= opening.Length)
+        {
+            return null;
+        }
+
+        string name = message[opening.Length..bracket].Trim();
+
+        // A schema-qualified name is the same question about its last part.
+        int dot = name.LastIndexOf('.');
+
+        if (dot >= 0)
+        {
+            name = name[(dot + 1)..];
+        }
+
+        foreach (string spatial in (string[])["st_", "_st_", "postgis_", "geometry_", "geography_"])
+        {
+            if (name.StartsWith(spatial, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return name.Length > 0 && name.Length < 64 ? name : null;
+    }
+
     private const string NeedsAnAdministrator =
         "This layer cannot be served at the moment. Retrying will not help; it needs attention "
         + "from whoever administers this server.";

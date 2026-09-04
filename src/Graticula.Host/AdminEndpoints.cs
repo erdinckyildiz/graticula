@@ -2460,33 +2460,46 @@ internal static class AdminEndpoints
         }
 
         System.Text.Json.Nodes.JsonObject asked;
+        bool numeric = false;
 
-        if (kind.Equals("uniqueValue", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            asked = new System.Text.Json.Nodes.JsonObject
+            if (kind.Equals("uniqueValue", StringComparison.OrdinalIgnoreCase))
             {
-                ["type"] = "uniqueValueDef",
-                ["uniqueValueFields"] = new System.Text.Json.Nodes.JsonArray(field),
-            };
-        }
-        else if (kind.Equals("classBreaks", StringComparison.OrdinalIgnoreCase))
-        {
-            asked = new System.Text.Json.Nodes.JsonObject
+                asked = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["type"] = "uniqueValueDef",
+                    ["uniqueValueFields"] = new System.Text.Json.Nodes.JsonArray(field),
+                };
+            }
+            else if (kind.Equals("classBreaks", StringComparison.OrdinalIgnoreCase))
             {
-                ["type"] = "classBreaksDef",
-                ["classificationField"] = field,
-                ["classificationMethod"] = EsriMethod(context.Request.Query["method"].ToString()),
-                ["breakCount"] = Whole(context.Request.Query["classes"].ToString(), 5),
-                ["classificationIntervalSize"] =
-                    Whole(context.Request.Query["interval"].ToString(), 1),
-            };
+                numeric = true;
+
+                asked = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["type"] = "classBreaksDef",
+                    ["classificationField"] = field,
+                    ["classificationMethod"] =
+                        EsriMethod(context.Request.Query["method"].ToString()),
+                    ["breakCount"] =
+                        Whole(context.Request.Query["classes"].ToString(), 5, "classes"),
+                    ["classificationIntervalSize"] =
+                        Whole(context.Request.Query["interval"].ToString(), 1, "interval"),
+                };
+            }
+            else
+            {
+                await Refuse(
+                    context, 400,
+                    $"`type` of '{kind}' is neither `uniqueValue` nor `classBreaks`.")
+                    .ConfigureAwait(false);
+                return;
+            }
         }
-        else
+        catch (SymbologyException badNumber)
         {
-            await Refuse(
-                context, 400,
-                $"`type` of '{kind}' is neither `uniqueValue` nor `classBreaks`.")
-                .ConfigureAwait(false);
+            await Refuse(context, 400, badNumber.Message).ConfigureAwait(false);
             return;
         }
 
@@ -2499,6 +2512,37 @@ internal static class AdminEndpoints
         (Graticula.Features.IFeatureSource source,
             Graticula.Features.LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        // <b>Checked here, before the database is asked to average a name.</b> Classifying by
+        // ranges runs `avg`, `stddev` and `percentile_cont` over the column; over text those do
+        // not exist, and PostgreSQL says so with a 42883 that this server used to read as *PostGIS
+        // may not be installed*. `ErrorResponse` no longer misdiagnoses it — but a sentence about
+        // an undefined function is still a worse answer than one naming the field and its type,
+        // and a caller reaching this has made a plain mistake with a plain explanation.
+        if (numeric)
+        {
+            Graticula.Features.FieldDescription? column = null;
+
+            foreach (Graticula.Features.FieldDescription one in described.Fields)
+            {
+                if (one.Name.Equals(field, StringComparison.OrdinalIgnoreCase))
+                {
+                    column = one;
+                    break;
+                }
+            }
+
+            if (column is { } found && !Countable(found.Type))
+            {
+                await Refuse(
+                    context, 400,
+                    $"'{field}' holds {found.Type.ToString().ToLowerInvariant()} values, and "
+                    + "classifying by ranges needs a number — the classes are arithmetic on the "
+                    + "column. Classify by the value of the field instead, or pick a numeric one.")
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
 
         try
         {
@@ -2529,6 +2573,22 @@ internal static class AdminEndpoints
         }
     }
 
+    /// <summary>Whether a field's values can be averaged and ordered.</summary>
+    /// <param name="type">The column's type.</param>
+    /// <returns>True when a range classification can be computed over it.</returns>
+    /// <remarks>
+    /// <b>A date is countable and a boolean is not.</b> Dates order and average — a
+    /// classification by decade is a real map — while a column of two values has nothing a
+    /// range means. `Unknown` is left out because it is rendered as text.
+    /// </remarks>
+    private static bool Countable(Graticula.Features.FieldType type) => type is
+        Graticula.Features.FieldType.SmallInteger
+        or Graticula.Features.FieldType.Integer
+        or Graticula.Features.FieldType.BigInteger
+        or Graticula.Features.FieldType.Single
+        or Graticula.Features.FieldType.Double
+        or Graticula.Features.FieldType.Date;
+
     /// <summary>The console's method name, in Esri's spelling.</summary>
     /// <remarks>
     /// <b>Three vocabularies for one list of seven, and this is the second hop.</b> The console
@@ -2548,12 +2608,38 @@ internal static class AdminEndpoints
         _ => "esriClassifyNaturalBreaks",
     };
 
-    /// <summary>A whole number from the query string, or a default.</summary>
-    private static int Whole(string text, int fallback) =>
-        int.TryParse(text, System.Globalization.NumberStyles.Integer,
-            System.Globalization.CultureInfo.InvariantCulture, out int value) && value > 0
-            ? value
-            : fallback;
+    /// <summary>A whole number from the query string, or a default when it was not sent.</summary>
+    /// <remarks>
+    /// <b>Absent takes the default; present and wrong is refused.</b> The first version treated
+    /// any value that did not parse to a positive number as absent, so `classes=0` was quietly
+    /// rewritten to five and reported as success — indistinguishable from having asked for five.
+    /// `classes=99` was refused clearly by the classifier, and `classes=0` was not refused at
+    /// all, which is the worse of the two by a distance: a confident answer built from a number
+    /// nobody chose. Found by a design review on 2026-09-04.
+    /// </remarks>
+    /// <param name="text">What the caller sent, possibly nothing.</param>
+    /// <param name="fallback">What to use when they sent nothing.</param>
+    /// <param name="what">The parameter's name, for the refusal.</param>
+    /// <returns>The number.</returns>
+    /// <exception cref="SymbologyException">It was sent and is not a positive whole number.</exception>
+    private static int Whole(string text, int fallback, string what)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return fallback;
+        }
+
+        if (int.TryParse(text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int value)
+            && value > 0)
+        {
+            return value;
+        }
+
+        throw new SymbologyException(
+            $"`{what}` of '{text}' is not a positive whole number. Leave it out to take the "
+            + $"default of {fallback}.");
+    }
 
     /// <summary>
     /// Draws a layer with a symbology that is not stored, and answers a PNG.

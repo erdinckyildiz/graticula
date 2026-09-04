@@ -388,7 +388,16 @@ public static class GenerateRendererEndpoints
         values.Sort(StringComparer.Ordinal);
 
         JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
-        List<Rgba> ramp = Ramp(asked["colorRamp"], values.Count);
+
+        // <b>A qualitative palette, because these classes have no order.</b> The class-breaks
+        // path uses a light-to-dark sequential ramp and should: its classes ARE ordered, and the
+        // ramp is what says so without a legend. `Block A` and `Block H` are not ordered, and
+        // giving them the same ramp tells a reader that H is more of something than A. Found by
+        // a design review on 2026-09-04, which noted the two paths had been sharing a ramp by
+        // reuse rather than by decision.
+        List<Rgba> ramp = asked["colorRamp"] is JsonObject
+            ? Ramp(asked["colorRamp"], values.Count)
+            : Distinct(values.Count);
 
         JsonArray infos = [];
 
@@ -614,6 +623,38 @@ public static class GenerateRendererEndpoints
 
             return new Rgba(At(0), At(1), At(2), At(3));
         }
+    }
+
+    /// <summary>Colours for classes that have no order.</summary>
+    /// <remarks>
+    /// <b>The seven this project already ships</b> — <c>GeneratedSymbology.Palette</c>, chosen to
+    /// stay apart from each other and to survive the common colour-blindnesses. Past the seventh
+    /// they repeat at three quarters of the lightness, which is the honest thing to do: the
+    /// alternative is either inventing hues that collide or refusing an eighth class.
+    /// </remarks>
+    /// <param name="classes">How many are needed.</param>
+    /// <returns>One colour each.</returns>
+    private static List<Rgba> Distinct(int classes)
+    {
+        List<Rgba> colours = [];
+
+        for (int i = 0; i < classes; i++)
+        {
+            (byte red, byte green, byte blue) =
+                GeneratedSymbology.Bytes(
+                    GeneratedSymbology.Palette[i % GeneratedSymbology.Palette.Length]);
+
+            int round = i / GeneratedSymbology.Palette.Length;
+            double dim = Math.Pow(0.75, round);
+
+            colours.Add(new Rgba(
+                (byte)Math.Round(red * dim),
+                (byte)Math.Round(green * dim),
+                (byte)Math.Round(blue * dim),
+                255));
+        }
+
+        return colours;
     }
 
     /// <summary>What a legend calls one class.</summary>

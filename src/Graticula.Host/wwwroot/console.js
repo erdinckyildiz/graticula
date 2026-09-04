@@ -4881,6 +4881,11 @@ function symFamily(kind) {
   $("symFieldRow").hidden = kind === "simple";
   $("symClassActions").hidden = kind === "simple";
   symShowClassify(kind);
+
+  // <b>Redrawn, because the two families can use different fields.</b> Switching to ranges with
+  // a text field selected would otherwise leave the name of a column the new family cannot
+  // classify sitting in the picker.
+  drawSymbologyFields($("symField").value);
 }
 
 /**
@@ -5696,6 +5701,45 @@ function symNewLayer(kind) {
 }
 
 /** Where a symbol layer keeps the colour this console edits. */
+/**
+ * The layer of a symbol whose colour a reader would call "this class's colour".
+ *
+ * <b>Not layer zero, which is what this used to take.</b> CIM lists symbol layers top first, and
+ * the top of a generated polygon symbol is its outline — one flat grey shared by every class. So
+ * a five-class choropleth with a perfectly good light-to-dark ramp listed five identical grey
+ * swatches, and the row list, which is where somebody reads and edits *what colour is class
+ * three*, said nothing at all. Measured by a design review on 2026-09-04: the picture was a
+ * correct ramp and the list beside it was five of `#6e6e6e`.
+ *
+ * <b>The fill, then the marker, then the widest stroke.</b> That is the order of how much of a
+ * feature each one paints, which is the order of what a reader sees.
+ *
+ * @param {Array} layers the symbol's layers, top first
+ * @returns {object|null} the layer to read and write the class's colour on
+ */
+function symThematicLayer(layers) {
+  const list = layers || [];
+
+  const fill = list.find(l => l.type === "CIMSolidFill");
+
+  if (fill) return fill;
+
+  const marker = list.find(l => l.type === "CIMVectorMarker");
+
+  if (marker) return marker;
+
+  let widest = null;
+
+  for (const one of list) {
+    if (one.type === "CIMSolidStroke"
+      && (!widest || (one.width || 0) > (widest.width || 0))) {
+      widest = one;
+    }
+  }
+
+  return widest || list[0] || null;
+}
+
 function symLayerColour(layer) {
   if (!layer) return null;
 
@@ -5779,16 +5823,57 @@ function fillSymbologyForm(cim, geometry) {
   }
 }
 
-/** The field picker, from the layer's own fields. */
+/**
+ * The field picker, from the layer's own fields, narrowed to the ones the family can use.
+ *
+ * <b>Classifying by ranges over a text column is arithmetic on a name.</b> The picker offered
+ * every field whatever the family, so choosing *by ranges of a number* and then a text field was
+ * one click away — and the answer, before this and its two server-side repairs, was a 500 telling
+ * the operator to go and check whether PostGIS was installed. Narrowing the list removes the
+ * path rather than improving the apology. Found by a design review on 2026-09-04.
+ *
+ * <b>Every field is still offered for the unique-value family</b>, because any column has
+ * distinct values — that is the whole of what it needs.
+ *
+ * @param {string} chosen which field is selected
+ */
 function drawSymbologyFields(chosen) {
   const box = $("symField");
   if (!box) return;
 
-  box.innerHTML = symFields.length === 0
-    ? `<option value="">— this layer's fields could not be read —</option>`
-    : symFields.map(f =>
-        `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
-      .join("");
+  const ranges = $("symKind") && $("symKind").value === "classBreaks";
+  const usable = ranges ? symFields.filter(f => symIsNumeric(f.type)) : symFields;
+
+  if (symFields.length === 0) {
+    box.innerHTML = `<option value="">— this layer's fields could not be read —</option>`;
+
+    return;
+  }
+
+  if (usable.length === 0) {
+    box.innerHTML = `<option value="">— no numeric field to classify by ranges —</option>`;
+
+    return;
+  }
+
+  box.innerHTML = usable.map(f =>
+      `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
+    .join("");
+}
+
+/**
+ * Whether a field's values can be put in ranges.
+ *
+ * <b>The same list the server checks against</b>, in the vocabulary the layer document uses. A
+ * date is included because a classification by decade is a real map; a boolean is not, because a
+ * column of two values has nothing a range means.
+ *
+ * @param {string} type the ArcGIS field type
+ * @returns {boolean} whether a range classification can be computed over it
+ */
+function symIsNumeric(type) {
+  return /^esriFieldType(SmallInteger|Integer|BigInteger|Single|Double|OID|Date)$/
+    .test(type || "");
 }
 
 /**
@@ -5812,7 +5897,7 @@ function drawSymbologyClasses(kind) {
 
   box.innerHTML = classes.map((cls, i) => {
     const layers = symSymbolOf(cls).symbolLayers;
-    const top = symLayerColour(layers[0]);
+    const top = symLayerColour(symThematicLayer(layers));
     // <b>Nothing to choose between when there is one.</b> A `simple` renderer has exactly
     // one row and it was always drawn as selected, which reads as a state somebody set.
     const chosen = classes.length > 1 && i === symClassIndex ? " symchosen" : "";

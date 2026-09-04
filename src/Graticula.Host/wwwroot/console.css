@@ -2219,3 +2219,11 @@ html[data-session="held"] #app { display: block !important; }
 #styleState{margin:0 0 10px}
 #styleAdvanced summary{cursor:pointer;margin-top:10px}
 #styleAdvanced textarea{margin-top:8px}
+
+/* -------------------------------------------- the classify row
+   <b>The button does not wrap.</b> "Read the values" fits on one line and "Read the data" broke
+   across three in the same fixed-width button, so switching the Draw family visibly changed the
+   row's height. Measured by a design review 2026-09-04. */
+#symClassifyRow .tiny{ white-space:nowrap; }
+#symClassCount{ width:5.5em; }
+#symClassifySays{ margin:2px 0 10px; }
