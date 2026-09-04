@@ -73,6 +73,17 @@ public static class GenerateRendererEndpoints
     /// </remarks>
     public const int MostValues = 256;
 
+    /// <summary>How far the distinct read goes, so a refusal can name a number.</summary>
+    /// <remarks>
+    /// <b>Twenty times the ceiling, and the cost is the same shape.</b> `DISTINCT` is computed
+    /// over the whole column before any limit applies, so reading 5,120 values rather than 257
+    /// buys transfer rather than work — and it turns *more than 256* into *1,394*, which is the
+    /// number that tells an operator whether to look for another field or another question.
+    /// Past this it says *more than 5,119*, because at that point the exact figure has stopped
+    /// changing what anybody would do.
+    /// </remarks>
+    public const int Counted = (MostValues * 20) + 1;
+
     /// <summary>Registers the operation under one URL prefix.</summary>
     /// <param name="app">The application.</param>
     /// <param name="prefix">The services prefix this face is mapped under.</param>
@@ -369,10 +380,15 @@ public static class GenerateRendererEndpoints
 
         string field = Column(named[0], described, "uniqueValueFields");
 
-        // <b>One more than the ceiling, so the ceiling can be enforced rather than guessed.</b>
-        // Asking for exactly the limit cannot tell a field with 64 values from one with 6,000.
+        // <b>Well past the ceiling, so the refusal can say how many there are.</b> Reading one
+        // more than the limit is enough to enforce it and produces *more than 256*, which tells
+        // an operator nothing they did not already suspect: whether the field has 300 values or
+        // 300,000 decides whether to look for a different field or a different question. Reading
+        // to `Counted` gives the real number for anything a person would plausibly have meant to
+        // classify, and costs the same shape of query either way -- `DISTINCT` is computed over
+        // the whole column before the limit applies, so the limit buys transfer rather than work.
         FeatureQuery query = new(
-            limit: MostValues + 1,
+            limit: Counted,
             fields: [field],
             includeGeometry: false,
             distinct: true);
@@ -396,13 +412,19 @@ public static class GenerateRendererEndpoints
 
         if (values.Count > MostValues)
         {
+            // <b>Two sentences: what is true, and what to do.</b> The first version of this
+            // explained the 262,144-character document limit and then added a paragraph about
+            // how many colours a reader can tell apart — an essay in front of somebody trying to
+            // get work done, and it never said how many values the field actually has, which is
+            // the one number that decides what they do next.
+            string many = values.Count >= Counted
+                ? $"more than {Counted - 1:N0}"
+                : $"{values.Count:N0}";
+
             throw new SymbologyException(
-                $"'{field}' has more than {MostValues} distinct values, and a renderer with one "
-                + "class each would not fit in a stored symbology document — the limit is "
-                + $"{SymbologyConversion.MaximumCharacters:N0} characters and a class costs "
-                + "several hundred. Classify by a field with fewer values, or by ranges of a "
-                + "number. (Past about a dozen colours nobody can tell the classes apart either, "
-                + "but that is your call and not this server's; the document size is not.)");
+                $"'{field}' has {many} distinct values and a renderer holds {MostValues} — one "
+                + "class each would not fit in a stored document. Colour by a field with fewer "
+                + "values, or by ranges of a number.");
         }
 
         values.Sort(StringComparer.Ordinal);
