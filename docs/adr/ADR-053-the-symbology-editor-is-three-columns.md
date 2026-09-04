@@ -130,9 +130,9 @@ read off `getBoundingClientRect` and `document.scrollHeight` rather than estimat
 ## 5. Decision
 
 **The layer symbology page becomes a three-column editor that fills the window**,
-under a sticky 44-pixel strip carrying the breadcrumb, a layer switcher, the
-service's own item tabs, the state line and the two acts — *Back to generated* and
-**Store**. The columns are Renderer (264 px), the picture (flexible), and an
+under a sticky 44-pixel strip carrying the breadcrumb, the service's own item
+tabs, the state line and the two acts — *Back to generated* and **Store**. (The strip carried a
+layer switcher too until §9a moved it into the rail the same day.) The columns are Renderer (264 px), the picture (flexible), and an
 inspector (336 px) whose three tabs are Classes, Document and ArcGIS. Nothing was
 removed and no id was renamed.
 
@@ -238,6 +238,45 @@ form authors).
   in between.
 - A second screen needs a width floor. One is an exception; two is a layout policy
   and needs deciding as one.
+
+## 9a. Amended the same day, by a revised handoff
+
+The owner revised the bundle a few hours after the first application. Four changes, all of them
+about the same complaint the ADR was written for — the rail was still a wall of controls, and the
+route into it went through a page with nothing on it.
+
+**The layer list moved into the rail, and the segmented switcher in the title strip is gone.**
+Which layer you are editing is the editor's *first question*, not a place — so it belongs in the
+column where the renderer, the symbol sets and everything else about appearance are chosen. Each
+entry carries a geometry swatch, `id · name` and *Authored · n classes* / *Generated · version 0*,
+which is what the removed tab used to say. The strip gave the room back to the breadcrumb.
+
+**The service page's Symbology tab is a link, and its panel is deleted.** It drew one row per
+layer whose only control was an *Edit* link — an indirection with nothing in it, and at four
+layers still a page you pass through rather than work in. The tab opens the editor directly;
+`?tab=symbology` in an address redirects, because that link already exists in the world.
+
+**Two sections of the rail fold shut and summarise themselves.** *Vary with a number* says
+*nothing* or *its colour, by population*; *Symbol sets* says *6 for lines*. They were the two
+blocks a reader has usually not asked for, and a fold that says nothing about itself only moves
+the cost.
+
+**The service-wide style override moved to the foot of the rail**, as three lines of prose and a
+*Write one…* that opens the document. It is a MapLibre document for the whole service — an expert
+control most services do not have — and as a panel with a textarea standing open it outweighed the
+one layer the page is about.
+
+**One departure, and it is a defect the revision created.** The prototype's generated screen covers
+all three columns; ours covers two. Moving the layer list into the rail made the third column the
+only way to the service's other layers, so on a three-layer service whose first layer is unstyled,
+covering it would put the other two behind a sentence that is not about them. What the generated
+screen exists to withhold is *the claim about this layer's appearance* — the picture and the
+inspector. Which layer you are editing is not that claim.
+
+**Also corrected here**, because the revision named it: an Overview row's *Data* button opened
+whichever layer the Data tab chose for itself, so on a four-layer service all four rows opened the
+same table. Each of the three buttons carries its own layer now. A group layer gets a sentence —
+*its children carry the symbology* — rather than three buttons that would fail on press.
 
 ## 10. Dissent
 

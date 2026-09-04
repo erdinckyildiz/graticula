@@ -2829,7 +2829,12 @@ async function showService(qualified) {
   const askedLayer = hashQuery.get("layer");
   const askedMode = hashQuery.get("mode");
 
+  // <b>One `?layer=` and two tabs read it.</b> It was Visualization's alone, so a Data link
+  // carrying a layer arrived at a picker that had already chosen the first one. Both are
+  // consumed on arrival and never again — an address is an instruction on arrival, not a
+  // standing one.
   if (askedLayer !== null) visLayerIndex = askedLayer;
+  if (askedLayer !== null) dataLayerIndex = askedLayer;
   if (askedMode === "tiles" || askedMode === "features") visMode = askedMode;
 
   // <b>The first crumb is the screen this surface came from.</b> It said *Services* on both,
@@ -3151,10 +3156,33 @@ function drawServiceTabs() {
 
   if (!mine.some(([key]) => key === serviceTab)) serviceTab = mine[0]?.[0] ?? "overview";
 
-  strip.innerHTML = mine.map(([key, label]) =>
-    `<a href="#" data-service-tab="${key}"${key === serviceTab ? ' aria-current="page"' : ""}
+  // <b>Symbology is a link out, not a tab of this page.</b> Handoff revision 2026-09-04: the
+  // tab used to open a list whose every row was one *Edit* link — an indirection with nothing in
+  // it, and at four layers still a page you pass through rather than work in. It opens the
+  // editor now, and the layer is chosen there, in the column where everything else about
+  // appearance is chosen.
+  const firstDrawable = serviceLayers.find(
+    l => !(l.type || "").toLowerCase().includes("group"));
+
+  strip.innerHTML = mine.map(([key, label]) => key === "symbology"
+    ? `<a href="#/layer/${encodeURIComponent(firstDrawable ? firstDrawable.name || "" : "")
+        }/symbology" title="Edit how this service is drawn, layer by layer">${label}</a>`
+    : `<a href="#" data-service-tab="${key}"${key === serviceTab ? ' aria-current="page"' : ""}
       >${label}${key === "overview" && serviceLayers.length
         ? ` <span class="count">${num(serviceLayers.length)}</span>` : ""}</a>`).join("");
+
+  // <b>And an address that asks for it goes the same way.</b> `?tab=symbology` is a link people
+  // already have; landing them on a tab that no longer draws anything would be the shape of
+  // defect this console records four times over.
+  if (serviceTab === "symbology") {
+    if (firstDrawable) {
+      location.hash = `#/layer/${encodeURIComponent(firstDrawable.name || "")}/symbology`;
+
+      return;
+    }
+
+    serviceTab = mine[0]?.[0] ?? "overview";
+  }
 
   showServiceTab(serviceTab);
 }
@@ -3167,7 +3195,6 @@ function showServiceTab(which) {
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
                            ["visualization", "serviceVis"],
-                           ["symbology", "serviceSymbology"],
                            ["settings", "serviceSettings"]]) {
     const panel = $(id);
     if (panel) panel.hidden = key !== which;
@@ -3187,7 +3214,6 @@ function showServiceTab(which) {
 
   if (which === "data") drawServiceData();
   if (which === "visualization") drawServiceVis();
-  if (which === "symbology") drawServiceSymbology();
 }
 
 /**
@@ -3212,113 +3238,14 @@ function styleState(stored, note) {
   if (note) line.title = note;
 }
 
-/**
- * Every layer in the service, with how it is drawn and the way to change it.
- *
- * <b>The service is what somebody opens, so this is what they are asking about.</b> Symbology is
- * stored per layer (ADR-052 §3.1) and that is right — but *show me this service's symbology* is
- * the question people arrive with, and answering it with *pick a layer first* is how a screen
- * ends up unfindable.
- *
- * <b>The picture is the server's.</b> Each row draws the layer's own thumbnail through the same
- * renderer that serves it, so the row says what the map says rather than what the document
- * claims.
- */
-async function drawServiceSymbology() {
-  const box = $("serviceSymbologyRows");
-
-  if (!box || !serviceOpen) return;
-
-  // <b>The style override is addressed with the service's name, not a layer's.</b> That was the
-  // defect this control was moved for: it lived on a layer's Caching page and sent the layer's
-  // name to a service endpoint, so it worked only where the two happened to match. It moved
-  // again on 2026-09-04, from the Visualization tab to the foot of this panel — so the stamping
-  // moved with it, because a button addressed by whichever tab was drawn last is the same defect
-  // in a third place.
-  for (const attribute of ["data-style", "data-style-put", "data-style-del"]) {
-    const node = document.querySelector(`#serviceStyle [${attribute}]`);
-
-    if (node) node.setAttribute(attribute, serviceOpen.name);
-  }
-
-  if ($("styleDoc")) $("styleDoc").value = "";
-
-  const drawable = serviceLayers.filter(
-    l => !(l.type || "").toLowerCase().includes("group"));
-
-  if (drawable.length === 0) {
-    box.innerHTML = `<p class="hint">This service has no layer to draw, so it has no
-      symbology.</p>`;
-
-    return;
-  }
-
-  box.innerHTML = drawable.map(l => `<div class="symrow" data-layer="${h(l.name || "")}">
-      <img class="thumb" alt="" loading="lazy" data-thumb="${h(thumbnailFor(
-        `/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
-        + `/FeatureServer/${num(l.id ?? 0)}`))}">
-      <div class="symrowtext">
-        <div class="symrowname">${h(l.name || "")}</div>
-        <div class="rowmeta" data-symsays="${h(l.name || "")}">reading…</div>
-      </div>
-      <!--
-        <b>A verb, because the noun is already the tab's name.</b> This link said "Edit", became
-        "Symbology" on 2026-09-03 so it would say what it opens, and a review on 2026-09-04
-        measured the result: three controls named Symbology on the way to one editor -- the
-        service's tab, this link inside it, and the layer's own tab. The tab names are right for
-        their level and the breadcrumb tells them apart; this one is the step, so it names the
-        step. The title attribute still says whose symbology it is.
-
-        <b>A comment here may not use backticks.</b> It sits inside a template literal, so one
-        ends the string and the file stops parsing -- which is exactly what it did.
-      -->
-      <a class="tiny primarylink"
-        href="#/layer/${encodeURIComponent(l.name || "")}/symbology"
-        title="Edit how ${h(l.name || "this layer")} is drawn">Edit</a>
-    </div>`).join("");
-
-  // <b>Read one at a time rather than all at once.</b> A service with thirty layers would
-  // otherwise open thirty requests in one turn, and the first thing this screen does would be
-  // the heaviest thing the console ever does.
-  for (const l of drawable) {
-    const says = box.querySelector(`[data-symsays="${CSS.escape(l.name || "")}"]`);
-
-    if (!says) continue;
-
-    try {
-      const r = await api(`/admin/layers/${encodeURIComponent(l.name || "")}/symbology`);
-
-      const kind = {
-        CIMSimpleRenderer: "one symbol for every feature",
-        CIMUniqueValueRenderer: "by the value of a field",
-        CIMClassBreaksRenderer: "by ranges of a number",
-        CIMProportionalRenderer: "one symbol, sized in proportion to a number",
-        CIMHeatMapRenderer: "a density surface over the points",
-        CIMDotDensityRenderer: "dots scattered inside each area",
-        CIMChartRenderer: "a pie chart at each feature",
-      }[(r.symbology || {}).type] || "an appearance this console does not name";
-
-      const varies = ((r.symbology || {}).visualVariables || []).length > 0;
-
-      says.textContent = [
-        r.geometry || "",
-        r.stored ? "stored" : "generated",
-        kind,
-        varies ? "varies with a field" : "",
-        (r.losses || []).length > 0
-          ? `${r.losses.length} thing(s) a face cannot carry`
-          : "",
-      ].filter(Boolean).join(" · ");
-
-    } catch (e) {
-      says.textContent = e.message;
-    }
-  }
-
-  // <b>The console's own thumbnail machinery, not a second one.</b> It caches by address, so a
-  // layer already drawn elsewhere on the page costs nothing here.
-  await paintPreviews();
-}
+/*
+  <b>`drawServiceSymbology` is gone, and what it did is in two places now.</b> Handoff revision
+  2026-09-04 removed the service page's Symbology tab: it drew one row per layer whose only
+  control was an *Edit* link, which is an indirection with nothing in it. The list it drew is
+  the symbology editor's own left column (`drawSymStrip` and `fillSymLayerStates`), and the
+  service style override it carried is at the foot of that column with the same ids and the
+  same endpoint. The stamping moved with the control — see `drawSymStrip`.
+*/
 
 /**
  * How many classes a stored renderer holds, whatever family it is.
@@ -3484,8 +3411,21 @@ function drawServiceLayers(layers, qualified) {
           <div class="rowmeta">${h(said)}</div></td>
         <td class="lstate"><span class="rowmeta" data-symstate="${h(layer.name || "")}">${
           group ? "" : "reading…"}</span></td>
-        <td class="acts">${group ? "" : `<a class="tiny" href="#" data-service-tab="data"
-          title="This layer's rows and its fields">Data</a>
+        <!--
+          <b>Each of the three opens with *this* layer, and it took a revision to say so.</b>
+          Handoff 2026-09-04: Data went to the Data tab and let it choose a layer for itself, so
+          on a four-layer service every row's Data button opened the same one. It carries the id
+          now, the way Symbology and Map already did.
+
+          <b>A group holds no geometry</b>, so it has no rows to read, nothing to draw and no
+          symbology of its own. Three disabled buttons would be three controls that fail on
+          press; the sentence says where the answer is instead.
+        -->
+        <td class="acts">${group
+          ? `<span class="rowmeta">its children carry the symbology</span>`
+          : `<a class="tiny" href="#/service/${
+              qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${
+              num(layer.id ?? 0)}" title="This layer's rows and its fields">Data</a>
         <a class="tiny" href="${at}/symbology"
           title="How this layer is drawn">Symbology</a>
         <a class="tiny" href="${h(visHref(layer.name || "") || `${at}`)}"
@@ -3737,10 +3677,19 @@ function drawServiceData() {
 
   const publishable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
 
+  // <b>What the address asked for, if it asked, and the first drawable layer otherwise.</b> An
+  // Overview row's *Data* button carries its own layer; without this the picker chose the first
+  // one and every row on a four-layer service opened the same table.
+  const wanted = dataLayerIndex !== null
+    && publishable.some(l => String(l.id) === String(dataLayerIndex))
+    ? String(dataLayerIndex)
+    : String((publishable[0] || {}).id ?? 0);
+
   picker.innerHTML = publishable.length === 0
     ? `<option value="">this service holds no layers</option>`
     : publishable.map(l =>
-        `<option value="${num(l.id ?? 0)}">${h(l.name || `layer ${l.id}`)}</option>`).join("");
+        `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}>${
+          h(l.name || `layer ${l.id}`)}</option>`).join("");
 
   picker.disabled = publishable.length === 0;
 
@@ -3748,11 +3697,24 @@ function drawServiceData() {
     `<a href="#" data-data-view="${key}"${key === dataView ? ' aria-current="page"' : ""}>${label}</a>`)
     .join("");
 
-  picker.onchange = loadServiceData;
+  picker.onchange = () => {
+    // The reader has chosen, so the address stops choosing.
+    dataLayerIndex = null;
+    loadServiceData();
+  };
 
   if (publishable.length > 0) loadServiceData();
   else $("dataRows").innerHTML = "";
 }
+
+/**
+ * Which layer the Data tab shows, when an address asked for one.
+ *
+ * <b>Consumed on arrival, like `visLayerIndex`.</b> Kept null once the reader has used the
+ * picker, so a redraw does not put the address's choice back over theirs — which is the fault
+ * `?mode=` had on the Visualization tab and the reason that one is documented.
+ */
+let dataLayerIndex = null;
 
 /** Reads whichever of the two views is chosen. */
 async function loadServiceData() {
@@ -4888,6 +4850,7 @@ async function loadSymbology(name) {
   // what has just been read, and every one of them survived a navigation before this.
   symRefuse("");
   if ($("symOverride")) $("symOverride").hidden = true;
+  symShowFold("", false);
   symShowInspector("classes");
   symShowGround("light");
 
@@ -5178,6 +5141,23 @@ function wireSymbologyForm() {
       return;
     }
 
+    // <b>The rail's two folded sections, and the override under them.</b> Handoff revision
+    // 2026-09-04: *Vary with a number* and *Symbol sets* were the two blocks that made a
+    // 264-pixel column read as a wall of controls, and each of them summarises its own state on
+    // its own row — so a reader who has not asked for either can see what they hold without
+    // opening them.
+    //
+    // <b>One at a time, which is the prototype's own rule.</b> Two open at once is the wall
+    // again, in a column that also has to hold the renderer and the layer list.
+    const fold = t.closest(".symfoldhead, #symOverrideHead");
+
+    if (fold) {
+      e.preventDefault();
+      symShowFold(fold.id, fold.getAttribute("aria-expanded") !== "true");
+
+      return;
+    }
+
     // <b>The inspector's tabs.</b> Three panes over one column: the classes, the document Store
     // sends, and the projection an ArcGIS client reads. They were a list, a disclosure triangle
     // and two sections at the bottom of the page.
@@ -5376,6 +5356,11 @@ async function symSettled(what) {
     if (what.classes) drawSymbologyClasses(symKindValue());
     if (what.stack) drawSymbolLayers();
     if (what.vary) drawVarying();
+
+    // <b>Written on every settle, because the fold is usually closed.</b> A summary corrected
+    // only by the function that happens to produce it is the shape D-219 recorded five times on
+    // this very screen.
+    symSaySummaries();
   } finally {
     symFilling = false;
   }
@@ -5750,6 +5735,79 @@ function symSayState() {
   line.title = said;
 }
 
+/**
+ * Opens one of the rail's folded sections and closes the others.
+ *
+ * <b>One at a time, and closed on arrival.</b> The two folds and the service override are the
+ * three things in this column a reader does not need in order to change a colour, so none of
+ * them is open when the editor opens. Opening a second would put the column back where it was.
+ *
+ * @param {string} which the head button's id
+ * @param {boolean} open whether to open it, or close everything
+ */
+function symShowFold(which, open) {
+  const folds = [
+    ["symVaryHead", "symVaryBody"],
+    ["symSetsHead", "symSetsBody"],
+    ["symOverrideHead", "symOverrideBody"],
+  ];
+
+  for (const [head, body] of folds) {
+    const on = open && head === which;
+    const button = $(head);
+    const box = $(body);
+
+    if (button) button.setAttribute("aria-expanded", on ? "true" : "false");
+    if (box) box.hidden = !on;
+
+    const caret = button && button.querySelector(".caret");
+
+    if (caret) caret.innerHTML = on ? "&#9662;" : "&#9656;";
+  }
+}
+
+/**
+ * What each folded section says about itself while it is closed.
+ *
+ * <b>A disclosure owes a summary.</b> A row that says only *Vary with a number* asks the reader
+ * to open it to find out whether anything is varying, which is the cost the fold was meant to
+ * remove. *nothing* in grey and *its colour, by population* in ink answer it from the row.
+ */
+function symSaySummaries() {
+  const vary = $("symVarySays");
+
+  if (vary) {
+    const what = $("symVaryWhat");
+    const chosen = what ? what.value : "";
+    const field = ($("symVaryField") || {}).value || "";
+
+    const said = {
+      colour: "its colour",
+      size: "its width or size",
+      opacity: "how solid it is",
+    }[chosen];
+
+    vary.textContent = said
+      ? (field ? `${said}, by ${field}` : said)
+      : "nothing";
+
+    vary.classList.toggle("quiet", !said);
+  }
+
+  const sets = $("symSetsSays");
+
+  if (sets) {
+    const shape = symKindOfGeometry(symGeometry);
+    const set = SYMBOL_LIBRARY.find(one => one.shape === shape);
+
+    // The word is the geometry's, not the library's internal name: a reader picking a symbol
+    // for a road is choosing between lines, whatever the array is called.
+    const noun = shape === "marker" ? "points" : shape === "line" ? "lines" : "polygons";
+
+    sets.textContent = set ? `${num(set.symbols.length)} for ${noun}` : "";
+  }
+}
+
 /** Which of the inspector's three panes is showing. */
 let symInspector = "classes";
 
@@ -5821,7 +5879,11 @@ function symShowEmpty(on) {
   if (!empty || !cols) return;
 
   empty.hidden = !on;
-  cols.hidden = on;
+
+  // <b>A class on the grid, not a hidden grid.</b> The rail stays: it says which layer is being
+  // edited and what the service's own style is, and neither is a claim about the document this
+  // screen is reporting the absence of.
+  cols.classList.toggle("generated", on);
 
   // <b>The swatch is the colour the sentence beside it is about.</b> It was a hatched
   // rectangle, on a screen whose one claim is that the colour is derived from the layer's
@@ -6918,6 +6980,7 @@ function fillSymbologyForm(cim, geometry) {
     drawSymbolLayers();
     drawSymbolGallery();
     drawVarying();
+    symSaySummaries();
   } finally {
     symFilling = false;
   }
@@ -7235,43 +7298,65 @@ function drawSymStrip(name, at, trail) {
   if (!crumb || !pick || !tabs) return;
 
   const l = layerNamed(name);
+  const section = $("symLayerSection");
 
-  // <b>Only when there is something to switch between.</b> A one-layer service is the case the
-  // owner asked us to stop dressing up as a list; a segmented control of one is that again.
   const siblings = at ? siblingLayers(at) : [];
 
-  pick.hidden = siblings.length < 2;
+  // <b>The crumb says which layer, always.</b> It stopped saying so while a segmented switcher
+  // in this strip said it instead; the switcher has moved into the rail, so the trail is the
+  // only thing left that names the subject. The one exception is a service already called after
+  // its single layer, which is what a one-layer import is called.
+  crumb.innerHTML = at && at.bare === name
+    ? trail.join(" › ")
+    : `${trail.join(" › ")} › <b>${h(name)}</b>`;
 
-  // <b>The trail stops where the switcher starts.</b> With both, the strip printed the layer's
-  // name twice — once as the last crumb and once as the chip beside it — and on a three-layer
-  // service the second copy pushed Store off the right-hand edge. The switcher is the better
-  // of the two: it says which layer *and* offers the others. When there is no switcher the
-  // crumb keeps the name, unless the service is already called that, which is what a one-layer
-  // service made by an import is called.
-  crumb.innerHTML = siblings.length >= 2
-    ? `${trail.join(" › ")} ›`
-    : at && at.bare === name
-      // <b>And no trailing separator with nothing after it.</b> A one-layer service named after
-      // its layer needs neither the repeat nor the arrow that would introduce it.
-      ? trail.join(" › ")
-      : `${trail.join(" › ")} › <b>${h(name)}</b>`;
+  // <b>The list is drawn even for one layer, and that is not the same call as the switcher.</b>
+  // A segmented control of one was a control with nothing to choose; this is a heading that says
+  // *this is the layer you are editing* with its geometry and its state beside it, and a service
+  // of one still has an answer to that. It goes away only when this page cannot tell which
+  // service the layer is in — the case where there is nothing to list from.
+  if (section) section.hidden = siblings.length === 0;
 
-  // <b>The service's own name is not information inside its own switcher.</b> A geodatabase
-  // import names every layer after the service it made — `ci_EarlyAlert_sites`, `_routes`,
-  // `_reports` — so three chips of twenty characters each pushed Store off the right of the
-  // strip. The prefix goes and the full name stays in the title, because a shortened name that
-  // cannot be recovered is a different fault from a long one.
+  // <b>The service's own name is not information inside its own list.</b> A geodatabase import
+  // names every layer after the service it made — `ci_EarlyAlert_sites`, `_routes`, `_reports` —
+  // so a 264-pixel column would carry twenty characters of prefix three times. The prefix goes
+  // and the full name stays in the title, because a shortened name that cannot be recovered is
+  // a different fault from a long one.
   const prefix = at && at.bare ? `${at.bare}_` : "";
 
-  pick.innerHTML = siblings.length < 2 ? "" : siblings.map(one => {
-    const shown = prefix && one.name.startsWith(prefix)
+  pick.innerHTML = siblings.map(one => {
+    const shown = prefix && one.name.startsWith(prefix) && one.name.length > prefix.length
       ? one.name.slice(prefix.length)
       : one.name;
 
-    return `<a href="#/layer/${encodeURIComponent(one.name)}/symbology"${
-      one.name === name ? ' aria-current="page"' : ""} title="${h(one.name)}"
-      >${num(one.id)} · ${h(shown)}</a>`;
+    return `<a class="symlayerpick${one.name === name ? " on" : ""}"
+      href="#/layer/${encodeURIComponent(one.name)}/symbology"${
+      one.name === name ? ' aria-current="page"' : ""} title="${h(one.name)}" role="listitem">
+      <span class="geoswatch" data-picksw="${h(one.name)}"></span>
+      <span class="symlayerpicktext"><span class="symlayerpickname">${num(one.id)} · ${
+        h(shown)}</span><span class="rowmeta" data-pickstate="${h(one.name)}">reading…</span></span>
+    </a>`;
   }).join("");
+
+  // <b>One request a layer, in order</b> — the same rule the item page follows, and the same
+  // reason: a service of thirty layers must not open thirty requests as the first thing this
+  // screen does.
+  fillSymLayerStates(siblings);
+
+  // <b>The service style override is stamped here, because this is where the service is known.</b>
+  // It used to be stamped by the service page's Symbology tab, and that tab is gone: the override
+  // now lives at the foot of this rail. A button addressed by whichever screen was drawn last is
+  // the defect this control has already had twice.
+  if (at && at.bare) {
+    for (const attribute of ["data-style", "data-style-put", "data-style-del"]) {
+      const node = document.querySelector(`#serviceStyle [${attribute}]`);
+
+      if (node) node.setAttribute(attribute, at.bare);
+    }
+  }
+
+  if ($("styleDoc")) $("styleDoc").value = "";
+  if ($("styleState")) $("styleState").innerHTML = "<b>Not fetched yet.</b>";
 
   // <b>Studio's, because the service page's tabs are Studio's.</b> `drawServiceTabs` draws
   // nothing on Server, so linking to them from a Server address would be a row of links to a
@@ -7294,8 +7379,51 @@ function drawSymStrip(name, at, trail) {
 
   // The sharing scope, as the pill every other list draws it. A reader who arrived from a link
   // rather than from a list has no other way to know whether what they are styling is public.
-  if (l.sharing) {
-    crumb.insertAdjacentHTML("beforeend", ` ${pill(l.sharing)}`);
+  const scope = $("symScope");
+
+  if (scope) scope.innerHTML = l.sharing ? pill(l.sharing) : "";
+}
+
+/**
+ * Fills the rail's layer list with each layer's geometry swatch and symbology state.
+ *
+ * <b>A twin of `fillLayerSymbologyStates`, and the duplication is deliberate.</b> That one fills
+ * the item page's table; this one fills a 264-pixel column of cards, and the two write into
+ * different elements with different shapes. What they share — *has anybody styled this, and into
+ * how many classes* — is `classCountOf` and `firstSymbolLayers`, which are the parts worth
+ * having once.
+ *
+ * @param {Array} layers the service's layers, in the order they are listed
+ */
+async function fillSymLayerStates(layers) {
+  for (const one of layers) {
+    const says = document.querySelector(`[data-pickstate="${CSS.escape(one.name)}"]`);
+    const swatch = document.querySelector(`[data-picksw="${CSS.escape(one.name)}"]`);
+
+    if (!says) continue;
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(one.name)}/symbology`);
+      const classes = classCountOf(r.symbology);
+
+      says.textContent = r.stored
+        ? `Authored${classes > 0 ? ` · ${num(classes)} classes` : ""}`
+        : "Generated · version 0";
+
+      says.classList.toggle("authored", !!r.stored);
+
+      if (swatch) {
+        const paint = symLayerColour(symThematicLayer(firstSymbolLayers(r.symbology)));
+
+        swatch.className = `geoswatch ${symSwatchShape(r.geometry || "")}`;
+        swatch.style.setProperty("--sw", symCimHex(paint && paint.color));
+      }
+    } catch {
+      // A layer whose symbology cannot be read is still a layer in this service. Putting the
+      // request's error where a two-word state belongs would make one failed request look like
+      // a broken list.
+      says.textContent = "";
+    }
   }
 }
 
@@ -8812,7 +8940,12 @@ function showLayer(name, page, pending = null) {
       -->
       <div class="symstrip">
         <div class="crumbs" id="symCrumb"></div>
-        <nav class="segmented" id="symLayerPick" aria-label="The layers in this service" hidden></nav>
+        <!--
+          <b>Outside the crumb, because the crumb is the thing that abbreviates.</b> The pill was
+          appended to it, so on a long layer name the ellipsis ate the one fact a reader arriving
+          from a link cannot get anywhere else: whether what they are about to restyle is public.
+        -->
+        <span id="symScope"></span>
         <nav class="segmented tabs" id="symItemTabs" aria-label="This service's pages"></nav>
         <div class="symdo">
           <span class="symstate" id="symPreviewState">The stored appearance.</span>
@@ -8837,32 +8970,28 @@ function showLayer(name, page, pending = null) {
       -->
       <div class="symbanner note" id="symOverride" hidden></div>
 
-      <!--
-        <b>A generated appearance is an answer, so the screen says so instead of opening on a
-        form.</b> §5b makes it a real state with a version of 0. Somebody who has never styled
-        this layer was previously shown a full editor already filled in with a document they did
-        not write, and no way to tell that from one they had.
-      -->
-      <div class="symempty" id="symEmpty" hidden>
-        <div>
-          <span class="sw" id="symEmptySwatch"></span>
-          <b>This layer draws generated</b>
-          <p>Nobody has styled it. The colour is deterministic from the layer's identity, so it
-            is the same tomorrow and on another deployment, and both faces report it as
-            <span class="mono">version 0</span>.</p>
-          <div class="row">
-            <button class="primary" id="symStartGenerated">Start from the generated look</button>
-            <button id="symPasteDoc">Paste a document</button>
-          </div>
-        </div>
-      </div>
-
       <p class="hint" id="symUnauthored" hidden></p>
 
       <div class="symcols" id="symCols">
 
         <!-- ---------------------------------------------------------- the renderer rail -->
         <div class="symrail" id="symForm">
+          <!--
+            <b>Which layer, in the column where everything else about appearance is chosen.</b>
+            Handoff revision 2026-09-04. It was a segmented control in the title strip, which is
+            where a *place* goes — and this is not a place, it is the first choice the editor
+            asks. Each entry carries the geometry as a swatch and whether anybody has styled it,
+            so choosing between three layers does not mean opening three of them.
+
+            <b>And the service page's Symbology tab is gone with it.</b> A list whose every row
+            was one *Edit* link was an indirection with nothing in it; the tab opens this editor
+            directly now and this section is the list.
+          -->
+          <section id="symLayerSection" hidden>
+            <h5>Layer</h5>
+            <div id="symLayerPick" role="list"></div>
+          </section>
+
           <section>
             <h5>Renderer</h5>
 
@@ -8946,8 +9075,21 @@ function showLayer(name, page, pending = null) {
             what ArcGIS calls a style is a renderer plus one of these, and the renderer here
             has drawn them since ADR-041 without any way to ask for one.
           -->
-          <section>
-            <h5>Vary with a number</h5>
+          <!--
+            <b>Closed, and it summarises itself on the right.</b> Handoff revision 2026-09-04:
+            this and the symbol sets are the two blocks that made the column read as a wall of
+            controls, and a reader who has not asked for either should not be paying for them.
+            The summary is what a disclosure owes: *nothing*, or *its width, by length_m* — so
+            the row answers the question without being opened.
+          -->
+          <section class="symfold">
+            <button type="button" class="symfoldhead" id="symVaryHead"
+              aria-expanded="false" aria-controls="symVaryBody">
+              <span class="caret" aria-hidden="true">&#9656;</span>
+              <span>Vary with a number</span>
+              <span class="symfoldsays" id="symVarySays">nothing</span>
+            </button>
+            <div class="symfoldbody" id="symVaryBody" hidden>
             <div class="setting"><label class="q" for="symVaryWhat">Change</label>
               <select id="symVaryWhat">
                 <option value="">nothing — the symbol is the same everywhere</option>
@@ -8995,6 +9137,7 @@ function showLayer(name, page, pending = null) {
 
               <p class="hint" id="symVaryNote"></p>
             </div>
+            </div>
           </section>
 
           <!--
@@ -9003,13 +9146,82 @@ function showLayer(name, page, pending = null) {
             opened that class's stack — so the gallery only existed while you were already
             editing a symbol, which is after the moment you would have wanted it.
           -->
-          <section id="symSets">
-            <h5>Symbol sets</h5>
-            <p class="hint" id="symGalleryNote">For this geometry. Choosing one replaces the
-              selected class's symbol; its colours are edited in the inspector.</p>
-            <div id="symGallery"></div>
+          <section class="symfold" id="symSets">
+            <button type="button" class="symfoldhead" id="symSetsHead"
+              aria-expanded="false" aria-controls="symSetsBody">
+              <span class="caret" aria-hidden="true">&#9656;</span>
+              <span>Symbol sets</span>
+              <span class="symfoldsays" id="symSetsSays"></span>
+            </button>
+            <div class="symfoldbody" id="symSetsBody" hidden>
+              <p class="hint" id="symGalleryNote">For this geometry. Choosing one replaces the
+                selected class's symbol; its colours are edited in the inspector.</p>
+              <div id="symGallery"></div>
+            </div>
+          </section>
+
+          <!--
+            <b>The service's own style, three lines of prose at the bottom of the column.</b>
+            Handoff revision 2026-09-04. It was a panel with a raw textarea standing open under a
+            list of layers, which made an expert control — a MapLibre document for the *whole
+            service* — outweigh the layer whose appearance the page is about. It is a footnote to
+            everything above it, so it is written as one, and the document opens only when
+            somebody asks for it.
+
+            <b>Same ids, same endpoint.</b> The serviceStyle and styleDoc elements moved rather than
+            being rebuilt; what stamps them with the service's name moved too — see
+            drawSymStrip, which is the one place that knows which service this layer is in.
+          -->
+          <section class="symfold symoverride" id="serviceStyle">
+            <b>Service style override</b>
+            <p class="hint" id="styleState"><b>Not fetched yet.</b></p>
+            <p class="hint">The tile face composes a style from every layer's symbology, in layer
+              order. Storing one here replaces that composition for the whole service, which is
+              how layers are reordered or filtered against each other. The ArcGIS feature face is
+              not affected.</p>
+            <button type="button" class="tiny ghost" id="symOverrideHead"
+              aria-expanded="false" aria-controls="symOverrideBody">Write one&hellip;</button>
+            <div class="symfoldbody" id="symOverrideBody" hidden>
+              <div class="row">
+                <button data-style="">Fetch current</button>
+                <button data-style-del="" class="ghost">Back to the composition</button>
+                <button class="primary" data-style-put="">Store</button>
+              </div>
+              <textarea id="styleDoc" rows="8" spellcheck="false"
+                placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
+            </div>
           </section>
         </div>
+
+
+          <!--
+            <b>A generated appearance is an answer, so the columns say so instead of opening on
+            a form.</b> §5b makes it a real state with a version of 0. Somebody who has never
+            styled this layer was previously shown a full editor already filled in with a
+            document they did not write, and no way to tell that from one they had.
+
+            <b>It replaces the picture and the inspector, and not the rail — a departure from
+            the prototype, made because the handoff's revision moved the layer list into the
+            rail.</b> Covering all three columns would hide the way to the service's other
+            layers behind a sentence about this one: on a three-layer service whose first layer
+            is unstyled, the other two would be unreachable without dismissing a screen that is
+            not about them. What the empty screen exists to withhold is the *claim about this
+            layer's appearance*, which is the picture and the inspector. Which layer you are
+            editing, and what the service's own style is, are not that claim.
+          -->
+          <div class="symempty" id="symEmpty" hidden>
+            <div>
+              <span class="sw" id="symEmptySwatch"></span>
+              <b>This layer draws generated</b>
+              <p>Nobody has styled it. The colour is deterministic from the layer's identity, so
+                it is the same tomorrow and on another deployment, and both faces report it as
+                <span class="mono">version 0</span>.</p>
+              <div class="row">
+                <button class="primary" id="symStartGenerated">Start from the generated look</button>
+                <button id="symPasteDoc">Paste a document</button>
+              </div>
+            </div>
+          </div>
 
         <!-- --------------------------------------------------------------- the picture -->
         <!--

@@ -346,6 +346,40 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// Opens one of the rail's folded sections.
+    /// </summary>
+    /// <remarks>
+    /// <b>Closed is the designed state, so a test about what is inside one opens it first.</b>
+    /// Handoff revision 2026-09-04 folded *Vary with a number* and *Symbol sets* shut, because
+    /// they were the two blocks that made a 264-pixel column read as a wall of controls. A
+    /// control inside a closed fold has no `offsetParent` and is not a control that failed to
+    /// render — asserting on it while closed would be a test failing for being right about the
+    /// design.
+    ///
+    /// <b>And the summary is asserted on the way in</b>, because a fold that says nothing about
+    /// itself puts back the cost it was opened to remove.
+    /// </remarks>
+    /// <param name="head">The head button's id.</param>
+    /// <param name="says">The id of the element that summarises it while closed.</param>
+    /// <returns>The task.</returns>
+    private async Task OpenFoldAsync(string head, string says)
+    {
+        string summary = await Browser.EvaluateAsync<string>(
+            $"document.getElementById('{says}')?.textContent || ''") ?? string.Empty;
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(summary),
+            $"The '{head}' fold is closed and says nothing about what it holds, so a reader has "
+            + "to open it to find out whether it is worth opening.");
+
+        await ClickAsync($"#{head}");
+
+        await WaitForAsync(
+            $"document.getElementById('{head}')?.getAttribute('aria-expanded') === 'true'",
+            $"Pressing '{head}' did not open it.");
+    }
+
+    /// <summary>
     /// Chooses a renderer family the way somebody with a mouse does.
     /// </summary>
     /// <remarks>
@@ -881,6 +915,8 @@ public sealed class SymbologyEditorTests : ConsoleTest
             "The Symbology page offers no way to vary a property with a number, so half of what "
             + "ArcGIS calls a style cannot be authored.");
 
+        await OpenFoldAsync("symVaryHead", "symVarySays");
+
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "document.getElementById('symVaryWhat').offsetParent !== null"),
@@ -967,6 +1003,8 @@ public sealed class SymbologyEditorTests : ConsoleTest
         string layer = await ALayerOfAsync(token, "LineString");
 
         await OpenSymbologyAsync(layer, token);
+
+        await OpenFoldAsync("symSetsHead", "symSetsSays");
 
         await WaitForAsync(
             "document.querySelectorAll('#symGallery .symcard').length > 0",

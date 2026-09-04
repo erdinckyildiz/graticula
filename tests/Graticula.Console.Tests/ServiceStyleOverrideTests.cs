@@ -33,33 +33,77 @@ namespace Graticula.Console.Tests;
 /// </remarks>
 public sealed class ServiceStyleOverrideTests : ConsoleTest
 {
+    /// <summary>
+    /// Wherever the service-wide override sits, it is addressed with the service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This asked *is it absent from a layer's pages* and now asks *is it addressed
+    /// right*.</b> The defect was never the location: it was that a control on a layer's Caching
+    /// page sent the **layer's** name to a service endpoint, so it answered 200 for a one-layer
+    /// hosted service — where the two names happen to match — and 404 for every layer in a
+    /// service with more than one. Measured across the fixture at the time: `ci_buildings` 200,
+    /// `ci_EarlyAlert_routes` 404.
+    /// </para>
+    /// <para>
+    /// <b>Handoff revision 2026-09-04 put it back on a layer's page deliberately</b>, at the foot
+    /// of the symbology editor's rail, because it is the exception to everything above it. So the
+    /// absence test would now fail for the design being right, and the address test is the one
+    /// that was load-bearing all along. It is asked of a **multi-layer** service, which is the
+    /// only place the two names differ and therefore the only place the question has an answer.
+    /// </para>
+    /// </remarks>
+    /// <returns>The task.</returns>
     [Fact]
-    public async Task A_layers_own_pages_offer_no_service_wide_control()
+    public async Task The_service_wide_override_is_addressed_with_the_service_not_the_layer()
     {
         (string token, _) = await SignInAsync();
-        string layer = await AnyLayerAsync();
+        string service = await AMultiLayerServiceAsync(token);
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
+        string bare = service.Contains('/', StringComparison.Ordinal)
+            ? service[(service.LastIndexOf('/') + 1)..]
+            : service;
 
-        // <b>Waited on the pages, not on the container.</b> `#editPages` is in `index.html`
-        // and exists before anything is drawn into it, so waiting on the element passes against
-        // an empty editor and every assertion below then asks nothing. Measured: this test went
-        // green with the defect deliberately put back.
+        await OpenAsync(
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
+
         await WaitForAsync(
-            "document.querySelectorAll('#editPages .page').length > 0",
-            "The layer editor never drew its pages.");
+            "typeof symModel !== 'undefined' && symModel !== null",
+            "The symbology editor never filled.");
+
+        // <b>The layer this opened on, so the assertion can say the two are different.</b> A
+        // control addressed with the layer would be indistinguishable from a correct one if they
+        // were the same word.
+        string open = await Browser.EvaluateAsync<string>(
+            "decodeURIComponent((location.hash.split('/')[2] || ''))") ?? string.Empty;
+
+        Assert.NotEqual(bare, open);
 
         string found = await Browser.EvaluateAsync<string>(
-            "(() => {"
-            + " const box = document.querySelector('#editPages [data-style]');"
-            + " if (!box) return '';"
-            + " return box.getAttribute('data-style') || '(empty)'; })()") ?? string.Empty;
+            "document.querySelector('[data-style]')?.getAttribute('data-style') || ''")
+            ?? string.Empty;
 
         Assert.True(
-            found.Length == 0,
-            "A layer's own settings still carry a service-wide style control, addressed with "
-            + $"'{found}'. It answers 404 for every layer whose name differs from its service's, "
-            + "which is every layer in a service with more than one.");
+            found == bare,
+            $"The service-wide style control on '{open}' is addressed with '{found}' rather than "
+            + $"with its service '{bare}'. Addressed with a layer it answers 404 for every layer "
+            + "whose name differs from its service's, which is every layer in a service with "
+            + "more than one — and it looks correct on a one-layer service, where the two words "
+            + "are the same.");
+
+        // <b>And the address answers</b>, because a name can be well formed and wrong.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(async () => {"
+                + " const name = document.querySelector('[data-style]').getAttribute('data-style');"
+                + " const t = sessionStorage.getItem('gis-token');"
+                + " const r = await fetch('/admin/services/' + encodeURIComponent(name) + '/style',"
+                + "   { headers: t ? { Authorization: 'Bearer ' + t } : {} });"
+                + " return r.ok; })()"),
+            $"The override is addressed with a name the server does not know, so Fetch, Store "
+            + "and Back all answer 404.");
+
+        NothingWentWrong(await PageErrorsAsync());
     }
 
     [Fact]
@@ -68,39 +112,45 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string service = await AMultiLayerServiceAsync(token);
 
-        // <b>The Symbology tab, and it was Visualization until 2026-09-04.</b> The handoff moves
-        // the override to the foot of the panel that lists how each layer is drawn, because it
-        // is the exception to every row in it: unless one of these is stored, none of them is
-        // what the tile face draws. An exception belongs under the rule it qualifies.
+        // <b>The foot of the symbology editor's own rail, and it has moved twice.</b> It was on
+        // a layer's Caching page (addressed with the layer's name, which is the defect this file
+        // exists for), then the service's Visualization tab, then that service's Symbology tab —
+        // and the handoff's revision on 2026-09-04 removed the tab altogether. It sits under
+        // everything about one layer's appearance because it is the exception to all of it:
+        // unless this document is stored, none of those layers is what the tile face draws.
         await OpenAsync(
             $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
 
-        // <b>Waited on the page opening, not on the element existing.</b> `#serviceStyle` is
-        // static markup in `index.html`, so it is in the document from the first byte and a wait
-        // on it passes before the service has been read at all. Measured twice today, on two
+        // <b>The tab is a link out now, so the address is a redirect.</b> `?tab=symbology` is a
+        // link people already have; it lands in the editor rather than on a tab that no longer
+        // draws anything.
+        await WaitForAsync(
+            "location.hash.includes('/symbology') && location.hash.startsWith('#/layer/')",
+            "An address asking for the Symbology tab did not reach the editor, so every link "
+            + "anybody already had is now a page that draws nothing.");
+
+        // <b>Waited on the form filling, not on the element existing.</b> `#serviceStyle` is
+        // static markup in the editor's rail, so it is in the document from the first byte and a
+        // wait on it passes before the layer has been read at all. Measured twice on two
         // different screens: the container is never the readiness signal.
         await WaitForAsync(
-            "(() => { const tab = document.getElementById('serviceSymbology');"
-            + " return !!tab && !tab.hidden; })()",
-            "The service's Symbology page never opened, so the style override could not be "
-            + "looked for.");
+            "typeof symModel !== 'undefined' && symModel !== null",
+            "The symbology editor never filled, so the style override could not be looked for.");
 
         await WaitForAsync(
             "document.querySelector('#serviceStyle [data-style]') !== null",
-            "The service's Symbology page offers no style override, so the one cartographic "
+            "The symbology editor's rail offers no style override, so the one cartographic "
             + "thing a per-layer document cannot express has nowhere to be written.");
 
         // <b>On screen, not merely in the document.</b> This console has shipped a control
         // that existed and rendered nowhere three separate times, and moving one between
         // screens is exactly the change that does it: the new home may be inside a section
         // whose tab is never shown.
-        // <b>The textarea is behind a disclosure, so it is opened before it is measured.</b> A
-        // control inside a closed `<details>` has no `offsetParent` and is not a control that
+        // <b>The textarea is behind *Write one…*, so it is opened before it is measured.</b> A
+        // control inside a closed disclosure has no `offsetParent` and is not a control that
         // failed to render; asserting on it while closed would be a test that fails for being
         // right about the design.
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const d = document.getElementById('styleAdvanced');"
-            + " if (d) d.open = true; return true; })()");
+        await ClickAsync("#symOverrideHead");
 
         Assert.True(
             await Browser.EvaluateAsync<bool>(
@@ -223,9 +273,15 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
 
         await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}", token);
 
+        // <b>Waited on the layers, not on the strip.</b> The strip is drawn twice: once while the
+        // service document is in flight, so the page is usable, and again when it lands. The
+        // first draw knows of no layers, and Data, Visualization and Symbology are the three
+        // tabs that need one — so a wait on *any* tab existing passes against a strip that reads
+        // *Overview | Settings* and the assertion below then asks nothing. Caught by this test
+        // failing on the draw it had always been racing.
         await WaitForAsync(
-            "document.querySelectorAll('#serviceTabs a').length > 0",
-            "The service page drew no tabs.");
+            "document.querySelectorAll('#serviceLayerRows tr').length > 0",
+            "The service page never listed its layers, so its tab strip is still the short one.");
 
         // <b>In the tab strip, by name.</b> A panel that exists and is not in the strip is the
         // same as no panel: this whole change is about a screen nobody could find.
@@ -236,39 +292,44 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
                 + ".map(a => a.textContent.trim()).join(' | ')") ?? string.Empty,
             StringComparison.Ordinal);
 
-        await ClickAsync("#serviceTabs a[data-service-tab='symbology']");
+        // <b>The tab opens the editor, and the list it used to open is the editor's own rail.</b>
+        // Handoff revision 2026-09-04: a list whose every row was one *Edit* link is an
+        // indirection with nothing in it, and at four layers it is still a page you pass through
+        // rather than work in.
+        await ClickAsync("#serviceTabs a[title^='Edit how']");
 
         await WaitForAsync(
-            "(() => { const p = document.getElementById('serviceSymbology');"
-            + " return !!p && !p.hidden; })()",
-            "Clicking Symbology opened nothing.");
+            "typeof symModel !== 'undefined' && symModel !== null"
+            + " && location.hash.startsWith('#/layer/')",
+            "Pressing Symbology opened nothing.");
 
         await WaitForAsync(
-            "document.querySelectorAll('#serviceSymbologyRows .symrow').length > 0",
-            "The Symbology tab lists no layers.");
+            "document.querySelectorAll('#symLayerPick .symlayerpick').length > 1",
+            "The editor's rail lists no layers, so a service of several has no way to move "
+            + "between them.");
 
-        // <b>One row per drawable layer, and each says something.</b> Rows that all read
-        // *reading…* would pass a count and tell nobody anything.
+        // <b>Every entry says something.</b> Entries that all read *reading…* would pass a count
+        // and tell nobody anything.
         await WaitForAsync(
-            "[...document.querySelectorAll('#serviceSymbologyRows .rowmeta')]"
+            "[...document.querySelectorAll('#symLayerPick .rowmeta')]"
             + ".every(r => r.textContent.trim() && r.textContent.trim() !== 'reading…')",
-            "A layer's row never said how it is drawn.");
+            "A layer's entry never said how it is drawn.");
 
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "[...document.querySelectorAll('#serviceSymbologyRows .symrow a')]"
+                "[...document.querySelectorAll('#symLayerPick .symlayerpick')]"
                 + ".every(a => a.offsetParent !== null"
                 + " && a.getAttribute('href').includes('/symbology'))"),
-            "A row offers no visible way into the editor.");
+            "An entry offers no visible way into that layer.");
 
-        // <b>And each row opens its own layer.</b> Building every link from the first row is
-        // the easy way to have the right count and the wrong targets.
+        // <b>And each entry opens its own layer.</b> Building every link from the first is the
+        // easy way to have the right count and the wrong targets.
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "(() => { const hrefs = [...document.querySelectorAll("
-                + "  '#serviceSymbologyRows .symrow a')].map(a => a.getAttribute('href'));"
+                + "  '#symLayerPick .symlayerpick')].map(a => a.getAttribute('href'));"
                 + " return new Set(hrefs).size === hrefs.length; })()"),
-            "Two rows open the same layer's symbology.");
+            "Two entries open the same layer's symbology.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
@@ -354,27 +415,33 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
             "A service's layer table offers no way to any layer's symbology. The page can only "
             + "be reached by somebody who already knows it is there.");
 
-        // <b>Visible, and one per layer.</b> A single link at the bottom of the table would
-        // pass a count and answer for the wrong layer.
+        // <b>Visible, and one per layer — counted inside the table.</b> A single link at the
+        // bottom would pass a count and answer for the wrong layer.
+        //
+        // <b>Scoped to `#serviceLayerRows`, because the tab strip carries one too.</b> Handoff
+        // revision 2026-09-04 made the page's *Symbology* tab a link into the editor rather than
+        // a tab over a list; counted across the whole page that is a fourth way on for a
+        // three-layer service, and the count this test is making is about the table's rows.
         int layers = await Browser.EvaluateAsync<int>(
-            "document.querySelectorAll('a[href*=\"#/layer/\"]:not([href*=\"/symbology\"])').length");
+            "document.querySelectorAll("
+            + "  '#serviceLayerRows a[href*=\"#/layer/\"]:not([href*=\"/symbology\"])').length");
 
         int ways = await Browser.EvaluateAsync<int>(
-            "[...document.querySelectorAll('a[href*=\"/symbology\"]')]"
+            "[...document.querySelectorAll('#serviceLayerRows a[href*=\"/symbology\"]')]"
             + ".filter(a => a.offsetParent !== null).length");
 
         Assert.Equal(layers, ways);
 
         // <b>And it goes to that layer.</b> An easy way to have the right count and the wrong
-        // targets is to build every link from the first row.
+        // targets is to build every link from the first row. Scoped to the table for the same
+        // reason as the count above: the tab strip's own Symbology link opens the first layer,
+        // which is a duplicate of row zero and is correct.
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "(() => {"
-                + " const seen = new Set();"
-                + " for (const a of document.querySelectorAll('a[href*=\"/symbology\"]'))"
-                + "   seen.add(a.getAttribute('href'));"
-                + " return seen.size === document.querySelectorAll("
-                + "   'a[href*=\"/symbology\"]').length; })()"),
+                + " const all = [...document.querySelectorAll("
+                + "   '#serviceLayerRows a[href*=\"/symbology\"]')];"
+                + " return new Set(all.map(a => a.getAttribute('href'))).size === all.length; })()"),
             "Two layers share a symbology link, so at least one of them opens somebody else's.");
 
         NothingWentWrong(await PageErrorsAsync());

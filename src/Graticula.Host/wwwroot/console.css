@@ -2805,15 +2805,14 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
    pixels past the right edge with nothing to scroll it back. Store is the only control on this
    screen that cannot be reached another way, so it is the one thing that never shrinks; the
    breadcrumb gives up characters first, then the switcher scrolls. */
-/* <b>The crumb gives up the width and the switcher keeps it.</b> Both were shrinking in
-   proportion, so at 1440 the third layer of a three-layer service was scrolled out of a control
-   whose whole purpose is to show the three. Context can be abbreviated; a control cannot. */
+/* <b>The crumb still abbreviates before the controls do.</b> It shared the strip with a
+   segmented layer switcher until the handoff's revision moved that into the rail; what is left
+   is context, and context is the thing that can be shortened. `flex-basis: 0` keeps it to the
+   room the tabs and the two acts leave over. */
 .symstrip .crumbs {
   min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1 1 auto;
 }
-.symstrip #symLayerPick { flex: 0 0 auto; max-width: 46%; overflow-x: auto; scrollbar-width: none; }
-.symstrip #symLayerPick::-webkit-scrollbar { height: 0; }
 .symstrip .segmented.tabs { flex: none; }
 .symstrip .symdo { flex: none; }
 
@@ -3102,7 +3101,7 @@ tr.rowbad > td { background: var(--alert-soft); }
    more character, because a stroke width is `0.75` and `0.` is not a number. */
 .symstack .setting.symlayer input[type="color"] { width: 26px; height: 22px; padding: 2px; }
 .symstack .setting.symlayer input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-.symstack .setting.symlayer .pair > input { width: 4.4em; }
+.symstack .setting.symlayer .pair > input { width: 4.9em; }
 
 /* <b>The Map shortcut costs 42 pixels the services table did not have, and it still does.</b>
    Measured at 1440: without the shortcut the table is 816 wide in an 816-pixel column beside the
@@ -3115,3 +3114,87 @@ tr.rowbad > td { background: var(--alert-soft); }
 #services .acts .tiny, #services .acts .menu > summary { padding: 3px 7px; }
 #services .acts .tiny + .tiny, #services .acts .tiny + .menu { margin-left: 4px; }
 #services .acts .ico { margin-right: 3px; }
+
+/* ═════════════════════════════════ the rail, handoff revision 2026-09-04
+   Three changes, all of them about the same thing: a 264-pixel column was reading as a wall of
+   controls. Which layer moves into it from the title strip, because it is the editor's first
+   question and not a place; the two blocks a reader has usually not asked for fold shut and say
+   what they hold on their own row; and the service-wide override becomes a footnote at the
+   bottom rather than a panel on a page of its own. */
+
+/* --------------------------------------------------------------- which layer, as cards
+   Each entry carries the geometry as a swatch and whether anybody has styled it, so choosing
+   between three layers does not mean opening three of them. Drawn even at one layer: a heading
+   that says *this is what you are editing* still has an answer there, and a segmented control
+   of one did not. */
+#symLayerPick { display: flex; flex-direction: column; gap: 4px; }
+
+.symlayerpick {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 7px 9px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--surface); color: var(--ink); text-decoration: none;
+}
+.symlayerpick:hover { border-color: var(--rule-strong); text-decoration: none; }
+.symlayerpick.on {
+  border: 2px solid var(--accent); padding: 6px 8px; background: var(--accent-soft);
+}
+.symlayerpick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.symlayerpicktext { min-width: 0; }
+.symlayerpickname {
+  display: block; font-size: var(--t-small);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.symlayerpick.on .symlayerpickname { font-weight: 600; }
+.symlayerpick .rowmeta { display: block; font-size: 12px; color: var(--muted); }
+.symlayerpick .rowmeta.authored { color: var(--accent); font-weight: 600; }
+.symlayerpick .geoswatch { height: 26px; }
+
+/* ------------------------------------------------------------- a fold, and its summary
+   <b>A disclosure owes a summary.</b> A row that says only *Vary with a number* asks the reader
+   to open it to find out whether anything is varying, which is exactly the cost folding was
+   meant to remove. */
+.symfold { display: block; }
+
+.symfoldhead {
+  display: flex; align-items: center; gap: var(--gap-2); width: 100%;
+  padding: 9px 11px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--surface); color: #33404f;
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.symfoldhead:hover { border-color: var(--accent); }
+.symfoldhead .caret { color: var(--faint); flex: none; }
+.symfoldsays {
+  margin-left: auto; font-size: 12px; color: var(--ink); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 55%;
+}
+.symfoldsays.quiet { color: var(--faint); }
+
+.symfoldbody { margin-top: var(--gap-2); }
+.symfoldbody[hidden] { display: none; }
+
+/* ------------------------------------------------- the service's own style, as a footnote
+   It is a MapLibre document for the whole service — an expert control that most services do not
+   have — so it sits under everything about this one layer, at the size a footnote is, and its
+   editor opens only when somebody asks for it. */
+.symoverride {
+  margin-top: auto; padding-top: var(--gap-4);
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px; color: var(--faint); line-height: 1.5;
+}
+.symoverride > b { display: block; color: #33404f; font-size: 13px; margin-bottom: 3px; }
+.symoverride .hint { margin: 0 0 6px; font-size: 12.5px; }
+.symoverride .row { margin: 0 0 var(--gap-2); gap: 6px; flex-wrap: wrap; }
+.symoverride textarea { width: 100%; font: 11.5px/1.5 var(--mono); }
+
+/* The scope pill is its own child of the strip, so the breadcrumb's ellipsis cannot eat it. */
+.symstrip #symScope { flex: none; display: inline-flex; }
+.symstrip #symScope:empty { display: none; }
+
+/* <b>The generated screen covers the picture and the inspector, not the rail.</b> The handoff's
+   revision moved the layer list into the rail, and a screen about *this* layer's absent document
+   must not hide the way to the service's other layers. It takes their two columns and says so
+   across both. */
+.symcols.generated > .sympreview, .symcols.generated > .syminsp { display: none; }
+.symcols.generated > .symempty { grid-column: 2 / -1; }
+.symcols > .symempty { border-left: 1px solid var(--rule); background: var(--paper); }

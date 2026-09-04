@@ -1481,63 +1481,13 @@
 
 
     <!--
-      <b>Symbology is a tab of the service, not a page inside one of its layers.</b> It is
-      stored per layer and always was; what changed on 2026-09-03 is that the question *how is
-      this service drawn* has somewhere to be asked. Each row is a layer, its picture drawn by
-      the renderer that serves it, and one link to the editor.
+      <b>Symbology has no panel on this page, and that is the decision rather than an
+      omission.</b> Handoff revision 2026-09-04. The tab used to reveal a list whose every row
+      was a layer and one *Edit* link — an indirection with nothing in it, and at four layers
+      still a page you pass through rather than work in. The tab is a link to the editor now
+      (see `drawServiceTabs`), the layer is chosen in the editor's own left column, and the
+      service-wide style override moved to the foot of that column with its ids intact.
     -->
-    <div id="serviceSymbology" hidden>
-      <div class="panel">
-        <h4>How this service is drawn</h4>
-        <p class="hint">
-          Each layer carries its own symbology and the tile face composes a style from them in
-          layer order. A service-wide override sits below.
-        </p>
-        <div id="serviceSymbologyRows"></div>
-
-        <!--
-          <b>A footer of this panel, and it was a panel on the Visualization tab.</b> Handoff
-          2026-09-04. It is the exception to every row above it — *unless one of these is stored,
-          in which case none of them is what the tile face draws* — and an exception belongs
-          under the rule it qualifies, not on a different tab. It moved here from a layer's
-          Caching page on 2026-09-03 for the same kind of reason: it is a service-wide override
-          (ADR-033 §5d), so it lives beside the service-wide question.
-        -->
-        <div class="styleoverride" id="serviceStyle">
-          <div class="styleoverridehead">
-            <div>
-              <b>Style override</b>
-              <p class="hint" id="styleState"><b>Not fetched yet.</b></p>
-            </div>
-            <div class="row">
-              <button data-style="">Fetch current</button>
-              <button data-style-del="" class="ghost">Back to the composition</button>
-              <button class="primary" data-style-put="">Store</button>
-            </div>
-          </div>
-
-          <p class="hint">
-            The tile face composes a style from each layer's own symbology, in layer order.
-            Storing a document here replaces that composition for the whole service — which is
-            how layers are reordered or filtered against each other. The ArcGIS feature face is
-            not affected: it reads each layer's symbology either way.
-          </p>
-
-          <!--
-            <b>Behind a disclosure, like the per-layer editor's used to be.</b> A raw style
-            document is an expert control on a screen otherwise made of pictures. The layer
-            editor took its own document out from behind one because that document is the thing
-            Store sends and everything above writes into it; this one is neither — it is a
-            second, rarer document that most services do not have.
-          -->
-          <details id="styleAdvanced">
-            <summary>The document itself</summary>
-            <textarea id="styleDoc" rows="10" spellcheck="false"
-              placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
-          </details>
-        </div>
-      </div>
-    </div>
 
     <div id="serviceSettings" hidden>
 
