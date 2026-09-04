@@ -427,6 +427,99 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// One opacity reaches every class, and setting it twice leaves it where it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>*alpha da bir şeye yaramıyor gibi* — the opacity doesn't seem to do anything.</b> It
+    /// did: it set the opacity of the one class that happened to be selected, out of eighty-one,
+    /// on a row that was not among the ten on screen. Every control on this page acted on
+    /// exactly one class, and the work somebody classifying a map by province is doing is
+    /// almost never about one province.
+    /// </para>
+    /// <para>
+    /// <b>It sets rather than scales, and the test says so.</b> A control that multiplied each
+    /// class's alpha by a fraction would keep the relative differences somebody had chosen, and
+    /// would not be idempotent: 50 % twice leaves 25 %, so the number in the box would have no
+    /// stable meaning. Pressing Set twice here has to leave the document exactly as one press
+    /// left it, and that is asserted rather than described.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task One_opacity_reaches_every_class_and_pressing_it_twice_changes_nothing()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        // <b>Waited on the model, not on the element.</b> `#symKind` is in the static markup, so
+        // it exists before the layer's document has been fetched — and the change handler returns
+        // early while the form is still filling, so a click here does nothing and the failure
+        // arrives several assertions later wearing somebody else's name.
+        await WaitForAsync(
+            "typeof symModel !== 'undefined' && symModel !== null",
+            "The symbology form never filled.");
+
+        // <b>Three classes, so *every class* is a claim with something to prove.</b>
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const k = document.getElementById('symKind');"
+            + " k.value = 'uniqueValue';"
+            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "document.getElementById('symAddClass')?.offsetParent != null",
+            "A classified renderer offers no way to add a class.");
+
+        await ClickAsync("#symAddClass");
+        await ClickAsync("#symAddClass");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#symClasses .symclass').length === 3",
+            "Adding classes did not add rows.");
+
+        await WaitForAsync(
+            "document.getElementById('symAllRow')?.offsetParent != null",
+            "The control that acts on every class is not on the screen, which is the whole of "
+            + "the fault it exists to fix.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const a = document.getElementById('symAllAlpha');"
+            + " a.value = '37.5'; return true; })()");
+
+        await ClickAsync("#symAllAlphaApply");
+
+        // <b>Every colour in the document, not the first one found.</b>
+        await WaitForAsync(
+            "(() => { const d = JSON.parse(document.getElementById('symDoc').value);"
+            + " const all = [];"
+            + " const walk = o => {"
+            + "   if (!o || typeof o !== 'object') return;"
+            + "   if (o.type === 'CIMRGBColor' && Array.isArray(o.values)) all.push(o.values[3]);"
+            + "   Object.values(o).forEach(walk); };"
+            + " walk(d);"
+            + " return all.length >= 3 && all.every(v => v === 37.5); })()",
+            "Some class kept its own opacity, so the control acts on a selection rather than on "
+            + "every class.");
+
+        string once = await Browser.EvaluateAsync<string>(
+            "document.getElementById('symDoc').value") ?? "";
+
+        await ClickAsync("#symAllAlphaApply");
+
+        await WaitForAsync(
+            "document.getElementById('symAllSays').textContent.length > 0",
+            "The second press said nothing, so it may not have run at all.");
+
+        string twice = await Browser.EvaluateAsync<string>(
+            "document.getElementById('symDoc').value") ?? "";
+
+        Assert.Equal(once, twice);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The class list and one class's symbol are never both on the screen.
     /// </summary>
     /// <remarks>
@@ -459,8 +552,12 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
 
+        // <b>Waited on the model, not on the element.</b> `#symKind` is in the static markup, so
+        // it exists before the layer's document has been fetched — and the change handler returns
+        // early while the form is still filling, so a click here does nothing and the failure
+        // arrives several assertions later wearing somebody else's name.
         await WaitForAsync(
-            "document.getElementById('symKind') !== null",
+            "typeof symModel !== 'undefined' && symModel !== null",
             "The symbology form never filled.");
 
         // <b>A simple renderer shows both, because its list is one colour and there is nowhere

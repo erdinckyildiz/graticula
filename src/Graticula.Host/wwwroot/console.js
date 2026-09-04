@@ -4751,6 +4751,12 @@ function wireSymbologyForm() {
       return;
     }
 
+    if (t.id === "symAllAlphaApply") {
+      await symAlphaForAll();
+
+      return;
+    }
+
     if (t.classList.contains("symopen")) {
       symClassIndex = Number(t.dataset.class);
       symShowDetail(true);
@@ -5239,6 +5245,7 @@ function symShowDetail(detail) {
   for (const [id, on] of [
     ["symClasses", simple || !symInDetail],
     ["symClassActions", !simple && !symInDetail],
+    ["symAllRow", !simple && !symInDetail && symClasses().length > 1],
     ["symDetail", simple || symInDetail],
     ["symDetailHead", symInDetail],
   ]) {
@@ -5252,6 +5259,59 @@ function symShowDetail(detail) {
       ? symClassLabel(symClasses()[symClassIndex], symClassIndex)
       : "";
   }
+}
+
+/**
+ * Sets every class's every painted layer to one opacity.
+ *
+ * <b>It sets rather than scales, and that is the decision.</b> A control that multiplied each
+ * class's own alpha by a fraction would read as *fade the whole layer* and keep the relative
+ * differences somebody had chosen — but it is not idempotent: applying 50 % twice leaves 25 %,
+ * so the number in the box has no stable meaning and the only way back is to remember how many
+ * times it was pressed. Setting is repeatable, reversible by setting it again, and says exactly
+ * what it did.
+ *
+ * <b>Every painted layer of every class</b>, because a symbol is a stack: a fill under a stroke
+ * where only the fill faded would change the drawing rather than fade it.
+ *
+ * @returns {Promise<void>} when the document and the picture have caught up
+ */
+async function symAlphaForAll() {
+  const box = $("symAllAlpha");
+  const says = $("symAllSays");
+
+  if (!box || !symModel) return;
+
+  const typed = String(box.value).trim();
+
+  if (typed === "" || !Number.isFinite(Number(typed))) {
+    if (says) says.textContent = "Type an opacity first.";
+
+    return;
+  }
+
+  const alpha = symPercent(typed, 100);
+  let touched = 0;
+
+  for (const cls of symClasses()) {
+    for (const layer of symSymbolOf(cls).symbolLayers || []) {
+      const paint = symLayerColour(layer);
+
+      if (paint && paint.color) {
+        paint.color = symCimColour(symCimHex(paint.color), null, alpha);
+        touched += 1;
+      }
+    }
+  }
+
+  if (says) {
+    says.textContent = touched === 0
+      ? "Nothing here is painted with a colour."
+      : `${num(touched)} symbol layer${touched === 1 ? "" : "s"} across `
+        + `${num(symClasses().length)} class${symClasses().length === 1 ? "" : "es"}.`;
+  }
+
+  await symSettled({ classes: true, stack: true });
 }
 
 /** Whether the symbol editor is standing in for the class list. */
@@ -6316,6 +6376,12 @@ function drawSymbologyClasses(kind) {
     .filter(({ cls }) => wanted.length === 0 || symClassText(cls).includes(wanted));
 
   symShowFilter(classes.length, shown.length);
+
+  // <b>The view is re-applied here rather than having a second writer.</b> Two of these controls
+  // appear only when there is more than one class, and adding or removing one changes that
+  // without changing the view — so the counts are re-read where the rows are drawn, by the one
+  // function that owns which of them are on the screen.
+  symShowDetail(symInDetail);
 
   if (shown.length === 0) {
     box.innerHTML = `<p class="hint">No class matches <b>${h(wanted)}</b>.</p>`;
@@ -7856,6 +7922,24 @@ function showLayer(name, page, pending = null) {
               one ends the string -- which is exactly what happened, for the second time.
             -->
             <span class="rowmeta" id="symShowing"></span>
+          </div>
+
+          <!--
+            <b>The controls that act on every class, because most of the work is every class.</b>
+            Nobody hand-edits eighty-one provinces one at a time; they take the machine's split
+            and adjust the whole of it, then tune a handful. Every control on this page before
+            today acted on exactly one class, which is why the owner set an opacity and reported
+            that opacity does nothing — it did, to one province out of eighty-one, on a row that
+            was not among the ten on screen. ADR-052 §3.20.
+          -->
+          <div class="setting wide" id="symAllRow" hidden>
+            <label class="q" for="symAllAlpha">All classes:</label>
+            <span class="pair"><input type="number" id="symAllAlpha" min="0" max="100" step="0.1"
+              placeholder="opacity"
+              title="Set every class's opacity to this, replacing whatever each one has"
+              aria-label="Opacity for every class, per cent"><span class="u">%</span></span>
+            <button class="tiny" id="symAllAlphaApply">Set</button>
+            <span class="rowmeta" id="symAllSays"></span>
           </div>
 
           <div id="symClasses"></div>

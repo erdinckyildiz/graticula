@@ -830,6 +830,31 @@ edits one class of eighty-one, which is what *"alpha da bir şeye yaramıyor gib
 compatibility view and the raw document are still rendered at full height on every visit. The
 class list is still in the order the classifier produced.
 
+### 3.20 One opacity for every class, and why it sets rather than scales — 2026-09-04
+
+*"alpha da bir şeye yaramıyor gibi"* — the opacity doesn't seem to do anything. It did: it set
+the opacity of whichever class was selected, one of eighty-one, on a row that was not among the
+ten on screen. Every control on this page acted on exactly one class, and somebody classifying a
+map by province is almost never working on one province.
+
+**All classes: [ ] % [Set]**, above the list, whenever there is more than one class. It writes
+every painted layer of every class, because a symbol is a stack and a fill faded under an
+unfaded stroke is a different drawing rather than a faded one, and it says how many layers
+across how many classes it touched.
+
+**It sets rather than scales, and that is the decision rather than the detail.** The design
+review that proposed this control proposed a multiply — each class's own alpha times a fraction,
+so that relative differences somebody had chosen would survive. That is the better *idea* and an
+unusable *control*: it is not idempotent, so 50 % twice leaves 25 %, the number in the box has no
+stable meaning, and the only way back is to remember how many times it was pressed. Setting is
+repeatable, undone by setting it again, and describable in one sentence. Somebody who has
+deliberately given their classes different opacities does not use a control labelled *all
+classes*.
+
+The test asserts idempotence directly — press Set twice, and the document must be byte for byte
+what one press left — because that is the property the choice was made for, and a scaling
+implementation passes every other assertion in the test.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather
