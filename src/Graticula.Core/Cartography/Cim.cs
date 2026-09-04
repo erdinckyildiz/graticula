@@ -91,7 +91,12 @@ public static class Cim
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
                 + $"`{UniqueValue}` and `{ClassBreaks}`. A renderer it cannot read is refused "
                 + "rather than stored, because a stored document nothing can draw is a layer "
-                + "that looks styled and is not."),
+                + "that looks styled and is not. The other six the specification defines are "
+                + "`CIMChartRenderer`, `CIMDictionaryRenderer`, `CIMDotDensityRenderer`, "
+                + "`CIMHeatMapRenderer`, `CIMProportionalRenderer` and "
+                + "`CIMRepresentationRenderer`; each needs a drawing primitive this server "
+                + "does not have, except the proportional one, which is a size visual "
+                + "variable on a simple renderer and can be written as that."),
         };
     }
 

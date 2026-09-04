@@ -67,7 +67,9 @@ public static class CimEsri
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server converts. ADR-033 §5e accepts `simple`, "
                 + "`uniqueValue` and `classBreaks`, and nothing beyond them: a renderer stored "
-                + "but not drawn is a layer that looks styled and is not."),
+                + "but not drawn is a layer that looks styled and is not. The four a web map "
+                + "may also carry are `heatmap`, `dotDensity`, `pieChart` and `dictionary`, and "
+                + "each is refused for the same reason."),
         };
 
         // <b>Layer transparency folded into the colours, once.</b> An Esri `drawingInfo`
