@@ -382,11 +382,26 @@ public static class Cim
             .Select(f => f!)
             .ToList();
 
+        // <b>`valueExpressionInfo` when `fields` is empty, which is how Pro writes it now.</b>
+        // [D-206](../../../docs/architecture-debt.md): the specification's modern spelling for
+        // *which field* is an Arcade expression, and a renderer that uses it carries no `fields`
+        // at all. Requiring `fields` refused those documents outright -- louder than the same
+        // fault one level down in visual variables ([D-203](../../../docs/architecture-debt.md)),
+        // and wrong in the same way.
+        //
+        // <b>Tried second, not first.</b> `fields` is checked with `Text`, which accepts a
+        // column name with a space in it; `Field` applies `Plain`, which does not. Reaching for
+        // `Field` first would newly refuse names this server has always read.
+        if (fields.Count == 0 && Field(body) is { Length: > 0 } expressed)
+        {
+            fields.Add(expressed);
+        }
+
         if (fields.Count == 0)
         {
             throw new SymbologyException(
-                $"A `{UniqueValue}` names no field in `fields`, so there is nothing to classify "
-                + "by.");
+                $"A `{UniqueValue}` names no field in `fields`, and none this server can read in "
+                + "`valueExpressionInfo`, so there is nothing to classify by.");
         }
 
         if (fields.Count > 1)
@@ -456,10 +471,22 @@ public static class Cim
     /// <returns>The projection.</returns>
     private static CimProjection ProjectClassBreaks(JsonObject body, List<string> notDrawn)
     {
-        if (Text(body["field"]) is not { Length: > 0 } field)
+        // <b>`field`, then `valueExpressionInfo` — D-206, and the order is the point.</b> See
+        // the unique-value reader above: the plain property is read with `Text` and admits a
+        // column name `Plain` would reject, so the Arcade spelling is the fallback rather than
+        // the preference.
+        string? field = Text(body["field"]);
+
+        if (field is not { Length: > 0 })
+        {
+            field = Field(body);
+        }
+
+        if (field is not { Length: > 0 })
         {
             throw new SymbologyException(
-                $"A `{ClassBreaks}` names no `field`, so there is nothing to classify by.");
+                $"A `{ClassBreaks}` names no `field`, and none this server can read in "
+                + "`valueExpressionInfo`, so there is nothing to classify by.");
         }
 
         List<CimClass> classes = [];
