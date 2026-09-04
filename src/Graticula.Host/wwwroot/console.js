@@ -4695,6 +4695,13 @@ function wireSymbologyForm() {
       return;
     }
 
+    if (t.id === "symClassify") {
+      e.preventDefault();
+      await symClassify();
+
+      return;
+    }
+
     if (t.id === "symAddClass") {
       e.preventDefault();
       symAddClass();
@@ -4873,6 +4880,98 @@ function symFamily(kind) {
 
   $("symFieldRow").hidden = kind === "simple";
   $("symClassActions").hidden = kind === "simple";
+  symShowClassify(kind);
+}
+
+/**
+ * Shows the classifier for the two families that classify, and only the parts each uses.
+ *
+ * <b>A unique-value renderer has nothing to choose.</b> Its classes are the field's distinct
+ * values -- there is no method and no count, so offering either would be offering a control that
+ * changes nothing. ADR-034's rule, applied inside one row rather than to the row.
+ *
+ * @param {string} kind the renderer family
+ */
+function symShowClassify(kind) {
+  const row = $("symClassifyRow");
+
+  if (!row) return;
+
+  row.hidden = kind === "simple";
+  $("symMethod").hidden = kind !== "classBreaks";
+  $("symClassCount").hidden = kind !== "classBreaks";
+  $("symClassify").textContent = kind === "uniqueValue"
+    ? "Read the values"
+    : "Read the data";
+}
+
+/**
+ * Asks the server what this field's classes are, and fills the form with the answer.
+ *
+ * <b>A GET, and it stores nothing.</b> The answer goes into the form and the document box; the
+ * operator still presses Store, which is the same rule every other control on this page follows.
+ * It also means the console's test harness -- which traps every write -- can exercise this the
+ * way a person does.
+ *
+ * <b>The server does the arithmetic, not this file.</b> `/admin/layers/{name}/classify` is one
+ * door onto the classifier that `generateRenderer` is the other door onto (ADR-052 §3.13). Seven
+ * classification methods in JavaScript would be a second implementation of Fisher's algorithm
+ * that nothing compares against the first.
+ */
+async function symClassify() {
+  const says = $("symClassifySays");
+  const button = $("symClassify");
+  const kind = $("symKind").value;
+  const field = $("symField").value;
+
+  if (!editing || kind === "simple") return;
+
+  if (!field) {
+    says.hidden = false;
+    says.textContent = "Pick a field first — the classes are of something.";
+
+    return;
+  }
+
+  const asked = new URLSearchParams({
+    type: kind,
+    field,
+    method: $("symMethod").value,
+    classes: $("symClassCount").value || "5",
+  });
+
+  button.disabled = true;
+  says.hidden = false;
+  says.textContent = "Reading the field…";
+
+  try {
+    const r = await api(
+      `/admin/layers/${encodeURIComponent(editing.name)}/classify?${asked}`);
+
+    // <b>The harness answers every trapped write with `{}`, and a GET is not trapped —</b>
+    // but a proxy in front of this console might answer with something else entirely, and
+    // filling the form from a document that is not one would empty it silently.
+    if (!r || !r.symbology || !r.symbology.type) {
+      says.textContent = "The server answered without a renderer, so nothing was changed.";
+
+      return;
+    }
+
+    fillSymbologyForm(r.symbology, symGeometry);
+    await symSettled({ classes: true, stack: true, vary: true });
+
+    const made = symClasses().length;
+
+    says.textContent = `${num(made)} class${made === 1 ? "" : "es"} from ${h(field)}. `
+      + `Nothing is stored yet — press Store to keep them.`
+      + ((r.losses || []).length > 0 ? ` ${r.losses.length} thing(s) could not be carried.` : "");
+  } catch (err) {
+    // The server's own sentence. It says which field, which method and what the data could not
+    // carry, and every one of those is more useful than "could not classify".
+    says.textContent = err.message || String(err);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 /** Another class, built from the one that is selected so its symbol carries over. */
@@ -5664,6 +5763,7 @@ function fillSymbologyForm(cim, geometry) {
     $("symKind").value = kind;
     $("symFieldRow").hidden = kind === "simple";
     $("symClassActions").hidden = kind === "simple";
+    symShowClassify(kind);
 
     symClassIndex = Math.min(symClassIndex, Math.max(symClasses().length - 1, 0));
 
@@ -7103,6 +7203,31 @@ function showLayer(name, page, pending = null) {
           <div class="setting wide" id="symFieldRow" hidden>
             <label class="q" for="symField">Field:</label>
             <select id="symField"></select></div>
+
+          <!--
+            <b>The step the editor was missing - ADR-052 §3.12.</b> A unique-value renderer is
+            the list of a field's distinct values and a class-breaks renderer is a set of bounds
+            computed from its distribution. This form knew how to draw a class and not how to
+            find one: it made one class whose value was the empty string, or one bound of zero
+            and an "Add a class" button that added one to it. The values were always a query
+            away and nothing asked.
+          -->
+          <div class="setting wide" id="symClassifyRow" hidden>
+            <label class="q" for="symMethod">Classify:</label>
+            <select id="symMethod">
+              <option value="NaturalBreaks">natural breaks</option>
+              <option value="EqualInterval">equal intervals</option>
+              <option value="Quantile">equal counts</option>
+              <option value="GeometricalInterval">geometric intervals</option>
+              <option value="StandardDeviation">standard deviations</option>
+              <option value="DefinedInterval">a fixed interval</option>
+            </select>
+            <input id="symClassCount" type="number" min="1" max="32" value="5"
+              title="How many classes" aria-label="How many classes">
+            <button class="tiny primary" id="symClassify">Read the data</button>
+          </div>
+
+          <p class="hint" id="symClassifySays" hidden></p>
 
           <div id="symClasses"></div>
 

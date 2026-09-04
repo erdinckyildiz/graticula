@@ -110,54 +110,14 @@ public static class GenerateRendererEndpoints
         (IFeatureSource source, LayerDescription described) = await contexts
             .GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        // <b>The connection lease first, then the provider inside it.</b> A source arrives
-        // wrapped in `BudgetedFeatureSource` -- ADR-007 §4.8's connection cap -- and the
-        // statistics this operation runs are the provider's own methods rather than
-        // `IFeatureSource`'s, so it has to be unwrapped. Taking the lease before unwrapping is
-        // what keeps this operation inside the bound: a classification is three aggregates and a
-        // sort over a whole column, which is not a cheap statement to issue outside the cap.
-        BudgetedFeatureSource? budgeted = source as BudgetedFeatureSource;
-
-        using ConnectionBudget.Lease lease = budgeted is not null
-            ? await budgeted.LeaseAsync(cancellation).ConfigureAwait(false)
-            : default;
-
-        if (budgeted is not null)
-        {
-            source = budgeted.Inner;
-        }
-
-        if (source is not PostGisFeatureSource postgis)
-        {
-            await RefuseAsync(
-                context,
-                "This layer is not served from PostGIS, and generating a renderer needs the "
-                + "statistics only that provider computes.")
-                .ConfigureAwait(false);
-
-            return;
-        }
-
         try
         {
             JsonObject asked = JsonNode.Parse(definition) as JsonObject
                 ?? throw new SymbologyException("`classificationDef` is not a JSON object.");
 
-            JsonObject renderer = Text(asked["type"]) switch
-            {
-                "classBreaksDef" => await BreaksAsync(
-                    asked, postgis, described, layer, cancellation).ConfigureAwait(false),
-
-                "uniqueValueDef" => await ValuesAsync(
-                    asked, postgis, described, layer, cancellation).ConfigureAwait(false),
-
-                string other => throw new SymbologyException(
-                    $"`classificationDef.type` of '{other}' is neither `classBreaksDef` nor "
-                    + "`uniqueValueDef`."),
-
-                _ => throw new SymbologyException(
-                    "`classificationDef` needs a `type` of `classBreaksDef` or `uniqueValueDef`."),
-            };
+            JsonObject renderer = await BuildAsync(
+                asked, source, described, layer.GeometryType, cancellation)
+                .ConfigureAwait(false);
 
             await Results.Content(renderer.ToJsonString(), "application/json")
                 .ExecuteAsync(context).ConfigureAwait(false);
@@ -171,6 +131,70 @@ public static class GenerateRendererEndpoints
             await RefuseAsync(context, $"`classificationDef` is not valid JSON: {broken.Message}")
                 .ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Builds a renderer from a classification definition and the layer's own data.
+    /// </summary>
+    /// <remarks>
+    /// <b>Shared, because the console asks the same question through a different door.</b> The
+    /// REST operation is what an ArcGIS client calls; the console reaches
+    /// <c>/admin/layers/{name}/classify</c>, which resolves a layer by name and wants the answer
+    /// as CIM rather than as a <c>drawingInfo</c>. Two doors, one implementation — a second copy
+    /// of this arithmetic is how the two faces start disagreeing about what a quantile is.
+    /// </remarks>
+    /// <param name="asked">The classification definition.</param>
+    /// <param name="source">The layer's source, still wrapped in whatever wraps it.</param>
+    /// <param name="described">Its fields, for checking the one being classified.</param>
+    /// <param name="geometry">What it is made of, for the default symbol.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>An Esri renderer.</returns>
+    /// <exception cref="SymbologyException">The request or the data cannot carry it.</exception>
+    internal static async Task<JsonObject> BuildAsync(
+        JsonObject asked,
+        IFeatureSource source,
+        LayerDescription described,
+        GeometryKind geometry,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(asked);
+
+        // <b>The connection lease first, then the provider inside it.</b> A source arrives
+        // wrapped in `BudgetedFeatureSource` -- ADR-007 §4.8's connection cap -- and the
+        // statistics below are the provider's own methods rather than `IFeatureSource`'s, so it
+        // has to be unwrapped. Taking the lease before unwrapping is what keeps this inside the
+        // bound: a classification is three aggregates and a sort over a whole column, which is
+        // not a cheap statement to issue outside the cap.
+        BudgetedFeatureSource? budgeted = source as BudgetedFeatureSource;
+
+        using ConnectionBudget.Lease lease = budgeted is not null
+            ? await budgeted.LeaseAsync(cancellation).ConfigureAwait(false)
+            : default;
+
+        IFeatureSource inner = budgeted?.Inner ?? source;
+
+        if (inner is not PostGisFeatureSource postgis)
+        {
+            throw new SymbologyException(
+                "This layer is not served from PostGIS, and generating a renderer needs the "
+                + "statistics only that provider computes.");
+        }
+
+        return Text(asked["type"]) switch
+        {
+            "classBreaksDef" => await BreaksAsync(
+                asked, postgis, described, geometry, cancellation).ConfigureAwait(false),
+
+            "uniqueValueDef" => await ValuesAsync(
+                asked, postgis, described, geometry, cancellation).ConfigureAwait(false),
+
+            string other => throw new SymbologyException(
+                $"`classificationDef.type` of '{other}' is neither `classBreaksDef` nor "
+                + "`uniqueValueDef`."),
+
+            _ => throw new SymbologyException(
+                "`classificationDef` needs a `type` of `classBreaksDef` or `uniqueValueDef`."),
+        };
     }
 
     /// <summary>Reads the definition from wherever the caller put it.</summary>
@@ -222,7 +246,7 @@ public static class GenerateRendererEndpoints
         JsonObject asked,
         PostGisFeatureSource source,
         LayerDescription described,
-        PublishedLayer layer,
+        GeometryKind geometry,
         CancellationToken cancellation)
     {
         string field = Column(asked["classificationField"], described, "classificationField");
@@ -270,7 +294,7 @@ public static class GenerateRendererEndpoints
         IReadOnlyList<double> bounds = Classification.Bounds(
             method, classes, distribution, interval);
 
-        JsonObject baseSymbol = Symbol(asked["baseSymbol"], layer);
+        JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
         List<Rgba> ramp = Ramp(asked["colorRamp"], bounds.Count);
 
         JsonArray infos = [];
@@ -305,7 +329,7 @@ public static class GenerateRendererEndpoints
         JsonObject asked,
         PostGisFeatureSource source,
         LayerDescription described,
-        PublishedLayer layer,
+        GeometryKind geometry,
         CancellationToken cancellation)
     {
         JsonArray named = asked["uniqueValueFields"] as JsonArray
@@ -363,7 +387,7 @@ public static class GenerateRendererEndpoints
 
         values.Sort(StringComparer.Ordinal);
 
-        JsonObject baseSymbol = Symbol(asked["baseSymbol"], layer);
+        JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
         List<Rgba> ramp = Ramp(asked["colorRamp"], values.Count);
 
         JsonArray infos = [];
@@ -459,7 +483,7 @@ public static class GenerateRendererEndpoints
     }
 
     /// <summary>The symbol every class is a recoloured copy of.</summary>
-    private static JsonObject Symbol(JsonNode? given, PublishedLayer layer)
+    private static JsonObject Symbol(JsonNode? given, GeometryKind geometry)
     {
         if (given is JsonObject supplied)
         {
@@ -469,7 +493,7 @@ public static class GenerateRendererEndpoints
         // <b>A default per geometry, because a renderer with no symbol draws nothing.</b> Esri
         // makes `baseSymbol` optional and every client that omits it expects something sensible
         // rather than an error.
-        return layer.GeometryType switch
+        return geometry switch
         {
             GeometryKind.Point or GeometryKind.MultiPoint => new JsonObject
             {
@@ -615,8 +639,32 @@ public static class GenerateRendererEndpoints
     private static string? Text(JsonNode? node) =>
         node is JsonValue value && value.TryGetValue(out string? text) ? text : null;
 
-    private static double? Number(JsonNode? node) =>
-        node is JsonValue value && value.TryGetValue(out double number) ? number : null;
+    /// <summary>A number from a node, whatever kind of number it was written as.</summary>
+    /// <remarks>
+    /// <b>`TryGetValue&lt;double&gt;` refuses a `JsonValue` created from an `int`, and this
+    /// project has now been caught by that twice.</b> The first time it silently produced the
+    /// wrong stop in a style; here it silently ignored `breakCount` and every classification came
+    /// back with the default five classes -- a plausible answer to a question nobody asked.
+    /// Going through the element's own kind reads both.
+    /// </remarks>
+    /// <param name="node">The node.</param>
+    /// <returns>The number, or null when it is not one.</returns>
+    private static double? Number(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+        {
+            return null;
+        }
+
+        if (value.TryGetValue(out double number))
+        {
+            return number;
+        }
+
+        return value.TryGetValue(out int whole) ? whole
+            : value.TryGetValue(out long big) ? big
+            : null;
+    }
 
     private static Task RefuseAsync(HttpContext context, string why) =>
         Results.Json(

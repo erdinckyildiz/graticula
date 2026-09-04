@@ -545,6 +545,13 @@ internal static class AdminEndpoints
         // same record ceiling the thumbnail uses — a preview drawn by a second path
         // would be a picture of the second path.
         app.MapPost("/admin/layers/{name}/symbology/preview", PreviewSymbologyAsync);
+
+        // <b>ADR-052 §3.13, the console's door onto the same classifier.</b> The ArcGIS
+        // operation lives at `/rest/.../generateRenderer` and answers with a `drawingInfo`,
+        // which is the face a client wants; the editor holds CIM, and asking it to convert
+        // would put a second reading of Esri's vocabulary in JavaScript. One implementation,
+        // two doors, and this one hands back exactly what the form fills itself from.
+        app.MapGet("/admin/layers/{name}/classify", ClassifyAsync);
     }
 
     /// <summary>
@@ -2403,6 +2410,150 @@ internal static class AdminEndpoints
             return null;
         }
     }
+
+    /// <summary>
+    /// Builds a classified renderer from a field and a method, as CIM.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-052](../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md)
+    /// §3.13.</b> The editor knew how to draw a class and not how to find one. Choosing *by the
+    /// value of a field* made one class whose value was the empty string; choosing *by ranges of
+    /// a number* made one bound of zero and an <i>Add a class</i> button that added one to it.
+    /// The values were always a query away and nothing asked.
+    /// </para>
+    /// <para>
+    /// <b>A GET, deliberately.</b> It computes and stores nothing — the answer goes into the
+    /// form, and the operator still presses <i>Store</i>. That also means the console's test
+    /// harness, which traps every write, can exercise this the way a person does.
+    /// </para>
+    /// </remarks>
+    private static async Task ClassifyAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+            is not { } symbolised)
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        string field = context.Request.Query["field"].ToString();
+        string kind = context.Request.Query["type"].ToString();
+
+        if (string.IsNullOrWhiteSpace(field))
+        {
+            await Refuse(context, 400, "`field` is required: it is what the classes are of.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        System.Text.Json.Nodes.JsonObject asked;
+
+        if (kind.Equals("uniqueValue", StringComparison.OrdinalIgnoreCase))
+        {
+            asked = new System.Text.Json.Nodes.JsonObject
+            {
+                ["type"] = "uniqueValueDef",
+                ["uniqueValueFields"] = new System.Text.Json.Nodes.JsonArray(field),
+            };
+        }
+        else if (kind.Equals("classBreaks", StringComparison.OrdinalIgnoreCase))
+        {
+            asked = new System.Text.Json.Nodes.JsonObject
+            {
+                ["type"] = "classBreaksDef",
+                ["classificationField"] = field,
+                ["classificationMethod"] = EsriMethod(context.Request.Query["method"].ToString()),
+                ["breakCount"] = Whole(context.Request.Query["classes"].ToString(), 5),
+                ["classificationIntervalSize"] =
+                    Whole(context.Request.Query["interval"].ToString(), 1),
+            };
+        }
+        else
+        {
+            await Refuse(
+                context, 400,
+                $"`type` of '{kind}' is neither `uniqueValue` nor `classBreaks`.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            return;
+        }
+
+        (Graticula.Features.IFeatureSource source,
+            Graticula.Features.LayerDescription described) =
+            await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        try
+        {
+            System.Text.Json.Nodes.JsonObject renderer = await GenerateRendererEndpoints
+                .BuildAsync(asked, source, described, symbolised.Geometry, cancellation)
+                .ConfigureAwait(false);
+
+            // <b>Through the same conversion a paste takes.</b> The builder answers in Esri's
+            // vocabulary because that is what the REST operation must return; the editor holds
+            // CIM. Converting here rather than in the browser means one reading of `drawingInfo`
+            // rather than two that can drift.
+            CimWrite written = CimEsri.FromDrawingInfo(
+                new System.Text.Json.Nodes.JsonObject { ["renderer"] = renderer },
+                symbolised.Geometry);
+
+            await Results.Json(new
+            {
+                name = symbolised.Name,
+                field,
+                symbology = System.Text.Json.JsonSerializer.Deserialize<
+                    System.Text.Json.JsonElement>(written.Renderer.ToJsonString()),
+                losses = written.Losses,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+        }
+        catch (SymbologyException why)
+        {
+            await Refuse(context, 400, why.Message).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The console's method name, in Esri's spelling.</summary>
+    /// <remarks>
+    /// <b>Three vocabularies for one list of seven, and this is the second hop.</b> The console
+    /// sends CIM's spelling because that is what the stored document will say; the REST operation
+    /// takes Esri's. Mapping here rather than in the browser keeps the console ignorant of a
+    /// vocabulary it has no other reason to know.
+    /// </remarks>
+    /// <param name="cim">What the console asked for.</param>
+    /// <returns>The Esri name.</returns>
+    private static string EsriMethod(string cim) => cim switch
+    {
+        "EqualInterval" => "esriClassifyEqualInterval",
+        "DefinedInterval" => "esriClassifyDefinedInterval",
+        "GeometricalInterval" => "esriClassifyGeometricalInterval",
+        "StandardDeviation" => "esriClassifyStandardDeviation",
+        "Quantile" => "esriClassifyQuantile",
+        _ => "esriClassifyNaturalBreaks",
+    };
+
+    /// <summary>A whole number from the query string, or a default.</summary>
+    private static int Whole(string text, int fallback) =>
+        int.TryParse(text, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out int value) && value > 0
+            ? value
+            : fallback;
 
     /// <summary>
     /// Draws a layer with a symbology that is not stored, and answers a PNG.
