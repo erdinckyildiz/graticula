@@ -4717,7 +4717,10 @@ function wireSymbologyForm() {
       one.setAttribute("aria-current", mine ? "true" : "false");
     }
 
-    drawSymbolLayers();
+    // <b>No panel is redrawn here any more.</b> There used to be a symbol editor below the list
+    // that had to follow the selection; the editor now replaces the list instead, so focusing a
+    // row marks it and nothing else — and `Symbol ›` names the class it opens, so the mark is a
+    // convenience rather than the thing that decides what gets edited.
   });
 
   document.addEventListener("click", async e => {
@@ -4744,6 +4747,27 @@ function wireSymbologyForm() {
     if (t.id === "symClassify") {
       e.preventDefault();
       await symClassify();
+
+      return;
+    }
+
+    if (t.classList.contains("symopen")) {
+      symClassIndex = Number(t.dataset.class);
+      symShowDetail(true);
+      drawSymbolLayers();
+      drawSymbolGallery();
+
+      return;
+    }
+
+    if (t.id === "symBackToClasses") {
+      symShowDetail(false);
+
+      // <b>Back to the row that was open, not to the top.</b> Somebody who edited the two
+      // hundredth class and came back to a list scrolled to the first has lost their place, and
+      // the list is bounded to ten rows, so there is a great deal of place to lose.
+      symScrollToChoice = true;
+      drawSymbologyClasses($("symKind").value);
 
       return;
     }
@@ -4953,8 +4977,13 @@ function symFamily(kind) {
   symClassIndex = 0;
 
   $("symFieldRow").hidden = kind === "simple";
-  $("symClassActions").hidden = kind === "simple";
   symShowClassify(kind);
+
+  // <b>Changing the family goes back to the list.</b> The class being edited belonged to the
+  // renderer that has just been replaced, so staying in its symbol would leave the editor open
+  // on whatever now sits at that index — a different class wearing the same number. This also
+  // owns `symClassActions`, which two other places used to set for themselves.
+  symShowDetail(false);
 
   // <b>Redrawn, because the two families can use different fields.</b> Switching to ranges with
   // a text field selected would otherwise leave the name of a column the new family cannot
@@ -5145,30 +5174,13 @@ function symShowFilter(total, showing) {
   // <b>Exactly when the list stops fitting.</b> Ten rows are shown, so eleven is the first
   // count at which something is out of sight — and the moment somebody needs a way to reach it
   // that is not scrolling. Twelve was an invented threshold and did not line up with anything.
-  row.hidden = total <= 10;
-
-  const hiddenChoice = total !== showing
-    && symClasses().length > symClassIndex
-    && !symClassMatches(symClasses()[symClassIndex]);
+  // <b>And not at all while one class's symbol stands in for the list.</b> A search box over a
+  // list that is not on the screen is a control for something that is not there (ADR-034).
+  row.hidden = symInDetail || total <= 10;
 
   count.textContent = total === showing
     ? `${num(total)} classes`
-    // <b>And whether the one being edited is among them.</b> The panel below goes on editing the
-    // selected class while the filter hides it, correctly — but a reader who filters, forgets,
-    // and glances up sees nothing highlighted and no reason why.
-    : `${num(showing)} of ${num(total)}${hiddenChoice ? " — the one you are editing is not" : ""}`;
-}
-
-/**
- * Whether a class survives the filter as it stands.
- *
- * @param {object} cls the class
- * @returns {boolean} whether the filter shows it
- */
-function symClassMatches(cls) {
-  const wanted = ((($("symFilter") || {}).value) || "").trim().toLowerCase();
-
-  return wanted.length === 0 || symClassText(cls).includes(wanted);
+    : `${num(showing)} of ${num(total)}`;
 }
 
 /** Another class, built from the one that is selected so its symbol carries over. */
@@ -5204,6 +5216,67 @@ function symAddClass() {
 
 /** Whether the next draw should bring the selected class into view. */
 let symScrollToChoice = false;
+
+/**
+ * Shows either the class list or one class's symbol, never both — except when there is no list.
+ *
+ * <b>A simple renderer has no list to stand in for.</b> Its one row is not a list, it is the
+ * colour of the layer, and it lives in the same container the class rows live in — so hiding
+ * that container to show the symbol editor takes the colour control off the screen while
+ * leaving it in the document. That shipped for one test run and was caught by the assertion
+ * this console keeps for exactly this shape: *the controls are in the document and none of them
+ * is on screen*, which has now caught it four times.
+ *
+ * @param {boolean} detail true to show one class's symbol instead of the list
+ */
+function symShowDetail(detail) {
+  const simple = !symModel || symModel.type === "CIMSimpleRenderer";
+
+  // A simple renderer shows both, because its "list" is one colour and there is nowhere to go
+  // back to. A classified one shows one or the other.
+  symInDetail = !simple && detail;
+
+  for (const [id, on] of [
+    ["symClasses", simple || !symInDetail],
+    ["symClassActions", !simple && !symInDetail],
+    ["symDetail", simple || symInDetail],
+    ["symDetailHead", symInDetail],
+  ]) {
+    if ($(id)) $(id).hidden = !on;
+  }
+
+  const which = $("symDetailWhich");
+
+  if (which) {
+    which.textContent = symInDetail
+      ? symClassLabel(symClasses()[symClassIndex], symClassIndex)
+      : "";
+  }
+}
+
+/** Whether the symbol editor is standing in for the class list. */
+let symInDetail = false;
+
+/**
+ * What to call a class on screen.
+ *
+ * <b>Its label, then its value, then its number.</b> A generated classification labels every
+ * class with its own value, so the first is usually enough; a hand-built one may have neither,
+ * and *class 7* is still better than an empty heading.
+ *
+ * @param {object} cls the class
+ * @param {number} at its index
+ * @returns {string} a name for it
+ */
+function symClassLabel(cls, at) {
+  if (!cls) return `class ${at + 1}`;
+
+  const value = (((cls.values || [])[0] || {}).fieldValues || [])[0];
+
+  return cls.label || value || (cls.upperBound !== undefined
+    ? `up to ${cls.upperBound}`
+    : `class ${at + 1}`);
+}
 
 /** Removes a class, refusing to leave a renderer with none. */
 function symRemoveClass(at) {
@@ -6102,7 +6175,6 @@ function fillSymbologyForm(cim, geometry) {
 
     $("symKind").value = kind;
     $("symFieldRow").hidden = kind === "simple";
-    $("symClassActions").hidden = kind === "simple";
     symShowClassify(kind);
 
     symClassIndex = Math.min(symClassIndex, Math.max(symClasses().length - 1, 0));
@@ -6111,6 +6183,12 @@ function fillSymbologyForm(cim, geometry) {
       (symModel.fields && symModel.fields[0]) || symModel.field || "");
 
     drawExtraFields(symModel.fields || []);
+
+    // <b>A document that has just been loaded or typed is shown as its list of classes.</b>
+    // Staying in one class's symbol across a change of document would leave the editor open on
+    // whatever now happens to be at that index, which is a different class wearing the same
+    // number.
+    symShowDetail(false);
 
     drawSymbologyClasses(kind);
     drawSymbolLayers();
@@ -6282,7 +6360,10 @@ function drawSymbologyClasses(kind) {
       <input type="text" class="symlabel" data-class="${i}"
         placeholder="label" value="${h(cls.label || "")}">
       <input type="color" class="symfill" data-class="${i}"
-        value="${h(symCimHex(top && top.color))}">
+        value="${h(symCimHex(top && top.color))}"
+        title="The colour this class is drawn in">
+      <button class="tiny ghost symopen" data-class="${i}"
+        title="Edit this class's symbol: its layers, its opacity, its width">Symbol ›</button>
       <button class="tiny ghost symdrop" data-class="${i}" title="Remove this class">×</button>
     </div>`;
   }).join("");
@@ -6324,14 +6405,10 @@ function drawSymbolLayers() {
     return;
   }
 
+  // <b>The heading no longer names the class.</b> It had to, when a permanently rendered panel
+  // could be looking at a row scrolled out of sight; now the panel replaces the list, so what it
+  // edits is said once, at the top of the view, beside the way back.
   const layers = symSymbolOf(cls).symbolLayers;
-  const head = $("symStackHead");
-
-  if (head) {
-    head.textContent = symClasses().length > 1
-      ? `Symbol layers — ${cls.label || "class " + (symClassIndex + 1)}`
-      : "Symbol layers";
-  }
 
   if (layers.length === 0) {
     box.innerHTML = `<p class="hint">This symbol has no layers, so it draws nothing.
@@ -7849,20 +7926,41 @@ function showLayer(name, page, pending = null) {
             <p class="hint" id="symVaryNote"></p>
           </div>
 
-          <h4>Symbol sets</h4>
-          <p class="hint" id="symGalleryNote">
-            Ready-made symbols for this geometry. Choosing one replaces the selected class's
-            symbol; its colours are edited in the rows below.
-          </p>
-          <div id="symGallery"></div>
+          <!--
+            <b>One thing on the screen at a time, and it used to be both.</b> A class list of 256
+            rows sat above a permanently rendered symbol editor, and the editor named which class
+            it was editing in its own heading — *Symbol layers — Ankara* — because there was
+            nothing else that could say so. With the list bounded to ten visible rows, Ankara was
+            usually not among them, and a design review reproduced the obvious consequence: a
+            panel titled after a row nobody can see, editing something nobody chose to edit.
 
-          <h4 id="symStackHead">Symbol layers</h4>
-          <p class="hint" id="symStackNote">The first row is drawn on top.</p>
-          <div id="symStack"></div>
-          <div class="row" id="symStackActions">
-            <button class="tiny" data-add-layer="CIMSolidFill">Fill</button>
-            <button class="tiny" data-add-layer="CIMSolidStroke">Stroke</button>
-            <button class="tiny" data-add-layer="CIMVectorMarker">Marker</button>
+            <b>The fix is that the two are never both there.</b> Editing a class replaces the
+            list with that class's symbol; going back replaces it again. A panel that only exists
+            while its own row is the subject cannot name the wrong row, and the page stops being
+            two screens tall. The owner's words are the requirement: *ya ben bu ekranı cidden
+            anlayamıyorum. çok karmaşık.*
+          -->
+          <div id="symDetail" hidden>
+            <div class="row" id="symDetailHead">
+              <button class="tiny ghost" id="symBackToClasses">‹ All classes</button>
+              <b id="symDetailWhich"></b>
+            </div>
+
+            <h4>Ready-made symbols</h4>
+            <p class="hint" id="symGalleryNote">
+              For this geometry. Choosing one replaces this class's symbol; its colours are
+              edited in the rows below.
+            </p>
+            <div id="symGallery"></div>
+
+            <h4 id="symStackHead">Symbol layers</h4>
+            <p class="hint" id="symStackNote">The first row is drawn on top.</p>
+            <div id="symStack"></div>
+            <div class="row" id="symStackActions">
+              <button class="tiny" data-add-layer="CIMSolidFill">Fill</button>
+              <button class="tiny" data-add-layer="CIMSolidStroke">Stroke</button>
+              <button class="tiny" data-add-layer="CIMVectorMarker">Marker</button>
+            </div>
           </div>
         </div>
       </div>

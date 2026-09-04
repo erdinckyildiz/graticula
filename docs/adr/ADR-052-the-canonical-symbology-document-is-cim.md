@@ -789,6 +789,47 @@ alternative — rounding the display and keeping the stored value — is the tra
 keeps paying for, where what is on the screen and what is in the column are not the same thing
 and only one of them is edited.
 
+### 3.19 The class list and the symbol editor are one view, not two — 2026-09-04
+
+The owner looked at this screen and said *"ya ben bu ekranı cidden anlayamıyorum. çok
+karmaşık"* — I genuinely cannot understand this screen, it is too complicated. That is a
+requirement, and this section is the first structural answer to it.
+
+**The shape of the fault.** A class list bounded to ten visible rows, against a classification
+that may hold 256, sat above a permanently rendered symbol editor. Because both were on the page
+at once, the editor had to say in its own heading which class it was editing — *Symbol layers —
+Ankara* — and with ten rows visible out of eighty-one, Ankara usually was not one of them. A
+design review reproduced it exactly: filter to one class, select it, clear the filter, and the
+heading goes on naming a row that is nowhere on the screen.
+
+**Every fix that keeps both on the page is a fix to the heading.** Scroll the row into view,
+warn when it is out of view, mark the row more loudly — each is a way of maintaining agreement
+between two things that did not have to disagree. So they do not both stay: `Symbol ›` on a row
+replaces the list with that class's symbol, and `‹ All classes` puts the list back, scrolled to
+the row that was open. **A panel that exists only while its own row is the subject cannot name
+the wrong row.** The heading no longer carries a class name at all, because the view does.
+
+This also halves the page. *Ready-made symbols* and *Symbol layers* are the same object — a
+class's symbol — shown twice, once as presets and once as the current value; neither needs
+permanent room on a screen whose first job is the classification.
+
+**A simple renderer keeps both, and that is not an exception to the rule.** Its one row is not a
+list, it is the colour of the layer, and there is nowhere to go *back* to — so the list/detail
+switch has nothing to switch between, and a back button would be a control for a screen that does
+not exist ([ADR-034](ADR-034-server-and-studio.md)). The first version of this change missed
+that: the one row lives in the same container the class rows live in, so hiding that container to
+show the symbol editor took the layer's colour off the screen while leaving it in the document.
+It survived one test run. **The assertion that caught it is the one this console keeps for
+exactly this shape** — *the controls are in the document and none of them is on screen* — and
+that is now the fourth time it has caught it, which is why the new test asks `offsetParent`
+rather than `hidden` and asserts the simple case beside the classified one.
+
+**What is not done here**, and is recorded rather than implied: there is still no control that
+acts on every class at once, so [D-217](../architecture-debt.md) stays open — the opacity box
+edits one class of eighty-one, which is what *"alpha da bir şeye yaramıyor gibi"* meant. The
+compatibility view and the raw document are still rendered at full height on every visit. The
+class list is still in the order the classifier produced.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

@@ -427,6 +427,95 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// The class list and one class's symbol are never both on the screen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner could not read this screen: *ya ben bu ekranı cidden anlayamıyorum. çok
+    /// karmaşık*.</b> A class list bounded to ten visible rows out of as many as 256 sat above a
+    /// permanently rendered symbol editor, and the editor said which class it was editing in its
+    /// own heading — *Symbol layers — Ankara* — because nothing else could. Ankara was usually
+    /// not one of the ten, so the panel was titled after a row nobody could see.
+    /// </para>
+    /// <para>
+    /// <b>They are one view now, not two.</b> `Symbol ›` on a row replaces the list with that
+    /// class's symbol; `‹ All classes` puts the list back, scrolled to the row that was open. A
+    /// panel that exists only while its own row is the subject cannot name the wrong row, so
+    /// this is a defect removed rather than a defect corrected.
+    /// </para>
+    /// <para>
+    /// <b>Asked of `offsetParent`, not of `hidden`.</b> This console has shipped a control that
+    /// existed and could not be seen four times, the fourth being the first attempt at this very
+    /// change: hiding the class container to show the editor also hid a simple renderer's one
+    /// colour row, which lives in the same container. That is why the simple case is asserted
+    /// here beside the classified one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Editing_one_class_replaces_the_list_rather_than_sitting_under_it()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.getElementById('symKind') !== null",
+            "The symbology form never filled.");
+
+        // <b>A simple renderer shows both, because its list is one colour and there is nowhere
+        // to go back to.</b>
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const k = document.getElementById('symKind');"
+            + " k.value = 'simple';"
+            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "document.querySelector('#symClasses .symfill')?.offsetParent != null"
+            + " && document.getElementById('symStack')?.offsetParent != null"
+            + " && document.getElementById('symDetailHead')?.offsetParent == null",
+            "A simple renderer must show its colour and its symbol at once, and no way back to a "
+            + "list it does not have. Something here is in the document and not on the screen.");
+
+        // <b>Classified: the list, and no symbol editor under it.</b>
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const k = document.getElementById('symKind');"
+            + " k.value = 'uniqueValue';"
+            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        await WaitForAsync(
+            "document.querySelector('#symClasses .symopen')?.offsetParent != null"
+            + " && document.getElementById('symDetail')?.offsetParent == null",
+            "A classified renderer opens on its list of classes, with no symbol editor standing "
+            + "under it naming a class nobody chose.");
+
+        await ClickAsync("#symClasses .symopen");
+
+        await WaitForAsync(
+            "document.getElementById('symStack')?.offsetParent != null"
+            + " && document.getElementById('symClasses')?.offsetParent == null"
+            + " && document.getElementById('symFilterRow')?.offsetParent == null",
+            "Opening a class's symbol must replace the list, not appear beside it — and the "
+            + "filter over a list that is not on screen is a control for something that is not "
+            + "there.");
+
+        // <b>And it says which class, once, where the way back is.</b>
+        string which = await Browser.EvaluateAsync<string>(
+            "document.getElementById('symDetailWhich').textContent") ?? "";
+
+        Assert.NotEqual("", which.Trim());
+
+        await ClickAsync("#symBackToClasses");
+
+        await WaitForAsync(
+            "document.querySelector('#symClasses .symopen')?.offsetParent != null"
+            + " && document.getElementById('symDetail')?.offsetParent == null",
+            "Going back did not bring the list back.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The picture's caption follows the document, and never claims a state that has passed.
     /// </summary>
     /// <remarks>
