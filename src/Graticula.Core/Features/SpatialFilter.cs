@@ -141,16 +141,45 @@ public enum StatisticKind
 
     /// <summary>Sample variance.</summary>
     Var,
+
+    /// <summary>A percentile, interpolating between the two values that straddle it.</summary>
+    /// <remarks>
+    /// <b>The statistic a classifier needs and the one this server did not have.</b> Four of
+    /// CIM's seven classification methods fall out of `min`, `max`, `avg` and `stddev`; quantile
+    /// classification needs the value at a fraction of the way through the sorted column, and
+    /// nothing above can produce it. PostgreSQL has had `percentile_cont` as an ordered-set
+    /// aggregate since 9.4 and ArcGIS spells the same thing <c>PERCENTILE_CONT</c>, so this is a
+    /// gap in the query face rather than a new capability. ADR-052 §3.11.
+    /// </remarks>
+    PercentileContinuous,
+
+    /// <summary>A percentile, taking the first value at or past it.</summary>
+    /// <remarks>
+    /// <b>Discrete, so the answer is a value that exists in the column.</b> The continuous form
+    /// interpolates and can return a number no row holds, which is right for a class bound and
+    /// wrong for anything that has to name a real record.
+    /// </remarks>
+    PercentileDiscrete,
 }
 
 /// <summary>One requested statistic.</summary>
 /// <param name="Kind">What to compute.</param>
 /// <param name="Field">Which column to compute it over.</param>
 /// <param name="OutName">What to call the result.</param>
+/// <param name="Fraction">
+/// Where in the sorted column to read, from 0 to 1, for the two percentile kinds. Ignored by
+/// every other kind, which is why it has a default rather than a separate request type.
+/// </param>
+/// <param name="Descending">Whether the percentile counts from the top rather than the bottom.</param>
 /// <remarks>
 /// <b><paramref name="OutName"/> is the caller's, and it reaches SQL as an
 /// identifier.</b> It is checked against the same rule a column name is before
 /// it gets here — ADR-008 §4.6's two-step — because unlike a value it cannot be
 /// bound as a parameter.
 /// </remarks>
-public readonly record struct StatisticRequest(StatisticKind Kind, string Field, string OutName);
+public readonly record struct StatisticRequest(
+    StatisticKind Kind,
+    string Field,
+    string OutName,
+    double Fraction = 0,
+    bool Descending = false);

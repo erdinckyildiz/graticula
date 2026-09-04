@@ -146,9 +146,15 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             $"where={oid}%2B1%3E1&returnCountOnly=true",
             "asking for arithmetic in the where grammar"),
 
+        // <b>The probe carries `statisticParameters`, and it has to.</b> A percentile is the
+        // one statistic with an argument of its own: Esri requires the fraction and this server
+        // refuses a request without it rather than assuming the median. Written before the
+        // capability existed, this probe omitted it -- so the day the flag turned true, the
+        // check reported an over-claim against a server that was answering correctly.
         new(
             "supportsPercentileStatistics",
             "outStatistics=%5B%7B%22statisticType%22%3A%22percentile_disc%22%2C"
+            + "%22statisticParameters%22%3A%7B%22value%22%3A0.5%7D%2C"
             + "%22onStatisticField%22%3A%22" + oid
             + "%22%2C%22outStatisticFieldName%22%3A%22p%22%7D%5D",
             "asking for a percentile"),

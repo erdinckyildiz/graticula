@@ -796,7 +796,14 @@ public static class FeatureServerMetadataWriter
                 supportsSqlExpression = false,
                 supportsCountDistinct = false,
                 supportsQueryWithResultType = false,
-                supportsPercentileStatistics = false,
+
+                // <b>True since 2026-09-04.</b> `PERCENTILE_CONT` and `PERCENTILE_DISC` are
+                // served through PostgreSQL's ordered-set aggregates, with the fraction in
+                // `statisticParameters.value` -- added because quantile classification needs a
+                // statistic none of the others can produce (ADR-052 §3.11). This flag stayed
+                // false for a day after `outStatistics` learned the two types, which is a
+                // capability report disagreeing with the capability.
+                supportsPercentileStatistics = true,
             },
 
             // Said out loud because a client uses them to decide whether to

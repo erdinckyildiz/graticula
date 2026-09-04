@@ -197,6 +197,53 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
         Assert.True(result.TryGetProperty("fields", out _));
     }
 
+    /// <summary>
+    /// The percentile is the only statistic whose SQL is not `f(column)`, so it is the only one
+    /// a parser test cannot prove.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-052 §3.11.</b> PostgreSQL spells it
+    /// <c>percentile_cont(0.5) within group (order by "col")</c> — an ordered-set aggregate,
+    /// where the fraction is the function's argument and the column is the ordering, the other
+    /// way round from every other aggregate this server emits. The parser tests pin the reading
+    /// of the request; only a live query pins the statement.
+    /// </remarks>
+    [Fact]
+    public async Task A_percentile_is_computed_by_an_ordered_set_aggregate()
+    {
+        (_, string oid) = await LayerAsync();
+
+        // The object id is the one numeric column every layer has. Its median has to sit between
+        // its smallest and largest value, and the discrete form has to be one the column holds —
+        // which is the whole difference between the two kinds.
+        JsonElement result = await QueryAsync(
+            "outStatistics=" + Uri.EscapeDataString(
+                $$"""
+                [{"statisticType":"min","onStatisticField":"{{oid}}","outStatisticFieldName":"lo"},
+                 {"statisticType":"max","onStatisticField":"{{oid}}","outStatisticFieldName":"hi"},
+                 {"statisticType":"PERCENTILE_CONT","statisticParameters":{"value":0.5},
+                  "onStatisticField":"{{oid}}","outStatisticFieldName":"mid"},
+                 {"statisticType":"PERCENTILE_DISC","statisticParameters":{"value":0.5},
+                  "onStatisticField":"{{oid}}","outStatisticFieldName":"midd"}]
+                """));
+
+        JsonElement one = Assert.Single(result.GetProperty("features").EnumerateArray().ToArray())
+            .GetProperty("attributes");
+
+        double low = one.GetProperty("lo").GetDouble();
+        double high = one.GetProperty("hi").GetDouble();
+        double middle = one.GetProperty("mid").GetDouble();
+        double discrete = one.GetProperty("midd").GetDouble();
+
+        Assert.InRange(middle, low, high);
+        Assert.InRange(discrete, low, high);
+
+        // <b>The discrete one is a value the column holds and the continuous one need not be.</b>
+        // Over an integer object id the discrete median is a whole number; the continuous one is
+        // a half when the count is even, which is what interpolating means.
+        Assert.Equal(Math.Floor(discrete), discrete);
+    }
+
     [Fact]
     public async Task A_statistic_over_an_unknown_field_is_refused()
     {

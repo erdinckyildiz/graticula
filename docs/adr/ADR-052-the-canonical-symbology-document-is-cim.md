@@ -367,6 +367,54 @@ obstacle in a shipped refusal message would have told an operator their document
 was impossible when it was merely unwritten. The refusal messages on both write
 paths name all five, so a paste is diagnosed rather than merely rejected.
 
+### 3.11 A percentile statistic, so a classifier has one to stand on — 2026-09-04
+
+**CIM names seven classification methods** in `ClassificationMethod`, and
+`CIMClassBreaksProperties.classificationMethod` records which one produced a
+document's bounds. Five of the seven need nothing this server did not already
+serve:
+
+| Method | Needs | Already served |
+|---|---|---|
+| `Manual` | nothing | — |
+| `EqualInterval` | min, max, class count | `outStatistics` |
+| `DefinedInterval` | min, max, the interval | `outStatistics` |
+| `GeometricalInterval` | min, max, class count | `outStatistics` |
+| `StandardDeviation` | mean, standard deviation | `outStatistics` |
+| `Quantile` | **percentiles** | **no** |
+| `NaturalBreaks` | **the values themselves** | **no** |
+
+**`Quantile` is the cheap half of what was missing.** `statisticType` accepted
+`count`, `sum`, `min`, `max`, `avg`, `stddev` and `var`, and refused percentiles
+with a message saying they *need an ordered-set aggregate and are not
+implemented* — a true sentence describing a PostgreSQL feature this server had
+always been able to call. It now serves `PERCENTILE_CONT` and `PERCENTILE_DISC`,
+with the fraction in `statisticParameters.value` and an optional `orderBy`,
+exactly as ArcGIS spells them, through
+`percentile_cont(f) within group (order by "col")`.
+
+**The fraction is required rather than defaulted to the median**, and both ends
+are checked: a value outside 0–1 is refused, and an `orderBy` that is neither
+`ASC` nor `DESC` is refused rather than silently read as ascending. A percentile
+with no fraction is a request nobody meant to make.
+
+Measured on the fixture (`reading` = 10…15): `PERCENTILE_CONT` at 0.5 returned
+**12.5**, `PERCENTILE_DISC` at 0.5 returned **12**, and 0.25 returned **11.25** —
+the continuous form interpolating and the discrete form naming a value the column
+holds, which is the whole difference between them.
+
+**Two other places carried the old claim** and both were wrong for as long as it
+took to find them: `advancedQueryCapabilities.supportsPercentileStatistics` was
+published as `false`, and [ADR-008](ADR-008-query-engine.md) §4 listed percentiles
+among what is refused. The capability check caught the first — it probes every
+advertised flag against the running server — and reported an over-claim, because
+its probe had been written without `statisticParameters` for a capability that
+did not exist. The probe now carries the fraction.
+
+**`NaturalBreaks` is still owed** and is deliberately last: Jenks needs the values
+themselves, so the decision is not the algorithm but whether to read a whole
+column or sample it, and at what size. That is an argument to have on its own.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

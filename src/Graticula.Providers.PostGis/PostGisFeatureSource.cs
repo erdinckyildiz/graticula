@@ -939,7 +939,7 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         foreach (StatisticRequest statistic in query.Statistics)
         {
             select.Add(
-                $"{Function(statistic.Kind)}({LayerDefinition.Quote(statistic.Field)}) as "
+                $"{Aggregate(statistic)} as "
                 + LayerDefinition.Quote(statistic.OutName));
         }
 
@@ -991,6 +991,35 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         return rows;
     }
 
+    /// <summary>The whole aggregate call, including its arguments.</summary>
+    /// <remarks>
+    /// <b>Percentiles are ordered-set aggregates and do not fit `f(column)`.</b> PostgreSQL
+    /// spells them <c>percentile_cont(0.9) WITHIN GROUP (ORDER BY "col" DESC)</c> -- the
+    /// fraction is the function's argument and the column is the ordering, which is the other
+    /// way round from every other aggregate here. <b>The fraction reaches SQL as a formatted
+    /// double and that is safe because it is a double</b>: it has been parsed, checked finite
+    /// and clamped to 0..1 before this, so there is no string from the caller in it. The
+    /// direction is a bool. The column still goes through <c>Quote</c>.
+    /// </remarks>
+    /// <param name="statistic">What was asked for.</param>
+    /// <returns>The SQL fragment.</returns>
+    private static string Aggregate(StatisticRequest statistic)
+    {
+        string column = LayerDefinition.Quote(statistic.Field);
+
+        if (statistic.Kind is not (StatisticKind.PercentileContinuous
+            or StatisticKind.PercentileDiscrete))
+        {
+            return $"{Function(statistic.Kind)}({column})";
+        }
+
+        string fraction = Math.Clamp(statistic.Fraction, 0, 1)
+            .ToString("0.################", CultureInfo.InvariantCulture);
+
+        return $"{Function(statistic.Kind)}({fraction}) within group (order by {column} "
+            + $"{(statistic.Descending ? "desc" : "asc")})";
+    }
+
     /// <summary>The SQL aggregate for a statistic kind.</summary>
     /// <remarks>
     /// <b>A switch over an enum, so no caller text reaches here.</b> Mapping
@@ -1006,6 +1035,8 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         StatisticKind.Avg => "avg",
         StatisticKind.StdDev => "stddev_samp",
         StatisticKind.Var => "var_samp",
+        StatisticKind.PercentileContinuous => "percentile_cont",
+        StatisticKind.PercentileDiscrete => "percentile_disc",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 

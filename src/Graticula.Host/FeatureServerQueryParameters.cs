@@ -1340,6 +1340,8 @@ internal static class FeatureServerQueryParameters
             "avg" => StatisticKind.Avg,
             "stddev" => StatisticKind.StdDev,
             "var" => StatisticKind.Var,
+            "percentile_cont" => StatisticKind.PercentileContinuous,
+            "percentile_disc" => StatisticKind.PercentileDiscrete,
             _ => (StatisticKind)(-1),
         };
 
@@ -1347,9 +1349,59 @@ internal static class FeatureServerQueryParameters
         {
             error =
                 $"'statisticType' of '{type}' is not supported. Use count, sum, min, max, avg, "
-                + "stddev or var. Percentile needs an ordered-set aggregate and is not "
-                + "implemented.";
+                + "stddev, var, percentile_cont or percentile_disc.";
             return false;
+        }
+
+        // <b>A percentile carries its own argument, and it is the only statistic that does.</b>
+        // Esri puts it in `statisticParameters` with `value` from 0 to 1 and an optional
+        // `orderBy`; PostgreSQL takes the same fraction as the function's argument and the
+        // column as the ordering. <b>Required rather than defaulted to the median</b>: a
+        // percentile with no fraction is a request nobody meant to make, and answering it with
+        // the median would be inventing the question.
+        double fraction = 0;
+        bool descending = false;
+
+        if (kind is StatisticKind.PercentileContinuous or StatisticKind.PercentileDiscrete)
+        {
+            if (!definition.TryGetProperty("statisticParameters", out JsonElement parameters)
+                || parameters.ValueKind != JsonValueKind.Object
+                || !parameters.TryGetProperty("value", out JsonElement at)
+                || at.ValueKind != JsonValueKind.Number
+                || !at.TryGetDouble(out fraction))
+            {
+                error =
+                    $"'{type}' needs 'statisticParameters' with a numeric 'value' — the fraction "
+                    + "of the way through the sorted column to read, from 0 to 1. 0.5 is the "
+                    + "median.";
+                return false;
+            }
+
+            if (!double.IsFinite(fraction) || fraction < 0 || fraction > 1)
+            {
+                error =
+                    $"'statisticParameters.value' is {fraction.ToString(CultureInfo.InvariantCulture)}, "
+                    + "and a percentile is a fraction from 0 to 1.";
+                return false;
+            }
+
+            if (parameters.TryGetProperty("orderBy", out JsonElement order)
+                && order.ValueKind == JsonValueKind.String)
+            {
+                string direction = order.GetString() ?? string.Empty;
+
+                if (direction.Equals("DESC", StringComparison.OrdinalIgnoreCase))
+                {
+                    descending = true;
+                }
+                else if (!direction.Equals("ASC", StringComparison.OrdinalIgnoreCase))
+                {
+                    error =
+                        $"'statisticParameters.orderBy' of '{direction}' is neither 'ASC' nor "
+                        + "'DESC'.";
+                    return false;
+                }
+            }
         }
 
         if (!known.TryGetValue(field, out string? actual))
@@ -1375,7 +1427,7 @@ internal static class FeatureServerQueryParameters
             return false;
         }
 
-        statistic = new StatisticRequest(kind, actual, outName);
+        statistic = new StatisticRequest(kind, actual, outName, fraction, descending);
         return true;
     }
 

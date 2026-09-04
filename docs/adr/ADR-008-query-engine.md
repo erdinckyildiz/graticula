@@ -661,8 +661,17 @@ nine rather than sampling.
 **What is refused, and none of it for effort:** `time` (no layer declares
 `timeInfo`), `fullText` (needs a tsvector column and an index on somebody
 else's table), `gdbVersion` (no version tree), `historicMoment` (no history),
-`returnZ`/`returnM` (geometry is stored without them), percentile statistics
-(needs an ordered-set aggregate), `quantizationParameters`, and `uniqueIds`.
+`returnZ`/`returnM` (geometry is stored without them), `quantizationParameters`,
+and `uniqueIds`.
+
+**Percentile statistics left that list on 2026-09-04** and are now served:
+`PERCENTILE_CONT` and `PERCENTILE_DISC`, with the fraction in
+`statisticParameters.value` and an optional `orderBy`, through PostgreSQL's
+ordered-set aggregates. The reason it moved is
+[ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §3.11 — quantile
+classification needs a statistic none of the other seven can produce, and the
+old entry's stated reason, *needs an ordered-set aggregate*, described a
+PostgreSQL feature this server had always been able to call.
 Each appears on the query page **present and disabled with its reason**, rather
 than missing.
 
