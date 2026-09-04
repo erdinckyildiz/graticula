@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>651eef6</code> · 2026-09-05 01:49</p>
+<p class="stamp">Generated from commit <code>c052554</code> · 2026-09-05 01:52</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">53</div><div class="kpi-l">ADRs</div><div class="kpi-n">7 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">152/202</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">50 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">35</div><div class="kpi-l">open debts</div><div class="kpi-n">186 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">open debts</div><div class="kpi-n">199 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2334</div><div class="kpi-l">tests</div><div class="kpi-n">265 source files, 106,736 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">89 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>35 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">76 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -288,27 +288,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-202</td><td>Six WMS 1.3.0 CITE assertions fail and nothing in this repository names them.</td><td class="muted-t">Read the ets-wms13 source for how it selects a layer for the CRS:84 image tests, or run the engine with its own logging…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-203</td><td>A visual variable&#x27;s field lived in the property the reader did not look at, and the map that resulted had nothing visibly wrong with it.</td><td class="muted-t">Already fired — every Pro-authored continuous symbology reaches this path.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-204</td><td>A real service asked for at the wrong address was answered with a redirect to that same address, so a client followed it until it gave up.</td><td class="muted-t">Already fired — the console always sends the qualified name, so this bites a hand-written URL, a script, and anybody…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-205</td><td>A classification&#x27;s floor was written in one direction and never read back in the other, so every face behaved as though the classification started at negative infinity.</td><td class="muted-t">Already fired — it is on every classified layer whose author set a floor, and setting one is the default when Pro…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-206</td><td>A classified renderer that names its field the way ArcGIS Pro names it now was refused outright.</td><td class="muted-t">Already fired — every unique-value or class-breaks renderer authored in current ArcGIS Pro with an Arcade expression.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-207</td><td>Three different maps share one renderer type and the enum that tells them apart was not read.</td><td class="muted-t">Already fired for any layer authored as an unclassed colour ramp; the ADR&#x27;s own read-subset table did not list the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-208</td><td>Two of the three PollerPoolTests fail whenever a second server is running against the same database, and the message reads like a product defect.</td><td class="muted-t">Already fired, twice in one afternoon, both times mistaken for a regression in unrelated work before being traced.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-209</td><td>The unique-value ceiling was a judgement dressed as a limit, and it refused an ordinary map.</td><td class="muted-t">Already fired, on the first real dataset it met.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-210</td><td>A unique-value renderer classified by one field when ArcGIS classifies by three, and refused a field with many values when ArcGIS groups the rest into Other.</td><td class="muted-t">Already fired on the owner&#x27;s own data, on the first field they tried.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-211</td><td>A document that fits was refused for its whitespace, and pressing Store said so only in a toast.</td><td class="muted-t">Already fired on the first classification large enough to notice, which was the first real use of D-210&#x27;s own repair.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-212</td><td>Pressing Store on a large classification answered the document is not JSON, and the document was fine.</td><td class="muted-t">Already fired on the first classification large enough to reach the bound — which was the first real use of this…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-213</td><td>The layer editor&#x27;s Save did nothing, on purpose, and the owner lost work to it.</td><td class="muted-t">Already fired: it cost the owner a 256-class classification, which they pressed Save on and lost on the next refresh.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-214</td><td>A colour ramp&#x27;s opacity was rebuilt as opaque every time the form was applied.</td><td class="muted-t">A ramp that faded in from transparent came back opaque, on a page that displayed no alpha anywhere, so there was…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-215</td><td>Every text, number and select box in the studio has a border of 1.45:1 against the panel behind it.</td><td class="muted-t">Not yet reported by anybody using it, which is what a 1.45:1 boundary looks like: legible enough to work with in a…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-216</td><td>.setting.wide gives its control a fixed 300 px, and the panel it sits in is 359 px at 1280.</td><td class="muted-t">Silent.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-217</td><td>The opacity box edits one class of eighty-one, and reads as a control that does nothing.</td><td class="muted-t">Already fired, on the owner, the same day.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-218</td><td>A colour ramp told to read a field of words paints the whole layer one colour, and nothing says so.</td><td class="muted-t">A flat map with no explanation.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-219</td><td>Five places on the symbology page answered is this stored, and three of them could not be corrected.</td><td class="muted-t">The owner looked at two sentences at once.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-220</td><td>The 1c handoff was implemented for eight screens of eleven, and the three that were left look finished.</td><td class="muted-t">The next design review of any of the three.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">186 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">199 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -416,6 +403,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>c052554</code><time>2026-09-05</time><span>D-217&#x27;s own row said partly paid while its own text said repaired</span></li>
 <li><code>651eef6</code><time>2026-09-05</time><span>The status page catches up with the commit that fixed its footer</span></li>
 <li><code>9e4e15c</code><time>2026-09-05</time><span>D-130&#x27;s sixth: the dashboard&#x27;s footer said Apache-2.0 for eleven days</span></li>
 <li><code>de9ab38</code><time>2026-09-05</time><span>D-224: a shutting-down database was read as a database that had answered</span></li>
@@ -429,7 +417,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>831fa58</code><time>2026-09-04</time><span>ADR-053: the symbology editor is three columns, and the item page has a head</span></li>
 <li><code>6fd6407</code><time>2026-09-04</time><span>D-217: one opacity for every class, and it sets rather than scales</span></li>
 <li><code>3062871</code><time>2026-09-04</time><span>D-217: the class list and the symbol editor are one view, not two</span></li>
-<li><code>071261e</code><time>2026-09-04</time><span>D-219: five places answered &quot;is this stored&quot; and three could not be corrected</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

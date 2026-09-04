@@ -490,8 +490,19 @@ def debts():
             #
             # <b>`PARTLY` is deliberately not here.</b> Partly paid is open: counting
             # it as closed is how a pile stops being a pile.
+            #
+            # <b>`REPAIRED` was not here either, and thirteen rows paid for it.</b>
+            # The register writes *REPAIRED* as often as it writes *REPAID* -- twelve
+            # rows on 2026-09-04 alone -- and this pattern knew only the second, so
+            # every one of them was counted as open and the page told the owner there
+            # were 35 open debts when there were 22. Measured with this function
+            # itself rather than by eye. A word the register uses and this tool does
+            # not is the same fault as a fact in two places, and
+            # `registers-check.py::a_debt_status_nobody_counts` now fails the build
+            # when a status opens with a word neither file knows.
             "open": not re.match(
-                r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|WITHDRAWN)\b", status, re.I),
+                r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|REPAIRED|WITHDRAWN)\b",
+                status, re.I),
             "partly": bool(re.match(r"\s*\*{0,2}(PARTLY|PARTIALLY)", status, re.I)),
         })
     return out

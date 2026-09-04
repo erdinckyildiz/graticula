@@ -618,6 +618,68 @@ def a_gate_tally_that_disagrees_with_the_gates():
     return problems
 
 
+# <b>The register's whole vocabulary for a status, in one place.</b> It lived in two
+# regexes in two files that each said, in a comment, that they matched the other --
+# and they did not: `status-page.py` learned `REPAIRED` on 2026-09-05 and this file
+# had to be edited in the same commit for them to agree again. Anything not here is
+# a word nobody counts, which is what `a_debt_status_nobody_counts` refuses.
+DEBT_VERDICTS = (
+    "OPEN", "PARTLY", "PARTIALLY",
+    "RESOLVED", "CLOSED", "REPAID", "REPAIRED", "WITHDRAWN",
+)
+
+
+def a_debt_status_nobody_counts():
+    """A debt whose status opens with a word no tool recognises.
+
+    **Thirteen rows, and the number on the owner's own dashboard.** The register
+    writes *REPAIRED* as freely as *REPAID*; `status-page.py` knew only the second,
+    so twelve repaired rows and one whose columns had slid were all counted as open
+    and the page said **35 open debts** where there were 22. Nothing caught it,
+    because an unknown word is not an error to a pattern that is looking for known
+    ones -- it simply fails to match, and failing to match means *open*.
+
+    **So the absence of a word is now the failure**, rather than a silent vote for
+    open. A status that begins with something outside `DEBT_VERDICTS` fails the
+    build and names the row, which also catches the other half of that day's fault:
+    [D-219](../docs/architecture-debt.md) had seven cells like every other row and
+    the wrong text in the last of them, so its status read *Proved by ...* -- a
+    sentence, where a verdict belongs.
+    """
+    path = os.path.join(conditions.ROOT, "docs", "architecture-debt.md")
+
+    try:
+        text = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"architecture-debt.md could not be read: {problem}"]
+
+    known = re.compile(
+        r"\s*(?:~~open~~\s*)?\*{0,2}(" + "|".join(DEBT_VERDICTS) + r")\b", re.I)
+
+    problems = []
+
+    for line in text.splitlines():
+        if not line.startswith("| D-"):
+            continue
+
+        cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+        if len(cells) < 7:
+            continue
+
+        identifier, status = cells[0], cells[-1]
+
+        if not known.match(status):
+            problems.append(
+                f"{identifier}'s status begins '{status[:60].strip()}...', which is not one of "
+                + ", ".join(DEBT_VERDICTS)
+                + ". Nothing counts it, so status-page.py files it as open. Either give it a "
+                "verdict or check whether the row's columns have slid."
+            )
+
+    return problems
+
+
 def a_debt_row_that_disagrees_with_itself():
     """A row whose text says it is resolved while its status cell says it is open.
 
@@ -651,11 +713,11 @@ def a_debt_row_that_disagrees_with_itself():
     # The same verdict words status-page.py counts, and in the same order, so the
     # two cannot disagree about what *done* looks like.
     done = re.compile(
-        r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|WITHDRAWN)\b", re.I)
+        r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|REPAIRED|WITHDRAWN)\b", re.I)
 
     # In the text, the verdict is emphasised: that is how this file marks one.
     # PARTLY is excluded by requiring the marker to open the emphasis.
-    claimed = re.compile(r"\*\*(RESOLVED|CLOSED|REPAID)\b")
+    claimed = re.compile(r"\*\*(RESOLVED|CLOSED|REPAID|REPAIRED)\b")
 
     problems = []
     rows = 0
@@ -2622,6 +2684,7 @@ def main() -> int:
                 + a_condition_tally_that_disagrees_with_the_conditions()
                 + a_gate_tally_that_disagrees_with_the_gates()
                 + a_debt_row_that_disagrees_with_itself()
+                + a_debt_status_nobody_counts()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()
