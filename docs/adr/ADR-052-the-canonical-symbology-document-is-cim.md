@@ -622,6 +622,53 @@ fails it. **And the seam test's first form asserted the wrong thing** — that t
 halves sum exactly to the whole — which is false and should be: the seam band is
 drawn in both tiles on purpose.
 
+### 3.16 The chart renderer, and the list closes at seven of nine — 2026-09-04
+
+**The last of the three that were called blocked and were not.** A wedge
+tessellated into a ring is a polygon and `FillArea` fills polygons, so this needed
+no new primitive either. What it needed was the arithmetic that turns several
+numbers into angles, and three decisions about how a pie is read.
+
+**It starts at twelve o'clock and runs clockwise**, which is what every pie chart
+anybody has read does. Screen y grows downward, so clockwise on screen is the
+direction a mathematician calls negative — getting it backwards mirrors the chart,
+and a mirrored pie looks like a perfectly plausible chart of a different
+arrangement rather than like a bug.
+
+**The segment count comes from the radius.** A pie twelve pixels across needs a
+handful of segments to look round and one six hundred across needs dozens; a
+fixed count wastes work on the small ones or shows corners on the large. The rule
+keeps every chord within a twentieth of a pixel of its arc.
+
+**And the test for that measures sagitta rather than area, which is the point.**
+The first version asserted the tessellated area against πr² and failed a pie that
+is visibly round: a twenty-five-sided polygon inscribed in a six-pixel circle is
+1% short in *area* and 0.05 pixels short at the middle of each chord, and the
+second number is the one an eye can see. An area tolerance would have been tuned
+until it stopped complaining, which is how a test stops meaning anything.
+
+**A bar chart is reported rather than drawn as a pie.** A bar chart compares
+magnitudes and a pie compares shares of a whole; drawing one as the other is not a
+smaller picture, it is a different claim. **`preventChartOverlap` is reported
+too**, and that is a real limit: resolving overlapping charts is the same problem
+as placing labels and this server solves that one, but for text with a measured
+box. Moving a chart away from the feature it describes without saying so is worse
+than letting two neighbours sit on each other.
+
+**A chart sized by its sum uses the proportional renderer's curve, deliberately.**
+Area proportionality and Flannery's correction, the same as §3.10 — a chart sized
+by its total is a proportional symbol whose symbol happens to be a chart, and two
+renderers answering *how big is this* differently would be two answers to one
+question.
+
+**Where the nine stand now.** Seven are read: simple, unique value, class breaks,
+proportional, heat map, dot density and chart. Two are refused and **both are
+blocked rather than unwritten** — `CIMDictionaryRenderer` needs a dictionary style
+this server does not hold and an Arcade evaluator it deliberately does not have,
+and `CIMRepresentationRenderer` needs a geodatabase's representation classes,
+which PostGIS has no equivalent of. Neither is a matter of effort, and that is
+the honest end of the list rather than a pause in it.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

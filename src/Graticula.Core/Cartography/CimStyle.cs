@@ -65,6 +65,12 @@ public static class CimStyle
         {
             return Scattered(projection, scattered, layerName);
         }
+
+        // Nor a chart layer. Same treatment, same reason.
+        if (projection.Pie is { } chart)
+        {
+            return Charted(projection, chart, layerName);
+        }
         List<string> losses = [.. projection.NotDrawn];
 
         // <b>The first class decides the shape.</b> Real classified renderers vary colour and
@@ -553,6 +559,43 @@ public static class CimStyle
                 {
                     ["fill-color"] = Hex(dots.Colours[0]),
                     ["fill-opacity"] = Num(0.35),
+                },
+            }),
+        };
+
+        return new DerivedStyle(style, losses);
+    }
+
+    /// <summary>What a MapLibre style can say about a chart renderer, which is not much.</summary>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="pie">The chart.</param>
+    /// <param name="layerName">The source layer.</param>
+    /// <returns>The style, and the sentence about what it cannot do.</returns>
+    private static DerivedStyle Charted(
+        CimProjection projection, CimPie pie, string layerName)
+    {
+        List<string> losses =
+        [
+            .. projection.NotDrawn,
+            "The tile face cannot draw a chart: MapLibre has no layer type for one. It publishes "
+            + "a circle in the first slice's colour instead. The raster faces — WMS, the map "
+            + "service, the preview — draw the chart from the stored document, so the same layer "
+            + "looks different on the two faces.",
+        ];
+
+        JsonObject style = new()
+        {
+            ["version"] = 8,
+            ["layers"] = new JsonArray(new JsonObject
+            {
+                ["id"] = $"{layerName}-chart",
+                ["type"] = "circle",
+                ["source"] = "graticula",
+                ["source-layer"] = layerName,
+                ["paint"] = new JsonObject
+                {
+                    ["circle-color"] = Hex(pie.Colours[0]),
+                    ["circle-radius"] = Num(Math.Round(pie.Size / 0.75 / 2, 3)),
                 },
             }),
         };

@@ -182,6 +182,12 @@ public sealed class SymbologyPlan
                 return Scattered(projection, scattered);
             }
 
+            // MapLibre has no chart layer either, and for the same reason the same road is taken.
+            if (projection.Pie is { } chart)
+            {
+                return Charted(chart);
+            }
+
             // The name is not read: `CompileLayer` looks at `type` and `paint` only. It is
             // written here so the derived document is well formed rather than nearly so.
             body = CimStyle.ToMapLibre(body, "layer").Style;
@@ -319,6 +325,55 @@ public sealed class SymbologyPlan
                 dots.Fields, dots.Colours, dots.DotValue, size, dots.Seed)],
             [.. dots.Fields],
             Math.Max(size, 2));
+    }
+
+    /// <summary>A plan for a chart renderer, built from the canonical document.</summary>
+    /// <param name="pie">The chart.</param>
+    /// <returns>The plan.</returns>
+    private static SymbologyPlan Charted(CimPie pie)
+    {
+        double size = pie.Size / 0.75;
+
+        // <b>The margin is the chart's own width.</b> A feature whose point is just outside the
+        // picture still draws a chart reaching into it, so the reader has to be given it.
+        return new SymbologyPlan(
+            [new PlanLayer.Pie(
+                pie.Fields,
+                pie.Colours,
+                size,
+                pie.SmallestValue,
+                pie.Flannery,
+                pie.Base is { Paints.Count: > 0 } under
+                    ? Beneath(under)
+                    : null)],
+            [.. pie.Fields],
+            size);
+    }
+
+    /// <summary>The fill drawn under a chart, from the renderer's base symbol.</summary>
+    private static MapSymbol.Area? Beneath(CimSymbol symbol)
+    {
+        Rgba fill = Rgba.Transparent;
+        Rgba edge = Rgba.Transparent;
+        double width = 0;
+
+        foreach (CimPaint paint in symbol.Paints)
+        {
+            if (paint is CimFill area)
+            {
+                fill = area.Colour;
+            }
+
+            if (paint is CimStroke stroke)
+            {
+                edge = stroke.Colour;
+                width = stroke.Width / 0.75;
+            }
+        }
+
+        return fill.IsInvisible && edge.IsInvisible
+            ? null
+            : new MapSymbol.Area(fill, edge, width);
     }
 
     private static StyleExpression Constant(Rgba colour) =>

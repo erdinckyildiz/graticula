@@ -39,6 +39,7 @@ public sealed class MapRenderer
     private readonly LabelPlacer _labels = new();
     private readonly FeatureAttributes _attributes = new();
     private readonly Dictionary<PlanLayer.Heat, HeatField> _heat = [];
+    private readonly PixelPath _wedge = new();
     private readonly double _zoom;
 
     /// <summary>Opens a renderer over a canvas.</summary>
@@ -283,6 +284,91 @@ public sealed class MapRenderer
         return drew;
     }
 
+    /// <summary>Draws one feature's chart at its own point.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>At the label point, which is the point a label would take.</b> A polygon's centroid can
+    /// fall outside it — a crescent, a horseshoe — and a chart floating off its own district is
+    /// worse than one slightly off centre. <see cref="GeometryMeasures.LabelPoint"/> already
+    /// solves that problem for text and its answer is the right one here.
+    /// </para>
+    /// <para>
+    /// <b>The base symbol is drawn first and only for an area.</b> It is the polygon's own fill,
+    /// under the chart; on a point layer there is no area to fill and drawing one would invent a
+    /// shape the data does not have.
+    /// </para>
+    /// </remarks>
+    private bool Chart(
+        PlanLayer.Pie layer, Geometry geometry, in StyleExpression.Context context)
+    {
+        double[] values = new double[layer.Sliced.Count];
+        double total = 0;
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            double value = StyleExpression.AsNumber(_attributes[layer.Sliced[i]]) ?? 0;
+
+            values[i] = value > 0 ? value : 0;
+            total += values[i];
+        }
+
+        if (total <= 0)
+        {
+            return false;
+        }
+
+        if (layer.Under is { } under && (Rings(geometry) || Lines(geometry)))
+        {
+            _canvas.FillArea(_path, under);
+        }
+
+        if (GeometryMeasures.LabelPoint(geometry) is not { } anchor)
+        {
+            return false;
+        }
+
+        double diameter = layer.SmallestValue > 0
+            ? PieSlices.SizeFor(total, layer.SmallestValue, layer.Size, layer.Flannery)
+            : layer.Size;
+
+        IReadOnlyList<int> figures = PieSlices.Wedges(
+            _path, values, _transform.X(anchor.X), _transform.Y(anchor.Y), diameter / 2);
+
+        bool drew = false;
+
+        // <b>One fill per wedge, so each carries its own colour.</b> `FillArea` paints every
+        // figure of the path in one colour, so the path is walked once per slice with only that
+        // slice's figure in it. A pie of six fields is six calls, which is the price of six
+        // colours.
+        for (int i = 0; i < figures.Count; i++)
+        {
+            if (figures[i] < 0)
+            {
+                continue;
+            }
+
+            _wedge.Reset();
+            _wedge.Begin(closed: true);
+
+            PixelPath.Figure figure = _path.Figures[figures[i]];
+
+            for (int at = figure.Start; at < figure.Start + figure.Count; at++)
+            {
+                _wedge.Add(
+                    _path.Coordinates[at * 2],
+                    _path.Coordinates[(at * 2) + 1]);
+            }
+
+            _wedge.End();
+
+            _canvas.FillArea(_wedge, new MapSymbol.Area(layer.Colours[i], Rgba.Transparent, 0));
+
+            drew = true;
+        }
+
+        return drew;
+    }
+
     /// <summary>
     /// Composites every density surface this pass accumulated, and says how many it drew.
     /// </summary>
@@ -345,6 +431,11 @@ public sealed class MapRenderer
         if (layer is PlanLayer.Dots dots)
         {
             return Scatter(dots, geometry, context);
+        }
+
+        if (layer is PlanLayer.Pie pie)
+        {
+            return Chart(pie, geometry, context);
         }
 
         if (layer.Resolve(context) is not { } symbol)

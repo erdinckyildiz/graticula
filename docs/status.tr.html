@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>89d05ac</code> · 2026-09-04 10:13</p>
+<p class="stamp">Şu commit’ten üretildi: <code>dbf2841</code> · 2026-09-04 11:08</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADR</div><div class="kpi-n">6 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">183 ödendi · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2268</div><div class="kpi-l">test</div><div class="kpi-n">262 kaynak dosya, 104,051 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2304</div><div class="kpi-l">test</div><div class="kpi-n">265 kaynak dosya, 106,037 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -389,7 +389,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">486</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:87.2%"></div></div><div class="bar-n">424</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:78.0%"></div></div><div class="bar-n">379</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:85.4%"></div></div><div class="bar-n">415</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:74.7%"></div></div><div class="bar-n">363</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.5%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:29.2%"></div></div><div class="bar-n">142</div></div>
@@ -401,6 +401,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>dbf2841</code><time>2026-09-04</time><span>ADR-052 Â§3.15: dot density, and the one place the plan leaves the faces</span></li>
+<li><code>bd7209c</code><time>2026-09-04</time><span>ADR-052 Â§3.14: the heat map, the first renderer that is not a symbol</span></li>
+<li><code>a04c050</code><time>2026-09-04</time><span>A design review found six things on the classify row, and three were real</span></li>
 <li><code>89d05ac</code><time>2026-09-04</time><span>The editor can find classes now, not only draw them</span></li>
 <li><code>e961e16</code><time>2026-09-04</time><span>ADR-052 Â§3.13: `generateRenderer`, so the classifier has a caller</span></li>
 <li><code>c57cc71</code><time>2026-09-04</time><span>ADR-052 Â§3.12: the classifier, which is the half that was missing</span></li>
@@ -412,9 +415,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f998953</code><time>2026-09-04</time><span>The refusal said &quot;no primitive for it&quot; and three of the five have one</span></li>
 <li><code>fb41c08</code><time>2026-09-04</time><span>D-204: a real service was redirected to the URL it had just asked for</span></li>
 <li><code>901a36f</code><time>2026-09-04</time><span>ADR-052 Â§3.10: the fourth renderer, which needed no new drawing</span></li>
-<li><code>6d6288f</code><time>2026-09-04</time><span>D-203: the field lived in `valueExpressionInfo` and the reader looked past it</span></li>
-<li><code>f54e76c</code><time>2026-09-04</time><span>The refusal named three renderers and knew of nine</span></li>
-<li><code>bf5cbb3</code><time>2026-09-03</time><span>A dash pattern is data, and the compiler read its first length as an operator</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

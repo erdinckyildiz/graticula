@@ -79,6 +79,15 @@ public static class Cim
     /// </remarks>
     public const string DotDensity = "CIMDotDensityRenderer";
 
+    /// <summary>A small chart at each feature, instead of a symbol.</summary>
+    /// <remarks>
+    /// <b>The third of the three that were called blocked and were not.</b> A wedge tessellated
+    /// into a ring is a polygon and <c>FillArea</c> fills polygons, so this needed no new
+    /// primitive either — only the arithmetic that turns several numbers into angles.
+    /// ADR-052 §3.16.
+    /// </remarks>
+    public const string Chart = "CIMChartRenderer";
+
     /// <summary>How many colours a heat map's ramp is read into.</summary>
     /// <remarks>
     /// <b>Nine, which is what a continuous ramp costs to carry as stops.</b> Both faces express
@@ -164,17 +173,16 @@ public static class Cim
             Proportional => ProjectProportional(body, notDrawn),
             HeatMap => ProjectHeatMap(body, notDrawn),
             DotDensity => ProjectDots(body, notDrawn),
+            Chart => ProjectChart(body, notDrawn),
 
             _ => throw new SymbologyException(
                 $"'{kind}' is not a renderer this server reads. It reads `{Simple}`, "
-                + $"`{UniqueValue}`, `{ClassBreaks}` and `{Proportional}`. A renderer it cannot "
-                + "read is refused rather than stored, because a stored document nothing can "
-                + "draw is a layer that looks styled and is not. The other five the "
-                + "specification defines are `CIMChartRenderer`, `CIMDictionaryRenderer` and "
-                + "`CIMRepresentationRenderer`. Two of those three are blocked rather than "
-                + "unwritten: a dictionary renderer needs a dictionary style this server does "
-                + "not hold, and a representation renderer needs a geodatabase's representation "
-                + "classes. A chart renderer is arithmetic over primitives that already exist."),
+                + $"`{UniqueValue}`, `{ClassBreaks}`, `{Proportional}`, "
+                + $"`{HeatMap}`, `{DotDensity}` and `{Chart}`. The two it does not read are "
+                + "`CIMDictionaryRenderer` and `CIMRepresentationRenderer`, and both are blocked "
+                + "rather than unwritten: a dictionary renderer needs a dictionary style this "
+                + "server does not hold, and a representation renderer needs a geodatabase's "
+                + "representation classes. Neither is a matter of effort."),
         };
     }
 
@@ -606,6 +614,103 @@ public static class Cim
         }
 
         return colours.GetRange(0, fields);
+    }
+
+    /// <summary>A chart at each feature, instead of a symbol.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Pies only, and a bar chart is reported rather than drawn as a pie.</b> A bar chart of
+    /// four fields and a pie of the same four say different things — one compares magnitudes and
+    /// the other compares shares of a whole — so drawing one as the other is not a smaller
+    /// picture, it is a different claim.
+    /// </para>
+    /// <para>
+    /// <b>`preventChartOverlap` is reported, and that is a real limit rather than a shrug.</b>
+    /// Resolving overlapping charts is the same problem as placing labels and this server solves
+    /// that one, but for text with a measured box; charts are placed at the feature's own point
+    /// and two dense neighbours will sit on each other. Saying so beats moving a chart away from
+    /// the feature it describes without telling anybody.
+    /// </para>
+    /// </remarks>
+    /// <param name="body">The renderer.</param>
+    /// <param name="notDrawn">Collects what could not be carried.</param>
+    /// <returns>The projection.</returns>
+    private static CimProjection ProjectChart(JsonObject body, List<string> notDrawn)
+    {
+        List<string> fields = [];
+
+        foreach (JsonNode? node in body["fieldNames"] as JsonArray ?? [])
+        {
+            if (Text(node) is { Length: > 0 } named && Plain(named) is { } column)
+            {
+                fields.Add(column);
+            }
+        }
+
+        if (fields.Count == 0)
+        {
+            throw new SymbologyException(
+                $"A `{Chart}` names no readable field in `fieldNames`, so there are no slices.");
+        }
+
+        List<Rgba> colours = DotColours(body, fields.Count, notDrawn);
+
+        if (Text(body["chartSymbol"]?["symbol"]?["type"]) is { Length: > 0 } shape
+            && !shape.Contains("Pie", StringComparison.OrdinalIgnoreCase))
+        {
+            notDrawn.Add(
+                $"The renderer's chart is a `{shape}`, and this server draws pies. A bar chart "
+                + "compares magnitudes and a pie compares shares of a whole, so it is drawn as "
+                + "the chart this server has rather than not at all — the slices are the same "
+                + "numbers.");
+        }
+
+        if (body["preventChartOverlap"] is JsonValue apart
+            && apart.TryGetValue(out bool wanted) && wanted)
+        {
+            notDrawn.Add(
+                "The renderer asks that charts not overlap each other. This server draws each "
+                + "chart at its feature's own point, so two close neighbours sit on each other "
+                + "rather than being moved apart.");
+        }
+
+        double size = 24;
+        double smallestValue = 0;
+        bool flannery = false;
+
+        if (body["proportionalPieSizeOptions"] is JsonObject sized)
+        {
+            size = Number(sized["minimumSize"]) ?? size;
+            smallestValue = Number(sized["minimumValue"]) ?? 0;
+            flannery = sized["flanneryCompensation"] is JsonValue f
+                && f.TryGetValue(out bool on) && on;
+
+            if (Text(sized["proportionalFieldName"]) is { Length: > 0 } by)
+            {
+                notDrawn.Add(
+                    $"The chart is sized by '{by}' rather than by the sum of its slices. This "
+                    + "server sizes it by the sum, so a chart's area still stands for its total "
+                    + "and not for that field.");
+            }
+        }
+
+        return new CimProjection(
+            Chart,
+            Field: null,
+            [new CimClass([], null, Text(body["label"]) ?? string.Empty, new CimSymbol([]))],
+            Default: null,
+            notDrawn)
+        {
+            Pie = new CimPie(
+                fields,
+                colours,
+                size,
+                smallestValue,
+                flannery,
+                body["baseSymbol"] is null
+                    ? null
+                    : ReadSymbol(body["baseSymbol"], "the chart's base symbol", notDrawn)),
+        };
     }
 
     /// <summary>One symbol per distinct value.</summary>
@@ -1449,6 +1554,9 @@ public sealed record CimProjection(
     /// <summary>What slides continuously with a number, on top of the classes.</summary>
     public IReadOnlyList<CimVary> Vary { get; init; } = [];
 
+    /// <summary>The chart, for a chart renderer. Null for every other.</summary>
+    public CimPie? Pie { get; init; }
+
     /// <summary>The scatter, for a dot-density renderer. Null for every other.</summary>
     public CimDots? Dots { get; init; }
 
@@ -1521,6 +1629,24 @@ public sealed record CimDots(
     double DotValue,
     double DotSize,
     long Seed);
+
+/// <summary>A chart at each feature: what its slices are and how big it is drawn.</summary>
+/// <param name="Fields">The columns that become slices, in the order their colours are given.</param>
+/// <param name="Colours">One per slice.</param>
+/// <param name="Size">The diameter in points, and the smallest one when the chart is sized.</param>
+/// <param name="SmallestValue">
+/// The sum that draws at <paramref name="Size"/>. Zero for a chart of one fixed size, which is
+/// the common case and the one a reader can compare across features by shares alone.
+/// </param>
+/// <param name="Flannery">Whether a sized chart uses Flannery's correction.</param>
+/// <param name="Base">What is drawn under the chart, usually the polygon's own fill.</param>
+public sealed record CimPie(
+    IReadOnlyList<string> Fields,
+    IReadOnlyList<Rgba> Colours,
+    double Size,
+    double SmallestValue,
+    bool Flannery,
+    CimSymbol? Base);
 
 /// <summary>One symbol and what it stands for.</summary>
 /// <param name="Values">The field values this class matches, for a unique-value renderer.</param>

@@ -352,6 +352,66 @@ public abstract class PlanLayer
         }
     }
 
+    /// <summary>A pie at each feature, instead of a symbol.</summary>
+    /// <remarks>
+    /// <b>The third that resolves to no symbol.</b> A chart is several marks whose shares depend
+    /// on each other, so there is nothing for <see cref="Resolve"/> to return;
+    /// <see cref="MapRenderer"/> recognises the type and draws the wedges. ADR-052 §3.16.
+    /// </remarks>
+    /// <param name="fields">The columns that become slices.</param>
+    /// <param name="colours">One per slice.</param>
+    /// <param name="size">The diameter in pixels, and the smallest one when the chart is sized.</param>
+    /// <param name="smallestValue">The sum drawn at that size, or zero for one fixed size.</param>
+    /// <param name="flannery">Whether a sized chart uses Flannery's correction.</param>
+    /// <param name="under">What is drawn beneath the chart, or null for nothing.</param>
+    public sealed class Pie(
+        IReadOnlyList<string> fields,
+        IReadOnlyList<Rgba> colours,
+        double size,
+        double smallestValue,
+        bool flannery,
+        MapSymbol.Area? under) : PlanLayer
+    {
+        /// <summary>The columns that become slices.</summary>
+        public IReadOnlyList<string> Sliced { get; } = fields;
+
+        /// <summary>One colour per slice.</summary>
+        public IReadOnlyList<Rgba> Colours { get; } = colours;
+
+        /// <summary>The diameter in pixels, and the smallest one when the chart is sized.</summary>
+        public double Size { get; } = size;
+
+        /// <summary>The sum drawn at that size, or zero for one fixed size.</summary>
+        public double SmallestValue { get; } = smallestValue;
+
+        /// <summary>Whether a sized chart uses Flannery's correction.</summary>
+        public bool Flannery { get; } = flannery;
+
+        /// <summary>What is drawn beneath the chart, or null for nothing.</summary>
+        public MapSymbol.Area? Under { get; } = under;
+
+        /// <inheritdoc/>
+        public override MapSymbol? Resolve(in StyleExpression.Context context) => null;
+
+        /// <inheritdoc/>
+        public override void Fields(ISet<string> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+
+            foreach (string one in Sliced)
+            {
+                into.Add(one);
+            }
+        }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            // <b>Nothing.</b> A chart's legend is its slices, which are fields rather than
+            // classes of one field, and this collection is for the latter.
+        }
+    }
+
     /// <summary>A label.</summary>
     public sealed class Text(
         StyleExpression field,

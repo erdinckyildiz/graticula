@@ -3170,6 +3170,7 @@ async function drawServiceSymbology() {
         CIMProportionalRenderer: "one symbol, sized in proportion to a number",
         CIMHeatMapRenderer: "a density surface over the points",
         CIMDotDensityRenderer: "dots scattered inside each area",
+        CIMChartRenderer: "a pie chart at each feature",
       }[(r.symbology || {}).type] || "an appearance this console does not name";
 
       const varies = ((r.symbology || {}).visualVariables || []).length > 0;

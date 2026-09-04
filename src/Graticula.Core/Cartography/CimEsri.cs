@@ -547,6 +547,56 @@ public static class CimEsri
         };
     }
 
+    /// <summary>An Esri `pieChart` renderer.</summary>
+    /// <remarks>
+    /// <b>`attributes` again, the same shape the dot-density renderer uses.</b> Each slice
+    /// carries its own field, label and colour, so the three cannot come apart the way CIM's
+    /// parallel arrays can.
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The renderer.</returns>
+    private static JsonObject ChartOut(CimProjection projection, List<string> losses)
+    {
+        if (projection.Pie is not { } pie)
+        {
+            throw new SymbologyException(
+                "A chart projection carries no chart, so there is nothing to publish.");
+        }
+
+        JsonArray attributes = [];
+
+        for (int i = 0; i < pie.Fields.Count; i++)
+        {
+            attributes.Add(new JsonObject
+            {
+                ["field"] = pie.Fields[i],
+                ["label"] = pie.Fields[i],
+                ["color"] = Esri(pie.Colours[i]),
+            });
+        }
+
+        JsonObject built = new()
+        {
+            ["type"] = "pieChart",
+            ["attributes"] = attributes,
+            ["size"] = Num(pie.Size),
+            ["holePercentage"] = Num(0),
+            ["defaultColor"] = Esri(new Rgba(180, 180, 180, 255)),
+            ["defaultLabel"] = "No data",
+        };
+
+        if (pie.SmallestValue > 0)
+        {
+            losses.Add(
+                "The chart is sized by the sum of its slices. A client reading this document "
+                + "draws every chart at one size, because `size` is a single number and the "
+                + "sizing lives in a visual variable this server does not publish.");
+        }
+
+        return built;
+    }
+
     /// <summary>Wraps a converted symbol the way CIM carries one.</summary>
     /// <param name="node">The Esri symbol.</param>
     /// <param name="geometry">What the layer is made of.</param>
@@ -795,6 +845,7 @@ public static class CimEsri
             Cim.ClassBreaks => BreaksOut(projection, losses),
             Cim.HeatMap => HeatOut(projection, losses),
             Cim.DotDensity => DotsOut(projection, losses),
+            Cim.Chart => ChartOut(projection, losses),
 
             _ => throw new SymbologyException(
                 $"'{projection.Kind}' has no Esri renderer to derive for '{layerName}'."),
