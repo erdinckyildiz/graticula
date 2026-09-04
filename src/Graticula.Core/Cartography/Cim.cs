@@ -255,10 +255,13 @@ public static class Cim
     /// `Predominance` in ArcGIS are a renderer plus one of these, not renderers of their own.
     /// </para>
     /// <para>
-    /// <b>Esri names the field three different ways and this reads all three.</b> Colour and size
-    /// carry an Arcade `expression`, usually `$feature.POP`; transparency carries a plain
-    /// `field`. Refusing the ones that do not match one spelling would refuse documents ArcGIS
-    /// Pro itself writes.
+    /// <b>Esri names the field four different ways and this reads all four.</b> Transparency
+    /// carries a plain <c>field</c>; colour and size carry <c>expression</c>, usually
+    /// <c>$feature.POP</c> — and the specification says of that property that it <i>is used for
+    /// Python or VBScript expressions. Arcade expressions will use the ValueExpressionInfo
+    /// property</i>, so a variable ArcGIS Pro writes today puts the field in
+    /// <c>valueExpressionInfo.expression</c> and leaves <c>expression</c> empty. Refusing the
+    /// ones that do not match one spelling would refuse documents Pro itself writes.
     /// </para>
     /// </remarks>
     /// <param name="body">The renderer.</param>
@@ -359,7 +362,22 @@ public static class Cim
             return plain;
         }
 
-        if (Text(variable["expression"]) is not { Length: > 0 } expression)
+        // <b>`valueExpressionInfo` before `expression`, because the specification says so.</b>
+        // `expression` is the Python and VBScript slot; Arcade — which is what ArcGIS Pro writes
+        // now — goes in `valueExpressionInfo.expression`. Reading only the old slot made every
+        // Pro-authored colour or size variable report *names no field this server can read*,
+        // and the renderer then drew one flat symbol with no sign that anything had been
+        // dropped. Found 2026-09-04 while reading `CIMRenderers.md` for the proportional
+        // renderer, and it had been wrong since the reader was written.
+        string? text = Text(variable["expression"]);
+
+        if (text is not { Length: > 0 }
+            && variable["valueExpressionInfo"] is JsonObject arcade)
+        {
+            text = Text(arcade["expression"]);
+        }
+
+        if (text is not { Length: > 0 } expression)
         {
             return null;
         }

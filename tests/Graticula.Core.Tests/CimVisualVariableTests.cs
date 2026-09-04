@@ -94,6 +94,42 @@ public sealed class CimVisualVariableTests
         }
     }
 
+    /// <summary>
+    /// The fourth spelling, and the one ArcGIS Pro writes.
+    /// </summary>
+    /// <remarks>
+    /// <b>`expression` is the Python and VBScript slot.</b> `CIMRenderers.md` says of it that it
+    /// *is used for Python or VBScript expressions. Arcade expressions will use the
+    /// ValueExpressionInfo property* — so the spelling this reader was built around is the
+    /// legacy one, and the current one was falling through to *names no field this server can
+    /// read*. The renderer then drew one flat symbol, which is a picture with nothing wrong
+    /// with it except that it is not what the document asked for.
+    /// </remarks>
+    [Fact]
+    public void Arcade_in_valueExpressionInfo_is_read_because_that_is_where_Pro_puts_it()
+    {
+        JsonObject renderer = (JsonObject)JsonNode.Parse(
+            FadingByPopulation.Replace(
+                "\"expression\": \"$feature.nufus\",",
+                """
+                "valueExpressionInfo": {
+                  "type": "CIMExpressionInfo",
+                  "title": "Nufus",
+                  "expression": "$feature.nufus",
+                  "returnType": "Default"
+                },
+                """,
+                StringComparison.Ordinal))!;
+
+        CimProjection projection = Cim.Project(renderer);
+
+        CimVary one = Assert.Single(projection.Vary);
+
+        Assert.Equal("nufus", one.Field);
+        Assert.Equal(CimVaries.Colour, one.What);
+        Assert.Empty(projection.NotDrawn);
+    }
+
     [Fact]
     public void An_Arcade_expression_that_computes_is_refused_rather_than_read_as_a_column()
     {
