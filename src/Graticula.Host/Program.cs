@@ -1541,6 +1541,10 @@ public static class Program
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>ADR-052 §3.13.</b> Turns a field, a method and a class count into a renderer,
+            // which is the half of symbology this server could read and not author.
+            GenerateRendererEndpoints.Map(app, prefix);
+
             app.MapPost(
                 $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/applyEdits",
                 ApplyEditsAsync)

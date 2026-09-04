@@ -464,6 +464,58 @@ came from whoever wrote them.
 deviation — so the requested count does not apply to them and is not checked
 against them. Both check the count they arrive at against the same ceiling of 32.
 
+### 3.13 `generateRenderer`, and why it is not in the console — 2026-09-04
+
+**The classifier needs somewhere to live and ArcGIS already named it.**
+`generateRenderer` is a POST on a layer taking a `classificationDef` — either a
+`classBreaksDef` (`classificationField`, `classificationMethod`, `breakCount`,
+`classificationIntervalSize`) or a `uniqueValueDef` (`uniqueValueFields`,
+`baseSymbol`, `colorRamp`) — and returning a finished renderer. Every ArcGIS
+client already calls it. This server answered 404.
+
+**Behind the operation rather than inside the console**, so one implementation
+serves the console and every client. The alternative — the arithmetic in
+JavaScript — would have served the console alone and left the operation
+unimplemented for everybody else, which is the same shape as a feature that
+exists only in the vendor's own tool.
+
+**One round trip.** A classification wants the minimum, the maximum, sometimes
+the mean and standard deviation, and for two methods a list of quantiles; all of
+them are aggregates over the same rows, so they go in one `outStatistics` query.
+The connection lease is taken before the provider is unwrapped, because three
+aggregates and a sort over a whole column is not a statement to issue outside
+ADR-007 §4.8's cap.
+
+**Both verbs and three places to put the definition.** ArcGIS documents a form
+POST, scripts reach for the query string, and anything modern sends a JSON body.
+The operation reads and changes nothing, so refusing the GET would be ceremony.
+
+**What it refuses, and why each refusal is not laziness.**
+
+- `normalizationType` — refused rather than ignored. A client asking to normalise
+  by area and receiving unnormalised classes gets a plausible choropleth of the
+  wrong quantity with nothing anywhere to say so.
+- More than one `uniqueValueFields` — this server classifies by one (§3.2), so
+  combining several would produce classes it could not read back from its own
+  document.
+- More than **64** distinct values — refused rather than truncated. Truncating
+  produces a map that looks right and is missing most of its data, and a field
+  with that many values is usually an identifier rather than a category.
+- A field the layer does not have, by name.
+
+**The default ramp is a single-hue sequential one, and that is a cartographic
+choice.** A classification is ordered, so its colours must be orderable by eye; a
+rainbow is not. Pale to deep in one hue reads as *less* to *more* without a
+legend. The outline is deliberately not recoloured — that is what stops
+neighbouring classes bleeding into each other.
+
+Measured against the fixture: all six computed methods answer, the
+standard-deviation one derives **four** classes where three were asked for
+(because the count is the data's answer there), and a `uniqueValueDef` over a
+text field returns one class per value in a monotone ramp. Falsified: with the
+ramp interpolation removed and the field check removed, exactly the two tests
+that assert them fail and the other eight pass.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather
