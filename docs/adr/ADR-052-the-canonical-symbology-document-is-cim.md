@@ -719,6 +719,76 @@ asked where it came from. The page does say it — but *quoting a summary as tho
 it were the source* is exactly the failure this repository's §5 conditions exist
 to prevent, and it was caught by somebody asking rather than by anything here.
 
+### 3.18 Alpha, and the control that could not express it — 2026-09-04
+
+Asked plainly by the owner: *"bir de renklere alpha verebiliyor muyuz?"* The answer had two
+halves and they disagreed.
+
+**The format and the server: yes, and they always did.** `CIMRGBColor.values` is
+`[r, g, b, alpha]`, and the two scales are not the same — the three channels are 0–255 and
+**the alpha is 0–100**, while the ArcGIS REST face puts all four on 0–255. Measured
+2026-09-04 on `ci_buildings`, storing a fill at CIM alpha 35:
+
+| face | what it published |
+| --- | --- |
+| stored CIM | `values: [220, 50, 40, 35]` |
+| ArcGIS `drawingInfo` | `color: [220, 50, 40, 89]` — 35 % of 255 |
+| MapLibre style | `fill-color: #dc3228`, `fill-opacity: 0.349` |
+
+and the renderer draws it. The same polygon previewed at CIM alpha 100, 50 and 15 covered the
+same 2,040 pixels each time at a mean alpha of **230.0, 115.4 and 34.3** — 0.502 and 0.149 of
+the first, which is linear to the pixel. Nothing needed adding on the server at all.
+
+**The console: no, and it was not a decision.** Every colour on the symbology page is an
+`<input type="color">`, an element that hands back `#rrggbb` and has no fourth channel. So the
+editor could not *set* an opacity, and — worse than not offering it — one of the two places it
+appears was quietly *destroying* it. `symCimColour` took the colour being replaced and kept its
+alpha, which is why the class swatches and the layer swatches were safe; the visual-variable
+colour ramp did not, and rebuilt `fromColor` and `toColor` from the hex alone every time the
+form was applied. A stored ramp that faded in from transparent came back opaque the first time
+anybody touched the page, silently, on a screen that showed no alpha to notice missing. That is
+[D-214](../architecture-debt.md).
+
+**Both now carry a per-cent box beside the swatch**, on CIM's own 0–100 scale rather than a
+translation of it, because the document being edited is the stored one. Not a second colour
+picker with an alpha channel: `type="color"` has no such mode in any browser, and the two things
+the box does — set an opacity, and *show* the one a document already has — both want a number
+somebody can read, type and compare between two classes.
+
+The class rows did not get one. They already carry a value, a label, a swatch and a remove
+button, they are bounded to ten visible rows against a 256-class list, and a row that wraps
+doubles its height — measured yesterday at 46 px against 86 px. Opacity is per *symbol layer*
+and a class may have several; the panel below the list is where a symbol's layers are edited,
+and it is where width and size already live. One row, one control per thing the row is about.
+
+**Two things the design review caught that the reasoning above got wrong.**
+
+The first is that yesterday's fix was applied here as a rule of thumb instead of as a
+measurement. A class row that wrapped doubled its height, so the row was given `flex-wrap:
+nowrap` and two shrinkable text boxes to give up the width. The layer row got the `nowrap` and
+not the shrinkable boxes — every child of it is fixed-width — so the wrap became an **overflow**:
+measured at 1280 wide, a 359 px panel holding a 484 px row, with the reorder and remove buttons
+rendered 125 px past the row's own border and no clipping to make it look like anything but a
+mistake. The row now wraps again, deliberately, and the reason it may is the difference the first
+attempt missed: **the class list is bounded to ten visible rows out of 256, so a doubled height
+halves what a reader can see; a symbol has two or three layers, where a second line costs
+nothing.** The shape of the row was never the question. The length of the list was.
+
+The second is that a number and its unit were two flex items, so a row short of width could break
+*between them* — the `%` of an opacity on its own line, under its own box. They are one item now,
+which is the fix that holds at any width rather than at the two widths anybody remembered to
+measure. The same treatment went on `pt`, which had the fault already and had never been caught.
+
+**And the opacity is not a whole number.** A stored alpha is very often fractional and nobody
+chose it: an ArcGIS document carries alpha as one byte of 255, so a symbol meaning 45 % arrives
+as 115 and `Cim.Percent` converts it to **45.1**. Every generated fixture in this repository has
+one — `ci_parcels` holds 45.1 and `ci_editable` 90.2. The box was written `step="1"`, which put
+45.1 in front of a spinner that snapped it to 46 on the first press: **a value nobody typed,
+overwriting one nobody could see was different.** It is `step="0.1"` and unrounded now. The
+alternative — rounding the display and keeping the stored value — is the trap this repository
+keeps paying for, where what is on the screen and what is in the column are not the same thing
+and only one of them is edited.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather

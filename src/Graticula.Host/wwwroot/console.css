@@ -2131,7 +2131,14 @@ html[data-session="held"] #app { display: block !important; }
   background:var(--surface);
   min-width:30px;
 }
-.setting.symlayer .symup{margin-left:auto}
+/* <b>No `margin-left: auto`, because the row wraps.</b> Pushing the reorder and remove buttons
+   to the far right aligned them down the stack, which is worth having on a row that fits — and
+   this one does not always: measured at 1440, a stroke or marker row breaks before its buttons,
+   and `auto` then held them at the right edge of an otherwise empty line, three-quarters of it
+   blank. A cluster alone at the end of a blank line reads as a rendering fault rather than as
+   the same three buttons that were there before. They follow the controls now, so a second line
+   begins where the eye is already going. */
+.setting.symlayer .symup{margin-left:var(--gap-2)}
 
 #symStackActions{gap:6px}
 
@@ -2269,3 +2276,29 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symclass .symvalue,
 .setting.symclass .symlabel{ flex: 1 1 60px; min-width: 0; }
 .setting.symclass .q{ white-space: nowrap; }
+
+/* -------------------------- an opacity box beside a colour, on both surfaces
+   <b>Narrow, because it holds at most five characters.</b> A per-cent box the width of the
+   number boxes beside it reads as another measurement of the same importance as the colour, and
+   it is not: it qualifies the swatch to its left. */
+.symalpha,
+#symVaryFromAlpha,
+#symVaryToAlpha{ width: 4.75em; font-variant-numeric: tabular-nums; }
+
+/* <b>A number and its unit are one flex item, not two.</b> They were two, and a row short of
+   width broke between them: measured by a design review at 1280 wide, where the symbol stack's
+   panel is 359 px and the *%* of an opacity wrapped onto a line of its own, under its own box.
+   Gluing them is the fix that holds at any width, rather than a `nowrap` that turns a wrap into
+   an overflow — which is what the first attempt did here, pushing the ↑ ↓ × buttons out past the
+   row's own border by 125 px. */
+.pair{ display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pair > input{ width: 4.75em; }
+
+/* <b>These two rows wrap, and that is the right answer for them.</b> The class list does not:
+   it is bounded to ten visible rows against a classification of 256, so a row that doubles its
+   height halves what anybody can see. A symbol has two or three layers and the vary form has two
+   rows, so a second line costs a reader nothing and an overflowing row costs them the controls.
+   The difference is the length of the list, not the shape of the row. */
+.setting.symlayer{ flex-wrap: wrap; row-gap: 6px; }
+.setting.symvarystop{ row-gap: 6px; }
+.setting.symvarystop input[type="number"]{ width: 5.5em; }

@@ -337,6 +337,160 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
+    /// A colour's opacity can be set, and it is the fourth number of the colour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner question 2026-09-04: *bir de renklere alpha verebiliyor muyuz?*</b> The format
+    /// always could — <c>CIMRGBColor.values</c> is <c>[r, g, b, alpha]</c>, both derived faces
+    /// carry it, and the renderer draws it — but this console could not say it, because an
+    /// <c>input type="color"</c> hands back six hex digits and has no fourth channel. So the
+    /// answer was *the server yes, the editor no*, which is not an answer anybody can use.
+    /// </para>
+    /// <para>
+    /// <b>Nought to a hundred, which is CIM's scale.</b> The ArcGIS REST face puts alpha on
+    /// 0–255 with the other three; the stored document does not, and this box edits the stored
+    /// document. The test asserts the stored number rather than a published one for that reason.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_opacity_reaches_the_colour_it_belongs_to()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelector('#symStack .symalpha') !== null",
+            "The symbol's layers never carried an opacity box.");
+
+        // <b>Set through the box the way a person sets it</b>, rather than by calling the
+        // handler: the point in question is whether the control is wired at all.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const a = document.querySelector('#symStack .symalpha');"
+            + " a.value = '35';"
+            + " a.dispatchEvent(new Event('change', { bubbles: true }));"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "(() => { const d = document.getElementById('symDoc');"
+            + " if (!d) return false;"
+            + " return JSON.stringify(JSON.parse(d.value)).includes(',35]'); })()",
+            "The opacity never reached the document as the fourth number of a colour.");
+
+        // <b>And it is the fourth number, not a fifth property.</b> A colour that grew a
+        // separate `opacity` beside its values would be read by nothing downstream.
+        bool onTheColour = await Browser.EvaluateAsync<bool>(
+            "(() => { const d = JSON.parse(document.getElementById('symDoc').value);"
+            + " const walk = o => {"
+            + "   if (!o || typeof o !== 'object') return false;"
+            + "   if (o.type === 'CIMRGBColor' && Array.isArray(o.values))"
+            + "     return o.values.length === 4 && o.values[3] === 35;"
+            + "   return Object.values(o).some(walk); };"
+            + " return walk(d); })()");
+
+        Assert.True(
+            onTheColour,
+            "The document has 35 in it somewhere, but not as the alpha of a CIMRGBColor, which "
+            + "is the only place anything reads it from.");
+
+        // <b>Changing the colour afterwards keeps the opacity.</b> The swatch rebuilds the
+        // colour from six hex digits and would drop the fourth number unless it is carried,
+        // which is the fault this control exists to make visible.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const c = document.querySelector('#symStack .symlayercolour');"
+            + " c.value = '#123456';"
+            + " c.dispatchEvent(new Event('change', { bubbles: true }));"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "(() => { const d = JSON.parse(document.getElementById('symDoc').value);"
+            + " const walk = o => {"
+            + "   if (!o || typeof o !== 'object') return false;"
+            + "   if (o.type === 'CIMRGBColor' && Array.isArray(o.values))"
+            + "     return o.values[0] === 18 && o.values[3] === 35;"
+            + "   return Object.values(o).some(walk); };"
+            + " return walk(d); })()",
+            "Choosing a new colour reset the opacity to opaque, so the two controls fight.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The opacity box shows what is stored, not a rounding of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A stored opacity is very often fractional, and nobody chose it.</b> An ArcGIS document
+    /// carries alpha as one byte of 255, so a symbol meaning 45 % arrives as 115 and
+    /// <c>Cim.Percent</c> converts it to 45.1. Every generated fixture in this repository has
+    /// one: <c>ci_parcels</c> holds 45.1 and <c>ci_editable</c> 90.2. This is the first-run
+    /// state, not an edge case.
+    /// </para>
+    /// <para>
+    /// <b>The box was written `step="1"`</b>, which put 45.1 in front of a native spinner that
+    /// snapped it to 46 on the first press — a value nobody typed, overwriting one nobody could
+    /// see was different. The alternative that was rejected is rounding the display and keeping
+    /// the stored value, which leaves what is on the screen and what is in the column as two
+    /// different numbers, only one of which anybody edits.
+    /// </para>
+    /// <para>
+    /// <b>The document is planted rather than found, and the first version was not.</b> It read
+    /// whatever layer <c>AnyLayerAsync</c> returned and compared the box against that document,
+    /// which is a true property and an empty test: the layer it picked has a whole-number alpha,
+    /// so putting <c>Math.round</c> back into the display path <b>did not fail it</b>. A
+    /// falsification that passes is a fault in the test, so this one supplies the fraction
+    /// itself and no longer depends on which fixture the fixture list happens to start with.
+    /// </para>
+    /// <para>
+    /// <b>Typed into the document box, which is a real path a person uses.</b> The editor adopts
+    /// what is typed there after a pause and refills the form from it, so this is the same route
+    /// a pasted ArcGIS symbol takes into the controls.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_opacity_box_shows_the_stored_number_exactly()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelector('#symStack .symalpha') !== null",
+            "The symbol's layers never carried an opacity box.");
+
+        // <b>45.1 is not an invented number.</b> It is what an ArcGIS symbol meaning 45 % becomes
+        // when its alpha travels as one byte of 255: 115, and 115 / 255 is 45.098.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const box = document.getElementById('symDoc');"
+            + " box.value = JSON.stringify({ type: 'CIMSimpleRenderer',"
+            + "   symbol: { type: 'CIMSymbolReference', symbol: {"
+            + "     type: 'CIMPolygonSymbol', symbolLayers: [{"
+            + "       type: 'CIMSolidFill', enable: true,"
+            + "       color: { type: 'CIMRGBColor', values: [220, 50, 40, 45.1] } }] } } });"
+            + " box.dispatchEvent(new Event('input', { bubbles: true }));"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "(() => { const b = document.querySelector('#symStack .symalpha');"
+            + " return b !== null && b.value === '45.1'; })()",
+            "The box does not show 45.1, so a stored opacity is being rounded on its way to the "
+            + "screen — which puts a number nobody typed in front of a control that will write "
+            + "it back.");
+
+        // <b>And the box can express what it is showing.</b> A whole-number step on a fractional
+        // value is the fault itself: the number is right until the first press of an arrow.
+        string step = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#symStack .symalpha').step") ?? "";
+
+        Assert.NotEqual("1", step);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A property can be made to slide with a number, and it reaches the document.
     /// </summary>
     /// <remarks>
@@ -406,10 +560,24 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         // <b>Colour boxes for a colour, numbers for a size.</b> Showing both is how a form
         // gets a value nobody meant.
+        //
+        // <b>Asked of the layout, not of the attribute.</b> This read `symVaryToNumber.hidden`
+        // and broke on 2026-09-04 when the box and its unit were wrapped in one element so that
+        // a narrow row could not break between them — the wrapper carries `hidden` now and the
+        // box does not, so the assertion failed while the screen was correct. An attribute is
+        // one of several ways a thing becomes invisible; `offsetParent` is whether it *is*.
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "document.getElementById('symVaryToNumber').hidden"),
+                "document.getElementById('symVaryToNumber').offsetParent === null"),
             "A colour variable offers a number box beside its colour.");
+
+        // <b>And the unit went with it.</b> Two elements hidden by two rules is two chances to
+        // hide one of them; the `pt` used to be a sibling of the box and could be left behind.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('symVaryToUnit').offsetParent === null"),
+            "The number box is hidden and its unit is still on the row, so a colour variable "
+            + "shows a stray `pt` with nothing to measure.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

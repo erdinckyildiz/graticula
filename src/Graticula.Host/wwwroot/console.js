@@ -4831,6 +4831,20 @@ async function symEdited(control, settled) {
     const paint = symLayerColour(layers[Number(control.dataset.layer)]);
 
     if (paint) paint.color = symCimColour(control.value, paint.color);
+  } else if (control.classList.contains("symalpha")) {
+    // <b>The alpha is on the colour, not beside it.</b> A CIMRGBColor is four numbers and the
+    // fourth is opacity; there is no separate opacity property on a symbol layer to set, so this
+    // box edits `values[3]` of whichever colour the layer is painted with.
+    const paint = symLayerColour(layers[Number(control.dataset.layer)]);
+
+    if (paint && paint.color) {
+      // <b>An emptied box falls back to the opacity that is there, not to opaque.</b> Clearing
+      // the field to type a new number passes through `""`, and answering that with 100 makes a
+      // faded symbol flash solid mid-keystroke — then stay solid if the reader gives up and
+      // clicks away, having changed a value they were only about to change.
+      paint.color = symCimColour(
+        symCimHex(paint.color), null, symPercent(control.value, symCimAlpha(paint.color)));
+    }
   } else if (control.classList.contains("symwidth")) {
     const layer = layers[Number(control.dataset.layer)];
 
@@ -5264,8 +5278,11 @@ function drawVarying() {
 
   for (const [id, on] of [
     ["symVaryFromColour", colour], ["symVaryToColour", colour],
-    ["symVaryFromNumber", !colour], ["symVaryToNumber", !colour],
-    ["symVaryFromUnit", !colour], ["symVaryToUnit", !colour],
+    // <b>The box and its per-cent sign are hidden as one.</b> They were two entries here and the
+    // sign was a sibling of the box; now it is inside `.pair` with it, so hiding the pair hides
+    // both and there is no arrangement in which one of them can be left behind.
+    ["symVaryFromPer", colour], ["symVaryToPer", colour],
+    ["symVaryFromMeasure", !colour], ["symVaryToMeasure", !colour],
   ]) {
     if ($(id)) $(id).hidden = !on;
   }
@@ -5282,6 +5299,8 @@ function drawVarying() {
   if (colour) {
     $("symVaryFromColour").value = stops.from.colour;
     $("symVaryToColour").value = stops.to.colour;
+    $("symVaryFromAlpha").value = String(stops.from.alpha);
+    $("symVaryToAlpha").value = String(stops.to.alpha);
   } else {
     $("symVaryFromNumber").value = stops.from.number;
     $("symVaryToNumber").value = stops.to.number;
@@ -5326,15 +5345,20 @@ function symVaryStops(variable) {
     ? variable.dataValues
     : [variable.minValue ?? 0, variable.maxValue ?? 1];
 
-  const from = { at: data[0], colour: "#ffffff", number: 1 };
-  const to = { at: data[data.length - 1], colour: "#000000", number: 10 };
+  const from = { at: data[0], colour: "#ffffff", alpha: 100, number: 1 };
+  const to = { at: data[data.length - 1], colour: "#000000", alpha: 100, number: 10 };
 
   if (variable.type === "CIMColorVisualVariable") {
     const ramp = variable.colorRamp || {};
     const colours = Array.isArray(ramp.colors) ? ramp.colors : null;
 
-    from.colour = symCimHex(colours ? colours[0] : ramp.fromColor);
-    to.colour = symCimHex(colours ? colours[colours.length - 1] : ramp.toColor);
+    const low = colours ? colours[0] : ramp.fromColor;
+    const high = colours ? colours[colours.length - 1] : ramp.toColor;
+
+    from.colour = symCimHex(low);
+    to.colour = symCimHex(high);
+    from.alpha = symCimAlpha(low);
+    to.alpha = symCimAlpha(high);
   } else if (variable.type === "CIMSizeVisualVariable") {
     const sizes = Array.isArray(variable.sizeValues) && variable.sizeValues.length > 1
       ? variable.sizeValues
@@ -5402,8 +5426,13 @@ function varyFromForm() {
       maxValue: to,
       colorRamp: {
         type: "CIMLinearContinuousColorRamp",
-        fromColor: symCimColour($("symVaryFromColour").value),
-        toColor: symCimColour($("symVaryToColour").value),
+        // <b>Three arguments, not one.</b> Built from the hex alone, this rebuilt every ramp
+        // at full opacity — so a stored ramp that faded from transparent lost the fade the
+        // first time anybody touched the form, silently, on a page that shows no alpha.
+        fromColor: symCimColour(
+          $("symVaryFromColour").value, null, symPercent($("symVaryFromAlpha").value, 100)),
+        toColor: symCimColour(
+          $("symVaryToColour").value, null, symPercent($("symVaryToAlpha").value, 100)),
       },
     };
   } else if (kind === "size") {
@@ -5449,6 +5478,8 @@ function varyStarted(kind) {
   if (kind === "colour") {
     $("symVaryFromColour").value = "#fff5eb";
     $("symVaryToColour").value = "#8c2d04";
+    $("symVaryFromAlpha").value = "100";
+    $("symVaryToAlpha").value = "100";
   } else if (kind === "size") {
     $("symVaryFromNumber").value = 1;
     $("symVaryToNumber").value = 12;
@@ -5806,14 +5837,67 @@ function symCimHex(colour) {
   return symHex(v.length >= 3 ? [v[0], v[1], v[2]] : null);
 }
 
-/** A CIMRGBColor from `#rrggbb`, keeping the alpha that was there. */
-function symCimColour(hex, was) {
-  const c = symColour(hex);
-  const alpha = was && Array.isArray(was.values) && was.values.length > 3
-    ? was.values[3]
-    : 100;
+/**
+ * The opacity of a CIMRGBColor, as a percentage, fraction and all.
+ *
+ * <b>Nought to a hundred, which is the CIM scale and not Esri's.</b> `CIMRGBColor.values` is
+ * `[r, g, b, alpha]` with the three channels on 0–255 and the alpha on <b>0–100</b>; the ArcGIS
+ * REST face puts all four on 0–255, so the two differ by a factor this console never applies
+ * because it edits the stored document rather than the published one. Missing means opaque:
+ * a colour written without a fourth number is a solid colour everywhere this server reads one.
+ *
+ * @param {object} colour a CIMRGBColor, or nothing
+ * @returns {number} its opacity in per cent
+ */
+function symCimAlpha(colour) {
+  const v = (colour && colour.values) || [];
 
-  return { type: "CIMRGBColor", values: [c[0], c[1], c[2], alpha] };
+  return v.length > 3 && Number.isFinite(Number(v[3])) ? Number(v[3]) : 100;
+}
+
+/**
+ * A CIMRGBColor from `#rrggbb`, with an opacity taken from an argument or from what was there.
+ *
+ * @param {string} hex the colour, `#rrggbb`
+ * @param {object} [was] the colour being replaced, whose alpha is kept
+ * @param {number} [alpha] an opacity in per cent, which wins over `was`
+ * @returns {object} the colour
+ */
+function symCimColour(hex, was, alpha) {
+  const c = symColour(hex);
+
+  return {
+    type: "CIMRGBColor",
+    values: [c[0], c[1], c[2], alpha ?? symCimAlpha(was)],
+  };
+}
+
+/**
+ * A number in 0–100 from a box somebody is still typing in.
+ *
+ * <b>An empty box is not nought.</b> Somebody clearing the field to type `40` passes through
+ * `""`, and reading that as fully transparent makes the symbol vanish mid-keystroke — so the
+ * caller says what an unreadable box means, and the value is clamped rather than trusted. The
+ * layer rows answer with the opacity already on the colour; the ramp form, which rebuilds its
+ * variable from nothing each time, answers with opaque.
+ *
+ * <b>And it is not rounded to a whole number, which it was for an hour.</b> A stored opacity is
+ * very often fractional and nobody chose it: an ArcGIS document carries alpha as one byte of
+ * 255, so a symbol meaning 45 per cent arrives as 115 and converts to <b>45.1</b>. Every
+ * generated fixture in this repository has one. Rounding for display in a `step="1"` box put
+ * 45.1 in front of a spinner that snapped it to 46 on the first press: a value nobody typed,
+ * overwriting one nobody could see was different.
+ *
+ * @param {string} text what the box holds
+ * @param {number} fallback what to use when it holds nothing readable
+ * @returns {number} a per cent, clamped
+ */
+function symPercent(text, fallback) {
+  const n = Number(String(text).trim());
+
+  return String(text).trim().length > 0 && Number.isFinite(n)
+    ? Math.max(0, Math.min(100, n))
+    : fallback;
 }
 
 /** A fresh symbol layer of the asked kind. */
@@ -6212,19 +6296,31 @@ function drawSymbolLayers() {
     // <b>A layer this console cannot edit is shown, not hidden.</b> It is in the document and
     // it is drawn or reported by the server; a form that skipped it would make Store look like
     // it had deleted something.
+    // <b>A number and its unit are one thing on the line.</b> As two flex children they are two,
+    // and a row that runs out of width breaks between them — measured by a design review at
+    // 1280 wide, where the *%* of an opacity landed on a line of its own under its own box.
     const measure = layer.type === "CIMSolidStroke"
-      ? `<input type="number" class="symwidth" data-layer="${i}" min="0" max="40" step="0.25"
-           value="${h(String(layer.width ?? 1))}"><span class="u">pt</span>`
+      ? `<span class="pair"><input type="number" class="symwidth" data-layer="${i}"
+           min="0" max="40" step="0.25" title="How wide this stroke is, in points"
+           value="${h(String(layer.width ?? 1))}"><span class="u">pt</span></span>`
       : layer.type === "CIMVectorMarker"
-        ? `<input type="number" class="symsize" data-layer="${i}" min="1" max="96" step="1"
-             value="${h(String(layer.size ?? 8))}"><span class="u">pt</span>`
+        ? `<span class="pair"><input type="number" class="symsize" data-layer="${i}"
+             min="1" max="96" step="1" title="How big this marker is, in points"
+             value="${h(String(layer.size ?? 8))}"><span class="u">pt</span></span>`
         : "";
 
     return `<div class="setting symlayer" data-layer="${i}">
       <span class="q symlayerkind">${h(name)}</span>
       ${known
         ? `<input type="color" class="symlayercolour" data-layer="${i}"
-             value="${h(symCimHex(paint && paint.color))}">`
+             value="${h(symCimHex(paint && paint.color))}"
+             title="The colour of this ${h(name.toLowerCase())}"
+             aria-label="${h(name)} colour">
+           <span class="pair"><input type="number" class="symalpha" data-layer="${i}"
+             min="0" max="100" step="0.1"
+             value="${h(String(symCimAlpha(paint && paint.color)))}"
+             title="How opaque this colour is: 100 is solid, 0 is invisible"
+             aria-label="${h(name)} opacity, per cent"><span class="u">%</span></span>`
         : `<span class="hint">kept, not editable here</span>`}
       ${measure}
       <button class="tiny ghost symup" data-layer="${i}" title="Move up"${i === 0 ? " disabled" : ""}>↑</button>
@@ -7628,17 +7724,37 @@ function showLayer(name, page, pending = null) {
               <label class="q" for="symVaryField">With:</label>
               <select id="symVaryField"></select></div>
 
+            <!--
+              <b>A per-cent box beside each colour, because an *input type=color* has no alpha.</b>
+              The element gives back *#rrggbb* and nothing else — it cannot express the fourth
+              number a CIMRGBColor carries — so a form built only from colour boxes rebuilds
+              every ramp fully opaque, which is what this one did until 2026-09-04.
+            -->
             <div class="setting symvarystop"><span class="q">From:</span>
               <input type="number" id="symVaryFrom" step="any">
-              <input type="color" id="symVaryFromColour">
-              <input type="number" id="symVaryFromNumber" step="0.5" min="0">
-              <span class="u" id="symVaryFromUnit">pt</span></div>
+              <input type="color" id="symVaryFromColour" title="The colour at the low end"
+                aria-label="The colour at the low end">
+              <span class="pair" id="symVaryFromPer"><input type="number" id="symVaryFromAlpha"
+                min="0" max="100" step="0.1"
+                title="How opaque the low end is: 100 is solid, 0 is invisible"
+                aria-label="The opacity at the low end, per cent"><span class="u">%</span></span>
+              <span class="pair" id="symVaryFromMeasure"><input type="number"
+                id="symVaryFromNumber" step="0.5" min="0"
+                aria-label="The value at the low end"><span class="u"
+                id="symVaryFromUnit">pt</span></span></div>
 
             <div class="setting symvarystop"><span class="q">To:</span>
               <input type="number" id="symVaryTo" step="any">
-              <input type="color" id="symVaryToColour">
-              <input type="number" id="symVaryToNumber" step="0.5" min="0">
-              <span class="u" id="symVaryToUnit">pt</span></div>
+              <input type="color" id="symVaryToColour" title="The colour at the high end"
+                aria-label="The colour at the high end">
+              <span class="pair" id="symVaryToPer"><input type="number" id="symVaryToAlpha"
+                min="0" max="100" step="0.1"
+                title="How opaque the high end is: 100 is solid, 0 is invisible"
+                aria-label="The opacity at the high end, per cent"><span class="u">%</span></span>
+              <span class="pair" id="symVaryToMeasure"><input type="number"
+                id="symVaryToNumber" step="0.5" min="0"
+                aria-label="The value at the high end"><span class="u"
+                id="symVaryToUnit">pt</span></span></div>
 
             <p class="hint" id="symVaryNote"></p>
           </div>
