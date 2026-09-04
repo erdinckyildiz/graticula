@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>dfbfa11</code> · 2026-09-03 15:22</p>
+<p class="stamp">Şu commit’ten üretildi: <code>901a36f</code> · 2026-09-04 09:11</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADR</div><div class="kpi-n">6 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">152/202</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">50 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">açık soru</div><div class="kpi-n">117 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">16</div><div class="kpi-l">açık borç</div><div class="kpi-n">183 ödendi · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">18</div><div class="kpi-l">açık borç</div><div class="kpi-n">183 ödendi · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2198</div><div class="kpi-l">test</div><div class="kpi-n">260 kaynak dosya, 101,996 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2214</div><div class="kpi-l">test</div><div class="kpi-n">260 kaynak dosya, 102,318 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">7 açık</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">70 madde</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>16 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">72 madde</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -287,6 +287,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-202</td><td>Six WMS 1.3.0 CITE assertions fail and nothing in this repository names them.</td><td class="muted-t">Read the ets-wms13 source for how it selects a layer for the CRS:84 image tests, or run the engine with its own logging…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-203</td><td>A visual variable&#x27;s field lived in the property the reader did not look at, and the map that resulted had nothing visibly wrong with it.</td><td class="muted-t">Already fired — every Pro-authored continuous symbology reaches this path.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-204</td><td>A real service asked for at the wrong address was answered with a redirect to that same address, so a client followed it until it gave up.</td><td class="muted-t">Already fired — the console always sends the qualified name, so this bites a hand-written URL, a script, and anybody…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">183 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -382,33 +384,33 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">479</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:85.8%"></div></div><div class="bar-n">411</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.2%"></div></div><div class="bar-n">413</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:75.8%"></div></div><div class="bar-n">363</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:69.3%"></div></div><div class="bar-n">332</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:71.6%"></div></div><div class="bar-n">343</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.9%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:29.6%"></div></div><div class="bar-n">142</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">115</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.4%"></div></div><div class="bar-n">112</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.5%"></div></div><div class="bar-n">31</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:5.4%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:5.0%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>901a36f</code><time>2026-09-04</time><span>ADR-052 Â§3.10: the fourth renderer, which needed no new drawing</span></li>
+<li><code>6d6288f</code><time>2026-09-04</time><span>D-203: the field lived in `valueExpressionInfo` and the reader looked past it</span></li>
+<li><code>f54e76c</code><time>2026-09-04</time><span>The refusal named three renderers and knew of nine</span></li>
+<li><code>bf5cbb3</code><time>2026-09-03</time><span>A dash pattern is data, and the compiler read its first length as an operator</span></li>
+<li><code>156ff21</code><time>2026-09-03</time><span>The symbology screens after a design review, with three of my own defects in it</span></li>
+<li><code>8911713</code><time>2026-09-03</time><span>A layer&#x27;s picture was found by its place in a list, not by the id in its URL</span></li>
+<li><code>bff59e0</code><time>2026-09-03</time><span>A service opens on Overview, and its first crumb goes back where you came from</span></li>
+<li><code>2111c56</code><time>2026-09-03</time><span>Symbology is a tab of the service now, not a page inside one of its layers</span></li>
+<li><code>835b5dc</code><time>2026-09-03</time><span>The Symbology page could only be reached by somebody who knew it was there</span></li>
+<li><code>8aeb1bd</code><time>2026-09-03</time><span>D-201: a second class, and this one left a message</span></li>
 <li><code>dfbfa11</code><time>2026-09-03</time><span>D-202: six WMS CITE assertions fail and nothing named them</span></li>
 <li><code>9443808</code><time>2026-09-03</time><span>The tile style published one layer of a symbol and the map painted all of them</span></li>
 <li><code>5bc4182</code><time>2026-09-03</time><span>D-201: a third occurrence, and the message is still not captured</span></li>
 <li><code>4dfdaaf</code><time>2026-09-03</time><span>The second axis gets a control: vary a property with a number</span></li>
-<li><code>691c0ab</code><time>2026-09-03</time><span>ADR-052 section 3.8: a shipped library of symbols, and the line it stops at</span></li>
-<li><code>44b5563</code><time>2026-09-03</time><span>ADR-052 section 3.7: the editor authors CIM, layer by layer</span></li>
-<li><code>fde49a1</code><time>2026-09-03</time><span>ADR-052 section 3.6: visual variables, the axis the renderer already drew</span></li>
-<li><code>9472a13</code><time>2026-09-03</time><span>The service style override was on a layer&#x27;s page, sending a layer&#x27;s name</span></li>
-<li><code>0fb1661</code><time>2026-09-03</time><span>ADR-052: CIM is what a layer stores, and every face is derived from it</span></li>
-<li><code>812e667</code><time>2026-09-03</time><span>The reader&#x27;s operation list gained `fixture` and its test did not</span></li>
-<li><code>072d3e6</code><time>2026-09-03</time><span>D-177: the geodatabase suite read a delete&#x27;s answer and threw it away</span></li>
-<li><code>4581f83</code><time>2026-09-03</time><span>ADR-052: the CIM reader, and the two faces derived from it</span></li>
-<li><code>f396078</code><time>2026-09-03</time><span>D-99: the closed row said *no preview* after the preview was built</span></li>
-<li><code>ad6033c</code><time>2026-09-03</time><span>ADR-052: the canonical symbology document is CIM, by owner decision</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

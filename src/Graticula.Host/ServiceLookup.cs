@@ -124,11 +124,16 @@ internal static class ServiceLookup
                     cancellation)
                 .ConfigureAwait(false);
 
+            // <b>Only when there is somewhere to send them.</b> The rewrite works on the path,
+            // and the admin routes carry the service name in the query string, so for those it
+            // produced the caller's own URL and a 301 to it -- a loop. Falling through gives
+            // the ordinary refusal, which is the true answer: this server has no service at
+            // this address. D-204.
             if (elsewhere.Service is { } other
                 && await VisibleAsync(context, other, elsewhere, quiet: true)
-                    .ConfigureAwait(false))
+                    .ConfigureAwait(false)
+                && ServiceFolder.Redirect(context, other))
             {
-                await ServiceFolder.RedirectAsync(context, other).ConfigureAwait(false);
                 return null;
             }
         }

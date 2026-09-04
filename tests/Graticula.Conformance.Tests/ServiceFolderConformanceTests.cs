@@ -147,6 +147,47 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
             StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A route that carries the service name in the query string is not redirected to itself.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-204](../../docs/architecture-debt.md).</b> The folder redirect rewrites the request
+    /// <i>path</i>, which is where the name sits for every `/rest/services/...` route. The admin
+    /// routes carry it in the query string instead, so the rewrite replaced nothing and the
+    /// caller was answered with a 301 to the URL it had just asked for. Measured 2026-09-04
+    /// against the fixture store: `curl` gave up after fifty hops with exit 47.
+    /// </remarks>
+    [Fact]
+    public async Task An_admin_route_that_names_its_service_in_the_query_is_not_sent_to_itself()
+    {
+        string root = await RequireServerAsync();
+        string name = await AnyHostedServiceAsync();
+
+        // The unqualified name: the service really is at `hosted/{name}`, so this is exactly the
+        // case the folder redirect exists for -- and exactly the one it cannot express here.
+        string path = $"/admin/thumbnail?service={Uri.EscapeDataString(name)}&layer=0";
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(root + path));
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        if (response.StatusCode is not (HttpStatusCode.MovedPermanently or HttpStatusCode.Found))
+        {
+            return;
+        }
+
+        string? moved = response.Headers.Location?.ToString();
+
+        Assert.False(
+            string.Equals(moved, path, StringComparison.Ordinal),
+            $"'{path}' was answered with a {(int)response.StatusCode} to '{moved}', which is the "
+            + "same URL. A client following that loops until it gives up. The service is real "
+            + "and lives in a folder; the redirect cannot say so for a route whose name is in "
+            + "the query string, so the honest answer is the refusal, not a hop to nowhere.");
+    }
+
     [Fact]
     public async Task Following_the_redirect_reaches_the_service()
     {

@@ -73,15 +73,16 @@ internal static class ServiceFolder
         || segment.Equals("MapServer", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Sends the caller to the same service at its real URL.</summary>
+    /// <remarks>See the layer overload for why this answers a question. D-204.</remarks>
     /// <param name="context">The request.</param>
     /// <param name="service">The service, which knows its folder.</param>
-    /// <returns>The write.</returns>
-    public static Task RedirectAsync(HttpContext context, PublishedService service)
+    /// <returns>Whether a redirect was written.</returns>
+    public static bool Redirect(HttpContext context, PublishedService service)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(service);
 
-        return RedirectAsync(context, service.Folder is not null);
+        return Redirect(context, service.Folder is not null);
     }
 
     /// <summary>Whether the request came in at the right URL space for this layer.</summary>
@@ -97,18 +98,27 @@ internal static class ServiceFolder
     }
 
     /// <summary>Sends the caller to the same service at its real URL.</summary>
+    /// <remarks>
+    /// <b>It answers whether there was anywhere to send them</b>, and that is the whole of
+    /// [D-204](../../docs/architecture-debt.md). The rewrite below works on the <i>path</i>,
+    /// which is where the service name sits for every <c>/rest/services/…</c> route. The admin
+    /// routes carry it in the query string instead — <c>/admin/thumbnail?service=…</c> — so for
+    /// those the rewrite found nothing to replace, and the caller was sent a 301 to the URL it
+    /// had just asked for. A client following that loops until it gives up; <c>curl</c> stops
+    /// after fifty. Saying <i>no</i> here lets the caller answer the honest 404 instead.
+    /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="layer">The layer.</param>
-    /// <returns>The write.</returns>
-    public static Task RedirectAsync(HttpContext context, PublishedLayer layer)
+    /// <returns>Whether a redirect was written.</returns>
+    public static bool Redirect(HttpContext context, PublishedLayer layer)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
 
-        return RedirectAsync(context, layer.Folder is not null);
+        return Redirect(context, layer.Folder is not null);
     }
 
-    private static Task RedirectAsync(HttpContext context, bool hosted)
+    private static bool Redirect(HttpContext context, bool hosted)
     {
         string path = context.Request.Path.Value ?? "";
         string prefix = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/";
@@ -117,12 +127,20 @@ internal static class ServiceFolder
             ? path.Replace("/rest/services/", prefix, StringComparison.OrdinalIgnoreCase)
             : path.Replace(prefix, "/rest/services/", StringComparison.OrdinalIgnoreCase);
 
+        // <b>Nothing moved, so there is nowhere to move to.</b> A 301 to the request's own URL
+        // is not a redirect, it is a loop, and it reads to every client as a server that has
+        // lost track of where its own services are.
+        if (string.Equals(moved, path, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         // 301, not 302: this is where the service lives, permanently. A client
         // that caches it is doing the right thing.
         context.Response.StatusCode = StatusCodes.Status301MovedPermanently;
         context.Response.Headers.Location = moved + context.Request.QueryString;
 
-        return Task.CompletedTask;
+        return true;
     }
 
     /// <summary>Whether a path sits inside the hosted folder.</summary>
