@@ -749,18 +749,32 @@ public abstract class ConsoleTest : IAsyncLifetime
             // re-run: five failures, every one of them a subresource at `0B/0B` on the page
             // under test, `readyState=loading`, 25 to 65 ms in.
             //
-            // <b>The studio's own document, because those are the files at risk.</b> It needs
-            // no token to load its shell, and what it does after that does not matter here —
-            // the four assets have been asked for by the time it settles.
-            await Browser.NavigateAsync(Root + "/studio/");
+            // <b>Both surfaces, because their assets are different URLs.</b> ADR-034 §5a gives
+            // the console two prefixes over one set of files, so `/studio/console.css` and
+            // `/server/console.css` are two requests and warming one warms nothing about the
+            // other. Measured 2026-09-05, run 33928618197: warming only `/studio/` took the
+            // failures from five to one, and the one that was left was `/server/ground.js` on a
+            // `/server/` page — the same signature, on the surface the warm-up had not
+            // visited. Every file at risk is fetched by these two documents: the shell's own
+            // `console.css`, `session.js`, `surface.js`, `console.js` and `ground.js`, which is
+            // `defer` rather than lazy and so arrives with the document.
+            //
+            // Neither needs a token to load its shell, and what the page does afterwards does
+            // not matter here — the assets have been asked for by the time it settles.
+            bool changed = false;
 
-            // <b>Asked of the browser, not assumed from the clock.</b> A verifier change during
-            // the warming navigation is the thing being waited out, so seeing one means going
-            // round again rather than declaring the browser ready.
-            bool changed = await Browser.EvaluateAsync<bool>(
-                "performance.getEntriesByType('resource')"
-                + ".some(e => e.transferSize === 0 && e.decodedBodySize === 0"
-                + " && e.responseEnd > 0 && !e.nextHopProtocol)");
+            foreach (string surface in new[] { "/studio/", "/server/" })
+            {
+                await Browser.NavigateAsync(Root + surface);
+
+                // <b>Asked of the browser, not assumed from the clock.</b> A verifier change
+                // during a warming navigation is the thing being waited out, so seeing one
+                // means going round again rather than declaring the browser ready.
+                changed |= await Browser.EvaluateAsync<bool>(
+                    "performance.getEntriesByType('resource')"
+                    + ".some(e => e.transferSize === 0 && e.decodedBodySize === 0"
+                    + " && e.responseEnd > 0 && !e.nextHopProtocol)");
+            }
 
             if (!changed)
             {
