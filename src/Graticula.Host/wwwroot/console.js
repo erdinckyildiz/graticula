@@ -4648,6 +4648,16 @@ function wireSymbologyForm() {
   // checkbox. The canonical document is CIM now and the model keeps whatever it is handed —
   // including the parts the form has no box for — so adopting the text is safe and the two
   // stop being able to disagree. ADR-052 §3.7.
+  // <b>`input`, not `click`.</b> The filter's first version was a case in the click handler,
+  // which fires when somebody puts the caret in the box and never again while they type -- so
+  // the list stayed whole and the box looked broken. There is no debounce: the rows are already
+  // in the page and hiding them is a re-render of at most 256 elements, which is under a frame.
+  document.addEventListener("input", e => {
+    if (!(e.target instanceof Element) || e.target.id !== "symFilter" || !symModel) return;
+
+    drawSymbologyClasses($("symKind").value);
+  });
+
   document.addEventListener("input", e => {
     if (!(e.target instanceof Element) || e.target.id !== "symDoc" || !editing) return;
 
@@ -4673,15 +4683,36 @@ function wireSymbologyForm() {
   // <b>Enter and Space open a class row.</b> The row carries `tabindex` and a role, and a
   // control a keyboard can reach and cannot use is worse than one it cannot reach: it takes the
   // focus and then does nothing.
-  document.addEventListener("keydown", e => {
-    if (!(e.target instanceof Element) || e.key !== "Enter" && e.key !== " ") return;
+  // <b>Selecting a class by focusing anything in it.</b> This replaced a `tabindex` on the row
+  // itself plus an Enter/Space handler, which cost a tab stop per row and, at 256 classes, put
+  // 1,280 of them between the filter and the Store button.
+  //
+  // <b>The list is not redrawn, and that is the whole difficulty.</b> Selecting through the
+  // click handler calls `symSettled`, which rebuilds the rows — and rebuilding them while one of
+  // their inputs has the focus takes the focus away, so a keyboard user would be thrown out of
+  // the box they had just reached. The highlight is moved in place and only the panel below is
+  // redrawn.
+  document.addEventListener("focusin", e => {
+    if (!(e.target instanceof Element) || !symModel) return;
 
-    const row = e.target.closest(".symclass[tabindex]");
+    const row = e.target.closest(".symclass");
 
     if (!row || !row.closest("#page-symbology")) return;
 
-    e.preventDefault();
-    row.click();
+    const at = Number(row.dataset.class);
+
+    if (!Number.isInteger(at) || at === symClassIndex) return;
+
+    symClassIndex = at;
+
+    for (const one of document.querySelectorAll("#symClasses .symclass")) {
+      const mine = Number(one.dataset.class) === at;
+
+      one.classList.toggle("symchosen", mine);
+      one.setAttribute("aria-current", mine ? "true" : "false");
+    }
+
+    drawSymbolLayers();
   });
 
   document.addEventListener("click", async e => {
@@ -5006,6 +5037,101 @@ async function symClassify() {
   }
 }
 
+/**
+ * Holds the class list to ten rows, measured rather than assumed.
+ *
+ * <b>Ten by owner decision 2026-09-04</b>, looking at 256 rows and then at twenty: *"20 bile
+ * uzun"*. It cannot be a length in the stylesheet because a row's height depends on the font,
+ * the theme and the browser's zoom — so this measures a row that is already on screen and sets
+ * the box to ten of it, after the rows are in place so there is always one to measure.
+ *
+ * <b>Nothing at all when it fits.</b> A scroller around eight rows is a frame around nothing.
+ *
+ * @param {Element} box the class list
+ * @param {number} rows how many rows are about to be in it
+ */
+function symBoxToTenRows(box, rows) {
+  const TEN = 10;
+
+  if (rows <= TEN) {
+    box.classList.remove("symscrolls");
+    box.style.maxHeight = "";
+
+    return;
+  }
+
+  const one = box.querySelector(".symclass");
+  const tall = one ? one.getBoundingClientRect().height : 0;
+
+  box.classList.add("symscrolls");
+
+  // Eight pixels for the box's own padding, so the tenth row is whole rather than a sliver.
+  box.style.maxHeight = tall > 0 ? `${Math.round((tall * TEN) + 8)}px` : "";
+}
+
+/**
+ * Everything about a class a person would type to find it, lowercased.
+ *
+ * <b>Value and label both.</b> They are usually the same when a classification is generated and
+ * usually different once somebody has named the classes; searching only one would find nothing
+ * for whichever half they remember.
+ *
+ * @param {object} cls the class
+ * @returns {string} its searchable text
+ */
+function symClassText(cls) {
+  const values = (cls.values || [])
+    .map(v => ((v.fieldValues || [])).join(" "))
+    .join(" ");
+
+  return `${values} ${cls.label || ""} ${cls.upperBound ?? ""}`.toLowerCase();
+}
+
+/**
+ * Shows the filter once there are enough classes for it to be worth anything, and says how many.
+ *
+ * <b>Hidden below thirteen.</b> A search box over eight rows is a control that costs a reader
+ * attention and saves them nothing, which is ADR-034's rule about drawing a control for
+ * something that is not there.
+ *
+ * @param {number} total how many classes the renderer has
+ * @param {number} showing how many the filter leaves
+ */
+function symShowFilter(total, showing) {
+  const row = $("symFilterRow");
+  const count = $("symShowing");
+
+  if (!row || !count) return;
+
+  // <b>Exactly when the list stops fitting.</b> Ten rows are shown, so eleven is the first
+  // count at which something is out of sight — and the moment somebody needs a way to reach it
+  // that is not scrolling. Twelve was an invented threshold and did not line up with anything.
+  row.hidden = total <= 10;
+
+  const hiddenChoice = total !== showing
+    && symClasses().length > symClassIndex
+    && !symClassMatches(symClasses()[symClassIndex]);
+
+  count.textContent = total === showing
+    ? `${num(total)} classes`
+    // <b>And whether the one being edited is among them.</b> The panel below goes on editing the
+    // selected class while the filter hides it, correctly — but a reader who filters, forgets,
+    // and glances up sees nothing highlighted and no reason why.
+    : `${num(showing)} of ${num(total)}${hiddenChoice ? " — the one you are editing is not" : ""}`;
+}
+
+/**
+ * Whether a class survives the filter as it stands.
+ *
+ * @param {object} cls the class
+ * @returns {boolean} whether the filter shows it
+ */
+function symClassMatches(cls) {
+  const wanted = ((($("symFilter") || {}).value) || "").trim().toLowerCase();
+
+  return wanted.length === 0 || symClassText(cls).includes(wanted);
+}
+
 /** Another class, built from the one that is selected so its symbol carries over. */
 function symAddClass() {
   const classes = symClasses();
@@ -5034,7 +5160,11 @@ function symAddClass() {
   }
 
   symClassIndex = symClasses().length - 1;
+  symScrollToChoice = true;
 }
+
+/** Whether the next draw should bring the selected class into view. */
+let symScrollToChoice = false;
 
 /** Removes a class, refusing to leave a renderer with none. */
 function symRemoveClass(at) {
@@ -5951,10 +6081,31 @@ function drawSymbologyClasses(kind) {
 
   if (classes.length === 0) {
     box.innerHTML = `<p class="hint">No classes yet. <b>Add a class</b> makes one.</p>`;
+    symShowFilter(0, 0);
     return;
   }
 
-  box.innerHTML = classes.map((cls, i) => {
+  // <b>The filter drops rows from the page and never renumbers the ones left.</b> It rebuilds
+  // the list rather than hiding rows with CSS — a design review checked and found 199 of 200
+  // rows genuinely gone from the DOM, which is what keeps the tab order short — and every
+  // surviving row keeps its index in the model. Rebuilding with fresh numbering instead would
+  // make the third visible row edit the third class rather than the one somebody is looking at,
+  // which is the kind of fault that only shows up on the values nobody tested with. The review
+  // confirmed a selection made before filtering is still selected after clearing it.
+  const wanted = ((($("symFilter") || {}).value) || "").trim().toLowerCase();
+
+  const shown = classes
+    .map((cls, i) => ({ cls, i }))
+    .filter(({ cls }) => wanted.length === 0 || symClassText(cls).includes(wanted));
+
+  symShowFilter(classes.length, shown.length);
+
+  if (shown.length === 0) {
+    box.innerHTML = `<p class="hint">No class matches <b>${h(wanted)}</b>.</p>`;
+    return;
+  }
+
+  box.innerHTML = shown.map(({ cls, i }) => {
     const layers = symSymbolOf(cls).symbolLayers;
     const top = symLayerColour(symThematicLayer(layers));
     // <b>Nothing to choose between when there is one.</b> A `simple` renderer has exactly
@@ -5972,11 +6123,20 @@ function drawSymbologyClasses(kind) {
       ? (((cls.values || [])[0] || {}).fieldValues || [])[0] ?? ""
       : cls.upperBound ?? "";
 
-    // <b>A row a keyboard can focus has to be a row a keyboard can open.</b> The same rule the
-    // log rows follow: `tabindex` and a role, and the click handler answers Enter and Space.
+    // <b>The row is not its own tab stop, and it was.</b> It carried `tabindex` and a role so a
+    // keyboard could open it, which was right when a classification had four classes and wrong
+    // at 256: a design review counted <b>1,000 focusable elements</b> in a 200-class list — five
+    // a row — and at the ceiling that is 1,280 stops between the filter and the Store button,
+    // with nothing to skip them.
+    //
+    // <b>Selection follows focus instead.</b> Every row already contains three controls a
+    // keyboard reaches; focusing any of them selects that row, which is both fewer stops and a
+    // better answer, because tabbing into a class's value box and having the symbol panel below
+    // follow is what somebody expects anyway. `aria-current` says which one, since the row is no
+    // longer a button that could be pressed.
     return `<div class="setting symclass${chosen}" data-class="${i}"
-      tabindex="0" role="button" aria-pressed="${i === symClassIndex}"
-      aria-label="Edit the symbol for class ${i + 1}">
+      aria-current="${i === symClassIndex ? "true" : "false"}"
+      aria-label="Class ${i + 1}">
       <span class="q">${kind === "uniqueValue" ? "Value" : "Up to"}:</span>
       <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
         data-class="${i}" value="${h(String(value))}">
@@ -5987,6 +6147,24 @@ function drawSymbologyClasses(kind) {
       <button class="tiny ghost symdrop" data-class="${i}" title="Remove this class">×</button>
     </div>`;
   }).join("");
+
+  // <b>After the rows exist, because it measures one of them.</b> The first version measured
+  // before rebuilding, from whatever was already there — and the case that matters is the one
+  // where nothing was: pressing *Read the values* puts 256 rows into an empty box, so there was
+  // no row to measure and the list grew to all 256, which is the exact complaint this fixes.
+  symBoxToTenRows(box, shown.length);
+
+  // <b>A new class is at the end of a list showing ten of two hundred, so nothing happens where
+  // anybody is looking.</b> Measured by a design review: clicking *Add a class* on a 200-class
+  // renderer took the count to 201 and left `scrollTop` at 0 — a button that appears to do
+  // nothing, in the common case rather than the rare one.
+  if (symScrollToChoice) {
+    symScrollToChoice = false;
+
+    box.querySelector(`.symclass[data-class="${symClassIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }
+
 }
 
 /**
@@ -7388,6 +7566,31 @@ function showLayer(name, page, pending = null) {
           </div>
 
           <p class="hint" id="symClassifySays" hidden></p>
+
+          <!--
+            <b>A filter and a fixed height, because a classification can have 256 classes.</b>
+            Two hundred and fifty-six rows down one page is not a list anybody reads; it is a
+            page anybody scrolls past. Map Viewer's own categories panel is a bounded, scrolling
+            list with a search over it, and for the same reason: past a couple of dozen classes
+            the way to reach one is to name it, not to hunt for it.
+          -->
+          <div class="setting wide" id="symFilterRow" hidden>
+            <label class="q" for="symFilter">Find:</label>
+            <input id="symFilter" type="search" placeholder="a value or a label"
+              autocomplete="off" spellcheck="false">
+            <!--
+              <b>Named symShowing, not symClassCount.</b> It was the latter for an afternoon,
+              which is also the id of the number box up in the Classify row -- getElementById
+              returns the first, so every "12 of 256" this code wrote went into an input's
+              textContent, where nothing renders it. <b>The count was never once visible.</b>
+              Found by a design review reading the DOM rather than the screen: the text was
+              correct, in an element that cannot show text.
+
+              <b>And no backticks in here.</b> This comment sits inside a template literal, so
+              one ends the string -- which is exactly what happened, for the second time.
+            -->
+            <span class="rowmeta" id="symShowing"></span>
+          </div>
 
           <div id="symClasses"></div>
 

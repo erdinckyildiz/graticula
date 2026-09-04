@@ -2214,7 +2214,11 @@ html[data-session="held"] #app { display: block !important; }
 
 /* A class row is a control, so it looks like one when it has focus. */
 .setting.symclass{ border-radius:var(--round); }
-.setting.symclass:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+
+/* <b>The row is no longer focusable, so the ring belongs to whatever inside it has focus.</b>
+   `:focus-within` keeps the row itself marked while a keyboard user is in one of its boxes,
+   which is what says "this is the class you are editing" now that selection follows focus. */
+.setting.symclass:focus-within{ outline:2px solid var(--accent); outline-offset:1px; }
 
 #styleState{margin:0 0 10px}
 #styleAdvanced summary{cursor:pointer;margin-top:10px}
@@ -2227,3 +2231,41 @@ html[data-session="held"] #app { display: block !important; }
 #symClassifyRow .tiny{ white-space:nowrap; }
 #symClassCount{ width:5.5em; }
 #symClassifySays{ margin:2px 0 10px; }
+
+/* ------------------------------------------- the class list, when it is long
+   <b>Ten rows, and the height is set in script rather than here.</b> A classification may hold
+   256 classes; the owner looked at that list and then at twenty and said twenty was still too
+   long. Ten is their number. It cannot be written as a length in this file because a row's
+   height depends on the font, the theme and the browser's zoom — so `drawSymbologyClasses`
+   measures one row and sets the box to ten of them, and the list is ten rows whatever any of
+   those are.
+
+   <b>No box at all when it fits.</b> A scroller around eight rows is a frame around nothing. */
+#symClasses{
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* <b>`--rule-strong`, because `--rule` measured 1.23:1 against the panel.</b> WCAG 1.4.11 asks
+   3:1 of a boundary that carries meaning, and this one carries the only standing signal that the
+   list continues below. Measured by a design review 2026-09-04. */
+#symClasses.symscrolls{
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--round);
+  padding: 4px;
+}
+
+#symFilter{ flex: 1 1 180px; min-width: 120px; }
+#symFilterRow .rowmeta{ flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------ a class row keeps to one line
+   <b>Measured 2026-09-04: the same row is 46 pixels at 1440 wide and 86 at 1280.</b> The row
+   wraps when its label and two boxes stop fitting, which doubles its height — and a list bounded
+   at ten rows then wants 860 pixels, taller than the window it is in. The row shrinks instead:
+   the value and label boxes give up width down to nothing rather than the row giving up a line.
+   A colour swatch and a remove button do not shrink, and should not: they are already small
+   enough to be hard to hit. */
+.setting.symclass{ flex-wrap: nowrap; }
+.setting.symclass .symvalue,
+.setting.symclass .symlabel{ flex: 1 1 60px; min-width: 0; }
+.setting.symclass .q{ white-space: nowrap; }
