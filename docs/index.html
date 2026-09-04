@@ -153,13 +153,69 @@ tr.gone td:first-child .sw{margin-right:9px;vertical-align:-2px}
   display:flex;flex-wrap:wrap;gap:16px;align-items:center}
 .after p{margin:0;font-size:15.5px;color:var(--ink-2)}
 
-/* ---- steps ----------------------------------------------------------- */
-ol.steps{list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:24px;
+/* ---- the nav ---------------------------------------------------------
+   Handoff 2026-09-04. The page is five sheets and about four screens tall; without this the
+   only way back to the top is the scrollbar, and the four section names are the page's own
+   table of contents. Sticky rather than fixed: it takes its height out of the flow once, at the
+   top, rather than sitting over the hero. */
+.nav{position:sticky;top:0;z-index:6;background:color-mix(in srgb,var(--ground) 92%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+@supports not (backdrop-filter:blur(8px)){.nav{background:var(--ground)}}
+.nav-in{max-width:1120px;margin:0 auto;padding:0 28px;height:60px;display:flex;
+  align-items:center;gap:24px;font-size:14.5px}
+.nav-brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;
+  font-size:17px;letter-spacing:-.01em;color:var(--ink);text-decoration:none}
+.nav-mark{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:#fff;
+  font:600 12px/1 var(--display);
+  background:linear-gradient(148deg,#57bda9,#0f6d5f 60%,#0a4f45)}
+.nav a.nav-s{color:var(--ink-2);text-decoration:none}
+.nav a.nav-s:hover{color:var(--accent)}
+.nav-right{margin-left:auto;display:flex;gap:12px;align-items:center}
+.nav-v{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.nav-gh{padding:8px 14px;border:1px solid var(--accent);border-radius:3px;font-weight:600;
+  color:var(--accent);text-decoration:none}
+.nav-gh:hover{background:var(--accent-soft)}
+/* Under 760 the four section names do not fit beside the brand and the button; the button is
+   the one that has to survive, so the names go and the brand still returns you to the top. */
+@media (max-width:760px){.nav a.nav-s,.nav-v{display:none}}
+/* The sticky margin note must clear the sticky nav, or it hides under it. */
+@media (min-width:920px){.marg{top:84px}}
+
+/* ---- steps -----------------------------------------------------------
+   <b>Two by two, and it was a column of four.</b> Handoff 2026-09-04. Each step is a heading, a
+   sentence and a command block: laid out in one column that is four screens of scrolling for
+   something whose whole claim is *four steps*. In a grid the claim is visible at a glance,
+   which is the argument the section is making. */
+ol.steps{list-style:none;counter-reset:s;display:grid;grid-template-columns:1fr;gap:20px;
   margin:0;padding:0}
-ol.steps>li{counter-increment:s;display:grid;grid-template-columns:26px 1fr;gap:0 16px}
+@media (min-width:860px){ol.steps{grid-template-columns:1fr 1fr;gap:20px 24px}}
+/* <b>`minmax(0, 1fr)`, not `1fr`.</b> A grid track sized `1fr` has a minimum of `auto`, so the
+   command blocks — which do not wrap — pushed each card wider than its column and ran off the
+   right of the card. Measured at 1280 on the two long ones. */
+ol.steps>li{counter-increment:s;display:grid;grid-template-columns:26px minmax(0,1fr);gap:0 16px;
+  background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:18px 20px;
+  align-content:start}
 ol.steps>li>*{min-width:0}
 ol.steps>li::before{content:counter(s);font-family:var(--mono);font-size:12px;font-weight:600;
   color:var(--accent);border-top:2px solid var(--accent-line);padding-top:7px;line-height:1}
+
+/* ---- the dark band ---------------------------------------------------
+   <b>*What is missing* is the section this page is most unusual for having</b>, and it read as
+   one more sheet of the same colour. A ground of its own is what says *read this one*; the
+   tokens invert rather than being replaced, so the section is the same design at a different
+   value and nothing in it needed rewriting. */
+.sheet.band{--ground:#10151a;--panel:#171e24;--line:#2a343c;--line-2:#212a31;
+  --ink:#e9e6df;--ink-2:#a8b6bc;--ink-3:#8b9ca2;
+  --accent:#57bda9;--accent-soft:#17322f;--accent-line:#4f8a80;--accent-deep:#8ed6c6;
+  --absent:#7e8f96;--wash:#141b21;
+  background:var(--ground);color:var(--ink);border-top-color:#2a343c;
+  /* <b>Edge to edge, or it is not a band.</b> The section lives inside a 1120-pixel column, so
+     a background on it alone left a light gutter down each side and read as a wide dark card
+     rather than as a change of ground. `100vw` off the centre line is the standard way out of a
+     centred column; the inner wrapper puts the column back. */
+  width:100vw;margin-left:calc(50% - 50vw);padding-left:0;padding-right:0}
+.bandwrap{max-width:1120px;margin:0 auto;padding:0 28px}
+.sheet.band .marg{border-top-color:var(--accent)}
 .steps h3{font-family:var(--body);font-weight:600;font-size:15.5px;margin:0 0 3px}
 .steps p{margin:0 0 9px;font-size:14.5px;color:var(--ink-2);max-width:58ch}
 pre{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:3px;
@@ -184,7 +240,28 @@ pre .k{color:var(--accent)}
 </head>
 <body>
 <a class="skip" href="#shape">Skip to what this is</a>
-<main class="wrap">
+
+<!--
+  <b>A sticky nav, added 2026-09-04 from the handoff.</b> The page is five sheets and about four
+  screens tall, and its own section names are the only table of contents it has. The version and
+  the licence are already stated in the hero and in the footer; what is here is the way to each
+  section and the way to the source.
+-->
+<nav class="nav" aria-label="Sections of this page">
+  <div class="nav-in">
+    <a class="nav-brand" href="#top"><span class="nav-mark" aria-hidden="true">Gr</span>Graticula</a>
+    <a class="nav-s" href="#shape">The shape</a>
+    <a class="nav-s" href="#running">What runs</a>
+    <a class="nav-s" href="#gaps">What is missing</a>
+    <a class="nav-s" href="#start">Start</a>
+    <span class="nav-right">
+      <span class="nav-v">v0.1.0</span>
+      <a class="nav-gh" href="https://github.com/erdinckyildiz/graticula">GitHub</a>
+    </span>
+  </div>
+</nav>
+
+<main class="wrap" id="top">
 
   <div class="hero sheet">
     <div class="hero-grid">
@@ -198,10 +275,18 @@ pre .k{color:var(--accent)}
           <a class="btn btn-a" href="#start">Run it in four steps</a>
           <a class="btn btn-b" href="#gaps">Read what is missing</a>
         </div>
+        <!--
+          <b>A fourth, from the handoff.</b> The three that were here describe what the server
+          does; this one describes how it was built, which is the claim the last section of the
+          page is entirely about. It is counted rather than estimated: 52 is the number of files
+          under `docs/adr`, and this page says so in a place where a stale number would be
+          noticed.
+        -->
         <p class="facts">
           <span><b>5</b> service types</span>
           <span><b>18</b> of 22 geometry operations</span>
           <span><b>1</b> process, <b>1</b> database</span>
+          <span><b>52</b> decision records</span>
         </p>
       </div>
 
@@ -377,7 +462,8 @@ pre .k{color:var(--accent)}
     </div>
   </section>
 
-  <section class="sheet" id="gaps">
+  <section class="sheet band" id="gaps">
+    <div class="bandwrap">
     <div class="rail">
       <p class="marg">What is not here</p>
       <div class="col">
@@ -467,6 +553,7 @@ pre .k{color:var(--accent)}
           <a class="btn btn-a" href="#start">Run it in four steps</a>
         </div>
       </div>
+    </div>
     </div>
   </section>
 

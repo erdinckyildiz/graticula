@@ -68,28 +68,40 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string service = await AMultiLayerServiceAsync(token);
 
+        // <b>The Symbology tab, and it was Visualization until 2026-09-04.</b> The handoff moves
+        // the override to the foot of the panel that lists how each layer is drawn, because it
+        // is the exception to every row in it: unless one of these is stored, none of them is
+        // what the tile face draws. An exception belongs under the rule it qualifies.
         await OpenAsync(
-            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=visualization", token);
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
 
         // <b>Waited on the page opening, not on the element existing.</b> `#serviceStyle` is
         // static markup in `index.html`, so it is in the document from the first byte and a wait
         // on it passes before the service has been read at all. Measured twice today, on two
         // different screens: the container is never the readiness signal.
         await WaitForAsync(
-            "(() => { const vis = document.getElementById('serviceVis');"
-            + " return !!vis && !vis.hidden; })()",
-            "The service's Visualization page never opened, so the style override could not be "
+            "(() => { const tab = document.getElementById('serviceSymbology');"
+            + " return !!tab && !tab.hidden; })()",
+            "The service's Symbology page never opened, so the style override could not be "
             + "looked for.");
 
         await WaitForAsync(
             "document.querySelector('#serviceStyle [data-style]') !== null",
-            "The service's Visualization page offers no style override, so the one cartographic "
+            "The service's Symbology page offers no style override, so the one cartographic "
             + "thing a per-layer document cannot express has nowhere to be written.");
 
         // <b>On screen, not merely in the document.</b> This console has shipped a control
         // that existed and rendered nowhere three separate times, and moving one between
         // screens is exactly the change that does it: the new home may be inside a section
         // whose tab is never shown.
+        // <b>The textarea is behind a disclosure, so it is opened before it is measured.</b> A
+        // control inside a closed `<details>` has no `offsetParent` and is not a control that
+        // failed to render; asserting on it while closed would be a test that fails for being
+        // right about the design.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const d = document.getElementById('styleAdvanced');"
+            + " if (d) d.open = true; return true; })()");
+
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "(() => {"
@@ -301,10 +313,10 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
 
         // <b>It follows the picker.</b> A link fixed to the first layer would pass everything
         // above and open the wrong page on every service with more than one.
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const p = document.getElementById('visLayer');"
-            + " p.selectedIndex = p.options.length - 1;"
-            + " p.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        // <b>A strip of links, not a `select`.</b> Handoff 2026-09-04: the picker is a segmented
+        // control, so it is pressed rather than changed — and `selectedIndex` on it would set a
+        // property nothing reads, which is a step that looks like it did something.
+        await ClickAsync("#visLayer a:last-child");
 
         await WaitForAsync(
             "document.getElementById('visSymbology').getAttribute('href') !== "

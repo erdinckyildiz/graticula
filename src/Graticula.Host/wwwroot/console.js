@@ -1847,6 +1847,12 @@ function showView(id, tab) {
   for (const view of document.querySelectorAll(".view")) {
     view.classList.toggle("on", view.id === id);
   }
+
+  // <b>The one screen that takes the window, undone here rather than by each screen that
+  // does not.</b> The symbology editor drops the shell's page padding and its own panel frame;
+  // leaving that class on while another view is shown would give every other screen a
+  // full-bleed layout it was not designed for. `showEditPage` puts it back on.
+  if (id !== "view-layer") $("app").classList.remove("symfull");
 }
 
 /**
@@ -2641,9 +2647,22 @@ async function loadMyContent() {
           // rows go to each layer.
           return `
           <tr>
+            <!--
+              <b>The picture is a target, and it looked like one already.</b> Handoff 2026-09-04.
+              A reader scanning this list is scanning the thumbnails; clicking one did nothing,
+              which is the worst state for something that reads as pressable. It opens the item
+              page's Visualization tab with that layer drawn — because what somebody wants from a
+              picture is a bigger picture, not a settings page.
+
+              <b>The name still goes to Overview.</b> Two targets in one row are only worth having
+              if they lead somewhere different.
+            -->
             <td class="thumbcell">${i.cover
-              ? `<img class="thumb" alt="" loading="lazy"
-                   data-thumb="${h(thumbnailFor(i.cover.url))}">`
+              ? `<a class="thumblink" href="${h(visHref(i.cover.layer || "", "features")
+                   || `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`)}"
+                   title="Draw ${h(i.cover.layer || i.name)} on the map"
+                   ><img class="thumb" alt="" loading="lazy"
+                   data-thumb="${h(thumbnailFor(i.cover.url))}"></a>`
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name"><a href="#/service/${
               i.name.split("/").map(encodeURIComponent).join("/")}">${h(i.name)}</a>
@@ -2825,6 +2844,12 @@ async function showService(qualified) {
      › ${folder ? h(folder) : "root"} › <b>${h(name)}</b>`;
   $("serviceFacts").textContent = "";
 
+  // <b>Named before anything is fetched.</b> The three requests below take a moment on a cold
+  // service, and a page that says nothing while they are in flight is a page a reader cannot
+  // tell from one that failed. The name is the one fact the address already carries.
+  $("serviceTitle").textContent = name;
+  $("serviceSub").textContent = folder ? `in ${folder}` : "in the site root";
+
   // <b>A service with no layers is a different screen.</b> There is nothing to list and there are
   // bounds to set, and asking the server which kind this is beats guessing from the shape of a
   // document that 404s for the other kind. `/limits` exists only for a system service, so its
@@ -2869,6 +2894,15 @@ async function showService(qualified) {
 
 
   serviceIsSystem = false;
+  serviceDoc = null;
+
+  // <b>Cleared, not left.</b> The 2026-08-19 review's worst finding on this screen was a panel
+  // that kept the previous service's figures; these two are read from a document that a system
+  // or image service does not have, so they are emptied before the request rather than after it
+  // fails.
+  for (const id of ["serviceOps", "serviceSpend"]) {
+    if ($(id)) $(id).innerHTML = "";
+  }
 
   // <b>The service's own settings, on the service.</b> Rendered before the layer list, because they
   // are what this page is now for: the list below says what is inside, and these say what the
@@ -2962,16 +2996,86 @@ async function showService(qualified) {
     // <b>And the layer count is the document's, which is not the list screen's.</b> The services list
     // says *3 layers, 1 group* where this says 4: the FeatureServer `layers` array counts the group and
     // the layer nested under it. Both are right in different units, so this one names its unit.
-    $("serviceFacts").textContent =
-      `${layers.length} entr${layers.length === 1 ? "y" : "ies"} in the service document`
-      + ` · max ${num(doc.maxRecordCount)} rows`
-      + ` · ${doc.capabilities ? `operations: ${doc.capabilities}` : "no editing operations"}`;
-
+    // <b>Three facts in one mono line became two cards and three words.</b> The line said how
+    // many entries the document has, how many rows a request may read and which operations a
+    // client may call — one shape for three different questions, in 13-pixel monospace beside a
+    // breadcrumb. The two a publisher opens this page for are panels with headings now; the
+    // entry count is a note on the Layers fact, which is the row it qualifies; and this strip
+    // carries what the handoff asks of it — sharing, state, owner — written by
+    // `drawServiceDetails`, which is where the item that holds all three arrives.
+    serviceEntries = layers.length;
+    serviceDoc = doc;
+    drawServiceBounds(doc);
     drawServiceLayers(layers, qualified);
   } catch (e) {
     $("serviceFacts").textContent = "";
     toast(`${qualified}: ${e.message || e}`);
   }
+}
+
+/** The FeatureServer document the open service last answered with, or null. */
+let serviceDoc = null;
+
+/** How many entries that document listed, which is not the same as how many layers there are. */
+let serviceEntries = 0;
+
+/**
+ * The two Overview cards: what a client may do, and what one request may spend.
+ *
+ * <b>Both are read from the service document.</b> It is what a client gets, so it is what the
+ * answer to *may a client do this* has to come from — the settings form beside it says what
+ * somebody asked for, and a service where the two disagree is exactly the case a reader is
+ * looking at this page to find.
+ *
+ * @param {object} doc the FeatureServer document
+ */
+function drawServiceBounds(doc) {
+  const ops = $("serviceOps");
+  const spend = $("serviceSpend");
+
+  if (!ops || !spend || !doc) return;
+
+  // <b>Every operation the face defines, not only the ones granted.</b> A list of what is on
+  // says nothing about what is off, and *why can this client not edit* is the question. The five
+  // are ArcGIS's own set for a FeatureServer; a name the server sends that is not among them is
+  // added rather than dropped.
+  const granted = String(doc.capabilities || "")
+    .split(",").map(one => one.trim()).filter(Boolean);
+
+  const known = ["Query", "Create", "Update", "Delete", "Extract"];
+  const all = [...known, ...granted.filter(one => !known.includes(one))];
+
+  ops.innerHTML = `
+    <h4>What a client may do</h4>
+    <div class="pills">${all.map(one => {
+      const on = granted.includes(one);
+
+      return `<span class="pill ${on ? "p-on" : "p-off"}"
+        title="${on ? "Offered" : "Not offered — a client asking for it is refused"}"
+        >${h(one)}</span>`;
+    }).join("")}</div>
+    <p class="hint">Set on the service, not per layer — <a href="#" data-service-tab="settings"
+      >Settings</a>. A greyed operation is one the service does not offer; a client asking for it
+      is refused with the reason.</p>`;
+
+  const rows = [
+    ["Rows per request", doc.maxRecordCount != null ? num(doc.maxRecordCount) : null],
+    ["Query formats", doc.supportedQueryFormats ? h(String(doc.supportedQueryFormats)) : null],
+    // <b>No thousands separator on an identifier.</b> `num()` made Web Mercator read as
+    // *EPSG:3,857*, which is not a code anybody can paste anywhere.
+    ["Spatial reference", doc.spatialReference
+      ? `EPSG:${h(String(doc.spatialReference.latestWkid || doc.spatialReference.wkid))}`
+      : null],
+    ["Units", h(String(doc.units || "").replace(/^esri/, "").toLowerCase()) || null],
+    ["Data", doc.hasStaticData ? "static" : "editable"],
+  ].filter(([, value]) => value !== null && value !== "");
+
+  spend.innerHTML = `
+    <h4>What one request may spend</h4>
+    <dl class="facts2">${rows.map(([label, value]) =>
+      `<dt>${h(label)}</dt><dd>${value}</dd>`).join("")}</dl>
+    <p class="hint">Read from the service document — this is what a client is told, whatever a
+      form elsewhere says.</p>`;
 }
 
 /**
@@ -2999,6 +3103,11 @@ function drawServiceTabs() {
     strip.innerHTML = "";
     strip.hidden = true;
 
+    // <b>The head goes with them.</b> Server's service page is its settings pages and nothing
+    // else — no Overview, no tabs — so a title row with an empty tab strip beside it would be a
+    // heading for a screen that is not there.
+    if ($("servicePagehead")) $("servicePagehead").hidden = true;
+
     for (const id of ["serviceOverview", "serviceData", "serviceDanger"]) {
       const panel = $(id);
       if (panel) panel.hidden = true;
@@ -3011,6 +3120,8 @@ function drawServiceTabs() {
   }
 
   strip.hidden = false;
+
+  if ($("servicePagehead")) $("servicePagehead").hidden = false;
 
   const mine = SERVICE_TABS.filter(([key]) => {
     // A system service is settings and nothing else.
@@ -3118,6 +3229,20 @@ async function drawServiceSymbology() {
 
   if (!box || !serviceOpen) return;
 
+  // <b>The style override is addressed with the service's name, not a layer's.</b> That was the
+  // defect this control was moved for: it lived on a layer's Caching page and sent the layer's
+  // name to a service endpoint, so it worked only where the two happened to match. It moved
+  // again on 2026-09-04, from the Visualization tab to the foot of this panel — so the stamping
+  // moved with it, because a button addressed by whichever tab was drawn last is the same defect
+  // in a third place.
+  for (const attribute of ["data-style", "data-style-put", "data-style-del"]) {
+    const node = document.querySelector(`#serviceStyle [${attribute}]`);
+
+    if (node) node.setAttribute(attribute, serviceOpen.name);
+  }
+
+  if ($("styleDoc")) $("styleDoc").value = "";
+
   const drawable = serviceLayers.filter(
     l => !(l.type || "").toLowerCase().includes("group"));
 
@@ -3195,6 +3320,92 @@ async function drawServiceSymbology() {
   await paintPreviews();
 }
 
+/**
+ * How many classes a stored renderer holds, whatever family it is.
+ *
+ * <b>Its own function because `symClasses` reads the editor's model.</b> That one answers *the
+ * document the form is holding*; this one answers *this document*, and a list screen has no form
+ * open. Two callers reading one global is how the editor's state ends up on a page that is not
+ * the editor.
+ *
+ * @param {object|null} cim the stored document
+ * @returns {number} the number of classes, or 0 for a renderer that has none
+ */
+function classCountOf(cim) {
+  if (!cim || typeof cim !== "object") return 0;
+
+  if (cim.type === "CIMUniqueValueRenderer") {
+    return (cim.groups || []).reduce((n, g) => n + (g.classes || []).length, 0);
+  }
+
+  if (cim.type === "CIMClassBreaksRenderer") return (cim.breaks || []).length;
+
+  return 0;
+}
+
+/**
+ * The symbol layers of the first thing a renderer draws, read without touching the editor.
+ *
+ * <b>A read-only twin of `symSymbolOf`, and the twin is on purpose.</b> That one fills in the
+ * missing parts of the object it is given, because the editor is about to write into them; a
+ * list screen must not edit a document it is only showing.
+ *
+ * @param {object|null} cim the stored renderer
+ * @returns {Array} the symbol layers, possibly empty
+ */
+function firstSymbolLayers(cim) {
+  if (!cim || typeof cim !== "object") return [];
+
+  const holder = cim.type === "CIMUniqueValueRenderer"
+    ? ((cim.groups || [])[0] || {}).classes?.[0]
+    : cim.type === "CIMClassBreaksRenderer" ? (cim.breaks || [])[0] : cim;
+
+  return ((holder || {}).symbol || {}).symbol?.symbolLayers || [];
+}
+
+/**
+ * Fills each Overview row's symbology state and its geometry swatch.
+ *
+ * <b>Two facts from one request.</b> *Authored, and into how many classes* is what a publisher
+ * scanning a service wants; the swatch beside the name is the same answer for somebody who is
+ * not reading. Neither was on this page, and both are in a document the row would otherwise
+ * fetch twice to get separately.
+ *
+ * @param {Array} layers the drawable layers, in the order they are listed
+ */
+async function fillLayerSymbologyStates(layers) {
+  for (const one of layers) {
+    const name = one.name || "";
+    const says = document.querySelector(`[data-symstate="${CSS.escape(name)}"]`);
+    const swatch = document.querySelector(`[data-geoswatch="${CSS.escape(name)}"]`);
+
+    if (!says) continue;
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
+      const classes = classCountOf(r.symbology);
+
+      says.textContent = r.stored
+        ? `Authored${classes > 0 ? ` · ${num(classes)} classes` : ""}`
+        : "Generated · version 0";
+
+      says.classList.toggle("authored", !!r.stored);
+
+      if (swatch) {
+        const paint = symLayerColour(symThematicLayer(firstSymbolLayers(r.symbology)));
+
+        swatch.className = `geoswatch ${symSwatchShape(r.geometry || "")}`;
+        swatch.style.setProperty("--sw", symCimHex(paint && paint.color));
+      }
+    } catch {
+      // <b>Silent, and the row keeps its name.</b> A layer whose symbology cannot be read is
+      // still a layer in this service; putting the request's error where a two-word state
+      // belongs would make one failed request look like a broken list.
+      says.textContent = "";
+    }
+  }
+}
+
 /** The layers in the open service, from its own FeatureServer document. */
 let serviceLayers = [];
 
@@ -3255,20 +3466,38 @@ function drawServiceLayers(layers, qualified) {
         `id ${num(layer.id ?? 0)}`,
       ].join(" · ");
 
+      // <b>Five columns, and it was two.</b> Handoff 2026-09-04. The id is what every address
+      // and every error message uses and the row did not carry it; the swatch says what the
+      // layer is before the words do; the state answers *has anybody styled this* without
+      // opening it; and the three ways on were two links run together with no space between
+      // them, which measured as one 96-pixel target holding two.
+      const at = `#/layer/${encodeURIComponent(layer.name || "")}`;
+
       return `<tr>
-        <td class="name${nested ? " nested" : ""}">${group ? `<span class="rowicon">${
-          icon("folder")}</span>` : ""}${group
+        <td class="lid">${group ? "" : num(layer.id ?? 0)}</td>
+        <td class="lsw">${group
+          ? `<span class="rowicon">${icon("folder")}</span>`
+          : `<span class="geoswatch" data-geoswatch="${h(layer.name || "")}"></span>`}</td>
+        <td class="name${nested ? " nested" : ""}">${group
             ? h(layer.name || "")
-            : `<a href="#/layer/${encodeURIComponent(layer.name || "")}">${h(layer.name || "")}</a>`}
+            : `<a href="${at}">${h(layer.name || "")}</a>`}
           <div class="rowmeta">${h(said)}</div></td>
-        <td class="acts">${group ? "" : `<a class="tiny"
-          href="#/layer/${encodeURIComponent(layer.name || "")}/symbology"
+        <td class="lstate"><span class="rowmeta" data-symstate="${h(layer.name || "")}">${
+          group ? "" : "reading…"}</span></td>
+        <td class="acts">${group ? "" : `<a class="tiny" href="#" data-service-tab="data"
+          title="This layer's rows and its fields">Data</a>
+        <a class="tiny" href="${at}/symbology"
           title="How this layer is drawn">Symbology</a>
-        <a class="tiny"
-          href="${h(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`)}/FeatureServer/${
-            num(layer.id ?? 0)}?f=json" target="_blank" rel="noreferrer">document</a>`}</td>
+        <a class="tiny" href="${h(visHref(layer.name || "") || `${at}`)}"
+          title="Draw this layer on the map">Map</a>`}</td>
       </tr>`;
     }).join("");
+
+  // <b>One request a layer, in order, and only for the layers that draw.</b> The same rule the
+  // Symbology tab follows: a service of thirty layers must not open thirty requests as the first
+  // thing this screen does.
+  fillLayerSymbologyStates(ordered.filter(([one]) =>
+    !(one.type || "").toLowerCase().includes("group")).map(([one]) => one));
 
   // <b>Redrawn here, because the strip is built before the document arrives.</b> `showService` draws the
   // tabs so the page is usable while the FeatureServer document is in flight; the count on Overview and
@@ -3428,18 +3657,61 @@ async function drawServiceDetails(qualified, knownKind) {
     //
     // <b>And no `Layers` row.</b> The count is already on the tab badge and in the subtitle above; a
     // third copy is a row that varies with nothing.
+    // <b>Three more, from the handoff.</b> Where the data lives, what it is projected in and how
+    // many layers there are: the first two were on no screen at all, and the third was on the
+    // tab badge only — which is not where somebody reads a service's facts.
+    //
+    // <b>The count comment that used to be here said the opposite and was right at the time.</b>
+    // It argued a third copy of the layer count varies with nothing; what changed is that the
+    // subtitle now carries the kind and the sharing as well, so this list is the one place the
+    // seven facts are together rather than a duplicate of a badge.
+    const mine = known.filter(k => k.service === item.bare
+      && (k.folder || null) === (item.folder || null));
+
+    const source = mine.length > 0
+      ? (mine.every(k => k.hosted)
+        ? `<span title="The tables are in this server's datastore">hosted</span>`
+        : mine.some(k => k.hosted)
+          ? `<span title="Some of this service's tables are this server's and some are not">mixed</span>`
+          : `<span title="The tables stay where they are; this server reads them">registered</span>`)
+      : null;
+
+    const spatial = serviceDoc && serviceDoc.spatialReference
+      ? `EPSG:${h(String(serviceDoc.spatialReference.latestWkid
+        || serviceDoc.spatialReference.wkid))}`
+      : null;
+
     const rows = [
       ["Kind", h(item.kind || "feature service")],
       ["Owner", h(item.owner || "—")],
       ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
       ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
          title="Set who can reach this">${pill(item.sharing)}</button>`],
+      // <b>Only when it is known, rather than inferred from the folder's name.</b> A service in
+      // a folder called `hosted` is usually hosted and a convention is not a fact; the
+      // administrative listing carries the answer and Studio's reader may not have it, so the
+      // row is absent rather than guessed.
+      ...(source ? [["Source", source]] : []),
+      ...(spatial ? [["Spatial ref", spatial]] : []),
+      ["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
+        num(item.layers || serviceLayers.length || 0)}</span>`],
       ["Published", item.created ? h(String(item.created).slice(0, 10)) : `<span class="val">—</span>`],
       ["Updated", item.updated ? h(String(item.updated).slice(0, 10)) : `<span class="val">—</span>`],
     ];
 
     $("svcFacts").innerHTML = rows.map(([label, value]) =>
       `<dt>${label}</dt><dd>${value}</dd>`).join("");
+
+    // <b>Sharing, state, owner — the handoff's three, and the strip's whole job.</b> It held a
+    // mono dump of the service document's numbers, which are two panels of their own now.
+    // <b>The scope is the pill beside this, so the word is not repeated.</b>
+    // `loadServiceCapabilities` writes `#serviceScope` from the server's own answer; printing
+    // *public* again in the line after it is the page saying one fact twice in two shapes. And
+    // it stays that function's element — two writers for one pill is how a className set by one
+    // gets cleared by the other.
+    if ($("serviceFacts")) {
+      $("serviceFacts").textContent = [item.status, item.owner].filter(Boolean).join(" · ");
+    }
 
     drawServiceHead(item);
   } catch {
@@ -3884,16 +4156,113 @@ function drawServiceHead(item) {
              data-thumb="${h(thumbnailFor(item.cover.url))}">`
         : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}
       <div>
-        <b>${h(item.bare || item.name || "")}</b>
-        <div class="rowmeta">${h(item.kind || "feature service")} · ${num(item.layers || 0)}
-          layer${(item.layers || 0) === 1 ? "" : "s"} · ${h(item.sharing || "")}</div>
-        ${item.description ? `<p class="hint">${h(item.description)}</p>` : ""}
+        <!--
+          <b>The name and the kind moved to the page head.</b> They were here because this panel
+          was the only thing on the page that said what the service is; with a 33-pixel title
+          above it, printing them again in 15-pixel bold is the same fact at two sizes.
+        -->
+        ${item.description
+          ? `<p class="lede">${h(item.description)}</p>`
+          : `<p class="hint">No description. A service with one is easier to find in a listing
+             than one identified only by its name.</p>`}
         <div class="footnote">${item.updated ? `Updated ${h(String(item.updated).slice(0, 10))}` : ""}${
           item.created ? ` · published ${h(String(item.created).slice(0, 10))}` : ""}</div>
       </div>
     </div>`;
 
-  paintPreviews();
+  // <b>The subtitle is the line this panel used to carry.</b> Kind, how many layers and who may
+  // read it: three facts that qualify the name, which is what a subtitle is for.
+  const sub = $("serviceSub");
+
+  if (sub) {
+    sub.textContent = [
+      item.kind || "feature service",
+      `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
+      item.sharing || "",
+    ].filter(Boolean).join(" · ");
+  }
+
+  // <b>And then the cover is read, not only shown.</b> A blank white rectangle where a map
+  // should be is the shape of a fault, and this one is not one: the picture arrived, it is
+  // simply empty. Saying which of the two it is takes one canvas read of an image the page has
+  // already fetched.
+  paintPreviews().then(() => explainBlankCover());
+}
+
+/**
+ * Whether a picture this server drew has nothing in it.
+ *
+ * <b>Every thumbnail is cleared to transparent</b> (`ThumbnailEndpoints.RenderAsync`), so *drew
+ * nothing* is a question about alpha and has an exact answer. Eight rather than zero, because a
+ * hairline antialiased to almost nothing is still something that drew.
+ *
+ * <b>Same-origin, so the canvas is not tainted.</b> The picture is a blob of this server's own
+ * response; a cross-origin one would throw on `getImageData` and be reported as *not blank*,
+ * which is the safe direction to be wrong in.
+ *
+ * @param {string} href the image's address
+ * @returns {Promise<boolean>} true when every pixel is transparent
+ */
+async function drewNothing(href) {
+  try {
+    const image = await new Promise((ok, no) => {
+      const img = new Image();
+
+      img.onload = () => ok(img);
+      img.onerror = no;
+      img.src = href;
+    });
+
+    // Sampled rather than read whole: a feature that covers no 160th of the picture is a
+    // feature nobody can see either.
+    const wide = Math.max(1, Math.min(image.naturalWidth || 1, 160));
+    const tall = Math.max(1, Math.min(image.naturalHeight || 1, 160));
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = wide;
+    canvas.height = tall;
+
+    const paper = canvas.getContext("2d", { willReadFrequently: true });
+
+    paper.drawImage(image, 0, 0, wide, tall);
+
+    const { data } = paper.getImageData(0, 0, wide, tall);
+
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 8) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Says so when the service's cover drew nothing, instead of showing white.
+ *
+ * <b>The blank thumbnail was reading as a fault.</b> Handoff 2026-09-04. It is not one — the
+ * request succeeded and the renderer ran — so the panel says what happened and offers the one
+ * thing that would show more: the map, where the extent can be changed.
+ */
+async function explainBlankCover() {
+  const image = document.querySelector("#serviceHead img.thumb[src]");
+
+  if (!image || image.dataset.checked) return;
+
+  image.dataset.checked = "1";
+
+  if (!await drewNothing(image.src)) return;
+
+  const said = document.createElement("div");
+
+  said.className = "thumb empty drewnothing";
+  said.innerHTML = `<b>Nothing drew</b><span>Every pixel is transparent. The features may be
+    outside the drawn extent, or painted at an opacity too low to see.
+    <a href="#" data-service-tab="visualization">Open the map</a></span>`;
+
+  image.replaceWith(said);
 }
 
 /**
@@ -3913,19 +4282,6 @@ function drawServiceVis() {
   const modes = $("visModes");
   if (!picker || !modes) return;
 
-  // <b>The style override is addressed with the service's name, not a layer's.</b> That was the
-  // defect this control was moved for: it lived on a layer's Caching page and sent the layer's
-  // name to a service endpoint, so it worked only where the two happened to match.
-  for (const [attribute, node] of [
-    ["data-style", document.querySelector("#serviceStyle [data-style]")],
-    ["data-style-put", document.querySelector("#serviceStyle [data-style-put]")],
-    ["data-style-del", document.querySelector("#serviceStyle [data-style-del]")],
-  ]) {
-    if (node && serviceOpen) { node.setAttribute(attribute, serviceOpen.name); }
-  }
-
-  if ($("styleDoc")) { $("styleDoc").value = ""; }
-
   const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
 
   if (drawable.length === 0) {
@@ -3943,8 +4299,9 @@ function drawServiceVis() {
   visLayerIndex = wanted;
 
   picker.innerHTML = drawable.map(l =>
-    `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}
-      >${h(l.name || `layer ${l.id}`)}</option>`).join("");
+    `<a href="#" data-vis-layer="${num(l.id ?? 0)}"${
+      String(l.id) === wanted ? ' aria-current="page"' : ""} title="${h(l.name || "")}"
+      >${num(l.id ?? 0)} · ${h(l.name || `layer ${l.id}`)}</a>`).join("");
 
   // <b>The link follows the picker.</b> A Symbology link that always opened the first layer
   // would be worse than none on a service with several: it would look like it worked.
@@ -3956,15 +4313,22 @@ function drawServiceVis() {
       link.href = `#/layer/${encodeURIComponent(one.name || "")}/symbology`;
       link.title = `How ${one.name || "this layer"} is drawn`;
     }
+
+    // <b>What the picked layer is, beside the picker.</b> The chips carry an id and a name; the
+    // geometry and how many features it holds are the two facts somebody checks against the
+    // picture, and neither was anywhere on this tab.
+    const meta = $("visMeta");
+
+    if (meta && one) {
+      const geometry = GEOMETRY_NAMES[one.geometryType]
+        || (one.geometryType || "").replace(/^esriGeometry/, "");
+
+      meta.textContent = [geometry, one.type && !geometry ? one.type : ""]
+        .filter(Boolean).join(" · ");
+    }
   };
 
   named(wanted);
-
-  picker.onchange = () => {
-    visLayerIndex = picker.value;
-    named(picker.value);
-    drawVisNow();
-  };
 
   // <b>Tiles only where the service has them.</b> A registered layer is served as features and has no
   // vector tile service, so the mode would be a button that answers 404 — the row controls already make
@@ -4032,7 +4396,11 @@ function visHref(name, mode) {
   const at = placeOf(name);
   if (!at) return null;
 
-  const query = `?tab=visualization&layer=${encodeURIComponent(String(at.index ?? 0))}`
+  // <b>`id`, which is what `placeOf` returns.</b> It read `at.index`, which nothing sets — so
+  // `?? 0` caught it every time and every *Map* shortcut in this console opened layer 0. On a
+  // one-layer service that is right by accident; on `ci_EarlyAlert` it means pressing Map beside
+  // `_reports` draws `_sites`.
+  const query = `?tab=visualization&layer=${encodeURIComponent(String(at.id ?? 0))}`
     + `&mode=${encodeURIComponent(mode)}`;
 
   const hash = `service/${at.service.split("/").map(encodeURIComponent).join("/")}${query}`;
@@ -4248,16 +4616,36 @@ function serviceSettingsMarkup(name, folder) {
 
     <section class="page" id="page-sharing">
       <h4>Who may read this service</h4>
-      <div class="setting"><span class="q">Sharing scope:</span>
+      <!--
+        <b>Three cards, and it was a select of three.</b> Handoff 2026-09-04. The difference
+        between private, organization and public is a sentence each, and a dropdown can carry a
+        word — so the sentences were three paragraphs under the control, which is where an
+        explanation goes when the control has no room for it. Radio inputs keep the arrow keys,
+        the grouping and the applied-on-choice behaviour exactly as they were: the change handler
+        reads the value off whatever fired, and a radio has one.
 
-        <select id="capSharing" data-service-sharing="${h(name || "")}"
-          data-folder="${h(folder || "")}">${
-          ["private", "organization", "public"].map(v =>
-            `<option value="${v}">${v}</option>`).join("")}<option value="group" disabled
-              >group — shared into a group; set on the item, not here</option></select></div>
+        <b>capSharing is still the id that is read.</b> loadServiceCapabilities sets it from
+        the catalogue listing; a radio group has no single element to set, so the id stays on the
+        group and the setter picks the member.
+      -->
+      <div class="scopecards" id="capSharing" role="radiogroup"
+        aria-label="Who may read this service">
+        ${[
+          ["private", "Private", "The owner, and anybody with <i>view all content</i>."],
+          ["organization", "Organization", "Anybody who can sign in."],
+          ["public", "Public",
+            "Anybody, without a token — what an ArcGIS client with no credential sees."],
+        ].map(([value, label, said]) => `<label class="scopecard">
+          <input type="radio" name="capSharing" value="${value}"
+            data-service-sharing="${h(name || "")}" data-folder="${h(folder || "")}">
+          <span><b>${label}</b><span class="said">${said}</span></span>
+        </label>`).join("")}
+      </div>
       <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
         a service has to be able to trust that it happened rather than press Save afterwards
         (ADR-031 §2b, the same rule the role select follows).</p>
+      <p class="hint"><b>Shared into a group</b> is a fourth state and it is not set here: it is
+        set on the item, and it adds readers on top of whichever of these three is chosen.</p>
       <p class="hint"><b>One scope per service, and every layer inside it is read under that
         scope.</b> There is no per-layer version: <code>service.sharing</code> is what the serving
         path reads, and the console used to offer this page once per layer — D-61.</p>
@@ -4495,6 +4883,14 @@ function rgba(color) {
 async function loadSymbology(name) {
   const state = $("symState");
 
+  // <b>A load starts the screen over.</b> A refusal from the last Store, a tab somebody left on
+  // the derived document, a ground chosen for a different layer: none of them are facts about
+  // what has just been read, and every one of them survived a navigation before this.
+  symRefuse("");
+  if ($("symOverride")) $("symOverride").hidden = true;
+  symShowInspector("classes");
+  symShowGround("light");
+
   try {
     const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
 
@@ -4526,10 +4922,21 @@ async function loadSymbology(name) {
         const service = await api(
           `/admin/services/${encodeURIComponent(r.service)}/style`);
 
+        // <b>A banner rather than a sentence appended to the state line.</b> The state line is
+        // in the Document tab now, and this fact is not about the document: it says the picture
+        // beside it is not what a map draws. Something that contradicts what is on the screen
+        // has to be on the screen.
         if (service && service.stored) {
-          state.innerHTML += ` <b>This layer's service carries a style override</b>, so the `
-            + `tile face draws it rather than this document. The ArcGIS feature face still `
-            + `reads this one. The override is on the service's Visualization page.`;
+          const note = $("symOverride");
+
+          if (note) {
+            note.innerHTML = `<span><b>This layer's service carries a style override</b>, so `
+              + `the tile face draws it rather than this document. The ArcGIS feature face `
+              + `still reads this one. The override is on the service's Visualization page.`
+              + `</span>`;
+
+            note.hidden = false;
+          }
         }
       } catch {
         // A service that cannot be read is the service page's problem to report, not this
@@ -4560,7 +4967,12 @@ async function loadSymbology(name) {
 
     symStored = !!r.stored;
     symEditedSince = false;
-    $("symPreviewState").textContent = symPreviewSays();
+    symSayState();
+
+    // <b>An unstyled layer opens on the fact rather than on a form.</b> The controls behind it
+    // are already holding the generated document, so this stands in front of them rather than
+    // instead of them: the two buttons dismiss it and nothing is fetched.
+    symShowEmpty(!r.stored);
 
     // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
     // appearance a real answer with a version of 0, and a reader who sees nothing cannot
@@ -4570,6 +4982,12 @@ async function loadSymbology(name) {
     state.textContent = e.message;
     $("symDerived").textContent = "—";
     drawLosses([]);
+
+    // <b>The refusal banner, because the state line is behind a tab.</b> A layer whose
+    // symbology could not be read shows three empty columns otherwise, which reads as a layer
+    // with nothing in it rather than as a request that failed.
+    symRefuse(e.message || "The symbology could not be read.");
+    symShowEmpty(false);
   }
 }
 
@@ -4590,7 +5008,7 @@ function wireSymbologyForm() {
     if (!(e.target instanceof Element) || !e.target.closest("#page-symbology")) return;
     if (e.target.id === "symDoc" || symFilling || !symModel) return;
 
-    if (e.target.id === "symKind") {
+    if (e.target.name === "symKind") {
       symFamily(e.target.value);
       await symSettled({ classes: true, stack: true });
 
@@ -4655,7 +5073,7 @@ function wireSymbologyForm() {
   document.addEventListener("input", e => {
     if (!(e.target instanceof Element) || e.target.id !== "symFilter" || !symModel) return;
 
-    drawSymbologyClasses($("symKind").value);
+    drawSymbologyClasses(symKindValue());
   });
 
   document.addEventListener("input", e => {
@@ -4679,7 +5097,7 @@ function wireSymbologyForm() {
 
       symEditedSince = true;
 
-      if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+      symSayState();
 
       await drawSymbologyPreview(editing.name, $("symDoc").value);
     }, 400);
@@ -4717,10 +5135,13 @@ function wireSymbologyForm() {
       one.setAttribute("aria-current", mine ? "true" : "false");
     }
 
-    // <b>No panel is redrawn here any more.</b> There used to be a symbol editor below the list
-    // that had to follow the selection; the editor now replaces the list instead, so focusing a
-    // row marks it and nothing else — and `Symbol ›` names the class it opens, so the mark is a
-    // convenience rather than the thing that decides what gets edited.
+    // <b>The stack follows the selection again.</b> It is under the list rather than instead of
+    // it, so a row that is marked and a symbol panel showing a different class would be two
+    // statements about the same thing on one screen. Redrawing here is what stops that; the
+    // heading names the class as well, so the mark is a second signal rather than the only one.
+    symShowDetail(true);
+    drawSymbolLayers();
+    drawSymbolGallery();
   });
 
   document.addEventListener("click", async e => {
@@ -4757,23 +5178,49 @@ function wireSymbologyForm() {
       return;
     }
 
-    if (t.classList.contains("symopen")) {
-      symClassIndex = Number(t.dataset.class);
-      symShowDetail(true);
-      drawSymbolLayers();
-      drawSymbolGallery();
+    // <b>The inspector's tabs.</b> Three panes over one column: the classes, the document Store
+    // sends, and the projection an ArcGIS client reads. They were a list, a disclosure triangle
+    // and two sections at the bottom of the page.
+    const tab = t.closest("#symInspTabs a");
+
+    if (tab) {
+      e.preventDefault();
+      symShowInspector(tab.dataset.insp);
 
       return;
     }
 
-    if (t.id === "symBackToClasses") {
-      symShowDetail(false);
+    // <b>What is drawn under the layer, and it costs no request.</b> The preview is a
+    // transparent PNG, so the ground is this page's own background — which is the only way to
+    // find out that a pale fill is invisible on white without storing it first.
+    const ground = t.closest("#symGround a");
 
-      // <b>Back to the row that was open, not to the top.</b> Somebody who edited the two
-      // hundredth class and came back to a list scrolled to the first has lost their place, and
-      // the list is bounded to ten rows, so there is a great deal of place to lose.
-      symScrollToChoice = true;
-      drawSymbologyClasses($("symKind").value);
+    if (ground) {
+      e.preventDefault();
+      symShowGround(ground.dataset.ground);
+
+      return;
+    }
+
+    if (t.id === "symStartGenerated" || t.id === "symPasteDoc") {
+      e.preventDefault();
+
+      // <b>The form is already holding the generated document.</b> The server answers a layer
+      // with no stored symbology with the generated CIM rather than with nothing (ADR-052), so
+      // *start from it* is this screen getting out of the way, not a document being fetched.
+      symShowEmpty(false);
+
+      if (t.id === "symPasteDoc") {
+        symShowInspector("document");
+        $("symDoc").focus();
+      }
+
+      return;
+    }
+
+    if (t.id === "symRefusalClose") {
+      e.preventDefault();
+      $("symRefusal").hidden = true;
 
       return;
     }
@@ -4926,7 +5373,7 @@ async function symSettled(what) {
   symFilling = true;
 
   try {
-    if (what.classes) drawSymbologyClasses($("symKind").value);
+    if (what.classes) drawSymbologyClasses(symKindValue());
     if (what.stack) drawSymbolLayers();
     if (what.vary) drawVarying();
   } finally {
@@ -4943,7 +5390,7 @@ async function symSettled(what) {
   if (!what.quiet) {
     symEditedSince = true;
 
-    if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+    symSayState();
 
     await drawSymbologyPreview(editing.name, $("symDoc").value);
   }
@@ -5016,6 +5463,14 @@ function symShowClassify(kind) {
   row.hidden = kind === "simple";
   $("symMethod").hidden = kind !== "classBreaks";
   $("symClassCount").hidden = kind !== "classBreaks";
+
+  // <b>And the word in front of them, which stayed when they went.</b> *Into* names the count
+  // and the method; with both hidden it sat alone in front of a button, labelling nothing. A
+  // unique-value renderer is not classified into anything — it reads the values there are.
+  const label = $("symClassifyLabel");
+
+  if (label) label.hidden = kind !== "classBreaks";
+
   $("symClassify").textContent = kind === "uniqueValue"
     ? "Read the values"
     : "Read the data";
@@ -5051,7 +5506,7 @@ function symChosenFields() {
 async function symClassify() {
   const says = $("symClassifySays");
   const button = $("symClassify");
-  const kind = $("symKind").value;
+  const kind = symKindValue();
   const field = $("symField").value;
 
   if (!editing || kind === "simple") return;
@@ -5180,9 +5635,7 @@ function symShowFilter(total, showing) {
   // <b>Exactly when the list stops fitting.</b> Ten rows are shown, so eleven is the first
   // count at which something is out of sight — and the moment somebody needs a way to reach it
   // that is not scrolling. Twelve was an invented threshold and did not line up with anything.
-  // <b>And not at all while one class's symbol stands in for the list.</b> A search box over a
-  // list that is not on the screen is a control for something that is not there (ADR-034).
-  row.hidden = symInDetail || total <= 10;
+  row.hidden = total <= 10;
 
   count.textContent = total === showing
     ? `${num(total)} classes`
@@ -5224,30 +5677,33 @@ function symAddClass() {
 let symScrollToChoice = false;
 
 /**
- * Shows either the class list or one class's symbol, never both — except when there is no list.
+ * The class list and the selected class's symbol, one above the other in the inspector.
  *
- * <b>A simple renderer has no list to stand in for.</b> Its one row is not a list, it is the
- * colour of the layer, and it lives in the same container the class rows live in — so hiding
- * that container to show the symbol editor takes the colour control off the screen while
- * leaving it in the document. That shipped for one test run and was caught by the assertion
- * this console keeps for exactly this shape: *the controls are in the document and none of them
- * is on screen*, which has now caught it four times.
+ * <b>They were two views and they are one column now.</b> D-217 made them alternate, because a
+ * permanently rendered symbol panel could be titled after a row that had scrolled out of sight
+ * — *Symbol layers — Ankara* over a list showing ten classes of two hundred and fifty-six, none
+ * of them Ankara. That fault was real and this does not bring it back: the two are adjacent
+ * inside one 336-pixel column, the chosen row keeps its accent edge, and every move of the
+ * selection scrolls it into view. What alternating cost was a click to see what a class is made
+ * of, on the screen whose complaint was that it took too many.
  *
- * @param {boolean} detail true to show one class's symbol instead of the list
+ * <b>A simple renderer has no list.</b> Its one row is the colour of the layer, so the heading
+ * over the stack says *Symbol* rather than naming a class that is not one of several.
+ *
+ * @param {boolean} detail kept for the callers that ask for the stack to be redrawn; the two
+ *   are no longer alternatives, so it only decides whether the selection is scrolled to
  */
 function symShowDetail(detail) {
   const simple = !symModel || symModel.type === "CIMSimpleRenderer";
 
-  // A simple renderer shows both, because its "list" is one colour and there is nowhere to go
-  // back to. A classified one shows one or the other.
-  symInDetail = !simple && detail;
+  symInDetail = !simple && !!detail;
 
   for (const [id, on] of [
-    ["symClasses", simple || !symInDetail],
-    ["symClassActions", !simple && !symInDetail],
-    ["symAllRow", !simple && !symInDetail && symClasses().length > 1],
-    ["symDetail", simple || symInDetail],
-    ["symDetailHead", symInDetail],
+    ["symClasses", true],
+    ["symClassActions", !simple],
+    ["symAllRow", !simple && symClasses().length > 1],
+    ["symDetail", true],
+    ["symStackHead", true],
   ]) {
     if ($(id)) $(id).hidden = !on;
   }
@@ -5255,10 +5711,159 @@ function symShowDetail(detail) {
   const which = $("symDetailWhich");
 
   if (which) {
-    which.textContent = symInDetail
-      ? symClassLabel(symClasses()[symClassIndex], symClassIndex)
-      : "";
+    which.textContent = simple
+      ? "Symbol"
+      : `Symbol · ${symClassLabel(symClasses()[symClassIndex], symClassIndex)}`;
   }
+
+  // <b>*Classes* over one row is a tab lying about what is behind it.</b> A simple renderer
+  // has one symbol and no classes, which is the whole difference between it and the other two.
+  const tab = $("symTabClasses");
+
+  if (tab) tab.firstChild.textContent = simple ? "Symbol" : "Classes";
+
+  // <b>And the pane does not stretch for one row.</b> The stack is pinned to the bottom of the
+  // pane so a long class list gives up the room rather than pushing it under the fold; with one
+  // row above it that pin is 500 pixels of nothing between the colour and the symbol it
+  // belongs to, which reads as a panel that failed to draw.
+  const pane = $("insp-classes");
+
+  if (pane) pane.classList.toggle("onesymbol", simple);
+}
+
+/**
+ * Writes the strip's state line, and its own tooltip with it.
+ *
+ * <b>The line is 44 pixels tall and beside two buttons, so it can be cut.</b> Measured at 1440:
+ * the strip wants 1,370 pixels of content and has 1,208, and this is the only child of it that
+ * is prose. Cutting it silently would lose *this is what Store would keep* — which is the
+ * sentence the button next to it is about — so the whole of it is in the title.
+ */
+function symSayState() {
+  const line = $("symPreviewState");
+
+  if (!line) return;
+
+  const said = symPreviewSays();
+
+  line.textContent = said;
+  line.title = said;
+}
+
+/** Which of the inspector's three panes is showing. */
+let symInspector = "classes";
+
+/**
+ * Moves the inspector between its three panes.
+ *
+ * <b>Not a router, and that is deliberate.</b> A layer's page is addressable and its symbology
+ * page is addressable; which of three read-outs of the same document is on the right of it is
+ * not a place, and putting it in the address would make Back walk through tab presses.
+ *
+ * @param {string} which `classes`, `document` or `arcgis`
+ */
+function symShowInspector(which) {
+  const panes = ["classes", "document", "arcgis"];
+
+  if (!panes.includes(which)) return;
+
+  symInspector = which;
+
+  for (const pane of panes) {
+    const box = $(`insp-${pane}`);
+    if (box) box.hidden = pane !== which;
+  }
+
+  for (const link of document.querySelectorAll("#symInspTabs a")) {
+    if (link.dataset.insp === which) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+/**
+ * What is painted behind the preview.
+ *
+ * <b>Three grounds, none of them a request.</b> The picture the server draws is cleared to
+ * transparent, so the frame's own background is what shows through the gaps — and a fill at 45%
+ * alpha over white is a different thing to look at than the same fill over navy. This console
+ * could not answer *will anybody see this on a dark basemap* at all before.
+ *
+ * @param {string} which `light`, `dark` or `none`
+ */
+function symShowGround(which) {
+  const box = $("symPreviewBox");
+
+  if (!box || !["light", "dark", "none"].includes(which)) return;
+
+  box.classList.remove("ground-light", "ground-dark", "ground-none");
+  box.classList.add(`ground-${which}`);
+
+  for (const link of document.querySelectorAll("#symGround a")) {
+    if (link.dataset.ground === which) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+/**
+ * The generated-appearance screen, instead of an editor nobody has written a document into.
+ *
+ * <b>§5b says a generated appearance is an answer, so it is one screen rather than a sentence
+ * over a full form.</b> The form behind it is already filled with the generated document — the
+ * server answers an unstyled layer with it — so dismissing this is the only thing either button
+ * has to do.
+ *
+ * @param {boolean} on whether to stand in front of the editor
+ */
+function symShowEmpty(on) {
+  const empty = $("symEmpty");
+  const cols = $("symCols");
+
+  if (!empty || !cols) return;
+
+  empty.hidden = !on;
+  cols.hidden = on;
+
+  // <b>The swatch is the colour the sentence beside it is about.</b> It was a hatched
+  // rectangle, on a screen whose one claim is that the colour is derived from the layer's
+  // identity — so the one thing that could have shown that claim was showing nothing.
+  const sw = $("symEmptySwatch");
+
+  if (on && sw) {
+    const first = symClasses()[0];
+    const paint = first
+      ? symLayerColour(symThematicLayer(symSymbolOf(first).symbolLayers))
+      : null;
+
+    sw.innerHTML = `<i class="${symSwatchShape(symGeometry)}"
+      style="--sw:${h(symCimHex(paint && paint.color))}"></i>`;
+  }
+}
+
+/**
+ * The server's refusal, said where the document was typed.
+ *
+ * <b>Shown rather than toasted.</b> A toast is right for something that happened to a layer
+ * while the reader was looking elsewhere; a refusal to store what is on the screen is about the
+ * screen, and it has to still be readable while they fix it.
+ *
+ * @param {string} why the server's own sentence, or an empty string to clear it
+ */
+function symRefuse(why) {
+  const box = $("symRefusal");
+
+  if (!box) return;
+
+  if (!why) {
+    box.hidden = true;
+    box.innerHTML = "";
+
+    return;
+  }
+
+  box.innerHTML = `<b>Not stored.</b> <span>${h(why)}</span>`
+    + `<button class="tiny ghost" id="symRefusalClose">Dismiss</button>`;
+
+  box.hidden = false;
 }
 
 /**
@@ -5957,6 +6562,26 @@ function symKindOfGeometry(geometry) {
   return "fill";
 }
 
+/**
+ * The class of swatch a layer of this geometry gets: a rule, a box or a dot.
+ *
+ * <b>Shape, not only colour.</b> The handoff's class row draws a line layer's swatch as a
+ * stroked rule and a polygon's as a filled box, because a column of identical squares says
+ * nothing about what the map does with them. The stylesheet does the drawing; this only names
+ * which of the three it is.
+ *
+ * @param {string} geometry the layer's geometry, as the server reports it
+ * @returns {string} the class name
+ */
+function symSwatchShape(geometry) {
+  const shape = symKindOfGeometry(geometry);
+
+  if (shape === "marker") return "sw-point";
+  if (shape === "line") return "sw-line";
+
+  return "sw-poly";
+}
+
 /** The CIM symbol type a layer of this geometry is drawn with. */
 function symTypeOfGeometry(geometry) {
   const shape = symKindOfGeometry(geometry);
@@ -5977,6 +6602,29 @@ function symTypeOfGeometry(geometry) {
  * a renderer from the inputs would quietly delete everything the form has no box for.
  */
 let symModel = null;
+
+/**
+ * Which renderer family the form is authoring.
+ *
+ * <b>Three radio inputs rather than a select, so there is no one element to read.</b> The
+ * handoff draws the family as three cards, which a select cannot be; a hidden select kept
+ * beside them as the value holder would be two controls for one fact, and this file has already
+ * paid for that shape twice. One reader and one writer instead, both here.
+ *
+ * @returns {string} `simple`, `uniqueValue` or `classBreaks`
+ */
+function symKindValue() {
+  const on = document.querySelector('#page-symbology input[name="symKind"]:checked');
+
+  return (on && on.value) || "simple";
+}
+
+/** Moves the family cards to a value without firing the change handler. */
+function symKindSet(kind) {
+  for (const box of document.querySelectorAll('#page-symbology input[name="symKind"]')) {
+    box.checked = box.value === kind;
+  }
+}
 
 /** Which class's symbol the stack panel is showing. */
 let symClassIndex = 0;
@@ -6211,6 +6859,20 @@ function fillSymbologyForm(cim, geometry) {
     if (!SYM_AUTHORED.includes(symModel.type || "CIMSimpleRenderer")) {
       $("symForm").hidden = true;
       $("symUnauthored").hidden = false;
+
+      // <b>The picture and the document stay; the two columns that author go.</b> Hiding only
+      // the rail would leave a class list for classes this form cannot read, and a Classes tab
+      // over an empty pane is a control for something that is not there (ADR-034). The
+      // inspector opens on the document instead, which is the one place this renderer can be
+      // changed at all.
+      $("symTabClasses").hidden = true;
+      symShowInspector("document");
+
+      // <b>Two columns, not three with a hole in the first.</b> A hidden grid item is removed
+      // from the flow rather than left empty, so the picture slid into the rail's 264 pixels
+      // and the inspector's 336 were blank. Measured on `ci_observations`, whose renderer is a
+      // CIMProportionalRenderer.
+      $("symCols").classList.add("noRail");
       // <b>It says nothing is wrong, because a form that vanishes does not.</b> A design
       // review on 2026-09-04 read this as a person who does not know what CIM is and reported
       // that it answers *what is going on* and *what can I do*, and never answers *is this
@@ -6228,12 +6890,14 @@ function fillSymbologyForm(cim, geometry) {
 
     $("symForm").hidden = false;
     $("symUnauthored").hidden = true;
+    $("symTabClasses").hidden = false;
+    $("symCols").classList.remove("noRail");
 
     const kind = symModel.type === "CIMUniqueValueRenderer"
       ? "uniqueValue"
       : symModel.type === "CIMClassBreaksRenderer" ? "classBreaks" : "simple";
 
-    $("symKind").value = kind;
+    symKindSet(kind);
     $("symFieldRow").hidden = kind === "simple";
     symShowClassify(kind);
 
@@ -6277,7 +6941,7 @@ function drawSymbologyFields(chosen) {
   const box = $("symField");
   if (!box) return;
 
-  const ranges = $("symKind") && $("symKind").value === "classBreaks";
+  const ranges = symKindValue() === "classBreaks";
   const usable = ranges ? symFields.filter(f => symIsNumeric(f.type)) : symFields;
 
   if (symFields.length === 0) {
@@ -6307,7 +6971,7 @@ function drawSymbologyFields(chosen) {
  * @param {Array} chosen the fields the model currently classifies by
  */
 function drawExtraFields(chosen) {
-  const many = $("symKind") && $("symKind").value === "uniqueValue";
+  const many = symKindValue() === "uniqueValue";
 
   for (const [at, id] of [[1, "symField2"], [2, "symField3"]]) {
     const box = $(id);
@@ -6359,6 +7023,7 @@ function drawSymbologyClasses(kind) {
   if (classes.length === 0) {
     box.innerHTML = `<p class="hint">No classes yet. <b>Add a class</b> makes one.</p>`;
     symShowFilter(0, 0);
+    drawSymLegend();
     return;
   }
 
@@ -6385,6 +7050,10 @@ function drawSymbologyClasses(kind) {
 
   if (shown.length === 0) {
     box.innerHTML = `<p class="hint">No class matches <b>${h(wanted)}</b>.</p>`;
+    // <b>The legend is not filtered.</b> The filter narrows what a reader is editing; the map
+    // beside it still draws every class, and a legend that agreed with the search box would be
+    // saying something false about the picture.
+    drawSymLegend();
     return;
   }
 
@@ -6395,11 +7064,20 @@ function drawSymbologyClasses(kind) {
     // one row and it was always drawn as selected, which reads as a state somebody set.
     const chosen = classes.length > 1 && i === symClassIndex ? " symchosen" : "";
 
+    // <b>The swatch is the shape of the thing it stands for.</b> A square of colour beside a
+    // road layer says *this is a fill*, which is what the map does not do. Shaping it costs
+    // nothing — the inner swatch of a colour input is stylable, so the target stays 26 by 22
+    // whatever shape is drawn inside it — and it is the one signal on the row that survives at
+    // a glance down 256 of them.
+    const shape = symSwatchShape(symGeometry);
+
     if (kind === "simple") {
       return `<div class="setting symclass${chosen}" data-class="${i}">
-        <span class="q">Colour:</span>
-        <input type="color" class="symfill" data-class="${i}"
-          value="${h(symCimHex(top && top.color))}"></div>`;
+        <input type="color" class="symfill ${shape}" data-class="${i}"
+          value="${h(symCimHex(top && top.color))}"
+          title="The colour every feature is drawn in"
+          aria-label="The colour every feature is drawn in">
+        <span class="symtexts"><span class="symname">Every feature</span></span></div>`;
     }
 
     const value = kind === "uniqueValue"
@@ -6412,24 +7090,31 @@ function drawSymbologyClasses(kind) {
     // a row — and at the ceiling that is 1,280 stops between the filter and the Store button,
     // with nothing to skip them.
     //
-    // <b>Selection follows focus instead.</b> Every row already contains three controls a
-    // keyboard reaches; focusing any of them selects that row, which is both fewer stops and a
-    // better answer, because tabbing into a class's value box and having the symbol panel below
-    // follow is what somebody expects anyway. `aria-current` says which one, since the row is no
-    // longer a button that could be pressed.
+    // <b>Selection follows focus instead.</b> Every row already contains the controls a keyboard
+    // reaches; focusing any of them selects that row, which is both fewer stops and a better
+    // answer, because tabbing into a class's value box and having the symbol panel below follow
+    // is what somebody expects anyway. `aria-current` says which one, since the row is no longer
+    // a button that could be pressed.
+    //
+    // <b>The label is above the value, and the value is mono.</b> The label is the sentence
+    // somebody writes and the value is the datum it matches; stacking them is what lets both be
+    // editable in a 336-pixel column without either becoming a box six characters wide.
     return `<div class="setting symclass${chosen}" data-class="${i}"
       aria-current="${i === symClassIndex ? "true" : "false"}"
       aria-label="Class ${i + 1}">
-      <span class="q">${kind === "uniqueValue" ? "Value" : "Up to"}:</span>
-      <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
-        data-class="${i}" value="${h(String(value))}">
-      <input type="text" class="symlabel" data-class="${i}"
-        placeholder="label" value="${h(cls.label || "")}">
-      <input type="color" class="symfill" data-class="${i}"
+      <input type="color" class="symfill ${shape}" data-class="${i}"
         value="${h(symCimHex(top && top.color))}"
-        title="The colour this class is drawn in">
-      <button class="tiny ghost symopen" data-class="${i}"
-        title="Edit this class's symbol: its layers, its opacity, its width">Symbol ›</button>
+        title="The colour this class is drawn in"
+        aria-label="Class ${i + 1} colour">
+      <span class="symtexts">
+        <input type="text" class="symlabel" data-class="${i}"
+          placeholder="label" value="${h(cls.label || "")}"
+          aria-label="Class ${i + 1} label">
+        <input type="${kind === "uniqueValue" ? "text" : "number"}" class="symvalue"
+          data-class="${i}" value="${h(String(value))}"
+          placeholder="${kind === "uniqueValue" ? "value" : "up to"}"
+          aria-label="Class ${i + 1} ${kind === "uniqueValue" ? "value" : "upper bound"}">
+      </span>
       <button class="tiny ghost symdrop" data-class="${i}" title="Remove this class">×</button>
     </div>`;
   }).join("");
@@ -6451,6 +7136,167 @@ function drawSymbologyClasses(kind) {
       ?.scrollIntoView({ block: "nearest" });
   }
 
+  drawSymLegend();
+}
+
+/**
+ * The legend over the picture: what the reader of a map would be given.
+ *
+ * <b>The same classes, read rather than edited.</b> The inspector's list is boxes and a remove
+ * button because it is where a class is changed; this is swatch and label because it is where
+ * somebody checks that the picture beside it means anything. Neither is a copy of the other's
+ * job, and the editor had only the first.
+ *
+ * <b>Bounded, because a classification can hold 256.</b> Twelve is what fits a card that is not
+ * allowed to cover the map it labels; the rest are counted rather than listed, which is what a
+ * printed legend does with a long class list too.
+ */
+function drawSymLegend() {
+  const box = $("symLegend");
+
+  if (!box) return;
+
+  const classes = symClasses();
+
+  if (classes.length === 0) {
+    box.hidden = true;
+    box.innerHTML = "";
+
+    return;
+  }
+
+  const shape = symSwatchShape(symGeometry);
+  const most = 12;
+
+  box.innerHTML = classes.slice(0, most).map((cls, i) => {
+    const paint = symLayerColour(symThematicLayer(symSymbolOf(cls).symbolLayers));
+
+    return `<span><i class="legendsw ${shape}"
+      style="--sw:${h(symCimHex(paint && paint.color))}"></i>${
+      h(symClassLabel(cls, i))}</span>`;
+  }).join("")
+    + (classes.length > most
+      ? `<span><em>and ${num(classes.length - most)} more</em></span>`
+      : "");
+
+  box.hidden = false;
+}
+
+/**
+ * Every layer of the service this one is in, in the order the service publishes them.
+ *
+ * <b>Two listings, because the two surfaces have two.</b> Server reads `/admin/layers` into
+ * `known` and Studio reads `/content/layers` into `content`; a publisher has no administrative
+ * listing at all, so a switcher built only from `known` would be empty on the surface this page
+ * belongs to. Both are already fetched — this reads whichever answered.
+ *
+ * @param {object} at the layer's place, from `placeOf`
+ * @returns {Array} one entry per sibling, id and name, lowest id first
+ */
+function siblingLayers(at) {
+  if (!at) return [];
+
+  const mine = known.filter(k =>
+    k.service === at.bare && (k.folder || null) === at.folder);
+
+  const found = mine.length > 0
+    ? mine.map(k => ({ name: k.name, id: k.layerIndex ?? 0 }))
+    : [...content.values()]
+      .filter(e => String(e.url || "").includes(`/rest/services/${at.service}/FeatureServer/`))
+      .map(e => ({
+        name: e.name,
+        id: Number(String(e.url).split("/FeatureServer/")[1] ?? 0),
+      }));
+
+  return found.sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The symbology editor's title strip: where this layer is, which one it is, and its siblings.
+ *
+ * <b>The tabs are the service's own, not the layer editor's.</b> Caching, Maintenance and
+ * Endpoints are about the layer as a published thing; Symbology is about how it draws. Putting
+ * them in one nav said that choosing a colour and deleting the layer are two of a kind, and it
+ * meant a reader who arrived from the service page lost the tabs they had been using.
+ *
+ * <b>The layer switcher exists because this page is per layer and the tab above it is not.</b>
+ * A service of twenty layers had twenty symbology pages reachable only by going back to a list;
+ * moving between them is the commonest thing anybody does here.
+ *
+ * @param {string} name the layer being edited
+ * @param {object|null} at its place, from `placeOf`
+ * @param {Array<string>} trail the breadcrumb steps the editor head already built
+ */
+function drawSymStrip(name, at, trail) {
+  const crumb = $("symCrumb");
+  const pick = $("symLayerPick");
+  const tabs = $("symItemTabs");
+
+  if (!crumb || !pick || !tabs) return;
+
+  const l = layerNamed(name);
+
+  // <b>Only when there is something to switch between.</b> A one-layer service is the case the
+  // owner asked us to stop dressing up as a list; a segmented control of one is that again.
+  const siblings = at ? siblingLayers(at) : [];
+
+  pick.hidden = siblings.length < 2;
+
+  // <b>The trail stops where the switcher starts.</b> With both, the strip printed the layer's
+  // name twice — once as the last crumb and once as the chip beside it — and on a three-layer
+  // service the second copy pushed Store off the right-hand edge. The switcher is the better
+  // of the two: it says which layer *and* offers the others. When there is no switcher the
+  // crumb keeps the name, unless the service is already called that, which is what a one-layer
+  // service made by an import is called.
+  crumb.innerHTML = siblings.length >= 2
+    ? `${trail.join(" › ")} ›`
+    : at && at.bare === name
+      // <b>And no trailing separator with nothing after it.</b> A one-layer service named after
+      // its layer needs neither the repeat nor the arrow that would introduce it.
+      ? trail.join(" › ")
+      : `${trail.join(" › ")} › <b>${h(name)}</b>`;
+
+  // <b>The service's own name is not information inside its own switcher.</b> A geodatabase
+  // import names every layer after the service it made — `ci_EarlyAlert_sites`, `_routes`,
+  // `_reports` — so three chips of twenty characters each pushed Store off the right of the
+  // strip. The prefix goes and the full name stays in the title, because a shortened name that
+  // cannot be recovered is a different fault from a long one.
+  const prefix = at && at.bare ? `${at.bare}_` : "";
+
+  pick.innerHTML = siblings.length < 2 ? "" : siblings.map(one => {
+    const shown = prefix && one.name.startsWith(prefix)
+      ? one.name.slice(prefix.length)
+      : one.name;
+
+    return `<a href="#/layer/${encodeURIComponent(one.name)}/symbology"${
+      one.name === name ? ' aria-current="page"' : ""} title="${h(one.name)}"
+      >${num(one.id)} · ${h(shown)}</a>`;
+  }).join("");
+
+  // <b>Studio's, because the service page's tabs are Studio's.</b> `drawServiceTabs` draws
+  // nothing on Server, so linking to them from a Server address would be a row of links to a
+  // strip that is not there. The editor's own nav is still the way between a layer's pages, and
+  // it is still on every page but this one.
+  const service = at && at.service
+    ? at.service.split("/").map(encodeURIComponent).join("/")
+    : null;
+
+  if (!service || surfaceOfPath() !== "studio") {
+    tabs.hidden = true;
+    tabs.innerHTML = "";
+  } else {
+    tabs.hidden = false;
+
+    tabs.innerHTML = SERVICE_TABS.map(([key, label]) => key === "symbology"
+      ? `<a href="#/layer/${encodeURIComponent(name)}/symbology" aria-current="page">${label}</a>`
+      : `<a href="#/service/${service}?tab=${key}">${label}</a>`).join("");
+  }
+
+  // The sharing scope, as the pill every other list draws it. A reader who arrived from a link
+  // rather than from a list has no other way to know whether what they are styling is public.
+  if (l.sharing) {
+    crumb.insertAdjacentHTML("beforeend", ` ${pill(l.sharing)}`);
+  }
 }
 
 /**
@@ -6507,6 +7353,9 @@ function drawSymbolLayers() {
              value="${h(String(layer.size ?? 8))}"><span class="u">pt</span></span>`
         : "";
 
+    // <b>Four cells, because the panel is 306 pixels wide.</b> The kind, the colour, what can
+    // be measured about it, and what can be done to the row — grouped rather than laid out one
+    // flex child per control, which is what let a row of six break in the middle.
     return `<div class="setting symlayer" data-layer="${i}">
       <span class="q symlayerkind">${h(name)}</span>
       ${known
@@ -6514,17 +7363,18 @@ function drawSymbolLayers() {
              value="${h(symCimHex(paint && paint.color))}"
              title="The colour of this ${h(name.toLowerCase())}"
              aria-label="${h(name)} colour">
-           <span class="pair"><input type="number" class="symalpha" data-layer="${i}"
-             min="0" max="100" step="0.1"
+           <span class="symmeasures">${measure}<span class="pair"><input type="number"
+             class="symalpha" data-layer="${i}" min="0" max="100" step="0.1"
              value="${h(String(symCimAlpha(paint && paint.color)))}"
              title="How opaque this colour is: 100 is solid, 0 is invisible"
-             aria-label="${h(name)} opacity, per cent"><span class="u">%</span></span>`
-        : `<span class="hint">kept, not editable here</span>`}
-      ${measure}
-      <button class="tiny ghost symup" data-layer="${i}" title="Move up"${i === 0 ? " disabled" : ""}>↑</button>
-      <button class="tiny ghost symdown" data-layer="${i}" title="Move down"${
-        i === layers.length - 1 ? " disabled" : ""}>↓</button>
-      <button class="tiny ghost symlayerdrop" data-layer="${i}" title="Remove this layer">×</button>
+             aria-label="${h(name)} opacity, per cent"><span class="u">%</span></span></span>`
+        : `<span></span><span class="symmeasures hint">kept, not editable here</span>`}
+      <span class="symbuttons">
+        <button class="tiny ghost symup" data-layer="${i}" title="Move up"${i === 0 ? " disabled" : ""}>↑</button>
+        <button class="tiny ghost symdown" data-layer="${i}" title="Move down"${
+          i === layers.length - 1 ? " disabled" : ""}>↓</button>
+        <button class="tiny ghost symlayerdrop" data-layer="${i}" title="Remove this layer">×</button>
+      </span>
     </div>`;
   }).join("");
 }
@@ -6555,11 +7405,21 @@ function symPreviewSays() {
   return symStored ? "The stored appearance." : "Generated — no document is stored.";
 }
 
-/** Asks for the picture and shows it, or says why there is none. */
+/**
+ * Asks for the picture and shows it, or says why there is none.
+ *
+ * <b>Two lines, and they answer two questions.</b> The strip beside Store says which of the two
+ * appearances the picture is of; the caption over the picture says whether there is a picture at
+ * all, and why not when there is not. They were one element, so a preview that failed to draw
+ * replaced the sentence that says whether anything is stored.
+ */
 async function drawSymbologyPreview(name, body) {
   const image = $("symPreview");
   const none = $("symPreviewNone");
   const state = $("symPreviewState");
+  const cap = $("symPreviewCap");
+
+  const says = why => { if (cap) cap.textContent = why; };
 
   if (!image) return;
 
@@ -6581,7 +7441,7 @@ async function drawSymbologyPreview(name, body) {
 
       image.hidden = true;
       none.hidden = false;
-      state.textContent = why;
+      says(why);
 
       return;
     }
@@ -6604,7 +7464,7 @@ async function drawSymbologyPreview(name, body) {
     if (!kind.startsWith("image/")) {
       image.hidden = true;
       none.hidden = false;
-      state.textContent = "The preview is not available here.";
+      says("The preview is not available here.");
 
       return;
     }
@@ -6629,27 +7489,46 @@ async function drawSymbologyPreview(name, body) {
     // <b>One question, one place.</b> Whether a document is stored is answered by the state line
     // at the top of the section; this sentence answers a different question — which of the two
     // appearances the picture beside it is of — and now says only that.
-    state.textContent = symPreviewSays();
+    symSayState();
+    says("preview · rendered by this server");
   } catch (e) {
     image.hidden = true;
     none.hidden = false;
-    state.textContent = e.message || "The preview could not be drawn.";
+    says(e.message || "The preview could not be drawn.");
   }
 }
 
-/** The conversion's losses, or nothing when there are none. */
+/**
+ * The conversion's losses, or nothing when there are none.
+ *
+ * <b>And a count on the tab that holds them.</b> ADR-033 accepted a lossy conversion on the
+ * condition that it says so, and the block saying so was at the bottom of a page nobody reached
+ * — so the mitigation was true of the document and false of the screen. A badge is the same
+ * sentence in the one place a reader cannot scroll past.
+ */
 function drawLosses(losses) {
   const box = $("symLoss");
   const list = $("symLossList");
+  const badge = $("symLossBadge");
+
+  if (!box || !list) return;
 
   if (!losses || losses.length === 0) {
     box.hidden = true;
     list.innerHTML = "";
+
+    if (badge) badge.hidden = true;
+
     return;
   }
 
   list.innerHTML = losses.map(l => `<li>${h(l)}</li>`).join("");
   box.hidden = false;
+
+  if (badge) {
+    badge.textContent = String(losses.length);
+    badge.hidden = false;
+  }
 }
 
 /**
@@ -6751,6 +7630,49 @@ async function loadServiceLimits(name, folder) {
  * has to look up elsewhere is a picker that gets used wrongly, and a copy of ADR-018 §2a written
  * into this file would be the copy nobody updates.
  */
+/**
+ * Two letters for a name, for the square that stands in for a face.
+ *
+ * <b>A separator is a word boundary and so is a capital.</b> `ci_second_admin` gives CS and
+ * `RootOperator` gives RO; a name with neither gives its first two letters. One letter would be
+ * ambiguous across a directory of any size and three do not fit a 26-pixel square.
+ *
+ * @param {string} name the member's name
+ * @returns {string} one or two upper-case letters
+ */
+function initialsOf(name) {
+  const words = String(name || "")
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .split(/[\s._@-]+/)
+    .filter(Boolean);
+
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+/**
+ * A stable hue for a name, so the square is the same one every time.
+ *
+ * <b>Derived, not stored and not random.</b> The same argument the generated symbology makes:
+ * a colour a reader learns is only worth learning if it is the same tomorrow and on another
+ * deployment. Lightness and saturation are fixed so every square is legible with the same ink
+ * on it; only the hue moves.
+ *
+ * @param {string} name the member's name
+ * @returns {string} an hsl() colour
+ */
+function initialsHue(name) {
+  let hash = 0;
+
+  for (const ch of String(name || "")) {
+    hash = (hash * 31 + ch.codePointAt(0)) % 360;
+  }
+
+  return `hsl(${hash} 42% 88%)`;
+}
+
 async function loadMembers() {
   const answer = await api("/admin/members");
   const rows = answer.members || [];
@@ -6792,9 +7714,25 @@ async function loadMembers() {
          empty — look at the platform store rather than at this screen.</td></tr>`
     : pageOf("members", rows).map(m => `
     <tr>
-      <td class="name">${h(m.name)}${m.displayName
-        ? `<div class="val" style="font-weight:400">${h(m.displayName)}</div>` : ""}</td>
-      <td><select data-member-role="${h(m.name)}">
+      <!--
+        <b>Initials, because a list of names is read by shape before it is read by word.</b>
+        Handoff 2026-09-04. No image and no request: two letters on a tinted square, the tint
+        derived from the name so it is the same square every time and on every deployment — the
+        same determinism the generated symbology uses, and for the same reason.
+      -->
+      <td class="name"><span class="whorow"><span class="avatar"
+        style="--avatar:${h(initialsHue(m.name))}" aria-hidden="true">${h(initialsOf(m.name))}</span>
+        <span>${h(m.name)}${m.displayName
+          ? `<span class="val" style="display:block;font-weight:400">${h(m.displayName)}</span>`
+          : ""}</span></span></td>
+      <!--
+        <b>The role keeps its select and takes the pill's hue.</b> The handoff draws a pill —
+        admin teal, publisher violet, other grey — and a pill is not editable; this is the one
+        control on the row that changes what somebody may do, so it stays a control and wears the
+        colour rather than being replaced by a label that carries it.
+      -->
+      <td><select class="rolepick" data-role-is="${h((m.roles || [])[0] || "none")}"
+        data-member-role="${h(m.name)}">
         ${(answer.roles || []).map(r =>
           `<option value="${h(r)}"${m.roles.includes(r) ? " selected" : ""}>${h(r)}</option>`)
           .join("")}
@@ -7285,6 +8223,21 @@ async function loadServices() {
             title="${stopped ? "Serve this again"
               : "Answer 503 for this service, without changing who may see it"}"
             ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>
+
+          <!--
+            <b>A way to the map, from the screen that lists the services.</b> Handoff 2026-09-04.
+            Studio content rows have had one since the map moved to the item page; Server had
+            none, so an operator checking whether a service draws anything had to open it, find
+            the Visualization tab and pick a layer. It crosses to Studio, which is where the map
+            is — the same crossing the Sharing column in this row already makes.
+
+            <b>Not offered for a stopped service.</b> It would answer 503, and a control that
+            fails on press is worse than one that is not there.
+          -->
+          ${r.cover && !stopped
+            ? `<a class="tiny" href="${h(visHref(r.cover.name, "features") || "#/")}"
+                 title="Draw ${h(r.cover.name)} on the map, in Studio">Map</a>`
+            : ""}
 
           <details class="menu">
             <summary title="More" aria-label="More actions">⋯</summary>
@@ -7826,267 +8779,397 @@ function showLayer(name, page, pending = null) {
 
     </section>
 
+    <!--
+      <b>The symbology editor, rebuilt to the owner's handoff (direction 1c) on 2026-09-04.</b>
+      The complaint it answers is one sentence: *ya ben bu ekranı cidden anlayamıyorum. çok
+      karmaşık.* What made it complex was not the number of controls — every one of them is still
+      here — but that the page was a single column of unrelated sections, so a reader looking for
+      one thing read past four others, and Store was below all of them.
+
+      <b>Three columns, and each one answers a different question.</b> What kind of drawing is
+      this (the rail), what does it look like (the picture), what is in it (the inspector). The
+      document, the ArcGIS projection and the conversion's losses are the inspector's three tabs
+      rather than three more sections under the fold, and the picture — a 336-pixel thumbnail
+      beside a form until today — is now most of the screen.
+
+      <b>Nothing was removed and no id was renamed.</b> Every control the form had is in one of
+      the three columns, which is what makes this a rearrangement rather than a redesign of what
+      the editor can do.
+    -->
     <section class="page" id="page-symbology">
-      <h4>How this layer is drawn</h4>
-      <p class="hint" id="symState">Reading…</p>
+      <!--
+        <b>One strip: where you are, what you are looking at, and the two things you can do to
+        it.</b> These were three rows — a breadcrumb above the panel, a nav down its left side,
+        and a row of buttons at the bottom of the form. Store being the last of the three is
+        what produced the owner's *save ne, store ne?*: the button that keeps the work was the
+        one furthest from it.
+
+        <b>The tabs here are the service's, not the layer editor's.</b> Caching, Maintenance and
+        Endpoints are a different subject — they are about the layer as a published thing, not
+        about how it draws — and putting them beside Symbology said that choosing a colour and
+        deleting the layer are two of a kind. The service's own tabs are what a reader arriving
+        from a list was on a moment ago, so this is the strip they already know.
+      -->
+      <div class="symstrip">
+        <div class="crumbs" id="symCrumb"></div>
+        <nav class="segmented" id="symLayerPick" aria-label="The layers in this service" hidden></nav>
+        <nav class="segmented tabs" id="symItemTabs" aria-label="This service's pages"></nav>
+        <div class="symdo">
+          <span class="symstate" id="symPreviewState">The stored appearance.</span>
+          <button data-symbology-del="${h(name)}">Back to generated</button>
+          <button class="primary" data-symbology-put="${h(name)}">Store</button>
+        </div>
+      </div>
 
       <!--
-        <b>The picture beside the controls, because the picture is what is being chosen.</b>
-        A colour and a JSON document are both proxies for *what does this layer look like*,
-        and the editor answered that with swatches until 2026-09-03 — a swatch says what
-        colour, not what the map looks like at the size anybody sees it.
+        <b>The server's refusal, under the strip and above everything else.</b> ADR-033: a stored
+        absolute URL is a fact with an expiry date, so it is refused rather than stripped. The
+        page below is unchanged — the document that was not stored is still the document on the
+        screen, which is what makes the message actionable.
       -->
-      <div class="symlayout">
-        <div class="sympreview">
-          <img id="symPreview" alt="" hidden>
-          <div class="thumb empty" id="symPreviewNone"
-            title="Draw something and this shows what it looks like."></div>
-          <p class="hint" id="symPreviewState">The stored appearance.</p>
+      <div class="symbanner" id="symRefusal" hidden></div>
+
+      <!--
+        <b>A style override on the service wins for the tile face (ADR-033 §5d)</b>, so a layer
+        whose own document is stored and correct can still be drawn by something else on a map.
+        It was a sentence appended to the state line, which is behind a tab now; a fact that
+        contradicts the picture belongs where the picture is.
+      -->
+      <div class="symbanner note" id="symOverride" hidden></div>
+
+      <!--
+        <b>A generated appearance is an answer, so the screen says so instead of opening on a
+        form.</b> §5b makes it a real state with a version of 0. Somebody who has never styled
+        this layer was previously shown a full editor already filled in with a document they did
+        not write, and no way to tell that from one they had.
+      -->
+      <div class="symempty" id="symEmpty" hidden>
+        <div>
+          <span class="sw" id="symEmptySwatch"></span>
+          <b>This layer draws generated</b>
+          <p>Nobody has styled it. The colour is deterministic from the layer's identity, so it
+            is the same tomorrow and on another deployment, and both faces report it as
+            <span class="mono">version 0</span>.</p>
+          <div class="row">
+            <button class="primary" id="symStartGenerated">Start from the generated look</button>
+            <button id="symPasteDoc">Paste a document</button>
+          </div>
         </div>
+      </div>
 
-        <p class="hint" id="symUnauthored" hidden></p>
+      <p class="hint" id="symUnauthored" hidden></p>
 
-        <div class="symform" id="symForm">
-          <div class="setting wide"><label class="q" for="symKind">Draw:</label>
-            <select id="symKind">
-              <option value="simple">every feature the same</option>
-              <option value="uniqueValue">by the value of a field</option>
-              <option value="classBreaks">by ranges of a number</option>
-            </select></div>
+      <div class="symcols" id="symCols">
 
-          <div class="setting wide" id="symFieldRow" hidden>
-            <label class="q" for="symField">Field:</label>
-            <select id="symField"></select></div>
+        <!-- ---------------------------------------------------------- the renderer rail -->
+        <div class="symrail" id="symForm">
+          <section>
+            <h5>Renderer</h5>
 
-          <!--
-            <b>Two more, for the family that can use them - ADR-052 §3.17.</b> ArcGIS classifies
-            by up to three fields at once and joins their values, so a class can be "land use
-            within district". This form offered one, which was offering half the renderer. They
-            appear only for the unique-value family, and only one at a time: the third is hidden
-            until the second is chosen, so a reader is never looking at a control that cannot
-            yet do anything.
-          -->
-          <div class="setting wide" id="symField2Row" hidden>
-            <label class="q" for="symField2">and:</label>
-            <select id="symField2"></select></div>
-
-          <div class="setting wide" id="symField3Row" hidden>
-            <label class="q" for="symField3">and:</label>
-            <select id="symField3"></select></div>
-
-          <!--
-            <b>The step the editor was missing - ADR-052 §3.12.</b> A unique-value renderer is
-            the list of a field's distinct values and a class-breaks renderer is a set of bounds
-            computed from its distribution. This form knew how to draw a class and not how to
-            find one: it made one class whose value was the empty string, or one bound of zero
-            and an "Add a class" button that added one to it. The values were always a query
-            away and nothing asked.
-          -->
-          <div class="setting wide" id="symClassifyRow" hidden>
-            <label class="q" for="symMethod">Classify:</label>
-            <select id="symMethod">
-              <option value="NaturalBreaks">natural breaks</option>
-              <option value="EqualInterval">equal intervals</option>
-              <option value="Quantile">equal counts</option>
-              <option value="GeometricalInterval">geometric intervals</option>
-              <option value="StandardDeviation">standard deviations</option>
-              <option value="DefinedInterval">a fixed interval</option>
-            </select>
-            <input id="symClassCount" type="number" min="1" max="32" value="5"
-              title="How many classes" aria-label="How many classes">
-            <button class="tiny primary" id="symClassify">Read the data</button>
-          </div>
-
-          <p class="hint" id="symClassifySays" hidden></p>
-
-          <!--
-            <b>A filter and a fixed height, because a classification can have 256 classes.</b>
-            Two hundred and fifty-six rows down one page is not a list anybody reads; it is a
-            page anybody scrolls past. Map Viewer's own categories panel is a bounded, scrolling
-            list with a search over it, and for the same reason: past a couple of dozen classes
-            the way to reach one is to name it, not to hunt for it.
-          -->
-          <div class="setting wide" id="symFilterRow" hidden>
-            <label class="q" for="symFilter">Find:</label>
-            <input id="symFilter" type="search" placeholder="a value or a label"
-              autocomplete="off" spellcheck="false">
             <!--
-              <b>Named symShowing, not symClassCount.</b> It was the latter for an afternoon,
-              which is also the id of the number box up in the Classify row -- getElementById
-              returns the first, so every "12 of 256" this code wrote went into an input's
-              textContent, where nothing renders it. <b>The count was never once visible.</b>
-              Found by a design review reading the DOM rather than the screen: the text was
-              correct, in an element that cannot show text.
-
-              <b>And no backticks in here.</b> This comment sits inside a template literal, so
-              one ends the string -- which is exactly what happened, for the second time.
+              <b>Three cards, and it was a *select*.</b> This is the biggest decision on the page
+              and the three answers look different from each other — one colour, a colour per
+              value, a ramp — so they are shown rather than named behind a click. Radio inputs,
+              so the arrow keys move between them and a screen reader is told it is one choice of
+              three; the sentence each one used to carry is its *title* attribute, which is where the
+              handoff puts a hint that no longer has room to be body text.
             -->
-            <span class="rowmeta" id="symShowing"></span>
-          </div>
+            <div class="symkinds" role="radiogroup" aria-label="How this layer is drawn">
+              <label class="symkind" title="Every feature the same">
+                <input type="radio" name="symKind" value="simple" checked>
+                <span class="ramp" aria-hidden="true"><i style="background:#8d99a8"></i><i
+                  style="background:#8d99a8"></i><i style="background:#8d99a8"></i></span>
+                Single symbol</label>
+              <label class="symkind" title="By the value of a field">
+                <input type="radio" name="symKind" value="uniqueValue">
+                <span class="ramp" aria-hidden="true"><i style="background:#c8452b"></i><i
+                  style="background:#e08a2e"></i><i style="background:#d9b445"></i></span>
+                Unique values</label>
+              <label class="symkind" title="By ranges of a number">
+                <input type="radio" name="symKind" value="classBreaks">
+                <span class="ramp" aria-hidden="true"><i style="background:#d1e5e2"></i><i
+                  style="background:#6fb1a8"></i><i style="background:#0d7d70"></i></span>
+                Class breaks</label>
+            </div>
 
-          <!--
-            <b>The controls that act on every class, because most of the work is every class.</b>
-            Nobody hand-edits eighty-one provinces one at a time; they take the machine's split
-            and adjust the whole of it, then tune a handful. Every control on this page before
-            today acted on exactly one class, which is why the owner set an opacity and reported
-            that opacity does nothing — it did, to one province out of eighty-one, on a row that
-            was not among the ten on screen. ADR-052 §3.20.
-          -->
-          <div class="setting wide" id="symAllRow" hidden>
-            <label class="q" for="symAllAlpha">All classes:</label>
-            <span class="pair"><input type="number" id="symAllAlpha" min="0" max="100" step="0.1"
-              placeholder="opacity"
-              title="Set every class's opacity to this, replacing whatever each one has"
-              aria-label="Opacity for every class, per cent"><span class="u">%</span></span>
-            <button class="tiny" id="symAllAlphaApply">Set</button>
-            <span class="rowmeta" id="symAllSays"></span>
-          </div>
+            <div class="setting" id="symFieldRow" hidden>
+              <label class="q" for="symField">Field</label>
+              <select id="symField"></select></div>
 
-          <div id="symClasses"></div>
+            <!--
+              <b>Two more, for the family that can use them - ADR-052 §3.17.</b> ArcGIS classifies
+              by up to three fields at once and joins their values, so a class can be "land use
+              within district". This form offered one, which was offering half the renderer. They
+              appear only for the unique-value family, and only one at a time: the third is hidden
+              until the second is chosen, so a reader is never looking at a control that cannot
+              yet do anything.
+            -->
+            <div class="setting" id="symField2Row" hidden>
+              <label class="q" for="symField2">and</label>
+              <select id="symField2"></select></div>
 
-          <div class="row" id="symClassActions" hidden>
-            <button class="tiny" id="symAddClass">Add a class</button>
-          </div>
+            <div class="setting" id="symField3Row" hidden>
+              <label class="q" for="symField3">and</label>
+              <select id="symField3"></select></div>
 
-          <!--
-            <b>A symbol is a stack, so the editor is a stack — ADR-052 §3.7.</b> This used to be
-            one outline and one size shared by every class, which is a symbol one layer deep;
-            the canonical document has held more than that since the CIM reversal, and the only
-            way to author it was to type JSON. The shape is Esri's own Symbol Styler: pick the
-            class, then edit its symbol layer by layer.
-          -->
+            <!--
+              <b>The step the editor was missing - ADR-052 §3.12.</b> A unique-value renderer is
+              the list of a field's distinct values and a class-breaks renderer is a set of bounds
+              computed from its distribution. This form knew how to draw a class and not how to
+              find one: it made one class whose value was the empty string, or one bound of zero
+              and an "Add a class" button that added one to it. The values were always a query
+              away and nothing asked.
+            -->
+            <div class="setting" id="symClassifyRow" hidden>
+              <label class="q" for="symMethod" id="symClassifyLabel">Into</label>
+              <span class="symclassify">
+                <input id="symClassCount" type="number" min="1" max="32" value="5"
+                  title="How many classes" aria-label="How many classes">
+                <select id="symMethod">
+                  <option value="NaturalBreaks">natural breaks</option>
+                  <option value="EqualInterval">equal intervals</option>
+                  <option value="Quantile">equal counts</option>
+                  <option value="GeometricalInterval">geometric intervals</option>
+                  <option value="StandardDeviation">standard deviations</option>
+                  <option value="DefinedInterval">a fixed interval</option>
+                </select>
+              </span>
+              <button class="tiny primary" id="symClassify">Read the data</button>
+            </div>
+
+            <p class="hint" id="symClassifySays" hidden></p>
+          </section>
+
           <!--
             <b>The second axis, ADR-052 §3.6.</b> A renderer says which feature gets which
             symbol; this says how one property of that symbol slides with a number. Half of
             what ArcGIS calls a style is a renderer plus one of these, and the renderer here
             has drawn them since ADR-041 without any way to ask for one.
           -->
-          <h4>Vary with a number</h4>
-          <div class="setting wide"><label class="q" for="symVaryWhat">Change:</label>
-            <select id="symVaryWhat">
-              <option value="">nothing — the symbol is the same everywhere</option>
-              <option value="colour">its colour</option>
-              <option value="size">its width or size</option>
-              <option value="opacity">how solid it is</option>
-            </select></div>
+          <section>
+            <h5>Vary with a number</h5>
+            <div class="setting"><label class="q" for="symVaryWhat">Change</label>
+              <select id="symVaryWhat">
+                <option value="">nothing — the symbol is the same everywhere</option>
+                <option value="colour">its colour</option>
+                <option value="size">its width or size</option>
+                <option value="opacity">how solid it is</option>
+              </select></div>
 
-          <div id="symVaryRows" hidden>
-            <div class="setting wide">
-              <label class="q" for="symVaryField">With:</label>
-              <select id="symVaryField"></select></div>
+            <div id="symVaryRows" hidden>
+              <div class="setting">
+                <label class="q" for="symVaryField">With</label>
+                <select id="symVaryField"></select></div>
+
+              <!--
+                <b>A per-cent box beside each colour, because an *input type=color* has no alpha.</b>
+                The element gives back *#rrggbb* and nothing else — it cannot express the fourth
+                number a CIMRGBColor carries — so a form built only from colour boxes rebuilds
+                every ramp fully opaque, which is what this one did until 2026-09-04.
+              -->
+              <div class="setting symvarystop"><span class="q">From</span>
+                <input type="number" id="symVaryFrom" step="any">
+                <input type="color" id="symVaryFromColour" title="The colour at the low end"
+                  aria-label="The colour at the low end">
+                <span class="pair" id="symVaryFromPer"><input type="number" id="symVaryFromAlpha"
+                  min="0" max="100" step="0.1"
+                  title="How opaque the low end is: 100 is solid, 0 is invisible"
+                  aria-label="The opacity at the low end, per cent"><span class="u">%</span></span>
+                <span class="pair" id="symVaryFromMeasure"><input type="number"
+                  id="symVaryFromNumber" step="0.5" min="0"
+                  aria-label="The value at the low end"><span class="u"
+                  id="symVaryFromUnit">pt</span></span></div>
+
+              <div class="setting symvarystop"><span class="q">To</span>
+                <input type="number" id="symVaryTo" step="any">
+                <input type="color" id="symVaryToColour" title="The colour at the high end"
+                  aria-label="The colour at the high end">
+                <span class="pair" id="symVaryToPer"><input type="number" id="symVaryToAlpha"
+                  min="0" max="100" step="0.1"
+                  title="How opaque the high end is: 100 is solid, 0 is invisible"
+                  aria-label="The opacity at the high end, per cent"><span class="u">%</span></span>
+                <span class="pair" id="symVaryToMeasure"><input type="number"
+                  id="symVaryToNumber" step="0.5" min="0"
+                  aria-label="The value at the high end"><span class="u"
+                  id="symVaryToUnit">pt</span></span></div>
+
+              <p class="hint" id="symVaryNote"></p>
+            </div>
+          </section>
+
+          <!--
+            <b>ADR-052 §3.8, and it moved out of the class detail.</b> A shipped symbol is a
+            starting point for the class you have selected, and it was behind the same click that
+            opened that class's stack — so the gallery only existed while you were already
+            editing a symbol, which is after the moment you would have wanted it.
+          -->
+          <section id="symSets">
+            <h5>Symbol sets</h5>
+            <p class="hint" id="symGalleryNote">For this geometry. Choosing one replaces the
+              selected class's symbol; its colours are edited in the inspector.</p>
+            <div id="symGallery"></div>
+          </section>
+        </div>
+
+        <!-- --------------------------------------------------------------- the picture -->
+        <!--
+          <b>The picture is the column now, not a thumbnail in it.</b> It is what somebody
+          choosing a colour is actually choosing, and at 336 pixels wide beside a form it was
+          smaller than the swatch grid under it.
+        -->
+        <div class="sympreview ground-light" id="symPreviewBox">
+          <img id="symPreview" alt="" hidden>
+          <div class="thumb empty" id="symPreviewNone"
+            title="Draw something and this shows what it looks like."></div>
+
+          <div class="symcap" id="symPreviewCap">preview · rendered by this server</div>
+
+          <!--
+            <b>Real, because the picture is transparent.</b> ThumbnailEndpoints.RenderAsync
+            clears to Rgba.Transparent, so what is behind the image is a decision this page can
+            make on its own: a pale fill is invisible on white and legible on dark, and until now
+            there was no way to find that out except by storing it and opening a map. No request
+            is made — the chips change a class on the frame.
+
+            <b>There is no zoom control here and the handoff drew one.</b> The preview is one PNG
+            at the layer's own drawn extent; a plus and a minus that could not change it would be
+            two controls for a feature that does not exist, which is the fault ADR-034 names.
+          -->
+          <nav class="segmented symground" id="symGround" aria-label="What is drawn under the layer">
+            <a href="#" data-ground="light" aria-current="page">Light</a>
+            <a href="#" data-ground="dark">Dark</a>
+            <a href="#" data-ground="none">None</a>
+          </nav>
+
+          <!--
+            <b>The legend is the class list, drawn as the map's reader would meet it.</b> The
+            inspector's list is for editing and this one is for reading: no boxes, no remove
+            button, and it says what the picture is showing rather than what can be changed
+            about it.
+          -->
+          <div class="symlegend" id="symLegend" hidden></div>
+        </div>
+
+        <!-- ------------------------------------------------------------- the inspector -->
+        <div class="syminsp">
+          <!--
+            <b>The losses get a badge, because they were a block below the fold.</b> ADR-033
+            accepted a lossy conversion and the mitigation is that it says so — a count on the
+            tab is that sentence in the one place a reader cannot scroll past.
+          -->
+          <nav class="insptabs" id="symInspTabs">
+            <a href="#" data-insp="classes" aria-current="page" id="symTabClasses">Classes</a>
+            <a href="#" data-insp="document">Document</a>
+            <a href="#" data-insp="arcgis">ArcGIS <span class="badge" id="symLossBadge" hidden>0</span></a>
+          </nav>
+
+          <div class="insppane" id="insp-classes">
+            <div class="pad">
+              <!--
+                <b>A filter and a fixed height, because a classification can have 256 classes.</b>
+                Two hundred and fifty-six rows down one page is not a list anybody reads; it is a
+                page anybody scrolls past. Map Viewer's own categories panel is a bounded,
+                scrolling list with a search over it, and for the same reason: past a couple of
+                dozen classes the way to reach one is to name it, not to hunt for it.
+              -->
+              <div class="setting" id="symFilterRow" hidden>
+                <input id="symFilter" type="search" placeholder="Find a value or a label"
+                  autocomplete="off" spellcheck="false" aria-label="Find a value or a label">
+                <!--
+                  <b>Named symShowing, not symClassCount.</b> It was the latter for an afternoon,
+                  which is also the id of the number box in the Classify row -- getElementById
+                  returns the first, so every "12 of 256" this code wrote went into an input's
+                  textContent, where nothing renders it. <b>The count was never once visible.</b>
+                -->
+                <span class="rowmeta" id="symShowing"></span>
+              </div>
+
+              <!--
+                <b>The controls that act on every class, because most of the work is every
+                class.</b> Nobody hand-edits eighty-one provinces one at a time; they take the
+                machine's split and adjust the whole of it, then tune a handful. Every control on
+                this page before D-217 acted on exactly one class, which is why the owner set an
+                opacity and reported that opacity does nothing. ADR-052 §3.20.
+              -->
+              <div class="setting" id="symAllRow" hidden>
+                <label class="q" for="symAllAlpha">All classes</label>
+                <span class="pair"><input type="number" id="symAllAlpha" min="0" max="100" step="0.1"
+                  placeholder="opacity"
+                  title="Set every class's opacity to this, replacing whatever each one has"
+                  aria-label="Opacity for every class, per cent"><span class="u">%</span></span>
+                <button class="tiny" id="symAllAlphaApply">Set</button>
+                <span class="rowmeta" id="symAllSays"></span>
+              </div>
+
+              <div id="symClasses"></div>
+
+              <div class="row" id="symClassActions" hidden>
+                <button class="tiny" id="symAddClass">Add a class</button>
+              </div>
+            </div>
 
             <!--
-              <b>A per-cent box beside each colour, because an *input type=color* has no alpha.</b>
-              The element gives back *#rrggbb* and nothing else — it cannot express the fourth
-              number a CIMRGBColor carries — so a form built only from colour boxes rebuilds
-              every ramp fully opaque, which is what this one did until 2026-09-04.
+              <b>The stack sits under the list rather than replacing it.</b> D-217 made them two
+              views because a permanently rendered editor could be titled after a row scrolled out
+              of sight — a panel whose subject nobody can see is a panel people misread. The
+              handoff's answer to the same fault is adjacency: one 336-pixel column, the selected
+              row marked and scrolled into view whenever it moves, and the symbol directly under
+              it. That keeps what D-217 was protecting and costs no click to see what a class is
+              made of, which is the half D-217 paid for it.
             -->
-            <div class="setting symvarystop"><span class="q">From:</span>
-              <input type="number" id="symVaryFrom" step="any">
-              <input type="color" id="symVaryFromColour" title="The colour at the low end"
-                aria-label="The colour at the low end">
-              <span class="pair" id="symVaryFromPer"><input type="number" id="symVaryFromAlpha"
-                min="0" max="100" step="0.1"
-                title="How opaque the low end is: 100 is solid, 0 is invisible"
-                aria-label="The opacity at the low end, per cent"><span class="u">%</span></span>
-              <span class="pair" id="symVaryFromMeasure"><input type="number"
-                id="symVaryFromNumber" step="0.5" min="0"
-                aria-label="The value at the low end"><span class="u"
-                id="symVaryFromUnit">pt</span></span></div>
-
-            <div class="setting symvarystop"><span class="q">To:</span>
-              <input type="number" id="symVaryTo" step="any">
-              <input type="color" id="symVaryToColour" title="The colour at the high end"
-                aria-label="The colour at the high end">
-              <span class="pair" id="symVaryToPer"><input type="number" id="symVaryToAlpha"
-                min="0" max="100" step="0.1"
-                title="How opaque the high end is: 100 is solid, 0 is invisible"
-                aria-label="The opacity at the high end, per cent"><span class="u">%</span></span>
-              <span class="pair" id="symVaryToMeasure"><input type="number"
-                id="symVaryToNumber" step="0.5" min="0"
-                aria-label="The value at the high end"><span class="u"
-                id="symVaryToUnit">pt</span></span></div>
-
-            <p class="hint" id="symVaryNote"></p>
+            <div class="symstack" id="symDetail">
+              <div class="symstackhead" id="symStackHead">
+                <b id="symDetailWhich">Symbol</b>
+                <span id="symStackNote">top first</span>
+              </div>
+              <div id="symStack"></div>
+              <div class="row" id="symStackActions">
+                <button class="tiny" data-add-layer="CIMSolidFill">+ Fill</button>
+                <button class="tiny" data-add-layer="CIMSolidStroke">+ Stroke</button>
+                <button class="tiny" data-add-layer="CIMVectorMarker">+ Marker</button>
+              </div>
+            </div>
           </div>
 
           <!--
-            <b>One thing on the screen at a time, and it used to be both.</b> A class list of 256
-            rows sat above a permanently rendered symbol editor, and the editor named which class
-            it was editing in its own heading — *Symbol layers — Ankara* — because there was
-            nothing else that could say so. With the list bounded to ten visible rows, Ankara was
-            usually not among them, and a design review reproduced the obvious consequence: a
-            panel titled after a row nobody can see, editing something nobody chose to edit.
-
-            <b>The fix is that the two are never both there.</b> Editing a class replaces the
-            list with that class's symbol; going back replaces it again. A panel that only exists
-            while its own row is the subject cannot name the wrong row, and the page stops being
-            two screens tall. The owner's words are the requirement: *ya ben bu ekranı cidden
-            anlayamıyorum. çok karmaşık.*
+            <b>The document is a tab, and it was behind a disclosure triangle.</b> It is the one
+            thing Store sends and everything above writes into it, so a disclosure element said the
+            opposite of what is true about it. Somebody who needs something the controls cannot
+            express — a MapLibre expression, a filter, a second layer in the style — edits it
+            here and the controls stop claiming to describe it.
           -->
-          <div id="symDetail" hidden>
-            <div class="row" id="symDetailHead">
-              <button class="tiny ghost" id="symBackToClasses">‹ All classes</button>
-              <b id="symDetailWhich"></b>
+          <div class="insppane" id="insp-document" hidden>
+            <div class="docpane">
+              <div class="dochead"><span class="tag">CIM</span>
+                <span id="symState">Reading…</span></div>
+              <textarea id="symDoc" spellcheck="false"
+                placeholder="A MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. Both are accepted; a drawingInfo is converted on the way in and you are told what the conversion cost."></textarea>
+              <div class="docfoot"><span>Paste a MapLibre style or an Esri
+                <span class="mono">drawingInfo</span> here as well — both are converted on the way
+                in, and the conversion's cost is reported under ArcGIS.</span>
+                <button class="tiny" data-symbology="${h(name)}">Fetch current</button></div>
             </div>
+          </div>
 
-            <h4>Ready-made symbols</h4>
-            <p class="hint" id="symGalleryNote">
-              For this geometry. Choosing one replaces this class's symbol; its colours are
-              edited in the rows below.
-            </p>
-            <div id="symGallery"></div>
+          <div class="insppane" id="insp-arcgis" hidden>
+            <div class="pad">
+              <b>What an ArcGIS client receives</b>
+              <p class="hint">Derived from the document, in the three renderer families a client
+                understands — <span class="mono">simple</span>,
+                <span class="mono">uniqueValue</span>, <span class="mono">classBreaks</span>.
+                Read-only: a projection, not a second place to edit.</p>
 
-            <h4 id="symStackHead">Symbol layers</h4>
-            <p class="hint" id="symStackNote">The first row is drawn on top.</p>
-            <div id="symStack"></div>
-            <div class="row" id="symStackActions">
-              <button class="tiny" data-add-layer="CIMSolidFill">Fill</button>
-              <button class="tiny" data-add-layer="CIMSolidStroke">Stroke</button>
-              <button class="tiny" data-add-layer="CIMVectorMarker">Marker</button>
+              <div id="symLoss" hidden>
+                <b>What the ArcGIS face cannot carry</b>
+                <ul class="losses" id="symLossList"></ul>
+              </div>
+
+              <div class="swatches" id="symSwatches" hidden></div>
             </div>
+            <pre class="doc" id="symDerived">—</pre>
           </div>
         </div>
       </div>
-
-      <div class="row">
-        <button data-symbology="${h(name)}">Fetch current</button>
-        <button data-symbology-del="${h(name)}" class="ghost">Back to generated</button>
-        <button class="primary" data-symbology-put="${h(name)}">Store</button>
-      </div>
-
-      <!--
-        <b>The document stays, and it is the one thing that gets stored.</b> The controls above
-        write into it on every change, so there is never a question about which of the two wins:
-        what is in this box is what Store sends. Somebody who needs something the controls cannot
-        express — a MapLibre expression, a filter, a second layer in the style — edits it
-        directly and the controls stop claiming to describe it.
-      -->
-      <details id="symAdvanced">
-        <summary>The document itself</summary>
-
-      <textarea id="symDoc" rows="12" spellcheck="false"
-        placeholder="A MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. Both are accepted; a drawingInfo is converted on the way in and you are told what the conversion cost."></textarea>
-
-      <!--
-        <b>The losses are the point of this page, not a footnote.</b> ADR-033 accepted a
-        lossy conversion and the mitigation is that it says so — so the report is a block
-        of its own under the editor rather than a line in a toast that scrolls away.
-      -->
-      </details>
-
-      <div id="symLoss" hidden>
-        <h4>What the ArcGIS face cannot carry</h4>
-        <ul class="losses" id="symLossList"></ul>
-      </div>
-
-      <h4>What an ArcGIS client receives</h4>
-      <p class="hint">Derived from the document above, in the three renderer families a
-        client understands — <span class="mono">simple</span>,
-        <span class="mono">uniqueValue</span>, <span class="mono">classBreaks</span>.
-        Read-only: it is a projection, not a second place to edit.</p>
-      <div class="swatches" id="symSwatches" hidden></div>
-      <pre class="doc" id="symDerived">—</pre>
     </section>
 
     <section class="page" id="page-maintenance">
@@ -8109,6 +9192,12 @@ function showLayer(name, page, pending = null) {
       <h4>Addresses</h4>
       <dl class="facts" id="endpoints"><dt>—</dt><dd>resolving…</dd></dl>
     </section>`;
+
+  // <b>After the pages are written, because the strip is one of them.</b> The first version
+  // filled it beside the breadcrumb above — thirty lines before `#editPages` exists — so every
+  // element it looks for was null and it returned without a word. The screen was on the owner's
+  // machine with an empty title bar for exactly as long as it took to look at it.
+  drawSymStrip(name, at, trail);
 
   showEditPage(page);
   describeContents(name, l);
@@ -8197,6 +9286,11 @@ async function showServiceGroups(qualified) {
 
 /** Shows one settings page, and marks it in the left column. */
 function showEditPage(page) {
+  // <b>Symbology is the one page in this editor that is a screen rather than a form.</b> Three
+  // columns that fill the window cannot live inside a 196-pixel nav and a page of padding, so
+  // the shell steps aside for it and steps back for every other page.
+  $("app").classList.toggle("symfull", page === "symbology");
+
   for (const link of document.querySelectorAll("#editNav a")) {
     if (link.getAttribute("href").endsWith(`/${page}`)) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -8404,7 +9498,15 @@ async function loadServiceCapabilities(name, folderGiven) {
       (x.name || "").toLowerCase() === service.toLowerCase()
       && ((x.folder || "") || "").toLowerCase() === ((folder || "") || "").toLowerCase());
 
-    if (row?.sharing) $("capSharing").value = row.sharing;
+    // <b>The group has no `value`, so the member is the thing that is set.</b> `#capSharing`
+    // was a select and is a radiogroup; assigning to its `value` would silently do nothing,
+    // which is the shape of dead control this console keeps meeting.
+    if (row?.sharing) {
+      const one = $("capSharing").querySelector(
+        `input[name="capSharing"][value="${CSS.escape(row.sharing)}"]`);
+
+      if (one) one.checked = true;
+    }
   }
   set("capDeadline", c.requestDeadlineSeconds);
 
@@ -8904,9 +10006,37 @@ function drawProbeRows() {
 async function loadOperations() {
   let health;
   try { health = await api("/admin/health"); }
-  catch (e) { $("storeMetrics").innerHTML = metric("Platform store", "unreachable", e.message); return; }
+  catch (e) {
+    $("storeMetrics").innerHTML = metric("Platform store", "unreachable", e.message);
+
+    // <b>And the dot with it.</b> A green heading over a card that says *unreachable* is the
+    // page contradicting itself, which is the fault this console keeps a rule about.
+    if ($("storeDot")) {
+      $("storeDot").className = "dot unusable";
+      $("storeDot").title = e.message || "The platform store could not be read.";
+    }
+
+    return;
+  }
 
   const store = health.platformStore || {};
+
+  // <b>The dot is the two facts that can fail, and nothing else.</b> A card's heading dot that
+  // is always green is decoration; this one is red when the store cannot be reached and amber
+  // when it can but the server calls itself degraded.
+  const storeDot = $("storeDot");
+
+  if (storeDot) {
+    storeDot.className = "dot " + (!store.reachable
+      ? "unusable"
+      : health.status === "ok" ? "ok" : "degraded");
+
+    storeDot.title = !store.reachable
+      ? (store.error || "The platform store is not reachable.")
+      : health.status === "ok" ? "Reachable, and the server calls itself healthy."
+        : "Reachable, and the server calls itself degraded.";
+  }
+
   $("storeMetrics").innerHTML =
     metric("Status", h(health.status === "ok" ? "ok" : "degraded")) +
     metric("Reachable", store.reachable ? "yes" : "no", store.error || "") +
@@ -8936,6 +10066,17 @@ async function loadOperations() {
   $("cacheNotes").textContent = [tiles.note, shapes.note].filter(Boolean).join(" ");
 
   const { routes, ungoverned } = await api("/admin/routes");
+
+  // ADR-018 condition 5 is a number that is zero or is not, which is exactly what a dot can say.
+  const routeDot = $("routeDot");
+
+  if (routeDot) {
+    routeDot.className = "dot " + (ungoverned === 0 ? "ok" : "unusable");
+    routeDot.title = ungoverned === 0
+      ? "Every route is governed — ADR-018 condition 5 holds."
+      : `${ungoverned} route(s) are ungoverned — ADR-018 condition 5 is failing.`;
+  }
+
   $("routeMetrics").innerHTML =
     metric("Routes", num(routes.length)) +
     metric("Ungoverned", num(ungoverned),
@@ -11016,6 +12157,13 @@ async function handleClick(event) {
 
       $("symState").innerHTML = `Stored from your ${h(r.from)}, ${num(r.bytes)} bytes.`;
 
+      // A refusal that has been answered is not a refusal any more.
+      symRefuse("");
+
+      // <b>The editor stands in front of the generated screen once something is stored.</b>
+      // Storing from the empty state is how that screen is left for good.
+      symShowEmpty(false);
+
       // <b>Everything that claims to know whether this is stored is corrected here.</b> Two of
       // them were not, and went on saying *nothing is stored yet* under a document that had just
       // been stored — the classify line and the preview caption, each written once by whatever
@@ -11023,7 +12171,7 @@ async function handleClick(event) {
       symStored = true;
       symEditedSince = false;
 
-      if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+      symSayState();
 
       if ($("symClassifySays")) {
         $("symClassifySays").textContent = symClassCount === 0
@@ -11046,6 +12194,11 @@ async function handleClick(event) {
       // exactly as it had: *save desem de işlem yapmıyor*. It says so now, and keeps saying it.
       $("symState").innerHTML =
         `<b>Not stored.</b> ${h(e.message || String(e))}`;
+
+      // <b>And under the title strip, because the state line is in a tab now.</b> The rule this
+      // is keeping is the one the comment above states: a Store that failed must still be
+      // saying so after the toast has gone. A tab the reader is not on cannot do that.
+      symRefuse(e.message || String(e));
 
       toast(e.message || String(e));
     }
@@ -11751,6 +12904,17 @@ async function handleClick(event) {
   if (t.dataset?.visMode !== undefined) {
     event.preventDefault();
     visMode = t.dataset.visMode;
+    drawServiceVis();
+    return;
+  }
+
+  // <b>The layer picker is a strip of links now, so it is pressed rather than changed.</b> It
+  // was a `select` with its own `onchange`; a segmented control has no change event, and a
+  // handler left on the element it no longer is would be the kind of dead control this console
+  // has met three times.
+  if (t.dataset?.visLayer !== undefined) {
+    event.preventDefault();
+    visLayerIndex = t.dataset.visLayer;
     drawServiceVis();
     return;
   }
@@ -12806,8 +13970,12 @@ async function loadAnonymous() {
   rows.sort((a, b) => (b.said.bad ? 1 : 0) - (a.said.bad ? 1 : 0)
     || a.layer.name.localeCompare(b.layer.name));
 
+  // <b>A disagreeing row is tinted, and only a disagreeing one.</b> The comment on `reality`
+  // above says why: a table where every cell is coloured says nothing about which row to look
+  // at, and most rows here are meant to be boring. The tint is the row-level version of the
+  // sentence that was already in the last cell.
   body.innerHTML = rows.map(({ layer, place, results, said }) => `
-    <tr>
+    <tr${said.bad ? ' class="rowbad"' : ""}>
       <td><code>${h(layer.name)}</code><br><span class="val">${h(place.service)} · ${place.id}</span></td>
       <td>${pill(layer.sharing)}</td>
       ${results.map(codeCell).join("")}
@@ -12818,17 +13986,25 @@ async function loadAnonymous() {
 
   const exposed = rows.filter(r => r.said.bad && r.layer.sharing !== "public").length;
   const unreachable = rows.filter(r => r.said.bad && r.layer.sharing === "public").length;
+  const agreed = rows.length - exposed - unreachable;
 
-  $("anonSummary").innerHTML = [
-    exposed
-      ? `<p class="bad-inline"><b>${exposed}</b> layer${exposed === 1 ? " is" : "s are"} readable
-         without a credential while shared private or organization.</p>`
-      : `<p class="val">Nothing shared private or organization answered an anonymous caller.</p>`,
-    unreachable
-      ? `<p class="bad-inline"><b>${unreachable}</b> layer${unreachable === 1 ? " is" : "s are"}
-         shared public but did not answer — an ArcGIS client would see this as the layer missing.</p>`
-      : `<p class="val">Every public layer answered.</p>`,
-  ].join("");
+  // <b>Three tiles, and they were two sentences.</b> Handoff 2026-09-04. The two said what went
+  // wrong and left the reader to work out how much did not; a report whose answer is usually
+  // *nothing is wrong* has to be able to say that as a number, or every run reads as a run that
+  // found nothing rather than as one that found nothing wrong.
+  const tiles = [
+    ["As intended", agreed, "ok",
+      "The catalogue and the anonymous answer agree, or the service is stopped"],
+    ["Answered anyway", exposed, "alert",
+      "Shared private or organization, and readable without a credential"],
+    ["Refused anyway", unreachable, "warn",
+      "Shared public and did not answer — an ArcGIS client sees the layer as missing"],
+  ];
+
+  $("anonSummary").innerHTML = `<div class="tilerow">${tiles.map(([label, n, tone, why]) =>
+    `<div class="tile t-${tone}${n === 0 && tone !== "ok" ? " quiet" : ""}" title="${h(why)}">
+      <b>${num(n)}</b><span>${h(label)}</span>
+    </div>`).join("")}</div>`;
 }
 
 /**

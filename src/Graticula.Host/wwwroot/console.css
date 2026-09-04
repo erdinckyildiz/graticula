@@ -227,7 +227,10 @@ a:hover { text-decoration: underline; }
   the reference's arrangement and the reason it survives a narrow window: at 980 px the sidebar
   becomes a strip of icons rather than wrapping into the content.
 */
-#shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+/* <b>232, not 248.</b> Handoff 2026-09-04: sixteen pixels back to the work column, which is where
+   the screens that need width are — the members table wants 1100 and the symbology editor 1180. No
+   sidebar label wraps at 232; measured against the longest, *Anonymous view*. */
+#shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
 #shell.tight { grid-template-columns: 64px 1fr; }
 
 /*
@@ -2041,40 +2044,282 @@ html[data-session="held"] #app { display: block !important; }
   the result, and the picture is the half that decides: a swatch says what colour, not what the
   map looks like at the size anybody sees it.
 
-  <b>The picture is first in the source and second on a wide screen.</b> Narrow, the preview
-  belongs above the controls, because it is what the reader came to look at; wide, the controls
-  belong on the left where the eye starts and the picture stays beside them while they change.
-*/
-.symlayout {
-  display: grid; gap: var(--gap-3);
-  grid-template-columns: 1fr;
-  margin: 10px 0 14px;
+  <b>Rebuilt to the owner's handoff, direction 1c, 2026-09-04.</b> The 2026-09-03 answer put the
+  picture beside a single column of controls and left the rest of the page — the document, the
+  ArcGIS projection, the losses — stacked underneath, so the screen was still a scroll. The
+  complaint it was answering was *çok karmaşık*, and a shorter scroll is not an answer to that.
 
-  /* <b>`start`, not the grid default.</b> Stretch makes the picture's column as tall as the
-     controls' column: measured 2026-09-03 at 1655px for a picture that is 230px tall, which is
-     the long empty gap beside it. */
-  align-items: start;
+  <b>Three columns, and each one is a question.</b> *What kind of drawing is this* on the left,
+  *what does it look like* in the middle, *what is in it* on the right. Nothing was removed: the
+  document, the losses and the derived `drawingInfo` are tabs of the third column rather than
+  three more sections below the fold, and the preview stops being a 336-pixel thumbnail beside a
+  form and becomes the thing the page is mostly made of.
+*/
+
+/* <b>The editor takes the window, so the shell's page padding is not its padding.</b> Every
+   other screen is a document in a 44-pixel margin; this one is an instrument panel, and a
+   column of controls that stops 44 pixels short of the edge reads as a panel that failed to
+   load. `#app` keeps its padding for every other view. */
+#app.symfull { padding: 0; max-width: none; }
+#app.symfull #editHead { display: none; }
+#app.symfull #edit {
+  display: block; min-height: 0; border: 0; border-radius: 0; box-shadow: none;
+  background: transparent;
+}
+#app.symfull #editNav { display: none; }
+#app.symfull #editPages { padding: 0; }
+
+/* <b>Full height minus the top bar, so the three columns end where the window does.</b> The
+   preview is the middle column and it fills what is left; without a height on the page it would
+   be as tall as whichever column had the most in it. */
+#app.symfull #page-symbology.on {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 58px);
+  min-width: 1180px;
 }
 
-/* <b>1180, not 900.</b> The sidebar is 248px wide, so a 1000px viewport leaves the controls
-   column 98 pixels — measured, and no control on this page fits in 98 pixels. The two columns
-   need about 720px of content area between them. */
-@media (min-width: 1180px) {
-  .symlayout { grid-template-columns: minmax(0, 1fr) 340px; }
-  .symlayout .sympreview { order: 2; }
-  .symlayout .symform { order: 1; }
+/* ------------------------------------------------------------------ the title strip
+   <b>One line that says where you are, what you are looking at and what you can do with
+   it.</b> The three used to be three rows — a breadcrumb, a tab strip, a row of buttons at the
+   bottom of the form — and Store was the one below the fold. */
+
+.symstrip {
+  display: flex; align-items: center; gap: var(--gap-2);
+  padding: 0 var(--gap-5); min-height: 44px; flex: none;
+  background: var(--surface); border-bottom: 1px solid var(--rule);
+  font-size: var(--t-small); color: var(--muted);
+  position: sticky; top: 0; z-index: 5;
+}
+
+.symstrip .crumbs { white-space: nowrap; }
+.symstrip .crumbs a { color: var(--muted); }
+.symstrip .crumbs a:hover { color: var(--accent); }
+.symstrip .crumbs b { color: var(--ink); font-weight: 600; }
+
+.symstrip .symdo { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
+
+/* <b>The state line is the caption the preview used to carry, and it belongs beside Store.</b>
+   *Edited — this is what Store would keep* is a sentence about the button next to it. */
+.symstate { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.symstate.symstate-edited { color: var(--warn); font-weight: 600; }
+
+/*
+  <b>A segmented control, and this file had three hand-rolled ones before it had this.</b> The
+  layer switcher, the item tabs and the inspector's own tabs are the same shape: a row of links
+  in a hairline box where the current one is a raised chip. Written once (D-46).
+*/
+.segmented {
+  display: inline-flex; gap: 2px; padding: 3px; flex: none;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
+}
+.segmented a {
+  padding: 3px 10px; border-radius: 3px; color: var(--muted);
+  font-size: 12.5px; white-space: nowrap; text-decoration: none;
+}
+.segmented a:hover { color: var(--ink); text-decoration: none; }
+.segmented a[aria-current] {
+  background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--lift);
+}
+
+/* The item page's own tabs, which are a level up from the layer switcher beside them: they move
+   between subjects, so they are the taller of the two. */
+.segmented.tabs { background: var(--surface); margin-left: auto; }
+.segmented.tabs a { padding: 5px 12px; font-size: var(--t-small); }
+
+/* ------------------------------------------------------------------------ the banner
+   The server's own refusal, said where the thing it refused was typed. Nothing else on the page
+   changes: a document that was not stored is still the document on the screen. */
+.symbanner {
+  display: flex; gap: var(--gap-3); align-items: flex-start; flex: none;
+  padding: 10px var(--gap-5);
+  background: var(--alert-soft); border-bottom: 1px solid var(--alert-line);
+  color: var(--alert); font-size: var(--t-small); line-height: 1.45;
+}
+.symbanner .mono { font-family: var(--mono); }
+.symbanner button { margin-left: auto; flex: none; }
+
+/* --------------------------------------------------------------------- the empty state
+   <b>A generated appearance is an answer, so it is stated as one.</b> §5b: no document is
+   stored, the colour is deterministic, and both faces report version 0. That used to be a
+   sentence above a form already full of controls for a document nobody had written. */
+.symempty { flex: 1; display: grid; place-items: center; padding: 40px; }
+.symempty > div {
+  max-width: 560px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: var(--gap-3);
+}
+.symempty b { font-size: 19px; letter-spacing: -.01em; }
+.symempty p { margin: 0; color: var(--muted); }
+.symempty .row { margin: 0; }
+.symempty .sw {
+  width: 120px; height: 80px; border-radius: 6px; display: grid; place-items: center;
+  box-shadow: 0 0 0 1px var(--rule);
+  background: repeating-linear-gradient(135deg, #eef2f6 0 6px, #e6ebf1 6px 12px);
+}
+
+/* ------------------------------------------------------------------- the three columns */
+
+.symcols {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 264px minmax(0, 1fr) 336px;
+}
+
+/* <b>Renderer.</b> A column of sections, each one a question with a heading over it. */
+.symrail {
+  background: var(--surface); border-right: 1px solid var(--rule);
+  padding: var(--gap-4) var(--gap-3); overflow: auto;
+  display: flex; flex-direction: column; gap: var(--gap-4);
+}
+
+.symrail h5, .syminsp h5 {
+  margin: 0 0 var(--gap-2);
+  font: 600 11.5px/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* The rail is 264px wide with 24px of padding, so a label at one edge and a control at the
+   other is not an arrangement it can afford. Label over control. */
+.symrail .setting { display: block; padding: 0 0 var(--gap-2); max-width: none; }
+.symrail .setting .q { display: block; margin-bottom: 3px; font-size: 12.5px; color: var(--muted); }
+.symrail .setting select,
+.symrail .setting input:not([type=checkbox]):not([type=color]) { width: 100%; }
+.symrail .hint { margin: 2px 0 var(--gap-2); font-size: 12px; }
+
+/* ------------------------------------------------------- the renderer, as three cards
+   <b>A `<select>` was three answers behind a click.</b> The three are the biggest decision on
+   the page and they are visually different from each other — one colour, a colour per value, a
+   ramp — so they are shown rather than named. Radios, so a keyboard moves between them with the
+   arrow keys and a screen reader is told it is one choice of three. */
+
+.symkinds { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--gap-3); }
+
+.symkind {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--surface); color: var(--muted); font-size: var(--t-small);
+  cursor: pointer;
+}
+.symkind:hover { border-color: var(--rule-strong); }
+.symkind input { position: absolute; opacity: 0; width: 0; height: 0; }
+.symkind:has(input:checked) {
+  border: 2px solid var(--accent); padding: 8px 10px;
+  background: var(--accent-soft); color: var(--ink); font-weight: 600;
+}
+.symkind:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.symkind .ramp { display: flex; gap: 2px; flex: none; }
+.symkind .ramp i { width: 7px; height: 5px; border-radius: 2px; display: block; }
+
+/* ------------------------------------------------------------------------ the picture
+   <b>The preview is the column, not a thumbnail in it.</b> It is what the reader came to look
+   at; the hatched ground behind it is the same one the empty thumbnails on every list use, so a
+   picture that has not arrived reads as *not yet* rather than as *nothing*. */
+
+.sympreview {
+  position: relative; overflow: hidden; min-width: 0;
+  background: repeating-linear-gradient(135deg, #eef2f6 0 6px, #e6ebf1 6px 12px);
 }
 
 .sympreview img,
 .sympreview .thumb.empty {
-  display: block; width: 336px; max-width: 100%; height: auto; aspect-ratio: 3 / 2;
-  border-radius: var(--round);
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(16, 24, 38, .05);
+  display: block; position: absolute; inset: 0;
+  width: 100%; height: 100%; border-radius: 0; background: none; box-shadow: none;
   object-fit: contain;
 }
 
-.sympreview .hint { margin: 6px 0 0; }
+.sympreview .thumb.empty { display: grid; place-items: center; }
+
+/* The overlays. All four are cards on the picture rather than chrome around it, because the
+   picture is what has to keep its size when the window changes. */
+.symcap {
+  position: absolute; left: 14px; top: 12px; max-width: calc(100% - 28px);
+  padding: 5px 9px; border-radius: 4px; background: rgba(255, 255, 255, .9);
+  color: var(--muted); font: 11.5px/1.4 var(--mono);
+  box-shadow: 0 0 0 1px var(--rule);
+}
+
+.symground { position: absolute; right: 14px; top: 12px; }
+
+.symlegend {
+  position: absolute; left: 14px; bottom: 14px; max-width: calc(100% - 28px);
+  padding: 8px 11px; border-radius: var(--round); background: rgba(255, 255, 255, .94);
+  font-size: 12px; display: flex; flex-direction: column; gap: 4px;
+  box-shadow: 0 0 0 1px var(--rule);
+  max-height: 40%; overflow: auto;
+}
+.symlegend span { display: flex; align-items: center; gap: var(--gap-2); }
+.symlegend em { font-style: normal; color: var(--faint); }
+
+/* ---------------------------------------------------------------------- the inspector
+   Three tabs over one pane, and the third carries a count when the conversion lost something.
+   The losses were a block under the editor that a reader reached by scrolling past everything
+   else; a badge on a tab is the same fact where it can be seen without looking for it. */
+
+.syminsp {
+  background: var(--surface); border-left: 1px solid var(--rule);
+  display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+}
+
+.insptabs { display: flex; border-bottom: 1px solid var(--rule); flex: none; }
+.insptabs a {
+  flex: 1; text-align: center; padding: 11px 0; color: var(--muted);
+  font-size: var(--t-small); text-decoration: none;
+  display: flex; justify-content: center; align-items: center; gap: 6px;
+}
+.insptabs a:hover { color: var(--ink); text-decoration: none; }
+.insptabs a[aria-current] {
+  color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent);
+}
+.insptabs .badge {
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--warn); color: #fff;
+  font: 700 10.5px/16px var(--sans); text-align: center;
+}
+
+.insppane { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.insppane[hidden] { display: none; }
+
+.insppane .pad { padding: var(--gap-3) var(--gap-3) 0; }
+.insppane .setting { display: flex; padding: 5px 0; max-width: none; }
+.insppane .hint { margin: 2px 0 var(--gap-2); font-size: 12px; }
+
+/* <b>The symbol stack is a footer under the list, not a page that replaces it.</b> 2026-09-04's
+   answer to *a panel titled after a row nobody can see* was to show one or the other; the
+   handoff's is to put them in one 336-pixel column where the selected row and its symbol are
+   within a screenful of each other, and to scroll the selection into view whenever it moves.
+   Both fix the same fault; this one does not cost a click to see what a class is made of. */
+.symstack {
+  margin-top: auto; padding: var(--gap-3);
+  border-top: 1px solid var(--rule); background: #fafbfc;
+  font-size: var(--t-small);
+}
+.symstack .symstackhead {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: var(--gap-2);
+}
+.symstack .symstackhead b { font-weight: 600; }
+.symstack .symstackhead span { font-size: 12px; color: var(--muted); }
+
+/* The document, as a pane rather than a `<details>`. It is the canonical thing Store sends, and
+   a disclosure triangle over it said the opposite. */
+.insppane .docpane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.insppane .docpane textarea {
+  flex: 1; min-height: 0; margin: 0; border: 0; border-radius: 0; resize: none;
+  padding: var(--gap-3); font: 12px/1.6 var(--mono); background: #fafbfc;
+}
+.insppane .docpane textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.insppane .docfoot, .insppane .dochead {
+  flex: none; padding: 10px var(--gap-3); color: var(--muted);
+  font-size: 12.5px; line-height: 1.45;
+  display: flex; gap: var(--gap-2); align-items: center;
+}
+.insppane .dochead { border-bottom: 1px solid var(--rule); }
+.insppane .docfoot { border-top: 1px solid var(--rule); }
+.insppane .dochead .tag {
+  padding: 2px 8px; border-radius: 10px; background: var(--surface-2);
+  font: 11.5px var(--mono); color: #33404f;
+}
+
+#symDerived { margin: 0 var(--gap-3) var(--gap-3); flex: 1; min-height: 120px; }
 
 /*
   <b>One row per class, and the colour last.</b> The value is what a reader scans for, the label
@@ -2302,3 +2547,571 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symlayer{ flex-wrap: wrap; row-gap: 6px; }
 .setting.symvarystop{ row-gap: 6px; }
 .setting.symvarystop input[type="number"]{ width: 5.5em; }
+
+/* ══════════════════════════════════════════════ the 1c editor's own components
+   Everything above this line was written for the two-column editor and most of it still
+   applies; what follows is only what the three-column one adds or has to say differently.
+   Kept together and last, so the difference between the two is readable as a block rather
+   than as edits scattered through a thousand lines. */
+
+/* --------------------------------------------------------------- a class row, restated
+   <b>Swatch, then the two texts stacked, then the way to remove it.</b> The old row put a
+   label word, a value box, a label box, a colour and two buttons on one line — six things
+   across 620 pixels, which became six things across 306 when the inspector took over. The
+   label and the value are the same fact at two levels, so they stack; the colour comes
+   first because a list of classes is read as a list of colours. */
+
+.setting.symclass {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) 20px;
+  gap: var(--gap-2); align-items: center;
+  padding: 6px 8px; margin: 0;
+  border-bottom: 1px solid #eef1f5;
+}
+.setting.symclass:last-child { border-bottom: 0; }
+
+.setting.symclass .symtexts { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* <b>Boxes that do not look like boxes until they are used.</b> Two bordered inputs a row,
+   ten rows deep, is a wall of rectangles; the border arrives on hover and focus, which is
+   when it is telling somebody something. The text is still selectable and the control is
+   still an input — this is a border, not a disguise. */
+.setting.symclass .symlabel,
+.setting.symclass .symvalue {
+  width: 100%; min-width: 0; flex: none;
+  padding: 2px 5px; border: 1px solid transparent; background: none;
+  border-radius: 3px;
+}
+.setting.symclass .symlabel { font-size: var(--t-small); color: var(--ink); }
+.setting.symclass .symvalue {
+  font: 11.5px var(--mono); color: var(--muted);
+}
+.setting.symclass .symlabel:hover, .setting.symclass .symvalue:hover,
+.setting.symclass .symlabel:focus, .setting.symclass .symvalue:focus {
+  border-color: var(--rule-strong); background: var(--surface);
+}
+
+.setting.symclass .symname { font-size: var(--t-small); }
+
+.setting.symclass .symdrop {
+  border: 0; background: none; color: var(--faint); min-width: 0; padding: 0;
+}
+.setting.symclass .symdrop:hover { color: var(--alert); background: none; }
+
+/* <b>3px, and it was 2.</b> The row has a hairline under it now, so a 2px edge read as part
+   of the grid rather than as the mark on one row of it. The handoff says 3. */
+.setting.symclass.symchosen {
+  background: var(--accent-soft); border-radius: 0;
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 8px;
+}
+
+/* -------------------------------------------------------------- the swatch has a shape
+   <b>The inner swatch of a colour input is stylable, and that is what makes this cheap.</b>
+   Shaping the element itself would shrink the target — a 12-pixel-tall line swatch is a
+   12-pixel-tall click — so the box stays 26 by 22 and the padding decides what is drawn
+   inside it: a bar for a line, a rounded rectangle for an area, a disc for a point. */
+
+.setting input[type="color"].symfill { width: 26px; height: 22px; flex: none; }
+
+input[type="color"].sw-line { padding: 8px 2px; }
+input[type="color"].sw-poly { padding: 3px; }
+input[type="color"].sw-point { padding: 3px; border-radius: 50%; }
+
+input[type="color"].sw-line::-webkit-color-swatch { border: 0; border-radius: 1px; }
+input[type="color"].sw-poly::-webkit-color-swatch { border-radius: 2px; }
+input[type="color"].sw-point::-webkit-color-swatch { border-radius: 50%; }
+input[type="color"].sw-line::-moz-color-swatch { border: 0; border-radius: 1px; }
+input[type="color"].sw-poly::-moz-color-swatch { border-radius: 2px; }
+input[type="color"].sw-point::-moz-color-swatch { border-radius: 50%; }
+
+/* The legend's swatch is the same three shapes, drawn rather than editable. */
+.legendsw { display: block; flex: none; background: var(--sw); }
+.legendsw.sw-line { width: 20px; height: 3px; border-radius: 1px; }
+.legendsw.sw-poly {
+  width: 18px; height: 12px; border-radius: 2px; border: 1px solid rgba(16, 24, 38, .25);
+}
+.legendsw.sw-point {
+  width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(16, 24, 38, .3);
+}
+
+/* ------------------------------------------------------------------- the class list box
+   Inside the inspector the list is a bordered block rather than a run of rows, because the
+   symbol stack under it is a block too and two unframed lists would read as one. */
+#insp-classes #symClasses {
+  border: 1px solid var(--rule); border-radius: 6px; overflow: auto;
+}
+#insp-classes #symClasses.symscrolls { border-color: var(--rule-strong); padding: 0; }
+#insp-classes #symClasses .hint { margin: 0; padding: 10px; }
+
+#insp-classes #symFilterRow, #insp-classes #symAllRow { gap: var(--gap-2); }
+#insp-classes #symClassActions { margin: var(--gap-2) 0 var(--gap-3); }
+
+/* --------------------------------------------------------- the stack, in 336 pixels
+   The handoff's row: kind, colour, the measurement and its unit, then the three buttons.
+   One line, because the panel is short and a stack that wraps is taller than the list
+   above it. */
+.symstack .setting.symlayer {
+  display: grid; grid-template-columns: 52px 26px minmax(0, 1fr) auto;
+  gap: var(--gap-2); align-items: center; flex-wrap: nowrap;
+  padding: 7px 9px; margin-bottom: 6px;
+}
+.symstack .setting.symlayer .symlayerkind { min-width: 0; font-size: 12.5px; }
+.symstack .setting.symlayer .symmeasures {
+  display: flex; gap: 6px; align-items: center; min-width: 0;
+}
+.symstack .setting.symlayer .pair > input { width: 3.6em; }
+.symstack .setting.symlayer .tiny { min-width: 24px; padding: 2px 4px; }
+.symstack .setting.symlayer .symup { margin-left: 0; }
+.symstack .symbuttons { display: flex; gap: 4px; }
+.symstack #symStackActions { gap: 6px; margin: var(--gap-2) 0 0; }
+.symstack .hint { margin: 0; }
+
+/* --------------------------------------------------------------- the rail's own widths */
+
+#symClassifyRow { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+#symClassifyRow .q { flex: 1 1 100%; }
+.symclassify { display: flex; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.symclassify #symClassCount { width: 3.4em; flex: none; text-align: center; }
+.symclassify #symMethod { flex: 1 1 auto; min-width: 0; }
+
+/* Three across, which is what a 232-pixel content width holds without a name clipping. */
+.symrail #symGallery { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.symrail .symcard { padding: 6px 4px 5px; font-size: 10.5px; }
+.symrail .symcard svg { height: 30px; }
+
+.symrail .setting.symvarystop { display: flex; flex-wrap: wrap; gap: 6px; }
+.symrail .setting.symvarystop .q { flex: 1 1 100%; margin: 0; }
+.symrail .setting.symvarystop input[type="number"] { width: 4.6em; }
+
+/* ------------------------------------------------------------------- what is underneath
+   Three grounds for a transparent picture. `none` is the checker every empty thumbnail in
+   this console already uses, so *no ground* looks like the same absence everywhere. */
+.sympreview.ground-light { background: #f2f5f8; }
+.sympreview.ground-dark { background: #131a26; }
+.sympreview.ground-none {
+  background: repeating-linear-gradient(135deg, #eef2f6 0 6px, #e6ebf1 6px 12px);
+}
+
+/* On the dark ground the overlays would be four white cards on a night map; they keep their
+   contrast and lose their brightness. */
+.sympreview.ground-dark .symcap,
+.sympreview.ground-dark .symlegend { background: rgba(19, 26, 38, .88); color: #cfd6e2; }
+.sympreview.ground-dark .symcap { box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+.sympreview.ground-dark .symlegend { box-shadow: 0 0 0 1px rgba(255, 255, 255, .14); }
+.sympreview.ground-dark .symlegend em { color: #8e98a8; }
+
+/* --------------------------------------------------------------------- the banners
+   The refusal is red because the server said no; the override is amber because nothing
+   failed — what is on the screen is simply not what a map draws. */
+.symbanner.note {
+  background: var(--warn-soft); border-bottom-color: var(--warn-line); color: var(--warn);
+}
+.symbanner .tiny { border-color: currentColor; color: inherit; background: none; }
+
+#symUnauthored {
+  flex: none; margin: 0;
+  padding: 10px var(--gap-5);
+  background: var(--surface-2); border-bottom: 1px solid var(--rule);
+}
+
+/* ---------------------------------------------------------- what the rail does not need
+   `.setting .q { flex: 1 }` and the 104-pixel minimum above were written for a form 620
+   pixels wide. In a 232-pixel column they put every label on its own line anyway and then
+   held a control at 104 pixels from the left of nothing. */
+#page-symbology .symrail .setting .q,
+#page-symbology .insppane .setting .q { min-width: 0; }
+#page-symbology .insppane .setting .q { flex: 0 0 auto; }
+
+/* --------------------------------------------------------------- the corrections pass
+   Measured on the running fixture set at 1440×900, 2026-09-04. Each of these was visible
+   in a screenshot rather than argued about. */
+
+/* <b>The panel's own bottom margin, on a panel that is the window.</b> `.panel` carries 16
+   pixels so panels stack; this one is a screen, and 16 pixels below the fold is a scrollbar
+   on a page that fits. Measured: `document.scrollHeight` 916 against a 900-pixel window. */
+#app.symfull #edit { margin-bottom: 0; }
+
+/* <b>Left, and mono only where a value is mono.</b> `.setting input { text-align: right }` is
+   right for a form of numbers with units beside them and wrong for a column of names: every
+   class label was pinned to the right edge of its own box, so a list of 256 read as ragged
+   text with a gap down the left. */
+.setting.symclass input:not([type=color]),
+.symrail .setting select,
+.symrail .setting input:not([type=checkbox]):not([type=color]),
+.insppane .setting input:not([type=checkbox]):not([type=color]) { text-align: left; }
+
+.setting.symclass .symlabel { font-family: var(--sans); }
+.symrail .setting select { font-family: var(--sans); }
+
+/* The two rail rows that are a number with a unit keep the right-hand alignment a measurement
+   wants; the exception above is for names, not for figures. */
+.symclassify #symClassCount, .insppane .pair > input { text-align: right; }
+
+/* <b>Two columns when the renderer is one this form cannot author.</b> A `display: none` grid
+   item is not an empty cell, it is no cell — so hiding the rail moved the picture into its
+   264 pixels and left the inspector's 336 blank. */
+.symcols.noRail { grid-template-columns: minmax(0, 1fr) 336px; }
+
+/* The caption and the ground chips share the top of the picture, so neither may take all of
+   it. At 264 pixels — which is what the column is while a Proportional renderer is open —
+   they were on top of each other. */
+.symcap { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symground { max-width: 50%; }
+
+.insppane .docfoot > span { min-width: 0; }
+.insppane .docfoot .tiny, .insppane .dochead .tiny { flex: none; margin-left: auto; }
+
+/* The generated swatch on the empty screen is the layer's own colour, not a grey box: the
+   sentence beside it says the colour is derived from the layer's identity, and a hatched
+   rectangle is the one thing on the screen that could have shown it. */
+.symempty .sw i {
+  display: block; background: var(--sw, var(--muted));
+  box-shadow: 0 0 0 1px rgba(16, 24, 38, .25);
+}
+.symempty .sw i.sw-line { width: 70px; height: 4px; border-radius: 2px; box-shadow: none; }
+.symempty .sw i.sw-poly { width: 62px; height: 40px; border-radius: 3px; }
+.symempty .sw i.sw-point { width: 26px; height: 26px; border-radius: 50%; }
+
+/* <b>The swatch fills the box it is in.</b> Chromium wraps a colour input's swatch in its own
+   padded element, so a 26×22 control drew a 20×9 chip inside six pixels of nothing and the
+   three shapes were indistinguishable from each other. The wrapper's padding goes; the input's
+   own padding is what makes a bar, a box or a disc of it. */
+input[type="color"].symfill::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 24, 38, .2); }
+
+/* <b>The symbol stack is a footer, not the end of a scroll.</b> Ten class rows at 58 pixels
+   each is 580, and the pane is about 700 — so on the fixture this screen was reported against
+   the panel naming the class you are editing sat thirty pixels below the fold, which is the
+   fault D-217 was about wearing a different shape. The list gives up the room instead.
+
+   <b>One scroller, not two.</b> The list is the flexible child of a column that does not
+   scroll, so a short list is its own height and a long one stops where the panel does. Putting
+   the scroll on the wrapper instead would nest a ten-row scroller inside a pane scroller, and
+   nobody can work out which of two bars moves what. */
+#insp-classes { overflow: hidden; }
+#insp-classes > .pad {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  padding-bottom: var(--gap-3);
+}
+#insp-classes #symFilterRow,
+#insp-classes #symAllRow,
+#insp-classes #symClassActions { flex: none; }
+#insp-classes #symClasses { flex: 0 1 auto; min-height: 0; overflow: auto; }
+#insp-classes .symstack { flex: none; margin-top: 0; }
+
+/* <b>The strip's right-hand end is not allowed to leave the screen.</b> Measured on a
+   three-layer service: the switcher's chips took 420 pixels, the tabs 400, and Store was 130
+   pixels past the right edge with nothing to scroll it back. Store is the only control on this
+   screen that cannot be reached another way, so it is the one thing that never shrinks; the
+   breadcrumb gives up characters first, then the switcher scrolls. */
+/* <b>The crumb gives up the width and the switcher keeps it.</b> Both were shrinking in
+   proportion, so at 1440 the third layer of a three-layer service was scrolled out of a control
+   whose whole purpose is to show the three. Context can be abbreviated; a control cannot. */
+.symstrip .crumbs {
+  min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto;
+}
+.symstrip #symLayerPick { flex: 0 0 auto; max-width: 46%; overflow-x: auto; scrollbar-width: none; }
+.symstrip #symLayerPick::-webkit-scrollbar { height: 0; }
+.symstrip .segmented.tabs { flex: none; }
+.symstrip .symdo { flex: none; }
+
+/* <b>Two measurements and three buttons in 306 pixels.</b> A stroke row carries a width, a
+   unit, an opacity, a per-cent sign and the three controls that reorder and remove it; laid out
+   as one unbroken line the opacity box came out four pixels wide. The measurements wrap inside
+   their own cell instead, which keeps the buttons where they are down the stack. */
+.symstack .setting.symlayer .symmeasures { flex-wrap: wrap; row-gap: 4px; }
+.symstack .setting.symlayer .pair > input { width: 3.9em; }
+.symstack .setting.symlayer .tiny { min-width: 22px; padding: 1px 3px; }
+.symstack .symbuttons { gap: 2px; }
+
+/* A classify row that is only its button — which is what a unique-value renderer's is — reads
+   as a button somebody forgot to label when it is pushed to the right by a label that is not
+   there. */
+#symClassifyRow #symClassify { margin-right: auto; }
+
+/* <b>Fitting 1,370 pixels of strip into 1,208.</b> Measured at 1440 on a three-layer service.
+   The tabs give up horizontal padding first — they are five short words and were spending 410
+   pixels on them — and the state line is capped with its whole sentence in a tooltip, because
+   it is the one child of the strip that is prose. Store and *Back to generated* do not shrink:
+   they are the two acts this screen exists for. */
+.symstrip .segmented.tabs a { padding: 5px 9px; }
+.symstrip .symstate {
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* One symbol is not a list, so its pane does not reserve a list's worth of height. */
+#insp-classes.onesymbol { overflow: auto; }
+#insp-classes.onesymbol > .pad { flex: none; overflow: visible; }
+
+/* ═══════════════════════════════════════════════════ the item page, handoff 2026-09-04 */
+
+/* <b>The service's tabs are a segmented control now, beside its title.</b> `.tabstrip` is still
+   right where it is used — a scope strip over a table, a group's sections — but this one moves
+   between the five faces of one item, which is the same act the layer editor's strip performs,
+   and two shapes for one act is D-46's whole subject. `solid` is the handoff's dark fill: these
+   tabs sit on `--paper` rather than inside a panel, so the raised-white chip the other segmented
+   controls use has nothing to be raised from. */
+.segmented.solid a[aria-current] {
+  background: var(--ink); color: var(--surface); box-shadow: none;
+}
+
+.pagehead .segmented { align-self: center; }
+
+/* Two cards side by side, and one column when there is not room for two. */
+.cardpair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap-4); }
+.cardpair .panel { margin-bottom: 0; }
+.cardpair h4 { margin-top: 0; }
+@media (max-width: 1180px) { .cardpair { grid-template-columns: minmax(0, 1fr); } }
+
+.pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--gap-3); }
+
+/* <b>Offered and not offered, both shown.</b> A list of what is on says nothing about what is
+   off, and *why can this client not edit* is the question somebody has. The greyed pill keeps
+   `--faint`, which is 4.54:1 on the palest surface it sits on — a state that cannot be read is
+   not a lighter version of one that can. */
+.pill.p-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.pill.p-off { background: var(--surface-2); border-color: var(--rule); color: var(--faint); }
+.pill.p-off::before { opacity: .45; }
+
+/* --------------------------------------------------------- the Overview layers table
+   Five columns: the id every address uses, the shape the layer is, its name, whether anybody
+   has styled it, and the three ways in. */
+#serviceLayerRows .lid {
+  width: 30px; font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+  text-align: right; vertical-align: middle;
+}
+#serviceLayerRows .lsw { width: 44px; vertical-align: middle; }
+#serviceLayerRows .lstate { width: 160px; vertical-align: middle; }
+#serviceLayerRows .lstate .authored { color: var(--accent); font-weight: 600; }
+
+.geoswatch {
+  display: grid; place-items: center; height: 30px; border-radius: 4px;
+  background: repeating-linear-gradient(135deg, #eef2f6 0 5px, #e6ebf1 5px 10px);
+}
+.geoswatch::before { content: ""; display: block; background: var(--sw, var(--muted)); }
+.geoswatch.sw-line::before { width: 26px; height: 3px; border-radius: 2px; }
+.geoswatch.sw-poly::before {
+  width: 24px; height: 15px; border-radius: 2px; border: 1px solid rgba(16, 24, 38, .25);
+}
+.geoswatch.sw-point::before {
+  width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(16, 24, 38, .3);
+}
+
+/* <b>Three buttons, not two links run together.</b> Measured before the change: *Symbology* and
+   *document* sat side by side with a space between them, which reads as one target of 96 pixels
+   holding two. A resting border is what makes three of them three. */
+#serviceLayerRows .acts { white-space: nowrap; }
+#serviceLayerRows .acts .tiny {
+  border: 1px solid var(--rule); background: var(--surface); border-radius: 4px;
+  padding: 3px 9px; margin-left: 6px; color: var(--ink); font-size: 12.5px;
+}
+#serviceLayerRows .acts .tiny:hover { border-color: var(--accent); color: var(--accent); }
+
+/* <b>A blank cover explains itself.</b> The picture arrived and is empty, which is not the same
+   as a picture that failed — and a white rectangle where a map should be reads as the second. */
+.thumb.empty.drewnothing {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; padding: 0 14px; text-align: center;
+  font-size: 12px; line-height: 1.5; color: var(--faint);
+}
+.thumb.empty.drewnothing b { color: #33404f; font-size: 13px; }
+
+/* The Visualization toolbar's own row: a label, the layer strip, what that layer is, and the
+   way to its symbology. `.toolbar` already lays these out; these only stop the strip from
+   stretching and give the meta a resting colour. */
+.toolbar .segmented { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.toolbar .segmented::-webkit-scrollbar { height: 0; }
+#visMeta { color: var(--muted); font-size: var(--t-small); white-space: nowrap; }
+
+/* <b>A hover ring, so the picture reads as the target it is.</b> The thumbnail in a content row
+   opens the map; without a resting affordance it is a picture that happens to be clickable,
+   which is a thing people find by accident or not at all. */
+.thumblink { display: block; border-radius: 5px; }
+.thumblink:hover .thumb, .thumblink:focus-visible .thumb {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.thumblink:focus-visible { outline: none; }
+
+/* ------------------------------------------------------ summary tiles, handoff 2026-09-04
+   <b>A count first, then what it counts.</b> Used by the anonymous view's three outcomes: a
+   report whose usual answer is *nothing is wrong* has to be able to say that as a number, or
+   every run reads as one that found nothing rather than as one that found nothing wrong.
+
+   <b>A zero is quiet, and a zero is not always good.</b> Nought layers answering anyway is the
+   result somebody wants; drawing it in alert red would train the reader to ignore the colour.
+   The tone only fills in when the count is above nought. */
+.tilerow {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--gap-3); margin-bottom: var(--gap-4);
+}
+.tile {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+  box-shadow: var(--lift); padding: var(--gap-3) var(--gap-4);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tile b {
+  font-size: 26px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.tile span { font-size: var(--t-small); color: var(--muted); }
+.tile.t-ok b { color: var(--ok); }
+.tile.t-alert { border-color: var(--alert-line); background: var(--alert-soft); }
+.tile.t-alert b { color: var(--alert); }
+.tile.t-warn { border-color: var(--warn-line); background: var(--warn-soft); }
+.tile.t-warn b { color: var(--warn); }
+.tile.quiet { border-color: var(--rule); background: var(--surface); }
+.tile.quiet b { color: var(--faint); }
+
+/* A row the report disagrees with, tinted where the eye lands rather than only in its last
+   cell. `--alert-soft` is the same ground the alert pill uses, so the two read as one signal. */
+tr.rowbad > td { background: var(--alert-soft); }
+
+/* ------------------------------------------------------- operations, handoff 2026-09-04
+   Three cards across rather than three sections down, then the two short blocks side by side.
+   The route table stays full width below both: its patterns do not wrap and it needed 1,407
+   pixels the last time anybody measured it. */
+.opscards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--gap-4); margin-bottom: var(--gap-5);
+  align-items: start;
+}
+.opscard { margin-bottom: 0; display: flex; flex-direction: column; }
+.opscard h4 {
+  margin: 0 0 var(--gap-3); display: flex; align-items: center; gap: var(--gap-2);
+  padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule);
+}
+.opscard .metrics { margin: 0; }
+.opscard .hint { margin: var(--gap-3) 0 0; }
+.opscard .hint:empty { display: none; }
+
+.opspair {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--gap-5); align-items: start; margin-bottom: var(--gap-5);
+}
+.opspair .label:first-child { margin-top: 0; }
+.opspair .dot { margin-right: 6px; }
+
+@media (max-width: 1100px) { .opspair { grid-template-columns: minmax(0, 1fr); } }
+
+/* <b>A dot with a class, because `#healthDot` was the only one and it was styled by id.</b> The
+   operations cards need the same indicator and copying four rules under a second id is how a
+   product ends up with two greens. The dot tokens are the indicator pair the token block
+   defines — `--ok` is the text colour and `--ok-dot` is the dot, and the reason is written
+   there: dark enough to read and dark reads as muddy on an arc. */
+.dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--faint); vertical-align: middle;
+}
+.dot.ok { background: var(--ok-dot); }
+.dot.degraded { background: var(--warn-dot); }
+.dot.unusable { background: var(--alert-dot); }
+.dot.unknown { background: var(--rule-strong); }
+
+/* <b>A label and its figure on one line, which a bare `dl` does not do.</b> `dl.metrics` had no
+   rules at all: the browser's default put every value on its own line indented 40 pixels, so a
+   card of five figures was ten lines with a staircase down the middle. Measured on the
+   operations cards, 2026-09-04. */
+.metrics { display: flex; flex-direction: column; gap: 7px; margin: 0; }
+
+/* <b>The grid is on the row, not on the list.</b> `metric()` wraps each pair in a `div`, so a
+   grid on the `dl` would lay out the wrappers and leave every `dt`/`dd` stacked inside one. */
+.metric {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--gap-3); align-items: baseline;
+}
+.metric dt { color: var(--muted); font-size: var(--t-small); min-width: 0; }
+.metric dd {
+  margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The note is a second `dd`, and it belongs under both columns rather than beside the figure. */
+.metric dd.val {
+  grid-column: 1 / -1; text-align: left; font-weight: 400; white-space: normal;
+  color: var(--faint);
+}
+.metric dd small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 2px; }
+
+/* <b>The override is a footer of the symbology panel, not a panel of its own.</b> It is the
+   exception to every row above it — unless one of these is stored, none of them is what the tile
+   face draws — and an exception is read under the rule it qualifies. */
+.styleoverride {
+  margin: var(--gap-4) calc(var(--gap-5) * -1) calc(var(--gap-4) * -1);
+  padding: var(--gap-4) var(--gap-5);
+  border-top: 1px solid var(--rule); background: #fafbfc;
+  border-radius: 0 0 var(--round-lg) var(--round-lg);
+}
+.styleoverridehead {
+  display: flex; align-items: flex-start; gap: var(--gap-4); flex-wrap: wrap;
+}
+.styleoverridehead .row { margin: 0 0 0 auto; flex: none; }
+.styleoverride .hint { margin: 2px 0 0; }
+.styleoverride #styleAdvanced { margin-top: var(--gap-3); }
+
+/* ------------------------------------------------------- a member's initials, 2026-09-04
+   <b>No image and no request.</b> Two letters on a tinted square, the tint derived from the
+   name — the same determinism the generated symbology uses, so the square somebody learns is
+   the same square tomorrow. Ink stays `--ink` at every hue because only the hue moves. */
+.whorow { display: flex; align-items: center; gap: var(--gap-3); min-width: 0; }
+.avatar {
+  width: 28px; height: 28px; flex: none; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--avatar, var(--surface-3));
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 38, .08);
+  font: 600 11.5px/1 var(--sans); color: #33404f; letter-spacing: .02em;
+}
+
+/* <b>The role select wears the pill's hue.</b> The handoff draws a pill — admin teal, publisher
+   violet, other grey — and a pill cannot be changed; this is the control that changes what
+   somebody may do, so it keeps being a control and takes the colour. */
+.rolepick { font-weight: 500; }
+.rolepick[data-role-is="administrator"] {
+  color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft);
+}
+.rolepick[data-role-is="publisher"] {
+  color: var(--violet); border-color: #d9cdf3; background: var(--violet-soft);
+}
+
+/* -------------------------------------------------------- the sharing scope, as cards
+   <b>Three answers with a sentence each.</b> A select can carry a word, so the sentences were
+   three paragraphs under it — which is where an explanation goes when the control has no room
+   for one, and it means the reader chooses before reading. The chosen card takes a 2px accent
+   border and the pale accent ground, which is the same *this one* the class list uses. */
+.scopecards { display: flex; flex-direction: column; gap: var(--gap-2); max-width: 620px; }
+
+.scopecard {
+  display: flex; gap: var(--gap-3); align-items: flex-start;
+  padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--surface); cursor: pointer;
+}
+.scopecard:hover { border-color: var(--rule-strong); }
+.scopecard:has(input:checked) {
+  border: 2px solid var(--accent); padding: 9px 11px; background: var(--accent-soft);
+}
+.scopecard:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.scopecard input { margin: 3px 0 0; flex: none; accent-color: var(--accent); }
+.scopecard > span { min-width: 0; }
+.scopecard b { font-weight: 600; }
+.scopecard .said { display: block; color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+
+/* <b>The stack's colour box is 26 pixels because its grid column is.</b> `.setting
+   input[type="color"]` is 44 wide, which suits a form row and not a 306-pixel panel: squeezed
+   into the column it drew a grey bar with no colour visible in it. And the width boxes take one
+   more character, because a stroke width is `0.75` and `0.` is not a number. */
+.symstack .setting.symlayer input[type="color"] { width: 26px; height: 22px; padding: 2px; }
+.symstack .setting.symlayer input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.symstack .setting.symlayer .pair > input { width: 4.4em; }
+
+/* <b>The Map shortcut costs 42 pixels the services table did not have, and it still does.</b>
+   Measured at 1440: without the shortcut the table is 816 wide in an 816-pixel column beside the
+   folder rail — exactly full — and with it, 858. Tightening the row's own padding is what this
+   block does and it buys back none of the difference, because the columns were already at their
+   content width; the honest statement is that this table now scrolls by 42 pixels at 1440 and
+   that `.widetable` is the mechanism that lets it. The alternative was hiding the shortcut in
+   the overflow menu, which is where the handoff explicitly did not put it. */
+#services .acts { white-space: nowrap; }
+#services .acts .tiny, #services .acts .menu > summary { padding: 3px 7px; }
+#services .acts .tiny + .tiny, #services .acts .tiny + .menu { margin-left: 4px; }
+#services .acts .ico { margin-right: 3px; }

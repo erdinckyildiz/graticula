@@ -41,26 +41,77 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
   #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
-  header { padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--rule);
-           color: var(--ink); }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  /*
+    <b>One row, and it was four.</b> Handoff 2026-09-04. The header stacked a title, a line of
+    facts, a picker and the ground chips, which came to about 110 pixels of chrome over a map —
+    on the one page whose whole subject is the map. The facts sit beside the name now, the
+    picker and the way out sit at the right, and the grounds move onto the picture where the
+    thing they change is.
+
+    <b>A fixed height, because two things are positioned under it.</b> The attribute card and
+    the explanation are placed by an offset from the top of the window; with a header that grew
+    a line whenever a layer had a long name, that offset was a guess. 54 is the console's own
+    top bar less its four pixels of padding.
+  */
+  header { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 16px;
+           overflow: hidden;
+           background: var(--surface); border-bottom: 1px solid var(--rule);
+           color: var(--ink); flex: none; }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+              white-space: nowrap; }
   header h1 a { color: var(--accent); text-decoration: none; font-weight: 400; font-size: 13px; }
-  #facts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 5px;
-           font-size: 12.5px; color: var(--muted); }
+
+  /* The mark, two letters and a gradient — the console's own, so the viewer reads as part of
+     the same product rather than as a page that happens to draw a map. */
+  .mark { width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid;
+          place-items: center; color: #fff; font: 700 11px/1 system-ui, sans-serif;
+          background: linear-gradient(148deg, #57bda9, #0b6157 60%, #08463f); }
+
+  /* <b>The facts give up the width, and the two controls beside them do not.</b> Measured at
+     1280 on a three-layer service: the row wanted more than the window, and what broke was
+     *Frame layer* and *Services directory* — a verb wrapped in half and a link off the right
+     edge. A fact can be clipped and read from the layer document; a control cannot. */
+  #facts { display: flex; gap: 14px; flex-wrap: nowrap; align-items: center;
+           font-size: 12.5px; color: var(--muted); min-width: 0; overflow: hidden;
+           /* <b>Basis nought, so this takes what is left rather than what it wants.</b> With
+              `auto` the facts asked for their full width and every flex child then shrank in
+              proportion — which still overflowed, because a button and a link inside them do
+              not shrink. Nought means the controls are measured first and the facts fill the
+              gap, which is the order they should be read in anyway. */
+           flex: 1 1 0; }
+  #facts > span { white-space: nowrap; }
+  #facts button, #facts a { white-space: nowrap; flex: none; }
   #facts code { font-family: var(--mono); font-size: 11.5px; }
   #facts b { color: var(--ink); }
+  #directory { margin-left: auto; flex: none; font-size: 12.5px; color: var(--accent);
+               text-decoration: none; padding: 5px 12px; border: 1px solid var(--rule);
+               border-radius: 3px; white-space: nowrap; }
+  #directory:hover { border-color: var(--accent); }
   button { font: inherit; font-size: 12px; padding: 3px 9px; cursor: pointer;
            border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
            color: var(--ink); }
   button:hover { border-color: var(--accent); color: var(--accent); }
   button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #picker { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+  #picker { display: flex; gap: 6px; flex-wrap: nowrap; flex: 0 1 auto; min-width: 0;
+            margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+  #picker::-webkit-scrollbar { height: 0; }
+  #picker button { flex: none; }
   #picker:empty { display: none; }
-  #grounds { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 7px;
-             font-size: 12px; color: var(--faint); }
+  #picker + #directory { margin-left: 0; }
+
+  /*
+    <b>The grounds are on the map, not above it.</b> They change what is drawn under the data,
+    so they belong where the reader is looking when they want one — and in the header they were
+    a fourth row of chrome for a control most people press once.
+  */
+  #grounds { position: absolute; z-index: 40; left: 12px; top: 66px;
+             display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+             padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, .94);
+             box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 0 0 1px var(--rule);
+             font-size: 12px; color: var(--faint); max-width: calc(100% - 340px); }
   #grounds:empty { display: none; }
   #grounds > span:first-child { text-transform: uppercase; letter-spacing: .04em;
-                               font-weight: 600; }
+                               font-weight: 600; padding: 0 2px; }
   #map { width: 100%; height: 100%; background: #bfd6e2; }
 
   /*
@@ -77,14 +128,14 @@
   .ol-mouse-position { position: absolute; top: auto; bottom: 10px; right: 10px;
                        background: rgba(255,255,255,.82); padding: 2px 7px; border-radius: 3px;
                        font-family: var(--mono); font-size: 11px; color: var(--muted); }
-  #note { position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 86px;
+  #note { position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 66px;
           background: var(--surface); border: 1px solid var(--rule);
           border-left: 3px solid #a63a2b; border-radius: 3px; padding: 11px 15px;
           max-width: 560px; font-size: 13.5px; display: none;
           box-shadow: 0 10px 28px -14px rgba(0,0,0,.4); }
   #note.on { display: block; }
   #note b { display: block; margin-bottom: 3px; }
-  #attrs { position: absolute; z-index: 40; right: 12px; top: 96px; width: 300px;
+  #attrs { position: absolute; z-index: 40; right: 12px; top: 66px; width: 300px;
            max-height: 60%; overflow: auto; background: var(--surface);
            border: 1px solid var(--rule); border-radius: 3px; font-size: 12.5px;
            display: none; box-shadow: 0 10px 28px -18px rgba(0,0,0,.4); }
@@ -132,19 +183,25 @@
 <body>
 <div id="frame">
   <header>
-    <h1><span id="title">layer</span> <a id="directory" href="/rest/services">services directory</a></h1>
+    <span class="mark" aria-hidden="true">Gr</span>
+    <h1 id="title">layer</h1>
     <div id="facts"></div>
     <div id="picker"></div>
-    <!--
-      The grounds this server can draw under the data — its own tile services.
-      This was a `?ground=` query parameter, which is the same as not existing:
-      the answer to "can we use OpenStreetMap data" is *import it and serve your
-      own tiles*, and it has to be visible for that to be an answer.
-    -->
-    <div id="grounds"></div>
+    <a id="directory" href="/rest/services">Services directory</a>
   </header>
   <div id="map"></div>
 </div>
+<!--
+  The grounds this server can draw under the data — its own tile services.
+  This was a `?ground=` query parameter, which is the same as not existing:
+  the answer to "can we use OpenStreetMap data" is *import it and serve your
+  own tiles*, and it has to be visible for that to be an answer.
+
+  <b>A sibling of the frame, not a child of the map.</b> OpenLayers owns everything inside its
+  target element; a control placed in there is a control the next redraw may remove. The
+  attribute card and the explanation below are outside for the same reason and always were.
+-->
+<div id="grounds"></div>
 <div id="note" role="status" aria-live="polite"></div>
 <div id="attrs"></div>
 

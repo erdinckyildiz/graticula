@@ -54,7 +54,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         // <b>Waited on the control, not on the state line.</b> The page writes the state as
         // soon as it knows it and fills the form afterwards, so *not Reading* is true before
@@ -151,7 +151,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelector('#symClasses .symfill') !== null",
@@ -167,8 +167,13 @@ public sealed class SymbologyEditorTests : ConsoleTest
             + " fill.dispatchEvent(new Event('change', { bubbles: true }));"
             + " return true; })()");
 
+        // <b>The caption over the picture, not the state line beside Store.</b> Handoff
+        // 2026-09-04 splits the two, and they answer two questions: the strip says which of the
+        // two appearances the picture is of, and the caption says whether there is a picture and
+        // why not when there is not. They were one element, so a preview that failed to draw
+        // replaced the sentence that says whether anything is stored.
         await WaitForAsync(
-            "(document.getElementById('symPreviewState')?.textContent || '')"
+            "(document.getElementById('symPreviewCap')?.textContent || '')"
             + ".includes('not available')",
             "A JSON answer to the preview was not reported. An empty frame beside a colour "
             + "reads as *this style draws nothing*, which is a worse message than the truth.");
@@ -193,7 +198,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelector('#symClasses .symfill') !== null",
@@ -256,17 +261,32 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
 
+        // <b>The generated screen, and it has to say the word.</b> A layer nobody has styled is
+        // a state rather than an empty form (ADR-033 §5b), so this is what somebody meets — and
+        // it is only worth having if it says which state it is in.
         await WaitForAsync(
-            "document.querySelector('#symClasses .symfill') !== null",
-            $"'{layer}' has no stored symbology and its Symbology page drew no controls, so the "
-            + "editor only works on layers somebody has already styled.");
+            "document.getElementById('symEmpty')?.offsetParent != null",
+            $"'{layer}' has no stored symbology and its Symbology page did not open on the "
+            + "generated screen, so a reader cannot tell an unstyled layer from a styled one.");
+
+        string said = await Browser.EvaluateAsync<string>(
+            "document.getElementById('symEmpty')?.textContent || \"\"") ?? string.Empty;
+
+        Assert.Contains("generated", said, StringComparison.OrdinalIgnoreCase);
+
+        // <b>And the way in reveals every control, which is the half that used to be asserted.</b>
+        // The form behind this screen is already holding the generated document; pressing the
+        // button only stands out of its way, and this is where *the controls are in the document
+        // and none of them is on screen* would still be caught.
+        await ClickAsync("#symStartGenerated");
 
         bool visible = await Browser.EvaluateAsync<bool>(
             "(() => {"
             + " const fill = document.querySelector('#symClasses .symfill');"
-            + " const kind = document.getElementById('symKind');"
+            + " const kind = document.querySelector('input[name=\"symKind\"]');"
+            + " const cards = document.querySelector('.symkinds');"
             + " return !!fill && fill.offsetParent !== null"
-            + " && !!kind && kind.offsetParent !== null; })()");
+            + " && !!kind && !!cards && cards.offsetParent !== null; })()");
 
         Assert.True(
             visible,
@@ -278,6 +298,75 @@ public sealed class SymbologyEditorTests : ConsoleTest
             "document.getElementById('symState')?.textContent || \"\"") ?? string.Empty;
 
         Assert.Contains("enerated", state, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Opens a layer's Symbology page with its controls on the screen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An unstyled layer opens on the generated screen, and every fixture here is
+    /// unstyled.</b> Handoff 2026-09-04: §5b makes a generated appearance a real state, so a
+    /// layer nobody has styled is met by a sentence saying so and two ways in, rather than by a
+    /// form already filled with a document nobody wrote. That screen stands in front of the
+    /// three columns, so a test that opens a layer and reaches for a control finds it in the
+    /// document and not on the screen — which is true, and is what the screen is for.
+    /// </para>
+    /// <para>
+    /// <b>The step is here rather than in each test, and it is not skipped when it is not
+    /// needed.</b> A styled layer never shows the screen; pressing a button that is not there
+    /// would be the kind of step that quietly does nothing, so it is asked for first.
+    /// <see cref="An_unstyled_layer_opens_with_visible_controls_and_says_it_is_generated"/> is
+    /// where that screen is the subject rather than the obstacle.
+    /// </para>
+    /// </remarks>
+    /// <param name="layer">The layer.</param>
+    /// <param name="token">The session.</param>
+    /// <returns>The task.</returns>
+    private async Task OpenSymbologyAsync(string layer, string token)
+    {
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "typeof symModel !== 'undefined' && symModel !== null",
+            $"'{layer}' never filled the symbology form.");
+
+        bool generated = await Browser.EvaluateAsync<bool>(
+            "document.getElementById('symEmpty')?.offsetParent != null");
+
+        if (generated)
+        {
+            await ClickAsync("#symStartGenerated");
+        }
+
+        await WaitForAsync(
+            "document.getElementById('symCols')?.offsetParent != null",
+            $"'{layer}' shows neither the generated screen nor the editor, so the Symbology page "
+            + "opened on nothing at all.");
+    }
+
+    /// <summary>
+    /// Chooses a renderer family the way somebody with a mouse does.
+    /// </summary>
+    /// <remarks>
+    /// <b>Three radio cards, and they were a `select`.</b> Handoff 2026-09-04: the family is the
+    /// biggest decision on the page and the three answers look different from each other, so
+    /// they are shown rather than named behind a click. Setting `value` on a radio group does
+    /// nothing — there is no element to set — which is exactly the kind of silently dead test
+    /// step this helper exists to prevent from being written three times.
+    /// </remarks>
+    /// <param name="family">`simple`, `uniqueValue` or `classBreaks`.</param>
+    /// <returns>The task.</returns>
+    private async Task PickRendererAsync(string family)
+    {
+        bool moved = await Browser.EvaluateAsync<bool>(
+            "(() => { const k = document.querySelector("
+            + $"'input[name=\"symKind\"][value=\"{family}\"]');"
+            + " if (!k) return false;"
+            + " k.checked = true;"
+            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+        Assert.True(moved, $"There is no renderer card for '{family}'.");
     }
 
     /// <summary>
@@ -296,7 +385,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await ALayerOfAsync(token, "LineString");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelectorAll('#symStack .symlayer').length > 0",
@@ -368,7 +457,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelector('#symStack .symalpha') !== null",
@@ -451,7 +540,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         // <b>Waited on the model, not on the element.</b> `#symKind` is in the static markup, so
         // it exists before the layer's document has been fetched — and the change handler returns
@@ -462,10 +551,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
             "The symbology form never filled.");
 
         // <b>Three classes, so *every class* is a claim with something to prove.</b>
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const k = document.getElementById('symKind');"
-            + " k.value = 'uniqueValue';"
-            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await PickRendererAsync("uniqueValue");
 
         await WaitForAsync(
             "document.getElementById('symAddClass')?.offsetParent != null",
@@ -520,7 +606,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
     }
 
     /// <summary>
-    /// The class list and one class's symbol are never both on the screen.
+    /// The symbol panel never names a class the list is not showing.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -531,26 +617,28 @@ public sealed class SymbologyEditorTests : ConsoleTest
     /// not one of the ten, so the panel was titled after a row nobody could see.
     /// </para>
     /// <para>
-    /// <b>They are one view now, not two.</b> `Symbol ›` on a row replaces the list with that
-    /// class's symbol; `‹ All classes` puts the list back, scrolled to the row that was open. A
-    /// panel that exists only while its own row is the subject cannot name the wrong row, so
-    /// this is a defect removed rather than a defect corrected.
+    /// <b>D-217 answered that by showing one or the other, and the handoff answers it by
+    /// adjacency.</b> 2026-09-04: the list and the stack are both in the inspector's 336-pixel
+    /// column, the chosen row keeps its accent edge, and the heading names the class. What is
+    /// asserted here is therefore the property both answers were protecting rather than either
+    /// answer's mechanism — <b>the panel's subject is a row that is on the screen</b> — because
+    /// that is the thing the owner reported and the thing a third rearrangement could break.
     /// </para>
     /// <para>
     /// <b>Asked of `offsetParent`, not of `hidden`.</b> This console has shipped a control that
-    /// existed and could not be seen four times, the fourth being the first attempt at this very
-    /// change: hiding the class container to show the editor also hid a simple renderer's one
-    /// colour row, which lives in the same container. That is why the simple case is asserted
-    /// here beside the classified one.
+    /// existed and could not be seen four times, the fourth being an earlier attempt at this
+    /// very change: hiding the class container to show the editor also hid a simple renderer's
+    /// one colour row, which lives in the same container. That is why the simple case is
+    /// asserted here beside the classified one.
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task Editing_one_class_replaces_the_list_rather_than_sitting_under_it()
+    public async Task The_symbol_panel_names_a_class_that_is_on_the_screen()
     {
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         // <b>Waited on the model, not on the element.</b> `#symKind` is in the static markup, so
         // it exists before the layer's document has been fetched — and the change handler returns
@@ -562,52 +650,58 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         // <b>A simple renderer shows both, because its list is one colour and there is nowhere
         // to go back to.</b>
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const k = document.getElementById('symKind');"
-            + " k.value = 'simple';"
-            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await PickRendererAsync("simple");
 
         await WaitForAsync(
             "document.querySelector('#symClasses .symfill')?.offsetParent != null"
-            + " && document.getElementById('symStack')?.offsetParent != null"
-            + " && document.getElementById('symDetailHead')?.offsetParent == null",
-            "A simple renderer must show its colour and its symbol at once, and no way back to a "
-            + "list it does not have. Something here is in the document and not on the screen.");
+            + " && document.getElementById('symStack')?.offsetParent != null",
+            "A simple renderer must show its colour and its symbol at once. Something here is in "
+            + "the document and not on the screen.");
 
-        // <b>Classified: the list, and no symbol editor under it.</b>
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const k = document.getElementById('symKind');"
-            + " k.value = 'uniqueValue';"
-            + " k.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        // <b>A simple renderer has one symbol and no classes, so the panel names neither.</b>
+        Assert.Equal(
+            "Symbol",
+            (await Browser.EvaluateAsync<string>(
+                "document.getElementById('symDetailWhich').textContent") ?? "").Trim());
 
-        await WaitForAsync(
-            "document.querySelector('#symClasses .symopen')?.offsetParent != null"
-            + " && document.getElementById('symDetail')?.offsetParent == null",
-            "A classified renderer opens on its list of classes, with no symbol editor standing "
-            + "under it naming a class nobody chose.");
-
-        await ClickAsync("#symClasses .symopen");
+        // <b>Classified: the list and the stack, both on the screen.</b>
+        await PickRendererAsync("uniqueValue");
 
         await WaitForAsync(
-            "document.getElementById('symStack')?.offsetParent != null"
-            + " && document.getElementById('symClasses')?.offsetParent == null"
-            + " && document.getElementById('symFilterRow')?.offsetParent == null",
-            "Opening a class's symbol must replace the list, not appear beside it — and the "
-            + "filter over a list that is not on screen is a control for something that is not "
-            + "there.");
+            "document.getElementById('symAddClass')?.offsetParent != null",
+            "A classified renderer offers no way to add a class.");
 
-        // <b>And it says which class, once, where the way back is.</b>
-        string which = await Browser.EvaluateAsync<string>(
-            "document.getElementById('symDetailWhich').textContent") ?? "";
-
-        Assert.NotEqual("", which.Trim());
-
-        await ClickAsync("#symBackToClasses");
+        await ClickAsync("#symAddClass");
+        await ClickAsync("#symAddClass");
 
         await WaitForAsync(
-            "document.querySelector('#symClasses .symopen')?.offsetParent != null"
-            + " && document.getElementById('symDetail')?.offsetParent == null",
-            "Going back did not bring the list back.");
+            "document.querySelectorAll('#symClasses .symclass').length === 3"
+            + " && document.getElementById('symClasses')?.offsetParent != null"
+            + " && document.getElementById('symStack')?.offsetParent != null",
+            "The class list and the symbol that belongs to the chosen class must be readable "
+            + "together: the panel is what says what a class is made of, and reaching it must "
+            + "not cost the list.");
+
+        // <b>The subject of the panel is a row that is on the screen — the whole point.</b>
+        // Choosing the last of three and asking the panel who it is talking about is the same
+        // question the owner asked of *Symbol layers — Ankara*, and this is the answer that
+        // matters: whatever the panel names, the reader can see the row it names.
+        await ClickAsync("#symClasses .symclass:last-child .symlabel");
+
+        await WaitForAsync(
+            """
+            (() => {
+              const which = document.getElementById('symDetailWhich').textContent || '';
+              const row = document.querySelector('#symClasses .symclass.symchosen');
+              if (!row || !which.startsWith('Symbol')) return false;
+              const list = document.getElementById('symClasses');
+              const a = row.getBoundingClientRect();
+              const b = list.getBoundingClientRect();
+              return row.offsetParent !== null && a.bottom > b.top && a.top < b.bottom;
+            })()
+            """,
+            "The symbol panel names a class whose row is not visible in the list, which is the "
+            + "fault this screen was reported for.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
@@ -646,7 +740,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelector('#symStack .symalpha') !== null",
@@ -729,7 +823,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelector('#symStack .symalpha') !== null",
@@ -780,7 +874,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await ALayerOfAsync(token, "Polygon");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.getElementById('symVaryWhat') !== null",
@@ -872,7 +966,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string layer = await ALayerOfAsync(token, "LineString");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+        await OpenSymbologyAsync(layer, token);
 
         await WaitForAsync(
             "document.querySelectorAll('#symGallery .symcard').length > 0",
@@ -916,7 +1010,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         (string token, _) = await SignInAsync();
         string points = await ALayerOfAsync(token, "Point");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(points)}/symbology", token);
+        await OpenSymbologyAsync(points, token);
 
         await WaitForAsync(
             "document.querySelectorAll('#symGallery .symcard').length > 0",
@@ -944,7 +1038,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         string points = await ALayerOfAsync(token, "Point");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(points)}/symbology", token);
+        await OpenSymbologyAsync(points, token);
 
         await WaitForAsync(
             "document.querySelector('#symStack .symsize') !== null",
@@ -958,7 +1052,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
 
         string lines = await ALayerOfAsync(token, "LineString");
 
-        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(lines)}/symbology", token);
+        await OpenSymbologyAsync(lines, token);
 
         await WaitForAsync(
             "document.querySelector('#symStack .symwidth') !== null",

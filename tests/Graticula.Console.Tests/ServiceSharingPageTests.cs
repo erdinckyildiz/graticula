@@ -173,11 +173,16 @@ public sealed class ServiceSharingPageTests : ConsoleTest
             "The service has no Sharing control on its own pages, so a service with no layers has "
             + "nowhere to set its scope and a service with three has three places.");
 
-        // <b>It shows the scope the service actually has.</b> A select that opens on its first
-        // option regardless is a control that reports `private` for a public service — and somebody
-        // who trusts it and presses nothing has been told the wrong thing.
+        // <b>It shows the scope the service actually has.</b> A control that opens on its first
+        // option regardless reports `private` for a public service — and somebody who trusts it
+        // and presses nothing has been told the wrong thing.
+        //
+        // <b>Read off the checked radio, because the control is three cards.</b> Handoff
+        // 2026-09-04: `#capSharing` is the group rather than a `select`, so it has no `value` of
+        // its own and asking for one would answer the empty string for every scope alike —
+        // which is a test that passes by measuring nothing.
         string chosen = await Browser.EvaluateAsync<string>(
-            "document.getElementById('capSharing')?.value || ''") ?? string.Empty;
+            "document.querySelector('#capSharing input:checked')?.value || ''") ?? string.Empty;
 
         Assert.Contains(chosen, Scopes);
 
