@@ -256,6 +256,26 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
     }
 
     /// <summary>A style over the cap is refused rather than stored.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>413, and it was 400 until this test was found failing.</b>
+    /// [D-212](../../docs/architecture-debt.md) changed how the body is read: it used to be
+    /// pulled into a buffer of the limit plus one and then <b>handed on truncated</b>, so a
+    /// document one character too long reached the parser cut in half and came back as a syntax
+    /// error — *there is an open JSON object or array that should be closed*. The repair reads
+    /// the body bounded and refuses at the bound without parsing it, which is a different
+    /// refusal and deserves a different status. `SetStyleAsync` moved with `SetSymbologyAsync`;
+    /// this assertion did not, and the run stayed red for twenty-five pushes with nobody able to
+    /// tell it from a new break.
+    /// </para>
+    /// <para>
+    /// <b>The message is asserted, not just the status.</b> Asserting a bare status is what let
+    /// this drift: 400 and 413 are both refusals and neither says which rule was broken.
+    /// ADR-049 asks a face to refuse in its own vocabulary, so what is checked is that the
+    /// refusal names the limit — a caller who sends a megabyte and a half has to be able to
+    /// learn that a megabyte is the number.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task A_style_over_the_cap_is_refused()
     {
@@ -264,6 +284,10 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
         using HttpResponseMessage response =
             await PutAsync($$"""{"version":8,"layers":[],"pad":"{{padding}}"}""");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+
+        string said = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("1,048,576", said, StringComparison.Ordinal);
     }
 }

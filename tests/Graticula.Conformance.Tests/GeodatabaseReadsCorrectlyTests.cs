@@ -257,15 +257,25 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
 
     /// <summary>The reader executable, found from this test's own location.</summary>
     /// <remarks>
+    /// <para>
     /// <b>Walked up to the repository rather than configured.</b> The suite already knows where
     /// it is; asking for one more environment variable would be one more thing to set wrongly,
     /// and the failure when it is missing says what to build.
+    /// </para>
+    /// <para>
+    /// <b>Any solution file, not a name spelled out — and that spelling is why CI was red.</b>
+    /// This looked for `Graticula.sln`; the file is `graticula.sln`. Windows does not care and
+    /// Linux does, so the walk found the root on every developer's machine and reached `/` on
+    /// every CI run, for twenty-five consecutive pushes. Matching a pattern rather than a
+    /// literal cannot drift the same way again, and it does not care what the solution is
+    /// called next.
+    /// </para>
     /// </remarks>
     private static string Reader()
     {
         DirectoryInfo? at = new(AppContext.BaseDirectory);
 
-        while (at is not null && !File.Exists(Path.Combine(at.FullName, "Graticula.sln")))
+        while (at is not null && at.GetFiles("*.sln").Length == 0)
         {
             at = at.Parent;
         }

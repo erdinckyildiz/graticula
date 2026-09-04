@@ -108,7 +108,10 @@ that is never stored.
 
 ## 7. What it costs to keep
 
-The `bbox` parameter is production code added to answer an experiment's question. If the
-map-shaped editor is not built, **it should be reverted** — an endpoint parameter with no caller
-is a control for a feature that does not exist, which is the rule ADR-034 states and this
-repository has broken four times.
+The `bbox` parameter was production code added to answer an experiment's question, and this
+section said it should be reverted if the map-shaped editor was not built — an endpoint parameter
+with no caller is a control for a feature that does not exist.
+
+**It was built the same day and the debt is closed.** The symbology editor's preview is a map now
+(`console.js`, `symBuildMap`), and every redraw carries the viewport's `bbox` and `size`. The
+parameter has a caller.

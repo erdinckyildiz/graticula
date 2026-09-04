@@ -614,7 +614,17 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
         // And the ones that are false are false, which is the other half.
         Assert.False(advanced.GetProperty("supportsSqlExpression").GetBoolean());
-        Assert.False(advanced.GetProperty("supportsPercentileStatistics").GetBoolean());
+
+        // <b>`supportsPercentileStatistics` was in the list above until this test was found
+        // failing.</b> `PERCENTILE_CONT` and `PERCENTILE_DISC` were implemented on 2026-09-04
+        // (ADR-052 §3.11) and the flag became true the same day —
+        // `FeatureServerMetadataWriterTests` moved with it and `AdvertisedCapabilityTests` began
+        // probing that the query actually answers. This assertion did not move, so it went on
+        // insisting the server could not do a thing it had just learned, and the run stayed red
+        // for twenty-five pushes with nobody able to tell it from a new break. That a percentile
+        // *works* is asserted in `AdvertisedCapabilityTests`; what this line is for is that the
+        // document does not understate it.
+        Assert.True(advanced.GetProperty("supportsPercentileStatistics").GetBoolean());
     }
 
     // ---------- the query page ----------

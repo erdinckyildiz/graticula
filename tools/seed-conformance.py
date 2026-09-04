@@ -739,9 +739,19 @@ def main():
         {"name": "reading", "type": "Integer"},
     ])
 
+    # <b>The three points spread in both directions, and they used to share a y.</b> With one
+    # latitude between them the layer's extent had zero height, so `ThumbnailFramingTests` — which
+    # asks that a picture be filled by the features it draws — measured 96 % of the width and 4 %
+    # of the height and failed on every CI run from the day it was written. It passed on
+    # developers' machines only because a write test had left a stray feature behind, which gave
+    # the layer a second dimension by accident.
+    #
+    # <b>300 by 200 is the canvas's own 3:2.</b> Three points on that diagonal fill a 336x224
+    # thumbnail in both axes, which is the property the test exists to check; a collinear layer
+    # cannot satisfy it however the frame is computed, because the ink is one row of markers.
     if ensure_features(server, f"hosted/{editable}", editable, [
         {
-            "geometry": {"x": ORIGIN_X + (i * 300), "y": ORIGIN_Y - 3_000,
+            "geometry": {"x": ORIGIN_X + (i * 300), "y": ORIGIN_Y - 3_000 + (i * 200),
                          "spatialReference": {"wkid": SRID}},
             "attributes": {"label": f"Station {i}", "reading": 10 + i},
         }
