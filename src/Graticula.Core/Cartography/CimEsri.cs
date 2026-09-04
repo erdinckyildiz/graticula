@@ -760,7 +760,12 @@ public static class CimEsri
     private static JsonObject BreaksOut(CimProjection projection, List<string> losses)
     {
         JsonArray infos = [];
-        double? previous = null;
+
+        // <b>The first class starts at the floor, not at nothing.</b> `classMinValue` of the
+        // first break used to be null and `minValue` was the literal 0 whatever the document
+        // said, so a classification floored at 1,000 published itself as one floored at zero and
+        // a client drew four hundred extra features into the bottom class. D-205.
+        double? previous = projection.Floor;
 
         foreach (CimClass one in projection.Classes)
         {
@@ -780,7 +785,7 @@ public static class CimEsri
         {
             ["type"] = "classBreaks",
             ["field"] = projection.Field,
-            ["minValue"] = Num(0),
+            ["minValue"] = Num(projection.Floor ?? 0),
             ["classBreakInfos"] = infos,
         };
     }

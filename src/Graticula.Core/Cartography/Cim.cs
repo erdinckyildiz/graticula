@@ -491,8 +491,29 @@ public static class Cim
         // `showInAscendingOrder` is about the legend, not about the data.
         classes.Sort((a, b) => (a.UpperBound ?? 0).CompareTo(b.UpperBound ?? 0));
 
+        CimSymbol? fallback = Fallback(body, notDrawn);
+        double? floor = Number(body["minimumBreak"]);
+
+        // <b>A floor with nothing to fall to is a floor that cannot be drawn.</b> Below it the
+        // features are outside the classification; ArcGIS draws them with the default symbol or
+        // not at all, and this server has no way to say *not at all* in a paint expression that
+        // is only about colour. So it says what it does instead of doing something else quietly.
+        if (floor is { } bottom && fallback is null)
+        {
+            notDrawn.Add(
+                $"The renderer classifies from {bottom.ToString(CultureInfo.InvariantCulture)} "
+                + "upwards and has no default symbol, so this server has nothing to draw the "
+                + "features below that with. They are drawn as the first class, which is the "
+                + "one place this face is wider than the document.");
+
+            floor = null;
+        }
+
         return new CimProjection(
-            ClassBreaks, field, classes, Fallback(body, notDrawn), notDrawn);
+            ClassBreaks, field, classes, fallback, notDrawn)
+        {
+            Floor = floor,
+        };
     }
 
     /// <summary>
@@ -1135,6 +1156,18 @@ public sealed record CimProjection(
 {
     /// <summary>What slides continuously with a number, on top of the classes.</summary>
     public IReadOnlyList<CimVary> Vary { get; init; } = [];
+
+    /// <summary>The bottom of the first class, for a class-breaks renderer.</summary>
+    /// <remarks>
+    /// <b>The classification's floor, and it is not decoration — [D-205](../../../docs/architecture-debt.md).</b>
+    /// A <c>CIMClassBreak</c> carries only its <c>upperBound</c>; the bottom of the whole
+    /// classification is <c>minimumBreak</c> on the renderer, and a value below it is
+    /// <i>outside the classification</i> rather than inside the first class. Without it the
+    /// derived <c>step</c> starts at negative infinity, so a population choropleth floored at
+    /// 1,000 draws every village in the colour of a small town — a picture with nothing visibly
+    /// wrong with it.
+    /// </remarks>
+    public double? Floor { get; init; }
 }
 
 /// <summary>Which property of a symbol a visual variable moves.</summary>

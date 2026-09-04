@@ -496,8 +496,20 @@ public static class CimStyle
         [
             "step",
             new JsonArray("get", projection.Field),
-            (values[0] ?? fallback)?.DeepClone(),
         ];
+
+        // <b>The floor is a stop like any other, and it is the one that was missing.</b>
+        // `step`'s first output covers everything below its first stop; without `minimumBreak`
+        // that was the first class, so every value beneath the classification was drawn as if
+        // it were inside it. With a floor the first output becomes the default symbol and the
+        // floor itself becomes the first stop. D-205.
+        if (projection.Floor is { } floor)
+        {
+            expression.Add(fallback?.DeepClone());
+            expression.Add(Num(floor));
+        }
+
+        expression.Add((values[0] ?? fallback)?.DeepClone());
 
         for (int i = 0; i < projection.Classes.Count - 1; i++)
         {
