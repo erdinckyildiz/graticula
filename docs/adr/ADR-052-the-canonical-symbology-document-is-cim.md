@@ -415,6 +415,55 @@ did not exist. The probe now carries the fraction.
 themselves, so the decision is not the algorithm but whether to read a whole
 column or sample it, and at what size. That is an argument to have on its own.
 
+### 3.12 The classifier — 2026-09-04
+
+**Reading a classified renderer and authoring one are different problems, and only
+the first was solved.** The editor offered a unique-value renderer with one class
+whose value was `""`, and a class-breaks renderer with one bound of `0` and an
+*Add a class* button that added the previous bound plus one. Numbers with no
+relationship to the data at all, so styling a field meant already knowing its
+values — which is the thing a graphical editor exists to spare somebody.
+
+`Classification` is the arithmetic. **Pure and Tier 1**: it takes numbers and
+returns numbers, so a column of one value, a range reaching zero, more classes
+than distinct values and ties across a quantile boundary are all testable without
+a server. `Classification.Fractions` says which quantiles a method needs and the
+caller does the asking, so the five methods that need none never drag a database
+connection.
+
+**Every method is published cartography** (§5 of `CLAUDE.md`). Equal interval,
+quantile, standard deviation and geometric progression are arithmetic. Natural
+breaks is Fisher's exact dynamic programme — W. D. Fisher, *On grouping for
+maximum homogeneity*, JASA 53 (1958), applied to cartography by Jenks in 1967 —
+and not a hill climb, so the same data gives the same answer rather than one that
+depends on where the search started.
+
+**The sampling decision, taken rather than deferred.** Fisher is O(n²k), so
+nobody runs it over a million rows and every implementation samples. The usual
+sample is random rows, which makes the classification different on every run.
+This samples **the distribution rather than the rows**: 254 evenly spaced
+quantiles, one SQL statement, and Fisher over those. Each quantile stands for the
+same number of rows, which is exactly what Fisher weighs, so the approximation is
+principled; and it is deterministic, which random sampling is not.
+
+**Measured, because otherwise it is a hope.** Over a 600-row column with a skewed
+distribution, Fisher over all 600 values and Fisher over the 254-quantile sample
+of the same values agree on all five bounds to within 2% of the range. The test
+computes both and fails if they diverge.
+
+**What is refused, and each refusal names an alternative.** A geometrical
+interval from a minimum of zero is refused rather than shifted — ArcGIS shifts the
+data, and a bound that is not a number in the column is a legend that lies about
+the column, so this says *equal interval or quantile will classify this field as
+it stands*. A standard-deviation classification of a column with no spread is
+refused. A defined interval that would make hundreds of classes is refused with
+the arithmetic in the message. `Manual` is refused because it means the bounds
+came from whoever wrote them.
+
+**Two methods derive their own class count** — defined interval and standard
+deviation — so the requested count does not apply to them and is not checked
+against them. Both check the count they arrive at against the same ceiling of 32.
+
 ## 4. Consequences
 
 **State.** The `layer.symbology` column changes what it holds — CIM JSON rather
