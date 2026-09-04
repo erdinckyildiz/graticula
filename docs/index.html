@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Graticula is an ArcGIS-compatible GIS server that runs on PostGIS: feature, map, image, vector tile and geometry services from one container and one Postgres.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Graticula">
+<meta property="og:description" content="The ArcGIS REST API, from one container and one Postgres.">
+<meta property="og:type" content="website">
+<title>Graticula</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#f6f4ef; --panel:#ffffff; --line:#ded9cd; --line-2:#eae6dc;
+  --ink:#141b1f; --ink-2:#41525c; --ink-3:#5a6c73;
+  --accent:#0f6d5f; --accent-soft:#e2efeb; --accent-line:#8fb9ae; --accent-deep:#0a4f45;
+  --absent:#63767d; --wash:#efece4;
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --body:"Source Sans 3",ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#10151a; --panel:#171e24; --line:#2a343c; --line-2:#212a31;
+  --ink:#e9e6df; --ink-2:#a8b6bc; --ink-3:#8b9ca2;
+  --accent:#57bda9; --accent-soft:#17322f; --accent-line:#4f8a80; --accent-deep:#8ed6c6;
+  --absent:#7e8f96; --wash:#141b21;
+}}
+:root[data-theme="dark"]{
+  --ground:#10151a; --panel:#171e24; --line:#2a343c; --line-2:#212a31;
+  --ink:#e9e6df; --ink-2:#a8b6bc; --ink-3:#8b9ca2;
+  --accent:#57bda9; --accent-soft:#17322f; --accent-line:#4f8a80; --accent-deep:#8ed6c6;
+  --absent:#7e8f96; --wash:#141b21;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font:17px/1.62 var(--body);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+code,kbd{font-family:var(--mono);font-size:.86em}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:-9999px}
+.skip:focus{left:28px;top:12px;z-index:9;background:var(--accent);color:var(--ground);
+  padding:9px 14px;border-radius:3px;font:600 14px/1 var(--body)}
+
+/* ---- map-sheet section rail ---------------------------------------- */
+.sheet{border-top:1px solid var(--line);padding:56px 0}
+.rail{display:grid;grid-template-columns:1fr;gap:10px}
+.rail>.col{min-width:0}
+@media (min-width:920px){.rail{grid-template-columns:158px 1fr;gap:0 40px}}
+.marg{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);padding-top:.6em;margin:0}
+@media (min-width:920px){.marg{border-top:2px solid var(--accent);padding-top:12px;
+  align-self:start;position:sticky;top:24px}}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,2.6vw,30px);
+  line-height:1.18;letter-spacing:-.018em;margin:0 0 10px;text-wrap:balance;max-width:24ch}
+.sub{color:var(--ink-2);margin:0 0 26px;max-width:62ch;font-size:16px}
+
+/* ---- hero ----------------------------------------------------------- */
+.hero{padding:60px 0 8px;border-top:0}
+.hero-grid{display:grid;grid-template-columns:1fr;gap:40px;align-items:center}
+.hero-grid>*{min-width:0}
+@media (min-width:920px){.hero-grid{grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);gap:56px}}
+.eyebrow{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--accent);margin:0 0 20px;
+  display:flex;flex-wrap:wrap;gap:.9em;align-items:center}
+.eyebrow .sep{color:var(--accent-line)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(33px,4.6vw,52px);
+  line-height:1.06;letter-spacing:-.03em;margin:0 0 20px;text-wrap:balance;max-width:21ch}
+.lede{font-size:18.5px;line-height:1.55;color:var(--ink-2);margin:0 0 28px;max-width:56ch}
+.lede b{color:var(--ink);font-weight:600}
+.acts{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:32px}
+.btn{display:inline-block;font:600 15px/1 var(--body);padding:14px 22px;border-radius:3px;
+  text-decoration:none;border:1px solid var(--accent);transition:background .14s,border-color .14s}
+.btn-a{background:var(--accent);color:var(--ground)}
+.btn-a:hover{background:var(--accent-deep);border-color:var(--accent-deep)}
+.btn-b{background:transparent;color:var(--accent)}
+.btn-b:hover{background:var(--accent-soft)}
+.facts{display:flex;flex-wrap:wrap;gap:0 26px;font-family:var(--mono);font-size:12.5px;
+  color:var(--ink-3);border-top:1px solid var(--line);padding-top:16px;margin:0}
+.facts span{white-space:nowrap;padding:3px 0}
+.facts b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* hero proof: the first document any ArcGIS client asks for, over a graticule */
+.proof{position:relative;isolation:isolate}
+.proof .globe{position:absolute;z-index:0;inset:auto -6% -14% auto;width:78%;height:auto;
+  opacity:.5;pointer-events:none}
+.proof-card{position:relative;z-index:1;background:var(--panel);border:1px solid var(--line);
+  border-radius:4px;box-shadow:0 1px 0 var(--line-2)}
+.proof-h{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;
+  padding:11px 16px;border-bottom:1px solid var(--line-2);
+  font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.proof-h b{color:var(--accent);font-weight:600}
+.proof pre{border:0;background:transparent;border-radius:0}
+.proof-cap{position:relative;z-index:1;margin:12px 0 0;font-size:13.5px;color:var(--ink-3);
+  max-width:44ch}
+
+/* ---- comparison table ---------------------------------------------- */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:480px}
+th{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3);text-align:left;
+  padding:0 16px 10px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:13px 16px 13px 0;border-bottom:1px solid var(--line-2);
+  vertical-align:top;font-size:15.5px;line-height:1.45}
+td:first-child{color:var(--ink-3);width:46%}
+td:last-child{padding-right:0;color:var(--ink)}
+tbody tr:last-child td{border-bottom:0}
+tr.gone td{color:var(--ink-2)}
+tr.gone td:first-child .sw{margin-right:9px;vertical-align:-2px}
+.nm{font-family:var(--mono);font-size:13.5px;color:var(--ink-2)}
+
+/* ---- legend swatches ------------------------------------------------ */
+.key{display:flex;flex-wrap:wrap;gap:22px;font-family:var(--mono);font-size:11.5px;
+  letter-spacing:.05em;color:var(--ink-3);margin:0 0 26px;padding-bottom:18px;
+  border-bottom:1px solid var(--line)}
+.key span{display:flex;align-items:center;gap:8px}
+.sw{width:13px;height:13px;flex:none;border:1.5px solid var(--accent);border-radius:1px;
+  display:inline-block;position:relative}
+.sw.full{background:var(--accent)}
+.sw.half{background:linear-gradient(135deg,var(--accent) 0 50%,transparent 50% 100%)}
+.sw.none{border-color:var(--absent);
+  background:repeating-linear-gradient(135deg,var(--absent) 0 1px,transparent 1px 4px)}
+
+/* ---- capability + gap entries --------------------------------------- */
+.caps,.gaps{display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:700px){.caps,.gaps{grid-template-columns:1fr 1fr;gap:0 44px}}
+.caps>*,.gaps>*{min-width:0}
+.cap,.gap{display:grid;grid-template-columns:13px 1fr;gap:0 14px;padding:19px 0;
+  border-bottom:1px solid var(--line-2)}
+.cap>.sw,.gap>.sw{margin-top:5px}
+.cap h3,.gap h3{font-family:var(--display);font-weight:600;font-size:16.5px;
+  letter-spacing:-.005em;margin:0 0 5px;color:var(--ink)}
+.cap p,.gap p{margin:0;font-size:14.5px;line-height:1.5;color:var(--ink-2)}
+.ops{margin:9px 0 0;display:flex;flex-wrap:wrap;gap:5px}
+.ops code{font-size:11.5px;color:var(--ink-2);background:var(--wash);
+  border:1px solid var(--line);border-radius:2px;padding:2px 6px}
+
+/* platform facts: not service surfaces, so no swatch and no legend claim */
+.plat{display:grid;grid-template-columns:1fr;gap:0;margin-top:34px;
+  border-top:1px solid var(--line);padding-top:26px}
+@media (min-width:700px){.plat{grid-template-columns:repeat(3,1fr);gap:0 36px}}
+.plat>div{min-width:0;padding:14px 0}
+.plat h3{font-family:var(--display);font-weight:600;font-size:15.5px;margin:0 0 5px}
+.plat p{margin:0;font-size:14.5px;line-height:1.5;color:var(--ink-2)}
+.plat-lbl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 16px}
+
+.after{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);
+  display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.after p{margin:0;font-size:15.5px;color:var(--ink-2)}
+
+/* ---- steps ----------------------------------------------------------- */
+ol.steps{list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:24px;
+  margin:0;padding:0}
+ol.steps>li{counter-increment:s;display:grid;grid-template-columns:26px 1fr;gap:0 16px}
+ol.steps>li>*{min-width:0}
+ol.steps>li::before{content:counter(s);font-family:var(--mono);font-size:12px;font-weight:600;
+  color:var(--accent);border-top:2px solid var(--accent-line);padding-top:7px;line-height:1}
+.steps h3{font-family:var(--body);font-weight:600;font-size:15.5px;margin:0 0 3px}
+.steps p{margin:0 0 9px;font-size:14.5px;color:var(--ink-2);max-width:58ch}
+pre{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:3px;
+  padding:13px 15px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;
+  line-height:1.65;color:var(--ink)}
+pre:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+pre .c{color:var(--ink-3)}
+pre .k{color:var(--accent)}
+
+/* ---- record + footer ------------------------------------------------- */
+.links{display:flex;flex-wrap:wrap;gap:10px}
+.lk{display:inline-block;font-family:var(--mono);font-size:12.5px;padding:9px 14px;
+  border:1px solid var(--line);border-radius:3px;text-decoration:none;color:var(--ink-2);
+  background:var(--panel)}
+.lk:hover{border-color:var(--accent);color:var(--accent)}
+.foot{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--ink-3);font-size:14px}
+.foot p{margin:0 0 8px;max-width:70ch}
+.foot b{color:var(--ink-2);font-weight:600}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#shape">Skip to what this is</a>
+<main class="wrap">
+
+  <div class="hero sheet">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Graticula <span class="sep">/</span> v0.1.0 <span class="sep">/</span> source-available</p>
+        <h1>The ArcGIS REST API, from one container and one Postgres.</h1>
+        <p class="lede">Publish a PostGIS table and it is a <b>feature service</b> at a URL your
+        existing clients already open. Pro connects, browses, adds the layer and edits it.
+        <b>No site to create, no data store tier to install, no portal to federate.</b></p>
+        <div class="acts">
+          <a class="btn btn-a" href="#start">Run it in four steps</a>
+          <a class="btn btn-b" href="#gaps">Read what is missing</a>
+        </div>
+        <p class="facts">
+          <span><b>5</b> service types</span>
+          <span><b>18</b> of 22 geometry operations</span>
+          <span><b>1</b> process, <b>1</b> database</span>
+        </p>
+      </div>
+
+      <div class="proof">
+        <svg class="globe" viewBox="0 0 480 480" aria-hidden="true" focusable="false">
+          <g transform="rotate(-19 240 240)" fill="none" stroke="var(--accent-line)" stroke-width="1.6">
+            <circle cx="240" cy="240" r="220" stroke="var(--accent)" stroke-width="2.2"/>
+            <ellipse cx="240" cy="240" rx="212.5" ry="220"/>
+            <ellipse cx="240" cy="240" rx="190.5" ry="220"/>
+            <ellipse cx="240" cy="240" rx="155.6" ry="220"/>
+            <ellipse cx="240" cy="240" rx="110"   ry="220"/>
+            <ellipse cx="240" cy="240" rx="56.9"  ry="220"/>
+            <line x1="240" y1="20" x2="240" y2="460"/>
+            <line x1="20"    y1="240"   x2="460"   y2="240" stroke="var(--accent)" stroke-width="2.2"/>
+            <line x1="27.5"  y1="183.1" x2="452.5" y2="183.1"/>
+            <line x1="49.5"  y1="130"   x2="430.5" y2="130"/>
+            <line x1="84.4"  y1="84.4"  x2="395.6" y2="84.4"/>
+            <line x1="130"   y1="49.5"  x2="350"   y2="49.5"/>
+            <line x1="183.1" y1="27.5"  x2="296.9" y2="27.5"/>
+            <line x1="27.5"  y1="296.9" x2="452.5" y2="296.9"/>
+            <line x1="49.5"  y1="350"   x2="430.5" y2="350"/>
+            <line x1="84.4"  y1="395.6" x2="395.6" y2="395.6"/>
+            <line x1="130"   y1="430.5" x2="350"   y2="430.5"/>
+            <line x1="183.1" y1="452.5" x2="296.9" y2="452.5"/>
+          </g>
+        </svg>
+
+        <div class="proof-card">
+          <p class="proof-h"><b>GET</b> <span>/rest/info</span></p>
+<pre tabindex="0">{
+  <span class="k">"currentVersion"</span>: 10.81,
+  <span class="k">"fullVersion"</span>: "10.81.0",
+  <span class="k">"authInfo"</span>: {
+    <span class="k">"isTokenBasedSecurity"</span>: true,
+    <span class="k">"tokenServicesUrl"</span>: "…/rest/generateToken",
+    <span class="k">"shortLivedTokenValidity"</span>: 720
+  }
+}</pre>
+        </div>
+        <p class="proof-cap">The first document any ArcGIS client asks for, answered by this
+        server. <code>isTokenBasedSecurity</code> is what makes Pro prompt for credentials
+        instead of guessing from a 401.</p>
+      </div>
+    </div>
+  </div>
+
+  <section class="sheet" id="shape">
+    <div class="rail">
+      <p class="marg">The shape</p>
+      <div class="col">
+        <h2>If you have run ArcGIS Enterprise, you already know the shape of this</h2>
+        <p class="sub">Same vocabulary, fewer moving parts &mdash; and two rows that map onto
+        nothing, kept here rather than saved for later.</p>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr><th>In ArcGIS Enterprise</th><th>Here</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>A GIS Server site &mdash; SOM, SOCs, several machines</td>
+                  <td>One server process. There is no site to create.</td></tr>
+              <tr><td>ArcGIS Data Store, installed and registered separately</td>
+                  <td>The same PostgreSQL the server already needs.</td></tr>
+              <tr><td>An enterprise geodatabase registered as a data store</td>
+                  <td>Your own PostGIS, registered &mdash; read and write where rights allow.</td></tr>
+              <tr><td>Server Manager</td>
+                  <td><b>Server</b>, the console an operator signs in to.</td></tr>
+              <tr><td>Portal for ArcGIS</td>
+                  <td><b>Studio</b>, where publishers work. One API, two doors.</td></tr>
+              <tr><td><span class="nm">/arcgis/rest/services/&hellip;</span></td>
+                  <td><span class="nm">/rest/services/&hellip;</span> &mdash; the same document shapes.</td></tr>
+              <tr><td>Tokens from <span class="nm">generateToken</span></td>
+                  <td>Tokens from <span class="nm">generateToken</span>, at all three of its spellings.</td></tr>
+              <tr class="gone">
+                  <td><i class="sw none"><span class="vh">not here:</span></i> Publishing from Pro</td>
+                  <td>Not supported. Publish in Studio or over the admin API.</td></tr>
+              <tr class="gone">
+                  <td><i class="sw none"><span class="vh">not here:</span></i> Web tools and geoprocessing services</td>
+                  <td>Not here at all, and not scheduled.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="running">
+    <div class="rail">
+      <p class="marg">What runs</p>
+      <div class="col">
+        <h2>Five service types, and what each one still cannot do</h2>
+        <p class="sub">Read out of the code rather than off a roadmap. Where a surface is
+        partial, the entry names the missing part.</p>
+        <div class="key">
+          <span><i class="sw full" aria-hidden="true"></i> complete</span>
+          <span><i class="sw half" aria-hidden="true"></i> partial, and it says which part</span>
+        </div>
+
+        <div class="caps">
+          <div class="cap">
+            <i class="sw full"><span class="vh">Complete.</span></i>
+            <div>
+              <h3>Feature services</h3>
+              <p>Query and edit a registered PostGIS table or a hosted layer. Identity,
+              relationships and attachments are declared rather than reverse-engineered.</p>
+              <p class="ops"><code>query</code><code>applyEdits</code><code>attachments</code><code>queryRelatedRecords</code><code>generateRenderer</code></p>
+            </div>
+          </div>
+
+          <div class="cap">
+            <i class="sw full"><span class="vh">Complete.</span></i>
+            <div>
+              <h3>Map services</h3>
+              <p>Server-side drawing. A layer published without a style gets a generated
+              appearance that reports itself as generated.</p>
+              <p class="ops"><code>export</code><code>identify</code><code>legend</code></p>
+            </div>
+          </div>
+
+          <div class="cap">
+            <i class="sw half"><span class="vh">Partial.</span></i>
+            <div>
+              <h3>Vector tile services</h3>
+              <p>Tiles from hosted data, with a style document and a checked-in glyph set, so a
+              label actually draws instead of silently rendering nothing.
+              <b>The sprite sheet answers and is empty</b> &mdash; there is no icon library and no
+              way to upload one.</p>
+            </div>
+          </div>
+
+          <div class="cap">
+            <i class="sw half"><span class="vh">Partial.</span></i>
+            <div>
+              <h3>Image services</h3>
+              <p>Imagery is registered where it lies and never copied into the server.
+              <b>Raster function chains and mosaic datasets are not in it.</b></p>
+              <p class="ops"><code>exportImage</code><code>identify</code><code>tile</code></p>
+            </div>
+          </div>
+
+          <div class="cap">
+            <i class="sw half"><span class="vh">Partial.</span></i>
+            <div>
+              <h3>Geometry service</h3>
+              <p>18 of 22 operations, including <code>buffer</code>, <code>intersect</code>,
+              <code>union</code>, <code>difference</code> and <code>cut</code>. Cost is bounded by
+              a worker with a deadline rather than by a cap on your input.
+              <b>The four that are missing each refuse in their own words</b>, with the reason
+              that applies to them and not a shared excuse.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="plat">
+          <p class="plat-lbl" style="grid-column:1/-1">And around them</p>
+          <div>
+            <h3>ArcGIS Pro</h3>
+            <p>Add a <b>portal</b> connection, sign in, browse My Content, add a layer and edit
+            it. Measured against Pro over seven rounds, each read out of the request log.</p>
+          </div>
+          <div>
+            <h3>Members, roles and sharing</h3>
+            <p>An item is private to its owner until it is shared. Role privileges are editable
+            rather than fixed. Every mutation is audited, and the log is a thing you can query.</p>
+          </div>
+          <div>
+            <h3>Getting data in</h3>
+            <p>Import GeoJSON, a zipped shapefile or a File Geodatabase &mdash; or define an
+            empty schema and fill it through <code>applyEdits</code>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="gaps">
+    <div class="rail">
+      <p class="marg">What is not here</p>
+      <div class="col">
+        <h2>What is missing, and what it costs you</h2>
+        <p class="sub">This list is on the front page on purpose. Every item is a limit today,
+        not a smaller version of something that works.</p>
+        <div class="gaps">
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>PostGIS, and nothing else</h3>
+              <p>No Oracle, no SQL Server, no file geodatabase served in place. An enterprise
+              geodatabase on Oracle has to move before this can serve it. The other engines are
+              deferred, not cancelled.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No single sign-on</h3>
+              <p>Local accounts and server-issued tokens only. There is no SAML, no OIDC, no
+              Active Directory and no SCIM, so every account is one you create here. For a site
+              with an identity provider, this is the first thing to weigh.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No geocoding service</h3>
+              <p>Address parsing, matching and reverse geocoding are designed and unbuilt.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No <em>New ArcGIS Server</em> connection</h3>
+              <p>Pro&rsquo;s server connection is a SOAP handshake that is not built and is not
+              planned. A portal connection reaches the same content.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No migration tooling yet</h3>
+              <p>Reading an existing site&rsquo;s inventory and importing its service definitions
+              is scoped and unwritten. Moving today means republishing by hand.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>Labels in three scripts</h3>
+              <p>The shipped glyph set covers Latin, Greek and Cyrillic. Chinese, Japanese,
+              Korean and Devanagari are not in it, so a map cannot be labelled in them without
+              generating further ranges first.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>One machine</h3>
+              <p>No site, no clustering, no failover. If the process is down, the services are
+              down.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>Not 1.0</h3>
+              <p>v0.1.0. It runs and it is tested; it has not yet been operated in production by
+              anybody but its author.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="after">
+          <p>Still fits?</p>
+          <a class="btn btn-a" href="#start">Run it in four steps</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="start">
+    <div class="rail">
+      <p class="marg">Start</p>
+      <div class="col">
+        <h2>Docker is the only thing you install</h2>
+        <p class="sub">No .NET SDK, no PostgreSQL, no <code>openssl</code>.</p>
+        <ol class="steps">
+
+          <li>
+            <div>
+              <h3>Make a key for sealing credentials</h3>
+              <p>There is no default. A published default key would make every credential in
+              every deployment that forgot to change it readable from a backup.</p>
+<pre tabindex="0">docker compose run --rm --no-deps server keygen
+echo "GIS_SECRET_KEY=&lt;the value it printed&gt;" &gt; .env</pre>
+            </div>
+          </li>
+
+          <li>
+            <div>
+              <h3>Create the schema</h3>
+              <p>Explicit, never automatic: an old image started by accident must not rewrite a
+              newer schema.</p>
+<pre tabindex="0">docker compose run --rm server migrate --apply</pre>
+            </div>
+          </li>
+
+          <li>
+            <div>
+              <h3>Start it</h3>
+              <p>It generates its own certificate on first run and keeps it in a volume, so it
+              survives a container replacement.</p>
+<pre tabindex="0">docker compose up -d</pre>
+            </div>
+          </li>
+
+          <li>
+            <div>
+              <h3>Claim the server</h3>
+              <p>A fresh server has no administrator, so it refuses everything except setup and
+              writes a single-use token to its log.</p>
+<pre tabindex="0">docker compose logs server | grep -A2 "SETUP REQUIRED"
+
+curl -k -X POST https://localhost:8443/rest/setup \
+  -H "Content-Type: application/json" \
+  -d '{"token":"…","name":"root","password":"a properly long password"}'</pre>
+            </div>
+          </li>
+
+        </ol>
+
+        <div class="after">
+          <p>Then register a database and publish one of its tables &mdash; two calls to
+          <code>/admin</code> &mdash; and it is a feature service you can open in Pro, QGIS or
+          the JavaScript API:
+          <span class="nm">/rest/services/places/FeatureServer/0</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet">
+    <div class="rail">
+      <p class="marg">The record</p>
+      <div class="col">
+        <h2>Every claim above has a file behind it</h2>
+        <p class="sub">This project writes down each decision with the alternatives it beat, each
+        assumption with the status of its evidence, and each temporary compromise with the
+        condition that will force it to be repaid. The status page is generated from those files
+        rather than typed, because the two versions that were typed went stale within a day.
+        If you want the reasoning behind anything on this page, it is there &mdash; including the
+        arguments that lost.</p>
+        <div class="links">
+          <a class="lk" href="status.html">Control room &mdash; live project status</a>
+          <a class="lk" href="https://github.com/erdinckyildiz/graticula/tree/main/docs">Documents</a>
+          <a class="lk" href="https://github.com/erdinckyildiz/graticula">Source on GitHub</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <p><b>Elastic License 2.0.</b> Read it, run it, change it, distribute it, charge money for it.
+    The one thing you may not do is offer it to third parties as a hosted or managed service.
+    That is the whole restriction.</p>
+    <p>A <i>graticule</i> is the net of meridians and parallels drawn on a map.
+    <span class="nm">Graticula</span> is the Medieval Latin word English borrowed it from.</p>
+  </div>
+
+</main>
+</body>
+</html>

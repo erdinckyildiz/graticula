@@ -1,125 +1,123 @@
 # Graticula
 
-**A GIS server that speaks ArcGIS, WFS, WMS and OGC API Features over PostGIS —
-and writes down why it is built the way it is.**
+**The ArcGIS REST API, from one container and one Postgres.**
 
-Point QGIS, a browser, or ArcGIS Pro at a service URL and they work, because it
-answers the protocols they already speak rather than asking them to learn a new
-one. *At a service URL* is doing real work in that sentence: Pro's **New ArcGIS
-Server** connection probes a SOAP catalogue this server does not answer, so
-browsing the server from inside Pro does not work yet and pasting a layer's URL
-does — [Q-126](docs/open-questions.md), open, with the owner having asked for it.
-That is the kind of thing this repository says out loud instead of letting you
-find it. What is not ordinary is the second half of the repository: every
-decision here has an ADR with the alternatives it beat, every assumption has a
-status, every compromise has a trigger that repays it, and every number is
-measured rather than asserted. If you disagree with a choice, the argument it lost
-is written down and you can pick it up.
+Publish a PostGIS table and it is a feature service at a URL your existing clients
+already open. ArcGIS Pro connects, browses, adds the layer and edits it. There is no
+site to create, no data store tier to install and no portal to federate.
 
-**It is source-available under the Elastic License 2.0.** Read it, run it, change
-it, sell it, embed it in something you sell — the one thing you may not do is
-offer it to other people as a hosted or managed service. That is the whole
-restriction ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)).
+A *graticule* is the net of meridians and parallels drawn on a map. `Graticula` is the
+Medieval Latin word English borrowed it from.
 
-A *graticule* is the net of meridians and parallels drawn on a map — the grid every
-question about a place is eventually expressed on. `Graticula` is the Medieval Latin
-word English borrowed it from. Named 2026-08-17
-([ADR-032](docs/adr/ADR-032-the-product-is-named-graticula.md)), replacing the working
-title `gis-server`.
+> **v0.1.0 — not 1.0.** It runs and it is tested; it has not yet been operated in
+> production by anybody but its author.
 
 ---
 
-## Status
+## What runs
 
-**Phase 1 — implementation**, since 2026-08-13. Phase 0's architecture work is in
-[`docs/`](docs/); what carried forward as debt rather than completion is listed
-in [CLAUDE.md](CLAUDE.md) §1 and tracked in
-[architecture-completeness.md](docs/architecture-completeness.md).
+Five ArcGIS service types, plus the portal surface Pro connects through.
 
-**v1 scope** is [docs/v1-scope.md](docs/v1-scope.md) and is authoritative:
+| | | |
+|---|---|---|
+| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer |
+| **Map services** | complete | `export`, `identify`, `legend`. A layer published without a style gets a generated appearance that reports itself as generated |
+| **Vector tile services** | partial | Tiles from hosted data, a style document and a checked-in glyph set. **The sprite sheet answers and is empty** — no icon library, and no way to upload one ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)) |
+| **Image services** | partial | `exportImage`, `identify`, `tile`, over imagery registered where it lies and never copied. **No raster function chains, no mosaic datasets** |
+| **Geometry service** | partial | 18 of 22 operations, including `buffer`, `intersect`, `union`, `difference` and `cut`. **The four that are missing each refuse in their own words**, with the reason that applies to them ([ADR-022](docs/adr/ADR-022-geometry-server.md)) |
+| **ArcGIS Pro** | complete | Add a **portal** connection, sign in, browse My Content, add a layer, edit it. Measured against Pro over seven rounds, each read out of the request log ([ADR-040](docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)) |
 
-> A PostGIS-backed GIS server that speaks ArcGIS — feature services, vector tile
-> services and a geometry service — over data that is either hosted in our
-> datastore or registered in the customer's own PostGIS.
+Around them: members, roles with editable privileges, groups and item sharing, with every
+mutation audited and the log queryable; import from GeoJSON, a zipped shapefile or a File
+Geodatabase, or define an empty schema and fill it through `applyEdits`.
 
-OGC API Features, the other databases, rendering, geoprocessing and the rest of
-the protocol surface are **deferred, not cancelled**; the map is
-[protocol-surface.md](docs/protocol-surface.md).
+OGC API Features, WFS 2.0 and WMS 1.3.0 are served as well; [docs/](docs/) has the detail,
+and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.
 
-**One limit worth knowing before you choose this**: map labels are drawn from a
-checked-in glyph set covering **Latin, Greek, Cyrillic and punctuation** — 7,720
-glyphs. **Chinese, Japanese, Korean and Devanagari are not in it.** A deployment
-that needs to label a map in one of those scripts cannot do it with what ships
-here, and that is a fact about the product rather than a smaller version of it —
-[ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md) has the reasoning and the route
-out, which is generating further ranges with the checked-in tool.
+## What is missing
 
-## Project status
+On the front page on purpose. Each is a limit today, not a smaller version of something
+that works.
 
-```
-python tools/status-page.py          # writes docs/status.html
-```
-
-Reads the ADR headers, [open-questions.md](docs/open-questions.md),
-[architecture-debt.md](docs/architecture-debt.md),
-[architecture-assumptions.md](docs/architecture-assumptions.md) and git, and
-writes a single self-contained page. **Nothing on it is typed by hand** — the
-two versions that were went stale within a day, and a status page that is wrong
-is worse than none, because it is most confidently wrong about whatever changed
-last. The first run of the generator found five questions still filed as
-blocking a phase that had ended.
+- **PostGIS, and nothing else.** No Oracle, no SQL Server, no file geodatabase served in
+  place. An enterprise geodatabase on Oracle has to move first. The other engines are
+  deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a.
+- **No single sign-on.** Local accounts and server-issued tokens only: no SAML, no OIDC,
+  no Active Directory, no SCIM. Every account is one you create here.
+- **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
+- **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
+  planned. A portal connection reaches the same content.
+- **No publishing from Pro.** The portal surface is read-only. Publish in the console or
+  over the admin API.
+- **No migration tooling yet.** Reading an existing site's inventory and importing its
+  service definitions is scoped and unwritten. Moving today means republishing by hand.
+- **Labels in three scripts.** The shipped glyph set is Latin, Greek and Cyrillic — 7,720
+  glyphs. **Chinese, Japanese, Korean and Devanagari are not in it**, and a deployment that
+  needs them cannot label a map with what ships here ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)).
+- **One machine.** No site, no clustering, no failover.
 
 ## Quickstart
 
-Docker and Docker Compose. Nothing else — no .NET SDK, no PostgreSQL, no
-`openssl`.
+Docker and Docker Compose. Nothing else — no .NET SDK, no PostgreSQL, no `openssl`.
+These four commands are rehearsed on every push from an empty machine, so this section
+is checked rather than remembered.
 
 ```bash
-# 0. Optional: pin a release rather than following `latest`. Both images are on GHCR
-#    (ADR-050) and `compose.yaml` pulls them; without this it takes `latest`, and
-#    without a network it builds from this repository, which also works.
+# Optional: pin a release rather than following `latest`. Both images are on GHCR and
+# compose.yaml pulls them; with no network it builds from this repository instead.
 export GIS_TAG=0.1.0
 
-# 1. A key to seal registered data source credentials. There is no default,
-#    deliberately: a published default key would make every credential in
-#    every deployment that forgot to change it readable from a backup.
+# 1. A key to seal registered data source credentials. There is no default, deliberately:
+#    a published default key would make every credential in every deployment that forgot
+#    to change it readable from a backup.
 docker compose run --rm --no-deps server keygen
 echo "GIS_SECRET_KEY=<the value it printed>" > .env
 
-# 2. Create the schema. Explicit, never automatic — an old image started by
-#    accident must not silently rewrite a newer schema (ADR-016 §4b).
+# 2. Create the schema. Explicit, never automatic — an old image started by accident must
+#    not silently rewrite a newer schema.
 docker compose run --rm server migrate --apply
 
 # 3. Start.
 docker compose up -d
 
-# 4. The server has no administrator, so it refuses everything except setup and
-#    writes a one-time token to its log.
+# 4. The server has no administrator, so it refuses everything except setup and writes a
+#    one-time token to its log.
 docker compose logs server | grep -A2 "SETUP REQUIRED"
 
-curl -k -X POST https://localhost:8443/rest/setup   -H "Content-Type: application/json"   -d '{"token":"<the token>","name":"root","password":"a properly long password"}'
+curl -k -X POST https://localhost:8443/rest/setup \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<the token>","name":"root","password":"a properly long password"}'
 ```
 
-`-k` because the server generates a self-signed certificate on first run and
-keeps it in a volume. It survives a container replacement; install a real one
-when you have one.
+`-k` because the server generates a self-signed certificate on first run and keeps it in a
+volume. It survives a container replacement; install a real one when you have one.
+
+`docker compose down` and `up` keeps the platform database, your registrations, accounts,
+sessions and the serving certificate. Only `down -v` destroys it.
 
 ### Publishing something
 
+Sign in, test a database before registering it, register it, then publish a table.
+
 ```bash
-TOKEN=$(curl -sk -X POST https://localhost:8443/rest/auth/login   -H "Content-Type: application/json"   -d '{"name":"root","password":"a properly long password"}' | jq -r .token)
+TOKEN=$(curl -sk -X POST https://localhost:8443/rest/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"name":"root","password":"a properly long password"}' | jq -r .token)
 
-# Try a database before registering it. This creates nothing, and it tells you
-# which of the three failure classes you have: unreachable, connected but
-# unprivileged, or connected but with nothing publishable.
-curl -sk -X POST https://localhost:8443/admin/datasources/test   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"connectionString":"Host=your-db;Port=5432;Database=gis;Username=...;Password=..."}'
+# Creates nothing, and tells you which of the three failure classes you have: unreachable,
+# connected but unprivileged, or connected but with nothing publishable.
+curl -sk -X POST https://localhost:8443/admin/datasources/test \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"connectionString":"Host=your-db;Port=5432;Database=gis;Username=...;Password=..."}'
 
-# Register it. The credential is sealed inside the server with the key from
-# step 1; it is never written anywhere in the clear, including the audit log.
-curl -sk -X POST https://localhost:8443/admin/datasources   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"name":"my-postgis","connectionString":"..."}'
+curl -sk -X POST https://localhost:8443/admin/datasources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"my-postgis","connectionString":"..."}'
 
-# Publish a table from it. Layers are private to their owner until shared.
-curl -sk -X POST https://localhost:8443/admin/layers   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"name":"places","dataSourceId":"<id>","schemaName":"public",
+# Layers are private to their owner until shared.
+curl -sk -X POST https://localhost:8443/admin/layers \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"places","dataSourceId":"<id>","schemaName":"public",
        "tableName":"places","geometryColumn":"geom","identityColumn":"objectid",
        "objectIdColumn":"objectid","srid":4326,"geometryType":"Point",
        "sharing":"public"}'
@@ -129,19 +127,12 @@ It is then a FeatureServer at
 `https://localhost:8443/rest/services/places/FeatureServer/0`, discoverable from
 `/rest/info` the way any ArcGIS client expects.
 
-### What survives
-
-`docker compose down` and `up` keeps everything: the platform database, your
-registrations, accounts and sessions, and the serving certificate. Only
-`down -v` destroys it.
-
 ### If nobody can administer it any more
 
-A store that has accounts and no administrator — the last one removed, or their
-grant revoked — cannot be recovered from the API, because every route that would
-fix it needs the privilege that is missing. Setup does not re-arm itself: a
-server that printed a fresh credential to its log whenever the last
-administrator disappeared would be printing one for whoever arranged that.
+A store with accounts and no administrator cannot be recovered from the API, because every
+route that would fix it needs the privilege that is missing. Setup does not re-arm itself:
+a server that printed a fresh credential whenever the last administrator disappeared would
+be printing one for whoever arranged that.
 
 ```bash
 GRATICULA_ADMIN_PASSWORD='a properly long password' \
@@ -149,11 +140,8 @@ GRATICULA_ADMIN_PASSWORD='a properly long password' \
   tools admincreator --name root
 ```
 
-It refuses on a store that already has an administrator, so it cannot be used to
-add one quietly. Run `docker compose run --rm --no-deps server --help` for this
-and the other commands.
-
----
+It refuses on a store that already has an administrator. `docker compose run --rm --no-deps
+server --help` lists this and the other commands.
 
 ## Building
 
@@ -162,21 +150,20 @@ dotnet build
 dotnet test --filter "Category!=Integration"
 ```
 
-Integration tests need a PostgreSQL and are excluded by default:
+Integration tests need a PostgreSQL and are excluded by default. They **fail rather than
+skip** when asked for without one — a test that goes green with its subject absent is worse
+than no test, and this project has caught three instruments lying already.
 
 ```bash
 export GRATICULA_TEST_PG="Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis"
 dotnet test --filter "Category=Integration"
 ```
 
-They **fail rather than skip** when asked for without a database configured. A
-test that goes green with its subject absent is worse than no test — this
-project has caught three instruments lying already, and each was found by trying
-to make it fail rather than by reading it.
-
-The conformance suite needs a **running server** and the name of a fixture for
-each shape it checks. It also fails rather than skips, and each failure names the
-variable it wanted, so a first run reads as a checklist:
+The conformance suite needs a **running server** and a fixture name for each shape it
+checks. It also fails rather than skips, and each failure names the variable it wanted, so
+a first run reads as a checklist. The fixtures cannot be discovered from the catalogue: a
+published layer may legitimately have no tiles, and a server that had silently gone back to
+one layer per service would pass every suite that looked for "a service".
 
 ```bash
 export GRATICULA_TEST_URL="https://127.0.0.1:8443"
@@ -189,60 +176,37 @@ export GRATICULA_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTi
 export GRATICULA_TEST_EDITABLE="editable"                       # layer 0 accepts edits
 ```
 
-The fixtures cannot be discovered from the catalogue: a published layer may
-legitimately have no tiles, and a server that had silently gone back to one layer
-per service would pass every suite that looked for "a service".
+## The record
 
-## Layout
+Every decision here has an ADR with the alternatives it beat, every assumption has the
+status of its evidence, and every temporary compromise has the condition that forces it to
+be repaid. If you disagree with a choice, the argument it lost is written down.
 
-| | |
-|---|---|
-| `src/Graticula.Core` | **Tier 1.** Geometry model and domain. No package references, enforced |
-| `src/Graticula.Platform` | **Tier 1.** Platform store schema, migrations, the version handshake |
-| `src/Graticula.Platform.Postgres` | **Tier 2 adapter.** Where Npgsql is allowed to be |
-| `tests/Graticula.Architecture.Tests` | Fails the build if a library reaches Tier 1 |
-| `benchmarks/` | **Disposable.** Never promoted; see below |
-| `docs/` | ADRs, registers, reviews |
+```bash
+python tools/status-page.py    # writes docs/status.html
+```
 
-[build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md) §4 governs the tiers:
-Tier 1 is written by us always, Tier 2 libraries are permitted only behind our
-own port, and no library type may appear in a Tier 1 signature. That last rule is
-a build failure, not a convention.
+Nothing on that page is typed by hand — the two versions that were went stale within a day,
+and a status page that is wrong is most confidently wrong about whatever changed last.
 
-## Benchmarks are specifications, not code to reuse
-
-[`benchmarks/mvt-generation/RESULTS.md`](benchmarks/mvt-generation/RESULTS.md)
-holds three measured rounds against 6.5 million OpenStreetMap polygons. The code
-there is disposable and is never promoted (CLAUDE.md §1); what carries forward is
-the findings, and they shaped the production types directly:
-
-- **Allocation, not CPU, is the ceiling.** 80.9% GC pause at 18% CPU utilisation
-  under concurrency. A profiler showing only CPU reports an idle worker and
-  explains nothing.
-- **A coordinate must not be an object.** The adopted library made a
-  556,728-vertex tile into 556,728 heap objects; flat arrays halved a z12 tile's
-  allocation from 404 MB to 204 MB.
-- **A tile's cost floor is set by the largest geometry overlapping it.** A z16
-  tile read 201,580 vertices to emit 2,080, because four administrative polygons
-  overlap every tile in the city. Pushdown is structural, not tuning.
-
-## Documents worth reading first
-
-- [v1-scope.md](docs/v1-scope.md) — what is being built
-- [architecture-assessment.md](docs/architecture-assessment.md) — the synthesis.
-  **Known stale**; see review finding A2
-- [open-questions.md](docs/open-questions.md) — uncertainty is recorded, not hidden
-- [architecture-debt.md](docs/architecture-debt.md) — temporary compromises, with
-  repayment triggers
-- [reviews/](docs/reviews/) — including three independent adversarial reviews
-  that found 41 issues, 17 severe. §67 still owes a fourth, by someone who did
-  not participate
+- [docs/v1-scope.md](docs/v1-scope.md) — what is being built, and what was cut
+- [docs/open-questions.md](docs/open-questions.md) — uncertainty is recorded, not hidden
+- [docs/architecture-debt.md](docs/architecture-debt.md) — compromises, with repayment triggers
+- [docs/reviews/](docs/reviews/) — three independent adversarial reviews and the OGC CITE runs
+- [docs/build-vs-adopt-policy.md](docs/build-vs-adopt-policy.md) — what we write and what we
+  adopt. No library type may appear in a core signature, and that is a build failure rather
+  than a convention
+- [benchmarks/mvt-generation/RESULTS.md](benchmarks/mvt-generation/RESULTS.md) — three
+  measured rounds against 6.5 million OpenStreetMap polygons. Benchmark code is disposable
+  and never promoted; the findings are what carried into the production types
+- [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
 ## Licence
 
-**Elastic License 2.0** — source-available, not open source, by owner decision on
-2026-08-25 ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)). Use it
-for anything, including commercially and including for money; do not offer it to third
-parties as a hosted or managed service. That is the whole restriction. See
-[LICENSE](LICENSE), [NOTICE](NOTICE) and
+**Elastic License 2.0** — source-available. Read it, run it, change it, distribute it,
+charge money for it. The one thing you may not do is offer it to third parties as a hosted
+or managed service. That is the whole restriction
+([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)).
+
+See [LICENSE](LICENSE), [NOTICE](NOTICE) and
 [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
