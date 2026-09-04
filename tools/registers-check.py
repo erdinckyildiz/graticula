@@ -1465,7 +1465,14 @@ def an_outbound_licence_claim_that_is_stale():
 
     ours = re.compile(
         r"(?:we are|this product is|this project is|the project is|outbound licence:|"
-        r"licensed under the)\s+(?:the\s+)?\**(Apache[- ]2\.0|Apache License)",
+        r"licensed under the)\s+(?:the\s+)?\**(Apache[- ]2\.0|Apache License)"
+
+        # <b>And the shape a footer uses, which is the one that got through.</b> The status
+        # page's footer read `Graticula · Apache-2.0` for eleven days after ADR-047, on the
+        # page the owner reads as the dashboard -- because every pattern above expects a
+        # sentence and a footer is a byline. A product name beside a licence is a claim about
+        # that product's licence whether or not there is a verb in it.
+        r"|Graticula\s*(?:·|\||-|—)\s*(Apache[- ]2\.0|Apache License)",
         re.I)
 
     promise = re.compile(
