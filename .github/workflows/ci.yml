@@ -418,7 +418,11 @@ jobs:
       # §5a.</b> A server is up by now, so its background pollers hold the sessions
       # `PollerPoolTests` looks for. Excluding a test in one job and never running
       # it in another is how an exclusion becomes a deletion.
+      #
+      # <b>It runs even when a step before it failed, and that is the same argument.</b>
+      # See the `console` step below for what not doing this cost.
       - name: the tests that need a running host
+        if: '!cancelled()'
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
             --filter 'Needs=RunningHost'
@@ -429,7 +433,17 @@ jobs:
       # Chrome over the DevTools protocol — no automation package, and none needed
       # on this runner, which ships Chrome already. If a future image does not, the
       # suite FAILS and says which variable to set rather than going quietly green.
+      #
+      # <b>It runs even when a step before it failed, because a gate behind a gate is not
+      # a gate.</b> This step is last in a job whose earlier steps are a different suite,
+      # so it inherited the default `if: success()` — and for twenty-five consecutive
+      # pushes the conformance step went red first and this one never executed at all
+      # ([D-222](../../docs/architecture-debt.md), [D-223](../../docs/architecture-debt.md)).
+      # The run it finally ran in found a real console defect on its first attempt: a Store
+      # landing while the page was still reading had its answer overwritten by the read.
+      # The console has no dependency on the conformance result and never had one.
       - name: console
+        if: '!cancelled()'
         run: dotnet test tests/Graticula.Console.Tests -c Release --no-build
 
       # <b>ADR-026 condition 4: the outage test becomes something CI runs.</b> *A behaviour

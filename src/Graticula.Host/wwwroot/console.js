@@ -4845,6 +4845,11 @@ function rgba(color) {
 async function loadSymbology(name) {
   const state = $("symState");
 
+  // <b>This load's ticket.</b> Anything that makes it the wrong answer — a newer load, or a
+  // Store — bumps the counter, and every write below the next `await` is abandoned.
+  const mine = ++symLoadingFor;
+  const overtaken = () => mine !== symLoadingFor;
+
   // <b>A load starts the screen over.</b> A refusal from the last Store, a tab somebody left on
   // the derived document, a ground chosen for a different layer: none of them are facts about
   // what has just been read, and every one of them survived a navigation before this.
@@ -4858,10 +4863,15 @@ async function loadSymbology(name) {
   // the way it was before there was a map.
   await symBuildMap();
   await symFrameMap(name);
+
+  if (overtaken()) return;
+
   symShowGround("light");
 
   try {
     const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
+
+    if (overtaken()) return;
 
     $("symDoc").value = r.symbology ? JSON.stringify(r.symbology, null, 1) : "";
 
@@ -4895,7 +4905,7 @@ async function loadSymbology(name) {
         // in the Document tab now, and this fact is not about the document: it says the picture
         // beside it is not what a map draws. Something that contradicts what is on the screen
         // has to be on the screen.
-        if (service && service.stored) {
+        if (service && service.stored && !overtaken()) {
           const note = $("symOverride");
 
           if (note) {
@@ -4926,6 +4936,8 @@ async function loadSymbology(name) {
       // field picker says so rather than offering an empty list that looks like no fields.
     }
 
+    if (overtaken()) return;
+
     symGeometry = r.geometry || "";
 
     // <b>The stored CIM, not the derived `drawingInfo`.</b> The derived one is flattened to a
@@ -4933,6 +4945,8 @@ async function loadSymbology(name) {
     // layer past the first the moment anybody pressed Store.
     fillSymbologyForm(r.symbology, symGeometry);
     await drawSymbologyPreview(name, JSON.stringify(r.symbology || r.drawingInfo));
+
+    if (overtaken()) return;
 
     symStored = !!r.stored;
     symEditedSince = false;
@@ -4948,6 +4962,8 @@ async function loadSymbology(name) {
     // tell that from a layer whose style failed to load.
     drawLosses(r.losses);
   } catch (e) {
+    if (overtaken()) return;
+
     state.textContent = e.message;
     $("symDerived").textContent = "—";
     drawLosses([]);
@@ -7549,6 +7565,18 @@ let symMap = null;
 
 /** Which draw is current, so a stale answer does not paint over a newer view. */
 let symDrawing = 0;
+
+/**
+ * Which load is current, so a load that has been overtaken stops writing.
+ *
+ * <b>A read of the old document must not land on top of a write of the new one.</b> Reading a
+ * layer's symbology is five round trips and the last of them finishes long after the screen looks
+ * ready — so an operator who pastes a style and presses Store while it is still running had the
+ * answer overwritten by the read that preceded it: the losses cleared, the state line back to
+ * *Generated. No document is stored*, under a document that had just been stored. This is the
+ * same sequence number `symDrawing` keeps for the picture, kept for the page.
+ */
+let symLoadingFor = 0;
 
 /** The promise that loads OpenLayers, so it is fetched once. */
 let symOlLoading = null;
@@ -12532,6 +12560,12 @@ async function handleClick(event) {
         headers: { "Content-Type": "application/json" },
         body,
       });
+
+      // <b>A Store is newer than any read still in flight.</b> Opening this screen is five
+      // round trips and the last lands well after it looks ready; without this, the tail of
+      // that read clears the losses this Store is about to draw and puts the state line back
+      // to *Generated*. Same counter, same rule as the picture's.
+      symLoadingFor++;
 
       // <b>The losses go on the page, and the count goes in the toast.</b> A toast is
       // read once and dismissed; a conversion that lost four things needs to still be

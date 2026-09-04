@@ -45,9 +45,15 @@ def read(*parts):
 
 
 def git(*args):
+    # <b>UTF-8, said rather than inherited.</b> `text=True` decodes with the machine's
+    # preferred encoding, which is cp1252 on Windows and UTF-8 on the runner -- so a
+    # commit subject containing a section sign rendered as `ADR-053 Â§ 9b` on
+    # the page when it was generated here and correctly when CI generated it. A page
+    # whose bytes depend on who ran the tool cannot be compared against anything.
     try:
         return subprocess.run(
-            ["git", "-C", ROOT, *args], capture_output=True, text=True, check=True
+            ["git", "-C", ROOT, *args],
+            capture_output=True, encoding="utf-8", errors="replace", check=True,
         ).stdout
     except Exception:
         return ""

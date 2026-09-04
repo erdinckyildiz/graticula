@@ -137,4 +137,111 @@ public sealed class SymbologyPageTests : ConsoleTest
                 "document.getElementById('symLossList').textContent") ?? string.Empty,
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// A Store that lands while the page is still reading keeps its answer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written from a CI failure that no local run reproduced.</b> Opening this
+    /// screen is five round trips — the map's frame, the document, the service's
+    /// override, the fields, the picture — and the last of them finishes long after
+    /// the screen looks ready. On a warm machine the read is done before anybody can
+    /// type; on the runner it was not, and the tail of that read landed on top of a
+    /// Store: the losses cleared, and the state line went back to saying nothing was
+    /// stored under a document that had just been stored.
+    /// </para>
+    /// <para>
+    /// <b>So the race is made deterministic rather than waited out.</b> The picture is
+    /// held until the test lets it go, which puts the read at exactly the point CI
+    /// caught it, and the Store happens while it is held. Timing this with a delay
+    /// would be the flaky test that teaches its reader to run the suite again, which
+    /// is D-60's lesson and stated in <c>ClickAsync</c>'s own remarks.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_store_is_not_undone_by_the_read_it_overtook()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync(
+            $"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "(document.getElementById('symDerived')?.textContent || '').includes('renderer')",
+            "The page did not load at all, so there was no read to overtake.");
+
+        // The PUT is answered here; the picture — the read's last step before it
+        // writes — is held open, and released by the test.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__held = false;
+          window.__release = null;
+          window.__released = false;
+          window.fetch = async (input, init) => {
+            const method = ((init && init.method) || "GET").toUpperCase();
+            if (method === "PUT") {
+              return new Response(JSON.stringify({
+                name: "x", service: "x", geometry: "LineString", from: "MapLibre", bytes: 120,
+                replaced: false,
+                symbology: { version: 8, layers: [] },
+                drawingInfo: { renderer: { type: "simple" } },
+                losses: [
+                  "`line-width` varies with zoom. An Esri symbol carries one value.",
+                  "The style has a `symbol` layer, so it labels features."
+                ],
+              }), { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            const answer = await real(input, init);
+            if (String(input).includes("/symbology/preview") && !window.__held) {
+              window.__held = true;
+              await new Promise(go => { window.__release = go; });
+              window.__released = true;
+            }
+            return answer;
+          };
+          return true;
+        })();
+        """);
+
+        // A read of the same layer, left running on purpose.
+        await Browser.EvaluateAsync<bool>(
+            $"(loadSymbology({JsonSerializer.Serialize(layer)}), true)");
+
+        await WaitForAsync(
+            "window.__held",
+            "The read never reached the picture, so it was never in the state CI caught.");
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("symDoc").value = '{"version":8,"layers":[]}', true)""");
+
+        await ClickAsync($"button[data-symbology-put={JsonSerializer.Serialize(layer)}]");
+
+        await WaitForAsync(
+            "!document.getElementById('symLoss').hidden",
+            "The Store's losses were never drawn, so this test proves nothing about "
+            + "whether the read would have cleared them.");
+
+        // Now let the read finish. Everything it writes from here is about the document
+        // that was on the server before the Store, and none of it may reach the page.
+        await Browser.EvaluateAsync<bool>("(window.__release(), true)");
+
+        await WaitForAsync(
+            "window.__released",
+            "The held read never resumed.");
+
+        Assert.Equal(
+            2,
+            await Browser.EvaluateAsync<int>(
+                "document.querySelectorAll('#symLossList li').length"));
+
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(
+                "document.getElementById('symLoss').hidden"),
+            "The read that the Store overtook cleared the losses on its way out. ADR-033's "
+            + "mitigation for a lossy conversion is that the page says what was lost, and a "
+            + "page that says it for a quarter of a second has not said it.");
+    }
 }
