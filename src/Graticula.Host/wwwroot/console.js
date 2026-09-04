@@ -3136,9 +3136,20 @@ async function drawServiceSymbology() {
         <div class="symrowname">${h(l.name || "")}</div>
         <div class="rowmeta" data-symsays="${h(l.name || "")}">reading…</div>
       </div>
+      <!--
+        <b>A verb, because the noun is already the tab's name.</b> This link said "Edit", became
+        "Symbology" on 2026-09-03 so it would say what it opens, and a review on 2026-09-04
+        measured the result: three controls named Symbology on the way to one editor -- the
+        service's tab, this link inside it, and the layer's own tab. The tab names are right for
+        their level and the breadcrumb tells them apart; this one is the step, so it names the
+        step. The title attribute still says whose symbology it is.
+
+        <b>A comment here may not use backticks.</b> It sits inside a template literal, so one
+        ends the string and the file stops parsing -- which is exactly what it did.
+      -->
       <a class="tiny primarylink"
         href="#/layer/${encodeURIComponent(l.name || "")}/symbology"
-        title="How ${h(l.name || "this layer")} is drawn">Symbology</a>
+        title="Edit how ${h(l.name || "this layer")} is drawn">Edit</a>
     </div>`).join("");
 
   // <b>Read one at a time rather than all at once.</b> A service with thirty layers would
@@ -4927,9 +4938,15 @@ let symDebounce = 0;
 // be stored is always visible. Editing the box by hand still works and the controls stop claiming
 // to describe it, which is honest: a MapLibre expression has no checkbox.
 //
-// <b>The three families are the ones the product already has</b> — `simple`, `uniqueValue`,
+// <b>The three families are the ones this form authors</b> — `simple`, `uniqueValue`,
 // `classBreaks`, which is what ADR-033's conversion reads and what the ArcGIS face publishes.
 // Nothing here invents a fourth.
+//
+// <b>The server reads four, and that is not the same number on purpose.</b> ADR-052 §3.10 added
+// `CIMProportionalRenderer` to the read subset because it reduces to a simple renderer with a
+// size variable and cost no new drawing; authoring it needs a minimum symbol, a data range and
+// Flannery's exponent, and none of those has a control here. `SYM_AUTHORED` is where the two
+// numbers meet: a renderer outside it hides this form rather than being flattened into it.
 
 /** The layer this editor is currently describing, and what its fields are. */
 let symFields = [];
@@ -5622,11 +5639,17 @@ function fillSymbologyForm(cim, geometry) {
     if (!SYM_AUTHORED.includes(symModel.type || "CIMSimpleRenderer")) {
       $("symForm").hidden = true;
       $("symUnauthored").hidden = false;
+      // <b>It says nothing is wrong, because a form that vanishes does not.</b> A design
+      // review on 2026-09-04 read this as a person who does not know what CIM is and reported
+      // that it answers *what is going on* and *what can I do*, and never answers *is this
+      // broken* — which is the question somebody actually has when the controls disappear.
+      // The second sentence used to repeat the state line above it almost word for word; it
+      // now carries the reassurance instead, which is the sentence that was missing.
       $("symUnauthored").innerHTML =
         `<b>This layer is drawn by a <span class="mono">${h(symModel.type || "")}</span>,`
-        + ` which this form does not author.</b> The server reads it and both faces are`
-        + ` derived from it — the picture above is what the map looks like. To change it, edit`
-        + ` the document below, or store a new one.`;
+        + ` which this form does not author.</b> Nothing is wrong — the server reads it, and`
+        + ` the picture above is what the map looks like. To change it, edit the document`
+        + ` below, or store a new one.`;
 
       return;
     }
