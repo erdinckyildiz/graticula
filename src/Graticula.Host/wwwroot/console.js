@@ -10248,8 +10248,24 @@ async function handleClick(event) {
     // and limits belong to the service and are saved there; a layer's cache TTL and its style have
     // their own buttons, and its sharing applies when chosen. Kept as a no-op with a sentence rather
     // than removed, because a reader who remembers pressing Save here should be told where it went.
-    toast("A layer's own settings apply as you set them. What a service offers — its capabilities "
-      + "and its limits — is one setting per service, on the service's page.", true);
+    //
+    // <b>And it clears the marker, which it did not.</b> A Save that saves nothing and then leaves
+    // *unsaved* standing beside itself tells the reader it failed — *"save tıklasam da unsaved
+    // kalıyor"*. Nothing here is unsaved after it, because nothing here was ever saved by it.
+    unsaved.delete(editing?.name);
+    markUnsaved(false);
+
+    // <b>It names the button for the page somebody is on.</b> Sending them to *the service's
+    // page* while they are looking at a Store button two inches below is how one screen came to
+    // have two words for saving.
+    toast(
+      $("page-symbology") && !$("page-symbology").hidden
+        ? "Symbology is kept by its own Store button, below the editor — this Save does not "
+          + "touch it. A layer's other settings apply as you set them."
+        : "A layer's own settings apply as you set them. What a service offers — its "
+          + "capabilities and its limits — is one setting per service, on the service's page.",
+      true);
+
     t.disabled = false;
     return;
   }
@@ -11960,6 +11976,14 @@ function noteEdit(target) {
   // Sharing is applied when chosen rather than on Save (ADR-031 §2b), so it is not
   // an unsaved edit and marking it as one would promise a Save that does nothing.
   if (target.dataset && target.dataset.share) return;
+
+  // <b>And the symbology page is the same rule, unapplied for a day.</b> Its document is kept by
+  // its own button and by nothing else; every keystroke in it lit the page's *unsaved* marker,
+  // which promises a Save that does nothing — the exact sentence written above about sharing.
+  // The owner pressed Save on a 256-class classification, refreshed, and found it gone:
+  // *"save diyorum, refleshleyince hepsi gidiyor. save ne, store ne?"* Two words for saving, one
+  // of which saves nothing, on one screen.
+  if (target.closest("#page-symbology")) return;
 
   unsaved.set(editing.name, editedValues());
   markUnsaved(true);

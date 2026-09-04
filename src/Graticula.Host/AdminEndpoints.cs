@@ -2605,6 +2605,48 @@ internal static class AdminEndpoints
         or Graticula.Features.FieldType.Double
         or Graticula.Features.FieldType.Date;
 
+    /// <summary>
+    /// Reads a request body up to a bound, and says whether there was more.
+    /// </summary>
+    /// <remarks>
+    /// <b>The two callers of this both used to stop at the bound and hand on what they had.</b>
+    /// That is the worst of both: the memory is spent and the document is a lie. A parser then
+    /// reports the cut as a syntax error — *there is an open object that should be closed* — and
+    /// the operator goes looking for a bracket they never left out. Found 2026-09-04 by the owner
+    /// pressing Store on a classification this server had generated for them.
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="limit">The most characters to accept.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The body, and whether it was longer than the bound.</returns>
+    private static async Task<(string Body, bool Longer)> BoundedBodyAsync(
+        HttpContext context, int limit, CancellationToken cancellation)
+    {
+        using System.IO.StreamReader reader = new(context.Request.Body);
+
+        // One past the limit, so a body exactly at it is accepted and one over is seen.
+        char[] buffer = new char[limit + 1];
+        int read = 0;
+
+        while (read < buffer.Length)
+        {
+            int got = await reader
+                .ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellation)
+                .ConfigureAwait(false);
+
+            if (got == 0)
+            {
+                break;
+            }
+
+            read += got;
+        }
+
+        return read > limit
+            ? (string.Empty, true)
+            : (new string(buffer, 0, read), false);
+    }
+
     /// <summary>The console's method name, in Esri's spelling.</summary>
     /// <remarks>
     /// <b>Three vocabularies for one list of seven, and this is the second hop.</b> The console
@@ -2809,32 +2851,31 @@ internal static class AdminEndpoints
             return;
         }
 
-        string body;
+        // <b>Bounded, and it says when it hit the bound.</b> The read is capped so an unbounded
+        // body cannot be allocated before it is measured — but the first version simply stopped
+        // at the cap and handed on what it had, so a document one character too long arrived at
+        // the parser as **truncated JSON** and the operator was told *the document is not JSON:
+        // there is an open object or array that should be closed*. Measured 2026-09-04 on the
+        // owner's own layer: a 256-class classification, 357,744 characters as the console's
+        // indented box writes it, cut at 262,145 and reported as malformed. It was neither
+        // malformed nor, once stored, too long — the canonical form is 165,470.
+        //
+        // <b>Eight times the stored cap, matching `SymbologyConversion.Read`.</b> The request may
+        // be indented, quoted, or carry a `drawingInfo` that converts to something far smaller;
+        // what the column holds is checked where the canonical string is made.
+        (string body, bool cutShort) = await BoundedBodyAsync(
+            context, SymbologyConversion.MaximumCharacters * 8, cancellation)
+            .ConfigureAwait(false);
 
-        // Bounded before it is read, for the reason SetStyleAsync gives: reading an
-        // unbounded body and then measuring it is an accounting exercise, because the
-        // memory is already spent. One char past the limit so that a document exactly
-        // at it is accepted and one over is refused.
-        using (System.IO.StreamReader reader = new(context.Request.Body))
+        if (cutShort)
         {
-            char[] buffer = new char[SymbologyConversion.MaximumCharacters + 1];
-            int read = 0;
-
-            while (read < buffer.Length)
-            {
-                int got = await reader
-                    .ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellation)
-                    .ConfigureAwait(false);
-
-                if (got == 0)
-                {
-                    break;
-                }
-
-                read += got;
-            }
-
-            body = new string(buffer, 0, read);
+            await Refuse(
+                context, 413,
+                $"The request is longer than {SymbologyConversion.MaximumCharacters * 8:N0} "
+                + "characters, which is more than any symbology document needs even written out "
+                + "with every indent. It was not read rather than being read in part.")
+                .ConfigureAwait(false);
+            return;
         }
 
         if (string.IsNullOrWhiteSpace(body))
@@ -3053,26 +3094,20 @@ internal static class AdminEndpoints
         // and then measuring it is an accounting exercise: the memory is already
         // spent. The cap is one more byte than the limit so that a document
         // exactly at the limit is accepted and one over is refused.
-        using (System.IO.StreamReader reader = new(context.Request.Body))
+        // <b>Refused when it hits the bound rather than passed on in part</b>, for the reason
+        // `SetSymbologyAsync` gives above: a truncated document is reported as a malformed one,
+        // which sends the reader to look for a bracket they never left out.
+        (body, bool tooLong) = await BoundedBodyAsync(
+            context, StyleDocument.MaximumBytes, cancellation).ConfigureAwait(false);
+
+        if (tooLong)
         {
-            char[] buffer = new char[StyleDocument.MaximumBytes + 1];
-            int read = 0;
-
-            while (read < buffer.Length)
-            {
-                int got = await reader
-                    .ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellation)
-                    .ConfigureAwait(false);
-
-                if (got == 0)
-                {
-                    break;
-                }
-
-                read += got;
-            }
-
-            body = new string(buffer, 0, read);
+            await Refuse(
+                context, 413,
+                $"A style document may be at most {StyleDocument.MaximumBytes:N0} characters and "
+                + "this request is longer. It was not read rather than being read in part.")
+                .ConfigureAwait(false);
+            return;
         }
 
         if (!StyleDocument.TryValidate(body, service.SourceLayers, out string? error))
