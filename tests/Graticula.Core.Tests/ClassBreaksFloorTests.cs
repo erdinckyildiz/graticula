@@ -140,4 +140,40 @@ public sealed class ClassBreaksFloorTests
         Assert.Equal("#ffff00", (string?)colour[2]);
         Assert.Equal(5, colour.Count);
     }
+
+    [Fact]
+    public void An_unclassed_colour_ramp_is_reported_because_this_server_draws_bands()
+    {
+        // <b>Three maps, one renderer type.</b> `GraduatedColor` and `GraduatedSymbol` come out
+        // right without being read -- what separates them is already in the per-class symbols.
+        // `UnclassedColor` does not: it colours continuously across the range, and drawing it as
+        // one band per break is a visibly different picture. The specification says what the
+        // value means and not how the ramp maps onto the breaks, so this reports rather than
+        // inventing an arithmetic nobody could check.
+        CimProjection projection = Cim.Project((JsonObject)JsonNode.Parse(
+            FlooredAtAThousand.Replace(
+                "\"field\": \"nufus\",",
+                "\"field\": \"nufus\", \"classBreakType\": \"UnclassedColor\",",
+                StringComparison.Ordinal))!);
+
+        Assert.Contains(
+            projection.NotDrawn,
+            l => l.Contains("stepped where it should be smooth", StringComparison.Ordinal));
+
+        // And it still draws, with the floor intact. A reported loss is not a refusal.
+        Assert.Equal(1000.0, projection.Floor);
+        Assert.Equal(2, projection.Classes.Count);
+    }
+
+    [Fact]
+    public void A_graduated_colour_renderer_reports_nothing_because_nothing_is_lost()
+    {
+        CimProjection projection = Cim.Project((JsonObject)JsonNode.Parse(
+            FlooredAtAThousand.Replace(
+                "\"field\": \"nufus\",",
+                "\"field\": \"nufus\", \"classBreakType\": \"GraduatedColor\",",
+                StringComparison.Ordinal))!);
+
+        Assert.Empty(projection.NotDrawn);
+    }
 }

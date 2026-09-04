@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7bf4e99</code> · 2026-09-04 09:35</p>
+<p class="stamp">Generated from commit <code>f29ee7d</code> · 2026-09-04 09:38</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">52</div><div class="kpi-l">ADRs</div><div class="kpi-n">6 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">152/202</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">50 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">183 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">183 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/84</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2224</div><div class="kpi-l">tests</div><div class="kpi-n">260 source files, 102,399 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2226</div><div class="kpi-l">tests</div><div class="kpi-n">260 source files, 102,423 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">74 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">75 items</span></div><p><b>50 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -291,6 +291,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-204</td><td>A real service asked for at the wrong address was answered with a redirect to that same address, so a client followed it until it gave up.</td><td class="muted-t">Already fired — the console always sends the qualified name, so this bites a hand-written URL, a script, and anybody…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-205</td><td>A classification&#x27;s floor was written in one direction and never read back in the other, so every face behaved as though the classification started at negative infinity.</td><td class="muted-t">Already fired — it is on every classified layer whose author set a floor, and setting one is the default when Pro…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-206</td><td>A classified renderer that names its field the way ArcGIS Pro names it now was refused outright.</td><td class="muted-t">Already fired — every unique-value or class-breaks renderer authored in current ArcGIS Pro with an Arcade expression.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-207</td><td>Three different maps share one renderer type and the enum that tells them apart was not read.</td><td class="muted-t">Already fired for any layer authored as an unclassed colour ramp; the ADR&#x27;s own read-subset table did not list the…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">183 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -388,7 +389,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">479</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.2%"></div></div><div class="bar-n">413</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:75.8%"></div></div><div class="bar-n">363</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:73.7%"></div></div><div class="bar-n">353</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:74.1%"></div></div><div class="bar-n">355</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.9%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:29.6%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">115</div></div>
@@ -399,6 +400,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>f29ee7d</code><time>2026-09-04</time><span>D-206: a renderer that named its field in Arcade was refused as unreadable</span></li>
 <li><code>7bf4e99</code><time>2026-09-04</time><span>The unauthored-renderer message answered two of a reader&#x27;s three questions</span></li>
 <li><code>31f16b7</code><time>2026-09-04</time><span>D-205: the classification&#x27;s floor was written and never read</span></li>
 <li><code>f998953</code><time>2026-09-04</time><span>The refusal said &quot;no primitive for it&quot; and three of the five have one</span></li>
@@ -412,7 +414,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>bff59e0</code><time>2026-09-03</time><span>A service opens on Overview, and its first crumb goes back where you came from</span></li>
 <li><code>2111c56</code><time>2026-09-03</time><span>Symbology is a tab of the service now, not a page inside one of its layers</span></li>
 <li><code>835b5dc</code><time>2026-09-03</time><span>The Symbology page could only be reached by somebody who knew it was there</span></li>
-<li><code>8aeb1bd</code><time>2026-09-03</time><span>D-201: a second class, and this one left a message</span></li>
 </ol></section>
 <footer><p>Graticula · Apache-2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

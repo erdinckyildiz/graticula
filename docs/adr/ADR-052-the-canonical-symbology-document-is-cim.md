@@ -89,9 +89,9 @@ on 2026-09-03. **The specification is the citation, not any product.**
 | Type | Properties read |
 |---|---|
 | `CIMSimpleRenderer` | `symbol`, `label`, `description` |
-| `CIMUniqueValueRenderer` | `fields`, `groups[].classes[]`, `defaultSymbol`, `useDefaultSymbol`, `defaultLabel` |
+| `CIMUniqueValueRenderer` | `fields`, `valueExpressionInfo`, `groups[].classes[]`, `defaultSymbol`, `useDefaultSymbol`, `defaultLabel` |
 | `CIMUniqueValueClass` | `values[].fieldValues`, `label`, `symbol`, `visible` |
-| `CIMClassBreaksRenderer` | `field`, `breaks[]`, `minimumBreak`, `defaultSymbol` |
+| `CIMClassBreaksRenderer` | `field`, `valueExpressionInfo`, `breaks[]`, `minimumBreak`, `classBreakType`, `defaultSymbol` |
 | `CIMClassBreak` | `upperBound`, `label`, `symbol` |
 | `CIMProportionalRenderer` | `field`, `valueExpressionInfo`, `minSymbol`, `minDataValue`, `maxDataValue`, `flanneryCompensation`, `heading` — §3.10 |
 | `CIMSymbolReference` | `symbol` |
@@ -101,6 +101,14 @@ on 2026-09-03. **The specification is the citation, not any product.**
 | `CIMVectorMarker` | `size`, `rotation`, `markerGraphics[].symbol` |
 | `CIMGeometricEffectDashes` | `dashTemplate` |
 | `CIMRGBColor` | `values` |
+
+**Three of those five were added on 2026-09-04** and the table said two of them
+were read before they were: `minimumBreak` was listed from the day this ADR was
+written and was not read until [D-205](../architecture-debt.md); `classBreakType`
+and `valueExpressionInfo` were neither listed nor read, and are now both
+([D-206](../architecture-debt.md), [D-207](../architecture-debt.md)). A read-subset
+table nothing compares against the reader is a claim, and this one was wrong in
+both directions at once.
 
 **Everything else is kept and not understood.** An unrecognised symbol layer,
 effect or renderer property is preserved verbatim in the stored document and

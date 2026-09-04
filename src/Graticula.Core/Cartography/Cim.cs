@@ -518,6 +518,30 @@ public static class Cim
         // `showInAscendingOrder` is about the legend, not about the data.
         classes.Sort((a, b) => (a.UpperBound ?? 0).CompareTo(b.UpperBound ?? 0));
 
+        // <b>Three pictures share one renderer type, and the enum is what tells them apart.</b>
+        // `GraduatedColor` and `GraduatedSymbol` both come out right without being read, because
+        // the difference between them is already in the per-class symbols -- one varies colour,
+        // the other size, and this reader draws whatever the symbols say. `UnclassedColor` is
+        // the one that does not: it means a continuous ramp across the range rather than a band
+        // per class, and drawing it as bands is a visibly different map. The specification says
+        // only what the value means, not how the ramp maps onto the breaks, so this reports it
+        // rather than inventing an arithmetic that would be wrong in a way nobody could see.
+        if (Text(body["classBreakType"]) is { Length: > 0 } shape
+            && shape.Contains("Unclassed", StringComparison.OrdinalIgnoreCase))
+        {
+            notDrawn.Add(
+                "The renderer is an unclassed colour ramp (`classBreakType` is "
+                + $"'{shape}'), which colours continuously across the range. This server draws "
+                + "one band per break, so the map is stepped where it should be smooth.");
+        }
+
+        if (body["backgroundSymbol"] is not null)
+        {
+            notDrawn.Add(
+                "The renderer draws a background symbol underneath its graduated symbols. This "
+                + "server draws the class symbols alone.");
+        }
+
         CimSymbol? fallback = Fallback(body, notDrawn);
         double? floor = Number(body["minimumBreak"]);
 
