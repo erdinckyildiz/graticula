@@ -738,9 +738,21 @@ public abstract class ConsoleTest : IAsyncLifetime
 
         for (int attempt = 0; attempt < 3; attempt++)
         {
-            // <b>`NavigateAsync` already waits for `readyState === "complete"`</b>, so there is
-            // no second poll here: one round trip to a document with nothing in it.
-            await Browser.NavigateAsync(Root + "/healthz/live");
+            // <b>A page with subresources, and the first version's fault was that this was not
+            // one.</b> It warmed on `/healthz/live` — a bare JSON document that fetches
+            // nothing — so the probe below had no resource entries to look at, saw no
+            // verifier change on any run, and returned after one navigation every time. The
+            // handshake was warmed and the thing that actually gets thrown away, a page's
+            // subresources, was not: the first real page was still the first page to ask for
+            // `console.css`, `session.js` and `surface.js`, and CI went on losing one of them
+            // on two runs in three. Measured 2026-09-05 across runs 33927079540 and its
+            // re-run: five failures, every one of them a subresource at `0B/0B` on the page
+            // under test, `readyState=loading`, 25 to 65 ms in.
+            //
+            // <b>The studio's own document, because those are the files at risk.</b> It needs
+            // no token to load its shell, and what it does after that does not matter here —
+            // the four assets have been asked for by the time it settles.
+            await Browser.NavigateAsync(Root + "/studio/");
 
             // <b>Asked of the browser, not assumed from the clock.</b> A verifier change during
             // the warming navigation is the thing being waited out, so seeing one means going
