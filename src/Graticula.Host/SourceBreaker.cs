@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using Graticula.Platform.Postgres;
 using Npgsql;
 
 namespace Graticula.Host;
@@ -268,12 +269,29 @@ internal sealed class SourceBreaker : Graticula.Platform.Catalog.IStoreHealth
                 return true;
             }
 
-            // A database that answered is a database that is up, however unwelcome the
-            // answer. This is the discriminator `ErrorResponse.Classify` already relies
-            // on, stated once more here because it is load-bearing in both places.
-            if (at is PostgresException)
+            /*
+              <b>A database that answered is a database that is up, however unwelcome the
+              answer -- unless what it answered is that it is going away.</b> That exception
+              is not a nicety: `57P01` is what every connection receives when PostgreSQL is
+              shut down or restarted, and it arrives as a `PostgresException` like any
+              syntax error. Reading it as *the database replied, so it is up* is reading a
+              farewell as a greeting.
+
+              <b>Which cost ADR-026 the thing it promises.</b> Measured on CI run
+              33923883963, with the platform container stopped: the catalogue kept serving,
+              because `CatalogFallback.IsUnreachable` knows the four states -- and the
+              shapes did not, because this method did not, so
+              `ServiceContexts.GetAsync` threw instead of returning the shape it
+              remembered and a publicly shared service was refused 503 while blind. Two
+              answers to *is this database unreachable*, one right and one wrong, in one
+              request. [D-224](../../docs/architecture-debt.md).
+
+              <b>So there is one answer now, and this asks it.</b> Copying the list here
+              would be the third place it is written and the second place it can rot.
+            */
+            if (at is PostgresException postgres)
             {
-                return false;
+                return CatalogFallback.IsUnreachable(postgres);
             }
 
             if (at is NpgsqlException or System.Net.Sockets.SocketException

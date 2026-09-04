@@ -153,6 +153,23 @@ say "with the datastore down"
 phase down
 walk
 
+# <b>Again, past the shape cache, and this is the phase that catches things.</b> The walk
+# above runs about two seconds after the walk that preceded it, so every layer's shape is
+# still inside `ServiceContexts.Lifetime` and the document above was answered without the
+# store being asked at all. That is a real behaviour and worth walking -- but it is not
+# ADR-026's promise, and for months it was the only thing this script measured: the fallback
+# that serves a remembered shape when the describe actually fails was never once reached
+# here. It was broken the whole time, and the run that found it found it by accident, because
+# something happened to evict an entry first. D-224.
+#
+# <b>Thirty-one seconds, which is the cache's own lifetime and one.</b> Long, and the reason
+# it is affordable is that this is the only place the fallback is watched end to end.
+say "with the datastore down, past the shape cache"
+sleep 31
+
+phase blind
+walk
+
 say "starting $BOX"
 docker start "$BOX" >/dev/null
 started=yes
@@ -204,6 +221,17 @@ expect "public service document" 200 \
 refused "private service" \
   "ADR-026 is public-ONLY while blind. Serving a service whose scope this server cannot
          currently confirm is the failure the whole decision exists to avoid."
+
+# <b>The same expectations, now that the store has actually been asked.</b> Everything the
+# `down` block asserts is asserted again here against a walk that could not have been answered
+# from a warm shape -- which is the difference between watching the fallback and watching the
+# cache in front of it.
+SEEN="$LEDGER.blind"
+expect "health (anonymous)" 200   "ADR-017 6 does not stop applying because the outage lasted longer than a cache."
+expect "public service document" 200   "ADR-026 and D-127: the shape this server last read is what describes a public service
+         while the store is blind. This is the assertion the 'down' phase above cannot make,
+         because two seconds after a successful read nothing has been asked of the store."
+refused "private service"   "Public-ONLY while blind, for as long as blind lasts."
 
 SEEN="$LEDGER.cooled"
 expect "health (anonymous)" 200 "The server must come back on its own."

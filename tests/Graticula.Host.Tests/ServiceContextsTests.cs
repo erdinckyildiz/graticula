@@ -9,6 +9,7 @@ using Graticula.Geometries;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using Xunit;
 
 namespace Graticula.Host.Tests;
@@ -188,6 +189,83 @@ public sealed class ServiceContextsTests
         Assert.Equal(2, description.Fields.Count);
     }
 
+    /// <summary>
+    /// A database that says it is shutting down gets the remembered shape, not a refusal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The failure this was written from, measured rather than imagined.</b> On CI run
+    /// 33923883963 the platform container was stopped mid-run and a publicly shared
+    /// service's document was refused 503 — the thing
+    /// <see href="../../docs/adr/ADR-026-serving-through-a-platform-store-outage.md">ADR-026</see>
+    /// exists to prevent. The shape fallback had asked <c>SourceBreaker.Unreachable</c>
+    /// whether the source was away and been told no, because PostgreSQL's farewell —
+    /// <c>57P01</c>, <em>terminating connection due to administrator command</em> — is a
+    /// <c>PostgresException</c> like any syntax error, and every <c>PostgresException</c>
+    /// was read as proof the database had answered.
+    /// </para>
+    /// <para>
+    /// <b>It passed for months on a timing accident.</b> The rehearsal warms this cache two
+    /// seconds before it stops the database, so a run where nothing evicted the entry never
+    /// reached the fallback at all. D-224.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_database_that_is_shutting_down_still_gets_the_shape_it_last_gave()
+    {
+        (ServiceContexts contexts, CountingConnections counts, FakeTimeProvider clock) =
+            BuildWithClock();
+
+        PublishedLayer layer = Layer("roads", "public", "roads");
+
+        await contexts.GetAsync(layer, CancellationToken.None);
+
+        // <b>Past the shape's lifetime, so the describe is actually re-attempted.</b> Without
+        // this the second call is a cache hit and the test passes without ever reaching the
+        // fallback -- which is exactly how the CI rehearsal passed for months while the
+        // fallback was broken.
+        clock.Advance(ServiceContexts.Lifetime + TimeSpan.FromSeconds(1));
+
+        counts.FailNext = true;
+        counts.FailNextWith = new PostgresException(
+            "terminating connection due to administrator command", "FATAL", "FATAL", "57P01");
+
+        (IFeatureSource _, LayerDescription remembered) =
+            await contexts.GetAsync(layer, CancellationToken.None);
+
+        Assert.Equal(2, counts.Describes);
+        Assert.Equal(["objectid", "name"], remembered.Fields.Select(f => f.Name).ToArray());
+    }
+
+    /// <summary>
+    /// A database that answered a question is still not an outage.
+    /// </summary>
+    /// <remarks>
+    /// <b>The other half, because the fix above could have been made by giving up the
+    /// distinction.</b> Serving a remembered field list over a table that really has lost a
+    /// column presents a dropped column as present, which is the failure
+    /// <c>Lifetime</c> exists to bound arriving through the door marked resilience.
+    /// </remarks>
+    [Fact]
+    public async Task A_database_that_lost_a_column_is_not_served_from_memory()
+    {
+        (ServiceContexts contexts, CountingConnections counts, FakeTimeProvider clock) =
+            BuildWithClock();
+
+        PublishedLayer layer = Layer("roads", "public", "roads");
+
+        await contexts.GetAsync(layer, CancellationToken.None);
+
+        clock.Advance(ServiceContexts.Lifetime + TimeSpan.FromSeconds(1));
+
+        counts.FailNext = true;
+        counts.FailNextWith = new PostgresException(
+            "column does not exist", "ERROR", "ERROR", "42703");
+
+        await Assert.ThrowsAsync<PostgresException>(
+            () => contexts.GetAsync(layer, CancellationToken.None));
+    }
+
     // ---------- the stampede ----------
 
     [Fact]
@@ -359,6 +437,9 @@ public sealed class ServiceContextsTests
 
         public bool FailNext { get; set; }
 
+        /// <summary>What the next describe throws, when it is not the default refusal.</summary>
+        public Exception? FailNextWith { get; set; }
+
         public bool HoldUntilReleased { get; set; }
 
         public void Release() => _gate.TrySetResult();
@@ -377,7 +458,8 @@ public sealed class ServiceContextsTests
             if (FailNext)
             {
                 FailNext = false;
-                throw new InvalidOperationException("the data source refused");
+
+                throw FailNextWith ?? new InvalidOperationException("the data source refused");
             }
 
             return new LayerDescription(Fields, new Envelope(0, 0, 1, 1));

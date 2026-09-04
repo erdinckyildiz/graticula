@@ -74,6 +74,67 @@ public sealed class SourceBreakerTests
     }
 
     /// <summary>
+    /// A database saying it is going away is away, whatever kind of exception says so.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The four states where PostgreSQL's answer *is* that it cannot answer.</b>
+    /// <c>57P01</c> is what every open connection receives when the server is shut down or
+    /// restarted, <c>57P02</c> when it crashes, <c>57P03</c> when it is starting and not yet
+    /// taking work, and <c>53300</c> when there are no connection slots left — a store that
+    /// exists and cannot serve us, which from here is the same thing.
+    /// </para>
+    /// <para>
+    /// <b>Written from a failure rather than from the manual.</b> CI run 33923883963:
+    /// the platform container was stopped, every connection got <c>57P01</c>, and because
+    /// that is a <c>PostgresException</c> the shape cache treated it as *the database
+    /// answered* and refused a publicly shared service that ADR-026 says must keep being
+    /// described. D-224.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("57P01")]
+    [InlineData("57P02")]
+    [InlineData("57P03")]
+    [InlineData("53300")]
+    public void A_database_that_says_it_is_going_away_is_unreachable(string state)
+    {
+        DateTimeOffset[] now = [Start];
+        (SourceBreaker breaker, _) = At(now);
+
+        PostgresException leaving = new("shutting down", "FATAL", "FATAL", state);
+
+        Assert.True(SourceBreaker.Unreachable(leaving));
+        Assert.True(breaker.Failed(Source, leaving));
+        Assert.True(breaker.IsOpen(Source));
+    }
+
+    /// <summary>
+    /// The two answers to <em>is this database unreachable</em> are one answer.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because they were two, and they disagreed in production.</b>
+    /// <c>CatalogFallback.IsUnreachable</c> knew the four going-away states and this one did
+    /// not, so during the same outage the catalogue kept serving and the shapes stopped.
+    /// This asserts they cannot drift apart again on a state either of them learns about:
+    /// the list lives in one place and this is the other caller reading it.
+    /// </remarks>
+    [Theory]
+    [InlineData("57P01")]
+    [InlineData("53300")]
+    [InlineData("42703")]
+    [InlineData("23505")]
+    [InlineData("XX000")]
+    public void The_shape_cache_and_the_catalogue_agree_about_what_being_away_means(string state)
+    {
+        PostgresException said = new("said", "ERROR", "ERROR", state);
+
+        Assert.Equal(
+            Graticula.Platform.Postgres.CatalogFallback.IsUnreachable(said),
+            SourceBreaker.Unreachable(said));
+    }
+
+    /// <summary>
     /// A Postgres error wrapped in something else is still an answer.
     /// </summary>
     /// <remarks>
