@@ -4558,9 +4558,9 @@ async function loadSymbology(name) {
     fillSymbologyForm(r.symbology, symGeometry);
     await drawSymbologyPreview(name, JSON.stringify(r.symbology || r.drawingInfo));
 
-    $("symPreviewState").textContent = r.stored
-      ? "The stored appearance."
-      : "Generated — no document is stored.";
+    symStored = !!r.stored;
+    symEditedSince = false;
+    $("symPreviewState").textContent = symPreviewSays();
 
     // <b>Generated is stated, not implied by an empty box.</b> §5b makes a generated
     // appearance a real answer with a version of 0, and a reader who sees nothing cannot
@@ -4676,6 +4676,11 @@ function wireSymbologyForm() {
       }
 
       fillSymbologyForm(typed, symGeometry);
+
+      symEditedSince = true;
+
+      if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+
       await drawSymbologyPreview(editing.name, $("symDoc").value);
     }, 400);
   });
@@ -4802,6 +4807,10 @@ function wireSymbologyForm() {
   });
 }
 
+/** How many classes the last classification made, and from which field, for its own sentence. */
+let symClassCount = 0;
+let symClassField = "";
+
 /** The selected class's symbol layers, ready to be mutated. */
 function symStack() {
   const cls = symClasses()[symClassIndex];
@@ -4896,8 +4905,18 @@ async function symSettled(what) {
 
   if ($("symDoc")) $("symDoc").value = JSON.stringify(symModel, null, 1);
 
-  // Selecting a class changes nothing about the document, so it draws nothing new.
-  if (!what.quiet) await drawSymbologyPreview(editing.name, $("symDoc").value);
+  // <b>One funnel, so one place records that the document has moved.</b> Every control on this
+  // page reaches the model through here, which is why the flag is set here rather than in each
+  // handler: a caption that has to be corrected by twenty callers is a caption that will be
+  // wrong after the twenty-first is written. A quiet settle is a selection, which changes
+  // nothing about the document.
+  if (!what.quiet) {
+    symEditedSince = true;
+
+    if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+
+    await drawSymbologyPreview(editing.name, $("symDoc").value);
+  }
 }
 
 /**
@@ -5039,8 +5058,14 @@ async function symClassify() {
 
     const made = symClasses().length;
 
-    says.textContent = `${num(made)} class${made === 1 ? "" : "es"} from ${h(field)}. `
-      + `Nothing is stored yet — press Store to keep them.`
+    // <b>It says what it made, and no longer says whether it is saved.</b> That clause was
+    // correct the instant it was written and wrong forever afterwards, because nothing cleared
+    // it when a Store succeeded — a second, independently maintained copy of a fact the state
+    // line above already keeps, which is how a page comes to contradict itself in writing.
+    symClassCount = made;
+    symClassField = field;
+
+    says.textContent = `${num(made)} class${made === 1 ? "" : "es"} from ${h(field)}.`
       + ((r.losses || []).length > 0 ? ` ${r.losses.length} thing(s) could not be carried.` : "");
   } catch (err) {
     // The server's own sentence. It says which field, which method and what the data could not
@@ -5313,10 +5338,20 @@ function drawVarying() {
 
   const many = variables.length > 1 || symVaryStopCount(first) > 2;
 
-  $("symVaryNote").textContent = many
-    ? "This layer's document carries more than these two stops. They are kept; only the two "
-      + "ends are edited here."
-    : "";
+  // <b>Said before it is drawn, not discovered from the picture.</b> A ramp on a field that
+  // holds words draws every feature the same colour, which looks like a broken ramp rather than
+  // a wrong field — so the screen says which it is.
+  const field = symVaryFieldOf(first);
+  const wordy = field !== "" && symFields.length > 0
+    && !symFields.some(f => f.name === field && symIsNumeric(f.type));
+
+  $("symVaryNote").textContent = wordy
+    ? `${field} does not hold numbers, so every feature counts as nought and the whole layer `
+      + "draws in the first colour. Choose a number, or take this off with — none —."
+    : many
+      ? "This layer's document carries more than these two stops. They are kept; only the two "
+        + "ends are edited here."
+      : "";
 }
 
 /** The field a stored variable reads, in the spelling this form shows. */
@@ -5385,10 +5420,30 @@ function drawVaryFields(chosen) {
   const box = $("symVaryField");
   if (!box) return;
 
-  box.innerHTML = symFields.length === 0
-    ? `<option value="">— this layer's fields could not be read —</option>`
-    : symFields.map(f =>
-        `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${h(f.name)}</option>`)
+  // <b>A visual variable reads a number, and this list offered every field.</b> Measured
+  // 2026-09-04 on `ci_buildings`: a colour ramp told to read a text field paints
+  // <b>1,752 pixels of one colour</b> — the ramp's low end, because every feature's value
+  // becomes 0 — against 45 distinct colours from a numeric field. Nothing refuses it, nothing
+  // reports a loss, and the map comes out flat with no sentence anywhere saying why. The owner
+  // had exactly this on their screen: *Change: its colour, With: il*, where `il` is a province
+  // name.
+  const usable = symFields.filter(f => symIsNumeric(f.type));
+
+  // <b>A field already in the document stays in the list even when it does not belong there.</b>
+  // Dropping it would silently move a stored variable onto another field the moment somebody
+  // opened the page — the form editing the document behind the reader's back, which is worse
+  // than the fault being fixed. It is shown, marked, and explained underneath.
+  const stored = chosen && !usable.some(f => f.name === chosen)
+    ? [{ name: chosen, type: "", kept: true }]
+    : [];
+
+  const offer = [...stored, ...usable];
+
+  box.innerHTML = offer.length === 0
+    ? `<option value="">— this layer has no number to vary with —</option>`
+    : offer.map(f =>
+        `<option value="${h(f.name)}"${f.name === chosen ? " selected" : ""}>${
+          h(f.name)}${f.kept ? " — not a number" : ""}</option>`)
       .join("");
 }
 
@@ -6331,6 +6386,32 @@ function drawSymbolLayers() {
   }).join("");
 }
 
+/** Whether this layer has a stored document, as the last load or Store reported it. */
+let symStored = false;
+
+/** Whether anything has been changed since that load or Store. */
+let symEditedSince = false;
+
+/**
+ * What the picture beside the form is of.
+ *
+ * <b>Three states, and the middle one is the one that was missing.</b> A layer either has no
+ * stored document and is drawn from the generated appearance, or has one and the picture matches
+ * it, or has one and the picture is ahead of it because somebody has been editing. The caption
+ * used to have two sentences for three states and pick between them in two different places.
+ *
+ * @returns {string} the caption
+ */
+function symPreviewSays() {
+  if (symEditedSince) {
+    return symStored
+      ? "Edited — this is what Store would keep, not what is stored now."
+      : "Edited — this is what Store would keep.";
+  }
+
+  return symStored ? "The stored appearance." : "Generated — no document is stored.";
+}
+
 /** Asks for the picture and shows it, or says why there is none. */
 async function drawSymbologyPreview(name, body) {
   const image = $("symPreview");
@@ -6396,7 +6477,16 @@ async function drawSymbologyPreview(name, body) {
     image.src = "data:image/png;base64," + btoa(binary);
     image.hidden = false;
     none.hidden = true;
-    state.textContent = "Not stored yet — this is what Store would keep.";
+    // <b>The caption is about the picture, and it used to be about saving.</b> It read *Not
+    // stored yet — this is what Store would keep*, which is true of a picture drawn from an
+    // edited form and false forever after a Store, because nothing redraws the preview when a
+    // Store succeeds and nothing else ever corrected the sentence. A design review read it
+    // immediately after storing 256 classes and it still said *not stored yet*.
+    //
+    // <b>One question, one place.</b> Whether a document is stored is answered by the state line
+    // at the top of the section; this sentence answers a different question — which of the two
+    // appearances the picture beside it is of — and now says only that.
+    state.textContent = symPreviewSays();
   } catch (e) {
     image.hidden = true;
     none.hidden = false;
@@ -10743,6 +10833,22 @@ async function handleClick(event) {
       drawLosses(r.losses);
 
       $("symState").innerHTML = `Stored from your ${h(r.from)}, ${num(r.bytes)} bytes.`;
+
+      // <b>Everything that claims to know whether this is stored is corrected here.</b> Two of
+      // them were not, and went on saying *nothing is stored yet* under a document that had just
+      // been stored — the classify line and the preview caption, each written once by whatever
+      // function happened to produce it and never revisited by the one that made it wrong.
+      symStored = true;
+      symEditedSince = false;
+
+      if ($("symPreviewState")) $("symPreviewState").textContent = symPreviewSays();
+
+      if ($("symClassifySays")) {
+        $("symClassifySays").textContent = symClassCount === 0
+          ? ""
+          : `${num(symClassCount)} class${symClassCount === 1 ? "" : "es"} from `
+            + `${symClassField}.`;
+      }
 
       toast(
         r.losses.length === 0

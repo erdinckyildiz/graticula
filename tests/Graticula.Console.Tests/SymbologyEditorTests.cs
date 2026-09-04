@@ -127,9 +127,18 @@ public sealed class SymbologyEditorTests : ConsoleTest
             "The picture did not change when the colour did, so the preview is showing one "
             + "answer regardless of what was asked.");
 
+        // <b>The claim is the meaning, and it used to be the wording.</b> This read
+        // `includes('Not stored')` and broke on 2026-09-04 when that sentence was removed — it
+        // was written on every render and corrected by nothing, so it went on saying *not stored
+        // yet* under a document that had just been stored ([D-219](../../docs/architecture-debt.md)).
+        // What the test is actually for is unchanged: after an edit, the caption has to
+        // distinguish the picture from what is stored. This test paints it — it plants a real
+        // PNG, so the caption survives to be read — while the derivation itself is
+        // `Editing_moves_the_caption_off_the_stored_appearance`, where the write trap answers
+        // the preview with JSON and the painted caption cannot be trusted.
         await WaitForAsync(
             "(document.getElementById('symPreviewState')?.textContent || '')"
-            + ".includes('Not stored')",
+            + ".includes('Store would keep')",
             "The preview does not say it is unsaved, so a reader cannot tell what they are "
             + "looking at from what would be kept.");
 
@@ -413,6 +422,85 @@ public sealed class SymbologyEditorTests : ConsoleTest
             + "   return Object.values(o).some(walk); };"
             + " return walk(d); })()",
             "Choosing a new colour reset the opacity to opaque, so the two controls fight.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The picture's caption follows the document, and never claims a state that has passed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's screenshot held five sentences about saving and two of them were wrong.</b>
+    /// A design review reproduced it: after storing 256 classes, the preview caption still read
+    /// *Not stored yet — this is what Store would keep* and the classify line still read *Nothing
+    /// is stored yet — press Store to keep them*, while the state line and the toast both
+    /// correctly said it was stored. Each sentence was written once by whatever function produced
+    /// it and never revisited by the one that made it false.
+    /// </para>
+    /// <para>
+    /// <b>The caption answers a different question now.</b> Whether a document is stored is the
+    /// state line's job; the caption says which of the two appearances the picture is of, which
+    /// has three states — generated, stored, and edited-since — and is derived in one place
+    /// rather than assigned in three.
+    /// </para>
+    /// <para>
+    /// <b>Asked of the derivation, not of the painted caption.</b> `ConsoleTest.Plant` traps
+    /// every non-`GET`, and the preview is a `POST` — so in this suite the caption always ends
+    /// up carrying the preview's own failure message, whatever it said a moment earlier. What is
+    /// provable here is the half that was broken: that the sentence is *derived* from the two
+    /// facts rather than written by hand in three places, that an edit moves it, and that the
+    /// wording which could go stale is gone from the file. The painted caption is the preview
+    /// tests' subject, and storing is `Graticula.Conformance.Tests`'.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Editing_moves_the_caption_off_the_stored_appearance()
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
+
+        await WaitForAsync(
+            "document.querySelector('#symStack .symalpha') !== null",
+            "The symbology form never filled.");
+
+        string atRest = await Browser.EvaluateAsync<string>("symPreviewSays()") ?? "";
+
+        Assert.DoesNotContain("Edited", atRest, StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const a = document.querySelector('#symStack .symalpha');"
+            + " a.value = '40';"
+            + " a.dispatchEvent(new Event('change', { bubbles: true }));"
+            + " return true; })()");
+
+        await WaitForAsync(
+            "symPreviewSays().startsWith('Edited')",
+            "The caption still describes the stored appearance after an edit, so the picture "
+            + "beside the form would claim to be something it is not.");
+
+        // <b>And it says what Store would do, because that is the question an edited picture
+        // raises.</b>
+        string edited = await Browser.EvaluateAsync<string>("symPreviewSays()") ?? "";
+
+        Assert.Contains("Store would keep", edited, StringComparison.Ordinal);
+
+        // <b>The wording that could go stale is gone, not merely corrected.</b> *Not stored yet*
+        // was written on every preview render and revisited by nothing; a page that still
+        // contains the sentence can still print it.
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(
+                "document.body.innerHTML.includes('Not stored yet')"),
+            "The sentence that went stale is still in the page.");
+
+        // <b>The classify line no longer answers the storage question at all.</b> It kept its own
+        // copy of that fact and never cleared it; the state line is the single place now.
+        string says = await Browser.EvaluateAsync<string>(
+            "document.getElementById('symClassifySays')?.textContent || ''") ?? "";
+
+        Assert.DoesNotContain("stored", says, StringComparison.OrdinalIgnoreCase);
 
         NothingWentWrong(await PageErrorsAsync());
     }
