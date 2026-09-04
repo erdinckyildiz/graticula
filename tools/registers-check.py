@@ -629,6 +629,80 @@ DEBT_VERDICTS = (
 )
 
 
+def a_control_edge_nobody_can_see():
+    """The console's control borders, against every surface they land on.
+
+    **1.4.11 asks 3:1 of the visual information that identifies a component**, and a
+    text box in this console has no fill of its own: its border is the whole of what
+    says *this is a box you type in*. A design review measured `--rule-strong` at
+    **1.45:1** on 2026-09-05 and the register had been carrying
+    [D-215](../docs/architecture-debt.md) for it.
+
+    **This exists because the repair before it was reported as one and was not.** The
+    class list's scroll edge was moved from `--rule` to `--rule-strong` the day before,
+    under a comment citing this very rule, and went from 1.23 to 1.45 -- a step in the
+    right direction written up as arrival. A number nobody recomputes is a number that
+    drifts back, so the ratio is computed here from the stylesheet's own tokens rather
+    than remembered from the commit that set them.
+
+    Narrow on purpose: it checks one token against the three surfaces, because that is
+    the claim `--control-edge` makes about itself. It is not a contrast audit of the
+    console, which is a design review's job and not a build step's.
+    """
+    path = os.path.join(
+        conditions.ROOT, "src", "Graticula.Host", "wwwroot", "console.css")
+
+    try:
+        css = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"console.css could not be read: {problem}"]
+
+    def luminance(colour):
+        out = 0.0
+
+        for weight, index in ((0.2126, 0), (0.7152, 1), (0.0722, 2)):
+            channel = int(colour[1 + index * 2:3 + index * 2], 16) / 255
+            channel = (
+                channel / 12.92 if channel <= 0.03928
+                else ((channel + 0.055) / 1.055) ** 2.4)
+            out += weight * channel
+
+        return out
+
+    def contrast(one, other):
+        a, b = luminance(one), luminance(other)
+
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+
+    edge = re.search(r"--control-edge:\s*(#[0-9a-fA-F]{6})", css)
+
+    if not edge:
+        return [
+            "console.css no longer defines --control-edge. It is the border of every "
+            "input, select, textarea and button, and D-215 is the row that says why it "
+            "has to be measurable."
+        ]
+
+    surfaces = re.findall(r"--(surface(?:-\d)?):\s*(#[0-9a-fA-F]{6})", css)
+
+    if not surfaces:
+        return ["console.css defines no --surface tokens to measure --control-edge against."]
+
+    problems = []
+
+    for name, value in surfaces:
+        ratio = contrast(edge.group(1), value)
+
+        if ratio < 3.0:
+            problems.append(
+                f"--control-edge {edge.group(1)} is {ratio:.2f}:1 against --{name} {value}. "
+                "WCAG 2.1 SC 1.4.11 asks 3:1 of a boundary that identifies a control, and "
+                "these boxes have no fill of their own. See D-215."
+            )
+
+    return problems
+
+
 def a_debt_status_nobody_counts():
     """A debt whose status opens with a word no tool recognises.
 
@@ -2685,6 +2759,7 @@ def main() -> int:
                 + a_gate_tally_that_disagrees_with_the_gates()
                 + a_debt_row_that_disagrees_with_itself()
                 + a_debt_status_nobody_counts()
+                + a_control_edge_nobody_can_see()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()

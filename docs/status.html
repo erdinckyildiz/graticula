@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>42f077b</code> · 2026-09-05 02:27</p>
+<p class="stamp">Generated from commit <code>2f0c277</code> · 2026-09-05 02:41</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">53</div><div class="kpi-l">ADRs</div><div class="kpi-n">7 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">152/202</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">50 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">198 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">199 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2334</div><div class="kpi-l">tests</div><div class="kpi-n">265 source files, 106,736 lines</div></div>
@@ -290,13 +290,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-202</td><td>Six WMS 1.3.0 CITE assertions fail and nothing in this repository names them.</td><td class="muted-t">Read the ets-wms13 source for how it selects a layer for the CRS:84 image tests, or run the engine with its own logging…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-208</td><td>Two of the three PollerPoolTests fail whenever a second server is running against the same database, and the message reads like a product defect.</td><td class="muted-t">Already fired, twice in one afternoon, both times mistaken for a regression in unrelated work before being traced.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-215</td><td>Every text, number and select box in the studio has a border of 1.45:1 against the panel behind it.</td><td class="muted-t">Not yet reported by anybody using it, which is what a 1.45:1 boundary looks like: legible enough to work with in a…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-216</td><td>.setting.wide gives its control a fixed 300 px, and the panel it sits in is 359 px at 1280.</td><td class="muted-t">Silent.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-218</td><td>A colour ramp told to read a field of words paints the whole layer one colour, and nothing says so.</td><td class="muted-t">A flat map with no explanation.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-220</td><td>The 1c handoff was implemented for eight screens of eleven, and the three that were left look finished.</td><td class="muted-t">The next design review of any of the three.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-225</td><td>Two inputs on every class row have no border at rest, so nothing says they are inputs until somebody points at them.</td><td class="muted-t">WCAG 2.1 SC 1.4.11 is not satisfied by an outline that appears on hover: a pointer is how you find out, and a keyboard…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">198 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">199 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -404,6 +404,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>2f0c277</code><time>2026-09-05</time><span>The status page catches up with D-173 reopening</span></li>
 <li><code>42f077b</code><time>2026-09-05</time><span>D-173: the other surface&#x27;s assets are other URLs, and were not warmed</span></li>
 <li><code>5b262b1</code><time>2026-09-05</time><span>D-173 reopens: the warm-up was pointed at a page with nothing to warm</span></li>
 <li><code>d56b1e3</code><time>2026-09-05</time><span>The dashboard said 35 open debts and there were 22</span></li>
@@ -417,7 +418,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7c4e990</code><time>2026-09-05</time><span>The symbology preview is a map you can pan, drawn by this server</span></li>
 <li><code>cb1fcdf</code><time>2026-09-04</time><span>A preview can be drawn at the viewport&#x27;s extent, and it costs 78 ms at 256 classes</span></li>
 <li><code>6a589a9</code><time>2026-09-04</time><span>The current tab was white on white, in the one strip that was not given the fix</span></li>
-<li><code>1fac38c</code><time>2026-09-04</time><span>ADR-053 §9a: which layer moves into the rail, and the Symbology tab becomes a link</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

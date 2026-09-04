@@ -92,6 +92,26 @@
   --rule: #e3e8ef;
   --rule-strong: #cfd7e3;
 
+  /* <b>The edge of a control, which is not the same thing as a line between two blocks.</b>
+     WCAG 2.1 SC 1.4.11 asks 3:1 of the visual information that identifies a component, and a
+     text box here has no fill of its own -- its border is the whole of what says *this is a
+     box you type in*. Measured 2026-09-05 by computing the ratios rather than judging them:
+
+       edge                      on #ffffff   on #f1f4f8   on #e7ecf3
+       --rule        #e3e8ef           1.23         1.12         1.04
+       --rule-strong #cfd7e3           1.45         1.31         1.22
+       --control-edge #7e889a          3.57         3.24         3.01
+
+     <b>A new token rather than a darker `--rule-strong`.</b> That one is used seventeen times
+     and most of them are decoration -- a hover state, a separator dot, a dashed drop zone --
+     which the standard does not ask anything of and which a darker grey would make heavier for
+     nothing. This one is used only where a boundary is the control.
+
+     <b>#7e889a is the lightest colour on this palette's own hue that clears 3.0 everywhere</b>,
+     found by walking the ramp rather than by picking a grey that looked about right: the least
+     ink that satisfies the rule, so the form does not turn into a grid of boxes. */
+  --control-edge: #7e889a;
+
   /*
     <b>One working accent and one that means something.</b> Teal is *the product doing something* —
     primary buttons, the active section, focus. Blue appears in exactly one place, the `public`
@@ -775,7 +795,7 @@ td.acts > * + * { margin-left: var(--gap-1); }
 button, .btn {
   font: 500 var(--t-small) var(--sans);
   padding: 7px 14px;
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--control-edge);
   border-radius: var(--round);
   background: var(--surface);
   color: var(--ink);
@@ -864,7 +884,7 @@ button.danger:hover { background: var(--alert-soft); border-color: var(--alert-l
 input, select, textarea {
   font: var(--t-small) var(--sans);
   padding: 7px 10px;
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--control-edge);
   border-radius: var(--round);
   background: var(--surface);
   color: var(--ink);
@@ -1082,7 +1102,7 @@ button:hover .ico { opacity: 1; }
 */
 .widget .why {
   margin-left: auto; width: 17px; height: 17px; flex: none;
-  border-radius: 50%; border: 1px solid var(--rule-strong);
+  border-radius: 50%; border: 1px solid var(--control-edge);
   color: var(--faint); background: var(--surface);
   font: 600 11px/15px var(--sans); text-align: center; text-transform: none; letter-spacing: 0;
   cursor: help;
@@ -1573,7 +1593,7 @@ td.name a:hover { text-decoration: underline; }
   The drop zone. Dashed, because a dashed edge is the one border convention that reads as *put
   something here* rather than *this is a box*, and it is the one their screen uses.
 */
-.dropzone { border: 1px dashed var(--rule-strong); border-radius: var(--round-lg);
+.dropzone { border: 1px dashed var(--control-edge); border-radius: var(--round-lg);
             background: var(--surface-2); padding: var(--gap-6) var(--gap-5);
             text-align: center; display: grid; justify-items: center; gap: var(--gap-3); }
 .dropzone p { margin: 0; font-size: var(--t-body); }
@@ -2498,11 +2518,14 @@ html[data-session="held"] #app { display: block !important; }
   overscroll-behavior: contain;
 }
 
-/* <b>`--rule-strong`, because `--rule` measured 1.23:1 against the panel.</b> WCAG 1.4.11 asks
-   3:1 of a boundary that carries meaning, and this one carries the only standing signal that the
-   list continues below. Measured by a design review 2026-09-04. */
+/* <b>This was moved from `--rule` to `--rule-strong` on 2026-09-04 and the comment claimed the
+   contrast problem was fixed. It was not.</b> 1.23:1 became 1.45:1, and the rule the comment
+   itself cited asks for 3:1 -- the repair was a step in the right direction reported as arrival,
+   which is worse than leaving it alone, because a row in the register then says it is done.
+   Computed 2026-09-05 rather than eyeballed. `--control-edge` clears it at 3.57:1, and this
+   boundary earns the token: it carries the only standing signal that the list continues below. */
 #symClasses.symscrolls{
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--control-edge);
   border-radius: var(--round);
   padding: 4px;
 }
@@ -2585,9 +2608,14 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symclass .symvalue {
   font: 11.5px var(--mono); color: var(--muted);
 }
+/* <b>The arriving border is the one that has to be seen.</b> It was `--rule-strong` at 1.45:1,
+   which after 2026-09-05 was *lighter* than the resting border of every other box on the page --
+   so hovering one of these made it fainter than a control that had done nothing. Whether they
+   should be borderless at rest at all is a separate question and a separate row:
+   [D-225](../../../docs/architecture-debt.md). */
 .setting.symclass .symlabel:hover, .setting.symclass .symvalue:hover,
 .setting.symclass .symlabel:focus, .setting.symclass .symvalue:focus {
-  border-color: var(--rule-strong); background: var(--surface);
+  border-color: var(--control-edge); background: var(--surface);
 }
 
 .setting.symclass .symname { font-size: var(--t-small); }
@@ -2641,7 +2669,7 @@ input[type="color"].sw-point::-moz-color-swatch { border-radius: 50%; }
 #insp-classes #symClasses {
   border: 1px solid var(--rule); border-radius: 6px; overflow: auto;
 }
-#insp-classes #symClasses.symscrolls { border-color: var(--rule-strong); padding: 0; }
+#insp-classes #symClasses.symscrolls { border-color: var(--control-edge); padding: 0; }
 #insp-classes #symClasses .hint { margin: 0; padding: 10px; }
 
 #insp-classes #symFilterRow, #insp-classes #symAllRow { gap: var(--gap-2); }
