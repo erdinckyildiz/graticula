@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  The README's banner. Two PNGs from this one file, so the dark variant cannot
+  drift from the light one:
+
+    chrome --headless=new --hide-scrollbars --force-device-scale-factor=2       --window-size=1280,376 --virtual-time-budget=6000       --screenshot=docs/banner-light.png file:///ABS/PATH/docs/banner.html
+    chrome ... --screenshot=docs/banner-dark.png file:///ABS/PATH/docs/banner.html#dark
+
+  The palette is docs/status.html's, so the three surfaces stay one product.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#f6f4ef; --ink:#141b1f; --ink-2:#41525c; --ink-3:#5a6c73;
+  --accent:#0f6d5f; --accent-line:#8fb9ae; --line:#ded9cd;
+}
+:root[data-theme="dark"]{
+  --ground:#10151a; --ink:#e9e6df; --ink-2:#a8b6bc; --ink-3:#8b9ca2;
+  --accent:#57bda9; --accent-line:#4f8a80; --line:#2a343c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:376px;overflow:hidden}
+body{background:var(--ground);
+  font-family:"Source Sans 3",-apple-system,"Segoe UI",system-ui,sans-serif;
+  display:grid;grid-template-columns:1fr 312px;align-items:center;
+  padding:0 64px;gap:40px}
+
+.mark{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-weight:700;
+  font-size:76px;line-height:1;letter-spacing:-.035em;color:var(--ink);margin-bottom:20px}
+
+.thesis{font-size:26px;line-height:1.34;color:var(--ink-2);max-width:31ch;
+  margin-bottom:26px;font-weight:400}
+.thesis b{color:var(--ink);font-weight:600}
+
+.meta{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:13px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  border-top:1px solid var(--line);padding-top:14px;display:flex;gap:18px;flex-wrap:wrap}
+.meta i{color:var(--accent-line);font-style:normal}
+
+svg{width:312px;height:312px;display:block}
+</style>
+<script>if(location.hash==='#dark')document.documentElement.dataset.theme='dark';</script>
+</head>
+<body>
+
+  <div>
+    <p class="mark">Graticula</p>
+    <p class="thesis">The <b>ArcGIS REST API</b>, from one container and one Postgres.</p>
+    <p class="meta">
+      <span>v0.1.0</span><i>/</i>
+      <span>PostGIS</span><i>/</i>
+      <span>Elastic License 2.0</span>
+    </p>
+  </div>
+
+  <svg viewBox="0 0 480 480" aria-hidden="true">
+    <g transform="rotate(-19 240 240)" fill="none" stroke="var(--accent-line)" stroke-width="2">
+      <circle cx="240" cy="240" r="220" stroke="var(--accent)" stroke-width="3"/>
+      <ellipse cx="240" cy="240" rx="212.5" ry="220"/>
+      <ellipse cx="240" cy="240" rx="190.5" ry="220"/>
+      <ellipse cx="240" cy="240" rx="155.6" ry="220"/>
+      <ellipse cx="240" cy="240" rx="110"   ry="220"/>
+      <ellipse cx="240" cy="240" rx="56.9"  ry="220"/>
+      <line x1="240" y1="20" x2="240" y2="460"/>
+      <line x1="20"    y1="240"   x2="460"   y2="240" stroke="var(--accent)" stroke-width="3"/>
+      <line x1="27.5"  y1="183.1" x2="452.5" y2="183.1"/>
+      <line x1="49.5"  y1="130"   x2="430.5" y2="130"/>
+      <line x1="84.4"  y1="84.4"  x2="395.6" y2="84.4"/>
+      <line x1="130"   y1="49.5"  x2="350"   y2="49.5"/>
+      <line x1="183.1" y1="27.5"  x2="296.9" y2="27.5"/>
+      <line x1="27.5"  y1="296.9" x2="452.5" y2="296.9"/>
+      <line x1="49.5"  y1="350"   x2="430.5" y2="350"/>
+      <line x1="84.4"  y1="395.6" x2="395.6" y2="395.6"/>
+      <line x1="130"   y1="430.5" x2="350"   y2="430.5"/>
+      <line x1="183.1" y1="452.5" x2="296.9" y2="452.5"/>
+    </g>
+  </svg>
+
+</body>
+</html>

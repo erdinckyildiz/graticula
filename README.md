@@ -1,13 +1,15 @@
-# Graticula
-
-**The ArcGIS REST API, from one container and one Postgres.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
+  <img alt="Graticula — the ArcGIS REST API, from one container and one Postgres. v0.1.0, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
+</picture>
 
 Publish a PostGIS table and it is a feature service at a URL your existing clients
 already open. ArcGIS Pro connects, browses, adds the layer and edits it. There is no
 site to create, no data store tier to install and no portal to federate.
 
-A *graticule* is the net of meridians and parallels drawn on a map. `Graticula` is the
-Medieval Latin word English borrowed it from.
+**[The overview page](https://erdinckyildiz.github.io/graticula/)** says the same thing
+with room to breathe. A *graticule* is the net of meridians and parallels drawn on a map;
+`Graticula` is the Medieval Latin word English borrowed it from.
 
 > **v0.1.0 — not 1.0.** It runs and it is tested; it has not yet been operated in
 > production by anybody but its author.
