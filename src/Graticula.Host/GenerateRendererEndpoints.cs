@@ -440,59 +440,129 @@ public static class GenerateRendererEndpoints
             behind += counted[i].Count;
         }
 
-        List<string> values = [.. counted.Take(shown).Select(c => c.Value)];
-
-
         JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
+        JsonObject? ramp = asked["colorRamp"] as JsonObject;
 
-        // <b>A qualitative palette, because these classes have no order.</b> The class-breaks
-        // path uses a light-to-dark sequential ramp and should: its classes ARE ordered, and the
-        // ramp is what says so without a legend. `Block A` and `Block H` are not ordered, and
-        // giving them the same ramp tells a reader that H is more of something than A. Found by
-        // a design review on 2026-09-04, which noted the two paths had been sharing a ramp by
-        // reuse rather than by decision.
-        List<Rgba> ramp = asked["colorRamp"] is JsonObject
-            ? Ramp(asked["colorRamp"], values.Count)
-            : Distinct(values.Count);
+        // <b>How many classes fit is measured, not calculated, and this is the second time that
+        // lesson has been learned here.</b> `MostValues` was set from a cost per class of 478
+        // characters for a polygon and 690 for a point, and both were measured on the wrong
+        // document: <b>what is stored is the CIM, and CIM is far heavier than Esri's
+        // renderer</b>. The same 256 classes of the owner's place names are <b>72,986</b>
+        // characters as a `drawingInfo` and <b>165,470</b> as CIM — 646 a class rather than 274 —
+        // because a point symbol becomes a `CIMVectorMarker` wrapping a graphic wrapping a
+        // polygon symbol rather than four numbers and a style name.
+        //
+        // <b>So it builds, converts, weighs, and if it is over the cap builds again with fewer.</b>
+        // The cost per class depends on the geometry, on the symbol somebody supplied and on how
+        // long the values are, and no constant is right for all three. Two passes settle it in
+        // every case seen; the loop is bounded at four so a pathological symbol cannot spin.
+        int allowed = Math.Min(counted.Count, MostValues);
+        JsonObject built = Renderer(allowed);
 
-        JsonArray infos = [];
-
-        for (int i = 0; i < values.Count; i++)
+        for (int pass = 0; pass < 4 && allowed > 1; pass++)
         {
-            infos.Add(new JsonObject
+            int size = Stored(built, geometry);
+
+            if (size <= SymbologyConversion.MaximumCharacters)
             {
-                ["value"] = values[i],
-                ["label"] = values[i],
-                ["description"] = string.Empty,
-                ["symbol"] = Painted(baseSymbol, ramp[i]),
-            });
-        }
+                break;
+            }
 
-        JsonObject built = new()
-        {
-            ["type"] = "uniqueValue",
-            ["field1"] = fields[0],
-            ["field2"] = fields.Count > 1 ? fields[1] : null,
-            ["field3"] = fields.Count > 2 ? fields[2] : null,
-            ["fieldDelimiter"] = delimiter,
-            ["uniqueValueInfos"] = infos,
-        };
+            // A tenth off the proportional answer, because the overhead outside the classes is
+            // not proportional and a second pass that lands just over would cost a third.
+            int fewer = (int)(allowed
+                * ((double)SymbologyConversion.MaximumCharacters / size) * 0.9);
 
-        // <b>An "Other" class rather than a refusal, which is what ArcGIS does.</b> Map Viewer
-        // shows only the ten most common categories and groups the rest into Other; this server
-        // refused the whole classification until 2026-09-04, which turned a field with too many
-        // values into no map at all. The label carries the numbers, because *Other* on its own
-        // does not say whether it is three features or three hundred thousand.
-        if (hidden > 0)
-        {
-            built["defaultSymbol"] = Painted(baseSymbol, new Rgba(170, 170, 170, 255));
-            built["defaultLabel"] = string.Create(
-                CultureInfo.InvariantCulture,
-                $"Other ({hidden:N0} more value{(hidden == 1 ? string.Empty : "s")}, "
-                + $"{behind:N0} feature{(behind == 1 ? string.Empty : "s")})");
+            allowed = Math.Clamp(fewer, 1, allowed - 1);
+            built = Renderer(allowed);
         }
 
         return built;
+
+        // <b>The renderer for the first `many` values, and the rest into `Other`.</b>
+        JsonObject Renderer(int many)
+        {
+            List<string> values = [.. counted.Take(many).Select(c => c.Value)];
+            List<Rgba> colours = ramp is not null
+                ? Ramp(ramp, values.Count)
+                : Distinct(values.Count);
+
+            JsonArray infos = [];
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                infos.Add(new JsonObject
+                {
+                    ["value"] = values[i],
+                    ["label"] = values[i],
+                    ["description"] = string.Empty,
+                    ["symbol"] = Painted(baseSymbol, colours[i]),
+                });
+            }
+
+            JsonObject renderer = new()
+            {
+                ["type"] = "uniqueValue",
+                ["field1"] = fields[0],
+                ["field2"] = fields.Count > 1 ? fields[1] : null,
+                ["field3"] = fields.Count > 2 ? fields[2] : null,
+                ["fieldDelimiter"] = delimiter,
+                ["uniqueValueInfos"] = infos,
+            };
+
+            // <b>An "Other" class rather than a refusal, which is what ArcGIS does.</b> Map
+            // Viewer shows only the ten most common categories and groups the rest into Other;
+            // this server refused the whole classification until 2026-09-04, which turned a
+            // field with too many values into no map at all. The label carries the numbers,
+            // because *Other* on its own does not say whether it is three features or three
+            // hundred thousand.
+            int rest = counted.Count - values.Count;
+
+            if (rest > 0)
+            {
+                long left = 0;
+
+                for (int i = values.Count; i < counted.Count; i++)
+                {
+                    left += counted[i].Count;
+                }
+
+                renderer["defaultSymbol"] = Painted(baseSymbol, new Rgba(170, 170, 170, 255));
+                renderer["defaultLabel"] = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Other ({rest:N0} more value{(rest == 1 ? string.Empty : "s")}, "
+                    + $"{left:N0} feature{(left == 1 ? string.Empty : "s")})");
+            }
+
+            return renderer;
+        }
+    }
+
+    /// <summary>How long this renderer would be once stored, in characters.</summary>
+    /// <remarks>
+    /// <b>As CIM, because that is what is stored.</b> A renderer measured in Esri's own
+    /// vocabulary is measured in the wrong one: 256 classes of the owner's place names are 274
+    /// characters each there and 646 as CIM, because a point symbol becomes a `CIMVectorMarker`
+    /// wrapping a graphic wrapping a polygon symbol. Measuring the wrong document is how a
+    /// ceiling comes to promise something the store refuses.
+    /// </remarks>
+    /// <param name="renderer">The Esri renderer.</param>
+    /// <param name="geometry">What the layer is made of.</param>
+    /// <returns>The length of the canonical document.</returns>
+    private static int Stored(JsonObject renderer, GeometryKind geometry)
+    {
+        try
+        {
+            return CimEsri.FromDrawingInfo(
+                new JsonObject { ["renderer"] = renderer.DeepClone() }, geometry)
+                .Renderer.ToJsonString().Length;
+        }
+        catch (SymbologyException)
+        {
+            // <b>A renderer that will not convert is not this method's problem to report.</b>
+            // The caller converts it too, a few lines later, and its refusal carries the reason.
+            return 0;
+        }
     }
 
     /// <summary>Runs one statistics query and returns its single row.</summary>

@@ -512,18 +512,42 @@ public sealed class SymbologyConversionTests
     [Fact]
     public void A_document_past_the_bound_is_refused_with_the_number()
     {
-        // Padded past the bound with a comment, which is a real thing a generator
-        // does: the document is valid and simply enormous.
-        string padding = new('x', SymbologyConversion.MaximumCharacters);
+        // <b>The bound is on what is stored, and this test used to prove it was on what was
+        // sent.</b> It padded a layer's `metadata` past the limit — a field the conversion drops,
+        // so the document that reached the column was tiny and was refused anyway. The owner met
+        // the same rule from the other side on 2026-09-04: the console writes its document box
+        // indented, `Store` sends the box, and a 256-class renderer that is 202,289 characters
+        // stored arrived as 357,744 and was refused for its whitespace.
+        //
+        // Two bounds now, and they are different bounds. The raw request has a generous one
+        // whose job is to stop a parse of something enormous before it allocates.
+        string huge = new('x', (SymbologyConversion.MaximumCharacters * 8) + 16);
 
-        string style =
-            "{\"version\":8,\"layers\":[{\"id\":\"a\",\"type\":\"fill\","
-            + "\"paint\":{\"fill-color\":\"#123456\"},\"metadata\":\"" + padding + "\"}]}";
+        SymbologyException enormous = Assert.Throws<SymbologyException>(
+            () => SymbologyConversion.Read(
+                "{\"version\":8,\"layers\":[{\"id\":\"" + huge + "\"}]}",
+                GeometryKind.Polygon));
 
-        SymbologyException refused = Assert.Throws<SymbologyException>(
-            () => SymbologyConversion.Read(style, GeometryKind.Polygon));
+        Assert.Contains("before it is even read", enormous.Message, StringComparison.Ordinal);
 
-        Assert.Contains("262,144", refused.Message, StringComparison.Ordinal);
+        // And the canonical form has the real one, which is the column's.
+        System.Text.StringBuilder match = new(
+            "{\"version\":8,\"layers\":[{\"id\":\"a\",\"type\":\"fill\",\"paint\":{"
+            + "\"fill-color\":[\"match\",[\"get\",\"ad\"]");
+
+        for (int i = 0; i < 4000; i++)
+        {
+            match.Append(System.Globalization.CultureInfo.InvariantCulture,
+                $",\"a rather long class value number {i}\",\"#123456\"");
+        }
+
+        match.Append(",\"#000000\"]}}]}");
+
+        SymbologyException stored = Assert.Throws<SymbologyException>(
+            () => SymbologyConversion.Read(match.ToString(), GeometryKind.Polygon));
+
+        Assert.Contains("262,144", stored.Message, StringComparison.Ordinal);
+        Assert.Contains("very many classes", stored.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

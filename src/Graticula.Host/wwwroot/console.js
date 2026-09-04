@@ -10441,7 +10441,17 @@ async function handleClick(event) {
           : `${r.name}: stored. ${r.losses.length} thing${r.losses.length === 1 ? "" : "s"} `
             + `the ArcGIS face cannot carry — listed below the editor.`,
         r.losses.length === 0);
-    } catch (e) { toast(e.message); }
+    } catch (e) {
+      // <b>On the page as well as in a toast, which is this file's own rule about facts that
+      // matter.</b> The comment eight lines above says a toast is read once and dismissed and
+      // that a conversion's losses need to still be saying so afterwards — and a Store that
+      // FAILED got only the toast. The owner pressed Store, the toast went, and the page looked
+      // exactly as it had: *save desem de işlem yapmıyor*. It says so now, and keeps saying it.
+      $("symState").innerHTML =
+        `<b>Not stored.</b> ${h(e.message || String(e))}`;
+
+      toast(e.message || String(e));
+    }
 
     t.disabled = false;
     return;
