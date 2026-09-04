@@ -2835,7 +2835,10 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
    pixels on them — and the state line is capped with its whole sentence in a tooltip, because
    it is the one child of the strip that is prose. Store and *Back to generated* do not shrink:
    they are the two acts this screen exists for. */
-.symstrip .segmented.tabs a { padding: 5px 9px; }
+/* <b>The same size as the item page's, because they are the same five tabs.</b> This strip drew
+   them at 13.5px and the page head at 12.5; a reader crossing between the two screens met one
+   control that had quietly changed scale. */
+.symstrip .segmented.tabs a { padding: 4px 9px; font-size: 12.5px; }
 .symstrip .symstate {
   max-width: 190px; overflow: hidden; text-overflow: ellipsis;
 }

@@ -8946,7 +8946,17 @@ function showLayer(name, page, pending = null) {
           from a link cannot get anywhere else: whether what they are about to restyle is public.
         -->
         <span id="symScope"></span>
-        <nav class="segmented tabs" id="symItemTabs" aria-label="This service's pages"></nav>
+        <!--
+          <b>The solid variant, and the comment on that class already said so.</b> It was written for
+          the item page's strip with the sentence *two shapes for one act is D-46's whole subject* and
+          then applied to one of the two. Measured 2026-09-04 on the running console: this strip
+          drew the current tab on --surface inside a container that is also --surface, so the
+          only thing separating *the tab you are on* from the four you are not was a shadow at
+          five per cent and a font weight. The same five labels, in two places, must look the
+          same in both.
+        -->
+        <nav class="segmented solid tabs" id="symItemTabs"
+          aria-label="This service's pages"></nav>
         <div class="symdo">
           <span class="symstate" id="symPreviewState">The stored appearance.</span>
           <button data-symbology-del="${h(name)}">Back to generated</button>
