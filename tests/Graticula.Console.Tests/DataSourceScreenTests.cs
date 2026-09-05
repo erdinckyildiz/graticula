@@ -105,7 +105,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
 
         int offered = await Browser.EvaluateAsync<int>("""
         [...document.querySelectorAll('#sources tr')]
-          .filter(row => (row.querySelector('.name')?.textContent || '').trim().startsWith('datastore'))
+          .filter(row => (row.querySelector('td.name')?.textContent || '').trim().startsWith('datastore'))
           .filter(row => row.querySelector('button[data-source-edit]'))
           .length
         """);
@@ -116,7 +116,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
         // saying why leaves somebody looking for it.
         string said = await Browser.EvaluateAsync<string>("""
         ([...document.querySelectorAll('#sources tr')]
-          .find(row => (row.querySelector('.name')?.textContent || '').trim().startsWith('datastore'))
+          .find(row => (row.querySelector('td.name')?.textContent || '').trim().startsWith('datastore'))
           ?.innerText) || ''
         """) ?? string.Empty;
 
