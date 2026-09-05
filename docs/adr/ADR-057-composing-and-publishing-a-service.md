@@ -173,6 +173,37 @@ switch that can disagree with the server. `Sync`, `Uploads` and `Extract` are in
 specification and not in this server, so they are not drawn —
 [ADR-034](ADR-034-server-and-studio.md)'s rule.
 
+### 5h. A service is not created without layers
+
+**By owner decision, 2026-09-06, asked directly whether the Publish screen should keep a home
+for the empty container the current drawer offers: *hayır. katmansız servis yaratılamaz.***
+
+Publishing creates the service **and its layers in one act**. There is no empty-container step
+and no screen that offers one, which removes the three-act sequence the *New service* drawer
+teaches — *create the service, add the groups, then publish layers into it naming the group to
+nest under* — and with it the layer index nobody can find.
+
+**Created is not the same as exists, and conflating them would break two things that work.**
+A service loses its last layer when somebody unpublishes one; that state is real, it is
+already handled, and the handling is load-bearing:
+
+- `PostgresLayerCatalog` joins layers with a **left** join precisely so a service with none is
+  still listed — the comment says why, and it is about an administrator who would otherwise
+  conclude that creation failed.
+- `GET /admin/featureservices/empty` and `POST /admin/featureservices/sweep` exist to find and
+  remove exactly this residue. The product already treats an empty service as something that
+  **happens** and is cleaned up.
+
+So this decision narrows the *creating* end and leaves the *existing* end alone. An empty
+service remains visible, listable and sweepable; it is simply no longer something a person can
+make on purpose.
+
+**What it costs.** `POST /admin/featureservices` creates one today and is the only way to make
+a service at all, so it cannot be refused before the Publish path can create service and layers
+together. The order is: Publish first, then the endpoint requires layers, then the drawer's
+*Create empty service* comes off the screen. Doing it in any other order leaves this server
+with no way to publish anything.
+
 ## 6. Consequences
 
 - ~~**Two catalogue changes before the screen is worth building**: a parent on the layer row
@@ -190,6 +221,9 @@ specification and not in this server, so they are not drawn —
   there rather than twice.
 - **Publishing writes the service and its item in one transaction**, per ADR-056 — a service
   with no item is invisible in Studio.
+- **And its layers in the same one**, per 5h. A half-published service — a container whose
+  layers failed — is the empty residue this decision refuses to create deliberately, so it must
+  not be created by accident either.
 - **Tags are asked for nowhere**, because a service has no tag column. On an item they are
   obvious, which is ADR-056's territory rather than this one's.
 
@@ -202,7 +236,12 @@ specification and not in this server, so they are not drawn —
    and OGC are drawn as choices and are not choices yet. Either the catalogue gains the two
    columns or the screen stops offering what it cannot deliver, and shipping it in between is
    ADR-034's prohibition with extra steps.
-3. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
+3. **`POST /admin/featureservices` requires layers, and the drawer's *Create empty service*
+   comes off the screen.** 5h decides this and cannot be applied yet: that endpoint is the only
+   way to make a service until the Publish path exists. The condition is here so the sequence
+   is not forgotten, because the intermediate state — a rule the screen keeps and the API does
+   not — is the shape ADR-033 warned about, where the next writer bypasses it.
+4. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do
    with a group layer served by something that is not ArcGIS Server is not known here, and
    the first person to find out should not be the owner.
