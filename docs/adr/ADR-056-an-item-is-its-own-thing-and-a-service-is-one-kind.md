@@ -30,12 +30,37 @@ The owner stated the model on 2026-09-05, while the Publish screen was being des
 Every published service has an item; not every item has a service. An item may be an icon,
 a document, something with nothing served behind it at all.
 
-**The gap is not hypothetical and it is not in the future.** A coverage —
-[ADR-043](ADR-043-imageserver-and-the-raster-face.md)'s image service — is published, has a folder, a name,
-an owner, a sharing scope and a status, and appears in **no** content listing, because
-neither `/content/items` nor `/content/layers` reads the coverage catalogue at all. Somebody
-who publishes a raster on this server cannot find it in their own content. Asked about it,
-the owner: *ImageServer'ın da Studio'da bir item'i olmalı. Mantıklı olan o.*
+~~**The gap is not hypothetical and it is not in the future.** A coverage —
+[ADR-043](ADR-043-imageserver-and-the-raster-face.md)'s image service — is published, has a
+folder, a name, an owner, a sharing scope and a status, and appears in **no** content listing,
+because neither `/content/items` nor `/content/layers` reads the coverage catalogue at all.~~
+
+**Corrected 2026-09-05, before a line of the table was written.** The symptom was real and the
+diagnosis was wrong, and the difference matters to what this decision costs. **A coverage is
+not in its own catalogue.** ADR-043 §3.2 made it *a service whose kind says so*, on the
+explicit grounds that *the sharing, status, owner and folder rules that already govern a
+service govern this one unchanged* and *the authorisation path has no second case to get
+wrong*. `coverage.service_id` is `not null` and references `service`. So the `service` table
+**already is** a common record over both kinds.
+
+**What actually hid the raster was one predicate read by two questions.**
+`PostgresLayerCatalog` carried `where s.kind is distinct from 'ImageServer'` inside the join
+every caller shares. That is right for every face that serves layers — an ImageServer offered
+as a layerless FeatureServer is a `/FeatureServer/0` that answers 404 and reads as a broken
+service — and `/content/items` inherited it while asking something else entirely. Measured on
+the owner's own server the day it was found: **three image services, none of them listed**.
+That is [D-46](../architecture-debt.md)'s shape, it was repaired the same day with a second
+named method, and it was **not** evidence for a new table.
+
+Asked about it, the owner: *ImageServer'ın da Studio'da bir item'i olmalı. Mantıklı olan o.*
+That is now true of the product rather than of a plan.
+
+**So what is left of this decision is narrower and worth stating plainly.** The `service` table
+holds identity, kind, folder, owner, sharing, status and description — everything an item needs
+— and cannot hold a thing that is **not** a service. An icon has no faces, no capabilities and
+no status, and giving it a `service` row means those columns are meaningless for it. The
+owner's sentence — *not every item has a service* — is still unexpressible, and that, alone,
+is what this table is for.
 
 ## 2. Alternatives considered
 
@@ -78,11 +103,13 @@ one concept carrying three sets of fields that are null for most of it.
 ## 3. Counterarguments to the preferred option
 
 **Nothing needs an icon today, so this is a table for a feature nobody has asked for.**
-Two things need it today. A coverage is published and unfindable, which is a defect rather
-than a wish; and the Publish screen collects a summary and *who can see it*, which read like
-an item's properties and currently have to be written onto a service row. The icon is the
-third case, and it is the one that makes the shape obvious rather than the one that
-justifies it.
+~~Two things need it today.~~ **One does, after the correction in §1.** The coverage was a
+defect in a filter and is fixed; what remains is the owner's sentence — *not every item has a
+service* — which no arrangement of the `service` table can express, because an icon with a
+status, a set of faces and a capability ceiling is a lie told in columns. This is a table for
+a thing that does not exist yet, and §7 condition 2 refuses to call the model proved until
+that thing is built. Whoever reads this later should weigh it knowing that, rather than
+knowing the coverage story it was first argued from.
 
 **Sharing belongs to the layer, and this puts it two levels up.** It does not move it —
 this decision does not decide where sharing lives, and says so in §5. Today
@@ -103,12 +130,21 @@ Read from the code on 2026-09-05.
 | Sources `/content/items` draws from | **1** — `foreach (PublishedService service in served)` |
 | `items.Add` calls in that method | **1** |
 | Scopes it counts | 5 — mine, group, organization, public, administrative |
-| Content endpoints that read the coverage catalogue | **0** |
-| Fields a `PublishedCoverage` already carries | `Folder`, `Name`, `Sharing`, `Status`, `Owner` |
+| ~~Content endpoints that read the coverage catalogue~~ | ~~**0**~~ — **wrong**, see below |
+| Columns on `service` | id, name, folder, **kind**, description, owner, sharing, status |
+| Image services on the owner's server, listed in their content | **3, none** — repaired 2026-09-05 |
 
-The last row is the argument in miniature. A coverage is **already item-shaped** — it has
-every field an item needs and it is not one, because being one is not a thing you can be.
-What is missing is not data; it is a common identity.
+**The fourth row was wrong and is struck rather than deleted.** There is no coverage catalogue
+to read: `coverage.service_id` references `service`, and a coverage is a service whose `kind`
+says so. What kept it out of the listing was `where s.kind is distinct from 'ImageServer'` in
+the reader every face shares — correct for the faces, inherited by a question it does not
+answer. Repaired with `ListEveryKindAsync`, a second named door with one caller, because
+`CatalogFallback` remembers a single listing on the stated grounds that the shared one takes
+no arguments.
+
+**What survives is the row above it.** `service` carries every column an item needs, and that
+is precisely why the table is not needed for services *or* coverages. It is needed for the
+third thing — the one with no service behind it — and nothing else.
 
 ## 5. Decision
 
@@ -136,8 +172,10 @@ everything that is not one — which is the model this decision exists to leave 
 
 ## 6. Consequences
 
-- **A coverage becomes findable by whoever published it**, which it is not today. That is
-  the defect this decision closes on the way past.
+- ~~**A coverage becomes findable by whoever published it**, which it is not today.~~ **Done
+  2026-09-05 without this table**, by moving one predicate to the question that asks it. This
+  decision no longer buys that, and saying so is the difference between an ADR and a
+  justification.
 - **Tags become possible.** A service has no tag column and this study refused to draw the
   control for one; on an item they are obvious, and the Publish screen can ask for them.
 - **State.** This adds a table. One row per published thing, holding identity, kind,

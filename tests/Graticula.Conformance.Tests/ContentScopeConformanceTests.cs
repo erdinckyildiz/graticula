@@ -305,6 +305,100 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
 
     // ------------------------------------------------------------------------------ helpers
 
+    /// <summary>
+    /// An image service is content, and its owner can find it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It was not, and the cause was one predicate read by two questions.</b>
+    /// `PostgresLayerCatalog`'s shared reader carried <c>where s.kind is distinct from
+    /// 'ImageServer'</c>, which is right for every face that serves layers — an ImageServer
+    /// offered as a layerless FeatureServer is a <c>/FeatureServer/0</c> that answers 404 and
+    /// reads as a broken service. <c>/content/items</c> asks a different question, *what does
+    /// this person own*, and inherited the answer to the first one.
+    /// </para>
+    /// <para>
+    /// <b>Measured on the owner's own server the day it was found: three image services, none
+    /// of them listed.</b> No error, no empty state, nothing on the screen to ask about — the
+    /// raster was simply absent from the content of the person who published it.
+    /// </para>
+    /// <para>
+    /// <b>And it is not *empty*.</b> The listing says so of a service with no layers, because
+    /// such a thing has nothing to draw and nothing to share into a group. A coverage has no
+    /// layers and has a raster, so counting them would have called every image service a
+    /// residue on the day they arrived here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_image_service_is_in_its_owners_content_and_is_not_called_empty()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        JsonElement said = await ContentAsync(root, token!);
+
+        JsonElement[] imagery = [.. said.GetProperty("items").EnumerateArray()
+            .Where(x => string.Equals(
+                x.GetProperty("kind").GetString(), "ImageServer", StringComparison.Ordinal))];
+
+        Assert.True(
+            imagery.Length > 0,
+            "No image service is in this content listing. Either the fixture has none — in "
+            + "which case this test has stopped checking anything and the seed is what to fix — "
+            + "or a coverage is missing from the content of whoever published it, which is the "
+            + "defect this exists for. The kinds listed were: "
+            + string.Join(", ", said.GetProperty("items").EnumerateArray()
+                .Select(x => x.GetProperty("kind").GetString())
+                .Distinct(StringComparer.Ordinal)));
+
+        foreach (JsonElement one in imagery)
+        {
+            Assert.False(
+                one.GetProperty("empty").GetBoolean(),
+                $"'{one.GetProperty("name").GetString()}' is an image service and the listing "
+                + "calls it empty. It has no layers and it has a raster; a picker reading this "
+                + "would offer it as a residue publishing left behind.");
+
+            Assert.False(
+                string.IsNullOrWhiteSpace(one.GetProperty("name").GetString()),
+                "An item with no name cannot be opened from a listing.");
+        }
+
+        // <b>And the faces that serve layers still do not offer it.</b> The predicate did not
+        // stop being right; it stopped being applied to a question it does not answer. If this
+        // half fails, a client is being sent to a `/FeatureServer/0` that will 404.
+        (HttpStatusCode status, string body) = await SendDirectoryAsync(root, token!);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        foreach (JsonElement service in JsonDocument.Parse(body).RootElement
+            .GetProperty("services").EnumerateArray())
+        {
+            string name = service.GetProperty("name").GetString() ?? string.Empty;
+            string kind = service.GetProperty("type").GetString() ?? string.Empty;
+
+            Assert.False(
+                imagery.Any(i => string.Equals(
+                    i.GetProperty("name").GetString(), name, StringComparison.Ordinal))
+                    && kind is "FeatureServer" or "MapServer" or "VectorTileServer",
+                $"The directory offers '{name}' as a {kind}, and it is an image service. That "
+                + "is the 404 the kind filter exists to prevent.");
+        }
+    }
+
+    private async Task<(HttpStatusCode Status, string Body)> SendDirectoryAsync(
+        string root, string token)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, $"{root}/rest/services?f=json");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     private async Task<JsonElement> ContentAsync(string root, string token)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, $"{root}/content/items");

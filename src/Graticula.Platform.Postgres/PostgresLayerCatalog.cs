@@ -92,16 +92,38 @@ public sealed class PostgresLayerCatalog
         + "left join layer l on l.service_id = s.id "
         + "left join data_source d on d.id = l.data_source_id "
 
-        // <b>An image service is not a feature service with nothing in it.</b> The left
-        // join above exists so a service an administrator has just created appears
-        // before its first layer does — which is right, and it also let every
-        // ImageServer through as a layerless FeatureServer the day coverages arrived.
-        // The directory listed one, a client followed it to `/FeatureServer/0`, and got
-        // a 404 that reads as a broken service rather than as one of another kind.
-        // Filtering on kind here rather than in each caller keeps the two questions
-        // apart: *has this service any layers yet* and *is this the sort of service
-        // that has layers at all*.
-        + "where s.kind is distinct from 'ImageServer'";
+        ;
+
+    /// <summary>
+    /// The predicate that keeps an image service out of a face that has layers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An image service is not a feature service with nothing in it.</b> The left join
+    /// above exists so a service an administrator has just created appears before its first
+    /// layer does — which is right, and it also let every ImageServer through as a layerless
+    /// FeatureServer the day coverages arrived. The directory listed one, a client followed it
+    /// to <c>/FeatureServer/0</c>, and got a 404 that reads as a broken service rather than as
+    /// one of another kind.
+    /// </para>
+    /// <para>
+    /// <b>It lived in the join until 2026-09-05, and the join has two callers asking different
+    /// questions.</b> <c>FindServiceAsync</c> resolves an address for the faces that serve
+    /// layers, and wants this. <c>ListServicesAsync</c> is what <i>My content</i> enumerates,
+    /// and did not — so a coverage somebody published was absent from their own content, with
+    /// no error and nothing on the screen to ask about. Measured on the owner's own server the
+    /// day it was found: <b>three image services, none of them listed</b>.
+    /// </para>
+    /// <para>
+    /// <b>So the filter moved to the question rather than being duplicated at it.</b>
+    /// <c>CatalogFallback</c> keeps one remembered listing on the stated grounds that
+    /// <c>ListServicesAsync</c> takes no arguments — <i>every face that enumerates asks for the
+    /// same thing and then filters it by who is asking</i> — and a parameter here would have
+    /// given that one slot two answers. Kind is now filtered the way sharing already is: in the
+    /// face, against a listing that holds everything.
+    /// </para>
+    /// </remarks>
+    private const string NotImagery = "where s.kind is distinct from 'ImageServer'";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -539,8 +561,48 @@ public sealed class PostgresLayerCatalog
     /// the N+1 the catalogue endpoint cannot afford — it runs on every
     /// <c>/rest/services</c> — and the join returns one row per layer, which at
     /// the 100–1,000 services this product targets is a few thousand rows.
+    /// <para>
+    /// <b>Faces that serve layers only.</b> <see cref="NotImagery"/> keeps image services out,
+    /// for the reason written there; <see cref="ListEveryKindAsync"/> is the door for the
+    /// caller that wants them.
+    /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<PublishedService>> ListServicesAsync(
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {Columns} {ServiceFrom} {NotImagery} order by s.name, l.layer_index");
+
+        return await ReadServicesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Every service, including the kinds that serve no layers.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The services, ordered by name.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A second door because there is a second question, and only one caller asks it.</b>
+    /// <see cref="ListServicesAsync"/> answers *what can this face serve*, and every face that
+    /// serves layers is right to be handed a listing with no image services in it — that filter
+    /// is <see cref="NotImagery"/> and the 404 it prevents is written there. *My content* asks
+    /// something else: *what does this person own*. A coverage is content, and until 2026-09-05
+    /// it was absent from the answer with no error and nothing on screen to ask about. Measured
+    /// on the owner's own server the day it was found: <b>three image services, none listed</b>.
+    /// </para>
+    /// <para>
+    /// <b>Not a parameter on the other one, deliberately.</b>
+    /// <c>CatalogFallback</c> remembers a single listing on the stated grounds that
+    /// <see cref="ListServicesAsync"/> takes no arguments — *every face that enumerates asks for
+    /// the same thing and then filters it by who is asking* — so a flag there would give one
+    /// cache slot two answers. This method has no cache in front of it and no face behind it:
+    /// the two content endpoints call the catalogue directly.
+    /// </para>
+    /// <para>
+    /// <b>An image service comes back with no layers, because it has none.</b> A caller that
+    /// counts them must not read that as *empty*; a coverage has a raster in it.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<PublishedService>> ListEveryKindAsync(
         CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
@@ -573,8 +635,9 @@ public sealed class PostgresLayerCatalog
             // to — the folder half was coalesce-then-lower against an index that
             // was lower-then-coalesce, so the whole index was unusable and the
             // lookup scanned every service on every request.
-            // `and` rather than `where`: ServiceFrom carries the kind filter, so the
-            // clause is already open.
+            // `NotImagery` opens the clause, so these are `and`. This resolver answers for
+            // the faces that serve layers, which is the caller the filter was written for.
+            + NotImagery
             + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
             + "  and lower(s.name) = lower(@name) "
             + "order by l.layer_index");

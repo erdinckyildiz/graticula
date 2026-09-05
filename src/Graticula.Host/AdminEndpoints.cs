@@ -895,8 +895,13 @@ internal static class AdminEndpoints
         // the evaluator needs — and `catalog.ListServicesAsync` carries the owner's *name*, the cover
         // to draw and the two dates. Joining them here beats widening either: one is the runtime's view
         // of what is served and the other is the administrative view of what exists.
+        // <b>Every kind, because a coverage is content.</b> `ListServicesAsync` answers *what
+        // can a face serve* and keeps image services out — right for the faces, wrong here,
+        // and wrong invisibly: a raster somebody published was missing from their own content
+        // with no error and nothing on the screen to ask about. Three of them on the owner's
+        // own server the day it was found.
         IReadOnlyList<PublishedService> served =
-            await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
+            await layers.ListEveryKindAsync(cancellation).ConfigureAwait(false);
 
         IReadOnlyList<AdminService> known =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
@@ -1064,7 +1069,13 @@ internal static class AdminEndpoints
                 // offered it would offer a row whose thumbnail can only be hatching and whose add
                 // achieves nothing. The listing keeps it — it is real, and its owner needs to see the
                 // residue publishing leaves — and says which it is.
-                empty = service.Layers.Count == 0,
+                //
+                // <b>An image service has no layers and is not empty.</b> It has a raster, which is
+                // the thing it is for; counting layers to decide would have called every coverage a
+                // residue on the day they joined this listing. The question is *is there anything in
+                // it*, and layers are only how a feature service answers that.
+                empty = service.Layers.Count == 0
+                    && !string.Equals(service.Kind, "ImageServer", StringComparison.Ordinal),
 
                 updated = admin.Updated == default ? (DateTimeOffset?)null : admin.Updated,
                 created = admin.Created == default ? (DateTimeOffset?)null : admin.Created,
@@ -1136,6 +1147,10 @@ internal static class AdminEndpoints
         // The services, because a layer's address is its service and its index — the fact
         // /admin/layers does not carry and D-45 records. A content screen has to be able to
         // build a URL.
+        // <b>`ListServicesAsync`, not `ListEveryKindAsync`, and the difference is the subject.</b>
+        // This endpoint emits one entry per *layer* — a coverage has none, so widening the
+        // listing here would add nothing and say something untrue about what it is for.
+        // `/content/items` is the one that lists what a person owns, and that one was widened.
         IReadOnlyList<PublishedService> services =
             await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
 
