@@ -92,6 +92,14 @@
            color: var(--ink); }
   button:hover { border-color: var(--accent); color: var(--accent); }
   button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* The two faces, as one control rather than two buttons: they are alternatives. */
+  #faces { display: inline-flex; flex: none; gap: 2px; padding: 2px; border-radius: 5px;
+           background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--rule); }
+  #faces a { padding: 4px 11px; border-radius: 4px; font-size: 12.5px; font-weight: 500;
+             color: var(--muted); text-decoration: none; white-space: nowrap; }
+  #faces a[aria-current] { background: var(--surface); color: var(--ink); font-weight: 600;
+                           box-shadow: 0 1px 2px rgba(16, 24, 38, .12); }
+
   #picker { display: flex; gap: 6px; flex-wrap: nowrap; flex: 0 1 auto; min-width: 0;
             margin-left: auto; overflow-x: auto; scrollbar-width: none; }
   #picker::-webkit-scrollbar { height: 0; }
@@ -121,6 +129,47 @@
     which is what it looked like: a mysterious white line. A control has to be
     told where it lives.
   */
+  /*
+    The strip the handoff asks for. It spans the bottom because the three things on it are
+    read together — a distance, a source and a position are one sentence about the picture
+    above them — and a bar is the shape that says so.
+  */
+  #strip { position: absolute; z-index: 40; left: 12px; right: 12px; bottom: 12px;
+           display: flex; align-items: center; gap: 14px;
+           padding: 6px 12px; border-radius: 4px;
+           background: rgba(255, 255, 255, .92); box-shadow: 0 0 0 1px var(--rule);
+           font-size: 11.5px; color: var(--muted); }
+  #stripMode { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+               white-space: nowrap; }
+  #stripWhere { font-family: var(--mono); white-space: nowrap; }
+  /* <b>The other half of *where am I*.</b> A pair of coordinates without a zoom says which
+     patch of the world and not how much of it, and the two are read as one figure. */
+  #stripZoom { font-family: var(--mono); white-space: nowrap; color: var(--faint); }
+  #stripScale { flex: none; }
+
+  /*
+    Bottom right, above the strip, and it collapses when it has nothing to say — an empty box in
+    the corner of a map reads as a panel that failed to load.
+  */
+  #legend { position: absolute; z-index: 40; right: 12px; bottom: 52px; max-width: 260px;
+            max-height: 46%; overflow: auto;
+            padding: 9px 11px; border-radius: 4px;
+            background: rgba(255, 255, 255, .93); box-shadow: 0 0 0 1px var(--rule);
+            font-size: 11.5px; color: var(--ink); }
+  #legend:empty { display: none; }
+  #legend b { display: block; font-size: 11px; text-transform: uppercase;
+              letter-spacing: .04em; color: var(--faint); margin-bottom: 5px; }
+  #legend .row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+  #legend img { width: 16px; height: 16px; flex: none; }
+  #legend .swatch { width: 14px; height: 14px; flex: none; border-radius: 2px;
+                    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+  #legend .said { display: block; margin-top: 6px; color: var(--faint); line-height: 1.45; }
+
+  /* Inside the strip the two controls are content, so they give up their own corners. */
+  #strip .ol-scale-line, #strip .ol-mouse-position {
+    position: static; background: none; padding: 0; margin: 0; }
+  #strip .ol-scale-line-inner { margin: 0; }
+
   .ol-scale-line { position: absolute; left: 10px; bottom: 10px; width: auto;
                    background: rgba(255,255,255,.82); padding: 2px 4px; border-radius: 3px; }
   .ol-scale-line-inner { color: var(--ink); border-color: var(--muted); font-size: 11px;
@@ -186,6 +235,20 @@
     <span class="mark" aria-hidden="true">Gr</span>
     <h1 id="title">layer</h1>
     <div id="facts"></div>
+    <!--
+      <b>The 1c handoff's face switch, and it makes a feature reachable rather than adding one.</b>
+      Both faces have been here since 2026-08-21 and the only way to reach the second was to type
+      `&face=mapserver` into the address bar — a capability with no control, which is ADR-034's
+      rule read backwards. Having both against one layer is what this page is for: correctness
+      gate 2 found four disagreements between them by hand, and a click is how anybody else
+      repeats that.
+
+      <b>Two, not the prototype's three.</b> It draws Features, Tiles and Map image; this server's
+      viewer has a feature face and a map-image face, and no tile face at all. A third segment
+      would be a control for something that does not exist, which is the rule the paragraph above
+      is quoting.
+    -->
+    <nav id="faces" aria-label="Which face draws this"></nav>
     <div id="picker"></div>
     <a id="directory" href="/rest/services">Services directory</a>
   </header>
@@ -202,6 +265,34 @@
   attribute card and the explanation below are outside for the same reason and always were.
 -->
 <div id="grounds"></div>
+<!--
+  <b>The 1c handoff's status strip: the scale bar, what is drawing, and where the pointer is.</b>
+  The scale bar sat bottom-left and the coordinates bottom-right, two controls the eye had to
+  find separately, and neither said which of the two faces had produced the pixels between them —
+  which is the one question this viewer exists to answer, because having both against one layer is
+  the whole point of the page.
+
+  <b>The OpenLayers controls move into it rather than being reimplemented.</b> A control takes a
+  `target`, so `ScaleLine` and `MousePosition` render inside these spans and stay OpenLayers'
+  — a hand-drawn scale bar is a second answer to *how far is that*, and the two would drift the
+  first time a projection changed.
+-->
+<!--
+  <b>The 1c handoff's legend, and what it may say depends on who drew the picture.</b> On the map
+  image face the server draws from the layer's stored symbology and answers
+  `MapServer/legend` with a swatch per class — so the legend is the server's own account of what
+  it painted, which is the rule ADR-051 states: a picture's explanation must come from whatever
+  made the picture. On the feature face this browser draws, in one colour chosen in this file and
+  not the layer's, and the legend says exactly that rather than borrowing the server's classes to
+  describe pixels the server did not produce.
+-->
+<div id="legend"></div>
+<div id="strip">
+  <span id="stripScale"></span>
+  <span id="stripMode"></span>
+  <span id="stripWhere"></span>
+  <span id="stripZoom"></span>
+</div>
 <div id="note" role="status" aria-live="polite"></div>
 <div id="attrs"></div>
 

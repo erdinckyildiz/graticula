@@ -648,15 +648,144 @@ const map = new ol.Map({
   controls: ol.control.defaults.defaults({ attribution: true }).extend([
     // A scale bar and a readout of where the pointer is. Both are how a map says
     // what it is showing; without them a screen of shapes carries no units.
-    new ol.control.ScaleLine({ units: "metric" }),
+    //
+    // <b>Both render into the status strip rather than into their own corners.</b> A control
+    // takes a `target`, so these stay OpenLayers' — a hand-drawn scale bar would be a second
+    // answer to *how far is that*, and the two would part company the first time a projection
+    // changed. What the strip adds is the sentence between them: which face drew this.
+    new ol.control.ScaleLine({ units: "metric", target: $("stripScale") }),
     new ol.control.MousePosition({
       projection: "EPSG:4326",
       className: "ol-mouse-position",
+      target: $("stripWhere"),
       coordinateFormat: coordinate => coordinate
         ? `${coordinate[0].toFixed(4)}, ${coordinate[1].toFixed(4)}` : "",
     }),
   ]),
 });
+
+/**
+ * The two faces, as links that keep every other parameter.
+ *
+ * <b>Links rather than buttons, because switching face reloads the page.</b> `FACE` is read once
+ * at module scope and decides which layers the map is built with; changing it in place would mean
+ * tearing down and rebuilding everything the page has. A link says *this goes somewhere*, which
+ * is what happens, and it works with the middle mouse button — which is how somebody compares the
+ * two faces side by side, and comparing them is the whole point of the page.
+ */
+function drawFaces() {
+  const box = $("faces");
+
+  if (!box) return;
+
+  const link = (face, label) => {
+    const to = new URLSearchParams(QUERY);
+
+    if (face) to.set("face", face); else to.delete("face");
+
+    const here = (face || "") === (QUERY.get("face") || "").toLowerCase();
+
+    return `<a href="?${to}"${here ? ' aria-current="page"' : ""}>${label}</a>`;
+  };
+
+  box.innerHTML = link("", "Features") + link("mapserver", "Map image");
+}
+
+drawFaces();
+
+/**
+ * The legend, from whoever drew the picture.
+ *
+ * <b>Two faces, two honest answers, and borrowing one for the other is the lie.</b> On
+ * `MapServer` this server draws from the layer's stored symbology and can be asked what it
+ * painted — a swatch per class, rendered by the same code that rendered the map. On
+ * `FeatureServer` the drawing happens here, in one colour declared a few lines above and nothing
+ * to do with the layer's document; showing the server's classes over those pixels would describe
+ * a picture nobody is looking at, which is exactly what ADR-051 refused a browser-drawn preview
+ * for.
+ *
+ * <b>Quiet when it cannot answer.</b> A legend that failed to load leaves no empty box: the
+ * element collapses, and the map is the thing the reader came for.
+ *
+ * @returns {Promise<void>} when it has drawn or given up.
+ */
+async function drawLegend() {
+  const box = $("legend");
+
+  if (!box) return;
+
+  if (FACE !== "MapServer") {
+    // <b>One colour for the whole layer, and saying so is the point.</b> The reader is looking at
+    // this viewer's own paint; a swatch without that sentence would be read as the layer's.
+    box.innerHTML = `<b>Drawn here</b>
+      <span class="row"><span class="swatch" style="background:${ACCENT}"></span>
+        <span>${escape($("title")?.textContent || SERVICE || "the layer")}</span></span>
+      <span class="said">One colour for every feature, chosen in this viewer. The layer's own
+        symbology is what the map image face draws.</span>`;
+
+    return;
+  }
+
+  try {
+    const answer = await fetch(
+      `/rest/services/${SERVICE}/MapServer/legend?f=json`,
+      { headers: { Accept: "application/json" } });
+
+    if (!answer.ok) { box.innerHTML = ""; return; }
+
+    const said = await answer.json();
+    const layers = (said.layers || []).filter(one => one && (one.legend || []).length);
+
+    if (layers.length === 0) { box.innerHTML = ""; return; }
+
+    // <b>Only the layers being drawn.</b> A map service with twelve layers and three switched on
+    // has a legend of three; listing all twelve describes a picture that is not on the screen.
+    const drawn = layers.filter(one => LAYER === null || String(one.layerId) === String(LAYER));
+    const shown = drawn.length ? drawn : layers;
+
+    box.innerHTML = shown.map(one => `<b>${escape(one.layerName || "")}</b>`
+      + (one.legend || []).map(entry => `<span class="row">
+          <img alt="" src="data:${entry.contentType || "image/png"};base64,${entry.imageData}">
+          <span>${escape(entry.label || one.layerName || "")}</span></span>`).join("")).join("");
+  } catch {
+    // A legend is furniture. Losing it must not cost the map.
+    box.innerHTML = "";
+  }
+}
+
+/**
+ * The strip's own two lines: which face drew this, and how far in the view is.
+ *
+ * <b>Which face is the question this page exists to answer.</b> Having a FeatureServer and a
+ * MapServer view of one layer side by side is what found four disagreements by hand on
+ * 2026-08-20 — and until the strip, nothing on the screen said which of the two had produced the
+ * pixels somebody was looking at. The address in the header names the service; this names the
+ * renderer.
+ */
+function saySource() {
+  const where = $("stripMode");
+
+  if (!where) return;
+
+  where.textContent = FACE === "MapServer"
+    ? "One picture, drawn by this server from the layer's stored symbology"
+    : "Features drawn in this browser, in a style chosen here rather than the layer's";
+}
+
+/** The zoom, beside the coordinates, because neither is the whole answer alone. */
+function sayZoom() {
+  const where = $("stripZoom");
+
+  if (!where) return;
+
+  const zoom = map.getView().getZoom();
+
+  where.textContent = Number.isFinite(zoom) ? `z${zoom.toFixed(1)}` : "";
+}
+
+saySource();
+map.on("moveend", sayZoom);
+sayZoom();
 
 /**
  * Fits the view to an extent, once the map has a size to fit it into.
@@ -790,6 +919,10 @@ function loadMap(document_) {
 
   $("title").textContent = `${SERVICE} (MapServer)`;
 
+  // <b>Now, not at module scope.</b> The legend names the layer, and at module scope the
+  // title is still the markup's placeholder.
+  drawLegend();
+
   const frame = $("frame");
   if (frame) frame.onclick = () => fitWhenSized(mapExtent);
   if (mapExtent) fitWhenSized(mapExtent);
@@ -878,6 +1011,8 @@ async function load(layerId, name) {
     + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
 
   $("title").textContent = name ? `${SERVICE} — ${name}` : `${SERVICE} / ${layerId}`;
+
+  drawLegend();
 
   if (empty) {
     problem("Nothing was returned.",
