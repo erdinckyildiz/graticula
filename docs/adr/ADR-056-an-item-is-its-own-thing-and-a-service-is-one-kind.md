@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED` |
-| **Confidence** | `HIGH` for the model · `MEDIUM` for which fields move onto the item |
+| **Confidence** | `HIGH` — `MEDIUM` on the field layout until 2026-09-05, when condition 1 was answered |
 | **Decided** | 2026-09-05, by owner decision |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -122,11 +122,17 @@ that is not of anything — an icon, a document — and is the case the model ex
 **One listing.** `/content/items` reads items. Paging, counting, the sharing filter and the
 search are written against that one source, and a new kind adds no branch to any of them.
 
-**Where the fields live is deliberately not decided here.** A summary and a sharing scope
-read like an item's; sharing is evaluated per layer today, through the service. This ADR
-introduces the item and leaves the move as §7's first condition, because a wrong answer
-there makes something visible to somebody it was not shared with — and that is not a
-mistake a migration should be allowed to make quietly.
+~~**Where the fields live is deliberately not decided here.**~~ **Answered 2026-09-05, by
+owner decision: the item is authoritative.** Ownership and the sharing scope live on the item
+and nowhere else. `PublishedService.Owner` and `.Sharing` stay in the type and become
+*projections* — the catalogue fills them from the item when it builds a service — so
+`LayerAccess.Evaluate` keeps the signature it has and the drawing path is not touched. There
+is one row that answers *who may see this*, and every other place that appears to hold it is
+reading that row.
+
+**That is what makes an item with no service possible at all.** An icon has no service to
+carry its scope, so a model where the service is authoritative needs a second rule for
+everything that is not one — which is the model this decision exists to leave behind.
 
 ## 6. Consequences
 
@@ -152,7 +158,13 @@ mistake a migration should be allowed to make quietly.
    places that both answer *who may see this* is the failure mode this decision would
    otherwise introduce. The answer has to be one of: the item's replaces the service's, the
    service's stays and the item mirrors it, or the item's is advisory. Until it is chosen,
-   the confidence on the field layout stays `MEDIUM`.
+   the confidence on the field layout stays `MEDIUM`. **DISCHARGED 2026-09-05, by owner
+   decision: the first of the three.** The item is authoritative and the service derives from
+   it. The two alternatives were put with their costs — the second leaves anything that is
+   not a service without a rule for its own sharing, and the third keeps two numbers that can
+   drift with nothing on screen saying which is real. §5 now says the item's scope is the
+   only one, and that `PublishedService.Owner` and `.Sharing` survive as projections so the
+   request path keeps its shape.
 2. **The first kind with no service behind it is built before the model is called proved.**
    An icon or a document, listed, owned, shared and opened. Coverages and services both have
    something behind them, so a table that only ever holds those two has not yet demonstrated
