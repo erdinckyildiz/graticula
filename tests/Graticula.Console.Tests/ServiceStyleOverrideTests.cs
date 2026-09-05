@@ -194,6 +194,74 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// The two things this screen can store are two differently named buttons.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner, 2026-09-05, looking at the override open: *what is this used? why store
+    /// again*.</b> The editor's header carries <c>Store</c> for the layer's symbology and this
+    /// panel carried <c>Store</c> for the service's style document — the same word, the same
+    /// prominence, two different objects, both on screen at once. The question is the evidence:
+    /// a reader who has to ask which one they already pressed has been given one control
+    /// wearing two meanings.
+    /// </para>
+    /// <para>
+    /// <b>The label names the object rather than the act.</b> *Store the override* is longer and
+    /// says what is stored; the header's <c>Store</c> stays as it is, because it is the page's
+    /// subject and the panel is the exception to it.
+    /// </para>
+    /// <para>
+    /// <b>Asserted as a count, not as a string.</b> Pinning the new wording would pass for a
+    /// second button called *Store the override* somewhere else on the page. What is wrong is
+    /// two of anything answering to the same name, so that is what is measured — and only among
+    /// controls that are actually on screen, because a duplicate hidden behind a closed fold is
+    /// not one a reader can confuse.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Only_one_control_on_the_symbology_editor_is_called_Store()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        await OpenAsync(
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
+
+        await WaitForAsync(
+            "typeof symModel !== 'undefined' && symModel !== null",
+            "The symbology editor never filled, so its buttons could not be counted.");
+
+        // The override's own button is behind *Write one…*; opening it is what puts the second
+        // candidate on screen, and a count taken with it closed would find nothing to report.
+        await ClickAsync("#symOverrideHead");
+
+        await WaitForAsync(
+            "document.querySelector('#serviceStyle [data-style-put]')?.offsetParent != null",
+            "The override did not open, so the button this test is about is not on screen.");
+
+        string named = await Browser.EvaluateAsync<string>(
+            "[...document.querySelectorAll('button, input[type=submit]')]"
+            + ".filter(b => b.offsetParent !== null)"
+            + ".map(b => (b.textContent || b.value || '').trim())"
+            + ".filter(t => t.toLowerCase() === 'store').join(' | ')") ?? string.Empty;
+
+        Assert.True(
+            named.Length == 0 || !named.Contains('|', StringComparison.Ordinal),
+            $"Two controls on this screen are both called Store: [{named}]. One keeps the "
+            + "layer's symbology and one keeps the service's style document, and a reader "
+            + "cannot tell from the label which they pressed.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(document.querySelector('#serviceStyle [data-style-put]')?.textContent || '')"
+                + ".trim().toLowerCase().includes('override')"),
+            "The override's button does not name what it stores, so the only thing separating "
+            + "it from the header's Store is where it happens to sit.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// Every service opens on Overview, and the way back goes where the reader came from.
     /// </summary>
     /// <remarks>

@@ -9561,7 +9561,7 @@ function showLayer(name, page, pending = null) {
               <div class="row">
                 <button data-style="">Fetch current</button>
                 <button data-style-del="" class="ghost">Back to the composition</button>
-                <button class="primary" data-style-put="">Store</button>
+                <button class="primary" data-style-put="">Store the override</button>
               </div>
               <textarea id="styleDoc" rows="8" spellcheck="false"
                 placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
