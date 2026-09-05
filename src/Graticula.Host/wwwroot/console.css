@@ -1996,7 +1996,20 @@ tr.groupband > td {
 /* A checkbox is not a text box: the 300px meant for a field left about 150 pixels of dead space
    between the delete lock and its own Locked/Not locked label, so the row read as two unrelated
    things rather than one control and its state. Measured 2026-08-19. */
-.setting.wide select, .setting.wide input:not([type=checkbox]) { width: 300px; text-align: left; }
+/* <b>`max-width` beside the `width`, because a fixed width in a flexible row is a clip waiting
+   for a narrow container.</b> [D-216](../../../docs/architecture-debt.md) was raised when a design
+   review measured this rule overflowing a 359-pixel panel by 51 px on the symbology page, hidden
+   with no scrollbar. That instance is gone: ADR-053 rebuilt that screen and its *Change:* row is
+   no longer a `.setting.wide`. Checked 2026-09-05 rather than assumed — the only `.setting.wide`
+   rows left are the ten in `#groupSettings`, which sits in a full-width view under this rule's own
+   `max-width: 760px`, so nothing overflows today.
+   <b>The declaration goes in anyway and the row is closed as prevention, not repair.</b> A control
+   that cannot give up width is one narrow column away from being clipped again, and the next
+   person to put a wide row in a rail will not know that. `min-width: 0` is what lets it actually
+   shrink inside a flex row, which `max-width` alone does not. */
+.setting.wide select, .setting.wide input:not([type=checkbox]) {
+  width: 300px; max-width: 100%; min-width: 0; text-align: left;
+}
 .setting.wide label { display: inline-flex; align-items: center; gap: var(--gap-2); }
 .setting.wide .u { width: auto; flex: 0 0 auto; }
 .setting.wide .q { max-width: 400px; }
