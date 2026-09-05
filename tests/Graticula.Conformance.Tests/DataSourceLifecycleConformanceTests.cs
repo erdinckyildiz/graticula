@@ -563,6 +563,212 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         Assert.Contains("not both", body, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A service that names a reference answers in it, and clearing it goes back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5c.</b> Every
+    /// face answered in whatever the layer's table happened to be stored in, so an operator
+    /// composing a service out of tables in three systems had no way to say which one clients
+    /// get. Migration 39 gave the service a reference of its own; this is the half that makes
+    /// it mean something.
+    /// </para>
+    /// <para>
+    /// <b>Three states, because two of them are easy to get right by accident.</b> Unset must
+    /// behave exactly as it did before — that is what stops this being a change to every
+    /// service that already exists. Set must reproject with no <c>outSR</c> in the request at
+    /// all, which is the whole point. And an explicit <c>outSR</c> must still win, because a
+    /// client that names a reference is not asking the service's opinion.
+    /// </para>
+    /// <para>
+    /// <b>Restored in a finally.</b> This writes to a shared fixture, and a service left
+    /// answering in 4326 would be a puzzle for whichever test runs next.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_service_that_names_a_reference_is_answered_in_it()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        string qualified = Environment.GetEnvironmentVariable("GRATICULA_TEST_QUERYABLE")
+            ?? string.Empty;
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(qualified),
+            "GRATICULA_TEST_QUERYABLE is not set, so there is no service to name a reference on.");
+        string bare = qualified.Contains('/', StringComparison.Ordinal)
+            ? qualified[(qualified.LastIndexOf('/') + 1)..]
+            : qualified;
+
+        // <b>What it answers with nothing set, which is the control.</b>
+        int stored = await ServedWkidAsync(root, token!, qualified);
+
+        Assert.True(
+            stored > 0,
+            $"'{qualified}' answered no spatial reference at all, so there is nothing to "
+            + "compare against.");
+
+        // Something it is definitely not. Both are references this server can reach.
+        int other = stored == 4326 ? 3857 : 4326;
+
+        try
+        {
+            (HttpStatusCode set, string said) = await SendAsync(
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                JsonSerializer.Serialize(new { srid = other }));
+
+            Assert.True(
+                set == HttpStatusCode.OK,
+                $"Naming a reference answered {(int)set}: {said}");
+
+            Assert.Equal(
+                other,
+                await ServedWkidAsync(root, token!, qualified));
+
+            // <b>And the document says the same thing, which is the invariant this whole
+            // feature was held back over.</b> Measured 2026-09-05 with only the query moved:
+            // document 3857, query 4326, same layer — a client reads the contract and is handed
+            // something else. Asserting the query alone would let that come back silently.
+            (int documentWkid, double west, double east) =
+                await DocumentReferenceAsync(root, token!, $"{qualified}/FeatureServer/0");
+
+            Assert.Equal(other, documentWkid);
+
+            // <b>And the service document, which is the one a client reads first.</b> It was
+            // the half still disagreeing after the layer document was moved: three documents,
+            // one face, and two of them agreeing is not agreement.
+            (int serviceWkid, _, double serviceEast) =
+                await DocumentReferenceAsync(root, token!, $"{qualified}/FeatureServer");
+
+            Assert.Equal(other, serviceWkid);
+
+            // <b>Moved, not relabelled.</b> The numbers have to belong to the reference the
+            // label names: degrees are single or double digits here and Web Mercator metres are
+            // in the millions, so one comparison tells them apart without pinning the fixture's
+            // own coordinates.
+            bool degrees = other == 4326;
+
+            Assert.True(
+                degrees
+                    ? System.Math.Abs(serviceEast) <= 180
+                    : System.Math.Abs(serviceEast) > 1000,
+                $"The service document reports EPSG:{other} and an extent reaching "
+                + $"{serviceEast}, which belongs to the other reference.");
+
+            Assert.True(
+                degrees ? System.Math.Abs(east) <= 180 : System.Math.Abs(east) > 1000,
+                $"The document reports EPSG:{other} and an extent running {west} to {east}. "
+                + "Those numbers belong to the other reference, so the label was changed and the "
+                + "box was not — which is the one failure worse than reporting nothing.");
+
+            // <b>And a client that names one still wins.</b> The service's reference is the
+            // answer when nobody asked, not an override of somebody who did.
+            Assert.Equal(
+                stored,
+                await ServedWkidAsync(root, token!, qualified, $"&outSR={stored}"));
+        }
+        finally
+        {
+            await SendAsync(
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                JsonSerializer.Serialize(new { srid = (int?)null }));
+        }
+
+        Assert.Equal(stored, await ServedWkidAsync(root, token!, qualified));
+    }
+
+    /// <summary>
+    /// A reference that is not one is refused, with the value in the message.
+    /// </summary>
+    [Fact]
+    public async Task A_reference_that_is_not_one_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        string qualified = Environment.GetEnvironmentVariable("GRATICULA_TEST_QUERYABLE")
+            ?? string.Empty;
+
+        Assert.False(string.IsNullOrWhiteSpace(qualified), "GRATICULA_TEST_QUERYABLE is not set.");
+
+        string bare = qualified.Contains('/', StringComparison.Ordinal)
+            ? qualified[(qualified.LastIndexOf('/') + 1)..]
+            : qualified;
+
+        (HttpStatusCode status, string body) = await SendAsync(
+            HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+            JsonSerializer.Serialize(new { srid = 0 }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("not a spatial reference", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>What the layer document says its extent is, and in which reference.</summary>
+    /// <param name="root">The server.</param>
+    /// <param name="token">The credential.</param>
+    /// <param name="path">The document, below <c>/rest/services/</c>.</param>
+    /// <returns>The wkid, and the extent's west and east edges.</returns>
+    private async Task<(int Wkid, double West, double East)> DocumentReferenceAsync(
+        string root, string token, string path)
+    {
+        (HttpStatusCode status, string body) = await SendAsync(
+            HttpMethod.Get, $"{root}/rest/services/{path}?f=json", token, null);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement root_ = JsonDocument.Parse(body).RootElement;
+
+        // A layer document calls it `extent`; a service document calls it `fullExtent`.
+        JsonElement extent = root_.TryGetProperty("extent", out JsonElement own)
+            ? own
+            : root_.GetProperty("fullExtent");
+        JsonElement reference = extent.GetProperty("spatialReference");
+
+        return (
+            reference.TryGetProperty("latestWkid", out JsonElement latest)
+                ? latest.GetInt32()
+                : reference.GetProperty("wkid").GetInt32(),
+            extent.GetProperty("xmin").GetDouble(),
+            extent.GetProperty("xmax").GetDouble());
+    }
+
+    /// <summary>The wkid a query answers in, with no outSR unless one is given.</summary>
+    /// <param name="root">The server.</param>
+    /// <param name="token">The credential.</param>
+    /// <param name="qualified">The service.</param>
+    /// <param name="extra">Anything else to add to the query string.</param>
+    /// <returns>The wkid the response reports.</returns>
+    private async Task<int> ServedWkidAsync(
+        string root, string token, string qualified, string extra = "")
+    {
+        (HttpStatusCode status, string body) = await SendAsync(
+            HttpMethod.Get,
+            $"{root}/rest/services/{qualified}/FeatureServer/0/query"
+            + $"?where=1%3D1&returnGeometry=true&resultRecordCount=1&f=json{extra}",
+            token,
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement said = JsonDocument.Parse(body).RootElement;
+
+        Assert.False(
+            said.TryGetProperty("error", out JsonElement complaint),
+            $"The query failed: {complaint}");
+
+        JsonElement reference = said.GetProperty("spatialReference");
+
+        return reference.TryGetProperty("latestWkid", out JsonElement latest)
+            ? latest.GetInt32()
+            : reference.GetProperty("wkid").GetInt32();
+    }
+
     /// <summary>One keyword out of the suite's own connection string.</summary>
     /// <remarks>
     /// <b>Split rather than parsed, and the difference is deliberate.</b> Npgsql's builder is

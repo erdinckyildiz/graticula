@@ -643,6 +643,8 @@ public static class FeatureServerMetadataWriter
     /// <param name="geometryType">Its declared geometry type.</param>
     /// <param name="description">Its fields and extent.</param>
     /// <param name="capabilities">What the caller may do.</param>
+    /// <param name="servedExtent">The extent already in the served reference, or null.</param>
+    /// <param name="servedSrid">The reference the service is served in, or null for the layer's.</param>
     /// <param name="relationships">
     /// Declared relationships this layer takes part in, from either side, in the
     /// shape an ArcGIS client reads. A relationship a client cannot discover is
@@ -676,6 +678,8 @@ public static class FeatureServerMetadataWriter
         GeometryKind geometryType,
         LayerDescription description,
         string capabilities,
+        Envelope? servedExtent,
+        int? servedSrid,
         IEnumerable<object>? relationships = null,
         int layerId = 0,
         int? maxRecordCount = null,
@@ -707,7 +711,13 @@ public static class FeatureServerMetadataWriter
             globalIdField = string.Empty,
 
             fields = Fields(layer, description, capabilities),
-            extent = ExtentOrNull(description.Extent, layer.Srid),
+            // <b>The reference this layer is served in, which is not always the one its table
+            // is stored in.</b> ADR-057 §5c: a service may name its own, and a document that
+            // reported the table's while the query answered the service's would be a contract
+            // the response contradicts — measured, and the reason D-229 held the query half
+            // back until this existed. The caller hands over an extent already moved, because
+            // relabelling numbers measured in another reference is the worse of the two wrongs.
+            extent = ExtentOrNull(servedExtent ?? description.Extent, servedSrid ?? layer.Srid),
 
             capabilities,
 

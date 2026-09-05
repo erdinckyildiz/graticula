@@ -2472,6 +2472,7 @@ public static class Program
         CatalogFallback catalog,
         ServiceContexts contexts,
         HostSettings settings,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedService? service = await ServiceLookup
@@ -2505,12 +2506,24 @@ public static class Program
             (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation)
                 .ConfigureAwait(false);
 
+            // <b>The reference this service answers in, and the extent moved into it.</b>
+            // ADR-057 §5c. The writer takes each layer's own reference and unions the extents,
+            // so handing it the served pair here makes the document's `spatialReference` and
+            // its `fullExtent` right together with no second rule inside the writer. A layer
+            // whose extent will not go there keeps its own, which is the one thing the document
+            // can still prove — see `ServedExtent`.
+            Envelope? moved = service.Srid is { } wanted
+                ? await ServedExtent
+                    .InAsync(described.Extent, layer.Definition.Srid, wanted, projector, cancellation)
+                    .ConfigureAwait(false)
+                : null;
+
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
                 layer.Definition.Name,
                 layer.GeometryType,
-                layer.Definition.Srid,
-                described.Extent)
+                moved is null ? layer.Definition.Srid : service.Srid!.Value,
+                moved ?? described.Extent)
             {
                 ParentId = layer.ParentIndex,
             });
@@ -2595,6 +2608,7 @@ public static class Program
         ServiceContexts contexts,
         PostgresRelationshipCatalog relationships,
         HostSettings settings,
+        IProjector projector,
         CancellationToken cancellation)
     {
         // <b>A group answers at its own index.</b> The service document lists
@@ -2659,11 +2673,23 @@ public static class Program
             await RelationshipsForAsync(layer, relationships, catalog, cancellation)
                 .ConfigureAwait(false);
 
+        // <b>The extent in the reference this service answers in, or nothing.</b> ADR-057 §5c.
+        // `ServedExtent` moves the box rather than relabelling it and answers null when PROJ
+        // cannot put it there — in which case the document reports the table's reference, which
+        // is the one thing it can still prove. D-229 is the row this closes.
+        Envelope? served = layer.ServedSrid is { } wanted
+            ? await ServedExtent
+                .InAsync(description.Extent, layer.Definition.Srid, wanted, projector, cancellation)
+                .ConfigureAwait(false)
+            : null;
+
         object document = FeatureServerMetadataWriter.Layer(
             layer.Definition,
             layer.GeometryType,
             description,
             CapabilitiesFor(context, layer),
+            served,
+            served is null ? null : layer.ServedSrid,
             declared ?? [],
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,

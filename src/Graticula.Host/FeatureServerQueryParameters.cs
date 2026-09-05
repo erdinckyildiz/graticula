@@ -1009,14 +1009,13 @@ internal static class FeatureServerQueryParameters
 
         outSrid ??= Wkid(First(parameters, "defaultSR"));
 
-        // <b>The service's reference is not consulted yet, and D-229 says why.</b> Honouring
-        // it here alone makes the layer document a lie: the document reports
-        // `extent.spatialReference` from the layer's own table, so a query answering in the
-        // service's would contradict the contract a client just read. Measured 2026-09-05 with
-        // this line active — document 3857, query 4326, same layer. The parameter is kept
-        // because the argument is already threaded from the catalogue; what is missing is the
-        // document half, and shipping one without the other is worse than shipping neither.
-        _ = servedSrid;
+        // <b>And then the service's, which is what makes it the service's reference.</b>
+        // Held back for a day on a measurement: with this line alone the document still
+        // reported the table's reference and a query answered the service's — 3857 against
+        // 4326 on the same layer, a contract the response contradicts. The document moves its
+        // extent now (`ServedExtent`), so the two agree and this can be what it was written to
+        // be. D-229.
+        outSrid ??= servedSrid;
 
         if (outSrid is { } wanted && SameSpatialReference(wanted, layerSrid))
         {

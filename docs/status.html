@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f65e8b2</code> · 2026-09-06 00:38</p>
+<p class="stamp">Generated from commit <code>6028df8</code> · 2026-09-06 00:38</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">57</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">154/212</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">58 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">205 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">205 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2365</div><div class="kpi-l">tests</div><div class="kpi-n">265 source files, 108,032 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2367</div><div class="kpi-l">tests</div><div class="kpi-n">266 source files, 108,163 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -300,7 +300,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-218</td><td>A colour ramp told to read a field of words paints the whole layer one colour, and nothing says so.</td><td class="muted-t">A flat map with no explanation.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-225</td><td>Two inputs on every class row have no border at rest, so nothing says they are inputs until somebody points at them.</td><td class="muted-t">WCAG 2.1 SC 1.4.11 is not satisfied by an outline that appears on hover: a pointer is how you find out, and a keyboard…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
 <p class="sub">205 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -397,7 +397,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">503</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.7%"></div></div><div class="bar-n">436</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:87.1%"></div></div><div class="bar-n">438</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:85.1%"></div></div><div class="bar-n">428</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:72.2%"></div></div><div class="bar-n">363</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.4%"></div></div><div class="bar-n">148</div></div>
@@ -410,6 +410,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>6028df8</code><time>2026-09-06</time><span>The status page catches up with ADR-057 5h</span></li>
 <li><code>f65e8b2</code><time>2026-09-06</time><span>ADR-057 5h: a service is not created without layers</span></li>
 <li><code>548c561</code><time>2026-09-06</time><span>Two design reviews, and the worst thing each found was silence</span></li>
 <li><code>4f80d1f</code><time>2026-09-05</time><span>The status page catches up with D-229</span></li>
@@ -423,7 +424,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6648eef</code><time>2026-09-05</time><span>D-201: two more, and the row&#x27;s subject was never one test</span></li>
 <li><code>d3614a3</code><time>2026-09-05</time><span>The status page catches up with ADR-056</span></li>
 <li><code>e66071d</code><time>2026-09-05</time><span>ADR-056: an item is its own thing, and a service is one kind of it</span></li>
-<li><code>a6a2ba0</code><time>2026-09-05</time><span>The status page catches up with ADR-055</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

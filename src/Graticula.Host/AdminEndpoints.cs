@@ -498,12 +498,7 @@ internal static class AdminEndpoints
         // readable through the same API that writes it.
         app.MapGet("/admin/services/{name}/capabilities", GetServiceCapabilitiesAsync);
         app.MapPut("/admin/services/{name}/capabilities", SetServiceCapabilitiesAsync);
-        // <b>Not mapped, and D-229 is the row that says when it will be.</b> The handler is
-        // written and the column behind it exists; what is missing is the layer document, which
-        // still reports the layer's own reference. A route that lets somebody set a value the
-        // document then contradicts is worse than no route — measured, document 3857 against a
-        // query answering 4326 on the same layer.
-        _ = (object?)SetServiceSridAsync;
+        app.MapPut("/admin/services/{name}/srid", SetServiceSridAsync);
 
         // <b>Roles, and the privilege that has had nothing behind it since it was written.</b>
         // ADR-035: `admin:manageRoles` existed, was granted to the administrator, and no endpoint
