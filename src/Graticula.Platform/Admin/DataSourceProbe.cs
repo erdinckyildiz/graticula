@@ -96,6 +96,29 @@ public sealed record ProbeResult(
     public bool CanPublish => Outcome == ProbeOutcome.Usable && Tables.Count > 0;
 }
 
+/// <summary>What databases a server offers the credential that asked.</summary>
+/// <param name="Outcome">How far the attempt got, using the probe's own vocabulary.</param>
+/// <param name="Message">A sentence an administrator can act on.</param>
+/// <param name="Databases">The names, alphabetically, or empty when the attempt failed.</param>
+/// <remarks>
+/// <para>
+/// <b>A registration form that asks somebody to type a database name is a form that catches a
+/// typo at the fourth step.</b> The name is the one field on it that the server can answer
+/// itself, and it can only answer once the host and the credential are right — which makes
+/// filling the list a test of everything above it. Owner, 2026-09-05, asking for the dialog
+/// ArcGIS Pro opens: *user pass girdikten sonra comboya basınca eğer ki her şey doğruysa*.
+/// </para>
+/// <para>
+/// <b>It reaches nowhere that <see cref="IDataSourceProbe.ProbeAsync"/> does not.</b> Both take a
+/// host and a credential from the same privilege holder and open a connection to it, so this adds
+/// no target and no capability — it reads less of what it finds than the probe does.
+/// </para>
+/// </remarks>
+public sealed record DatabaseListing(
+    ProbeOutcome Outcome,
+    string Message,
+    IReadOnlyList<string> Databases);
+
 /// <summary>
 /// Tests a data source without creating anything.
 /// </summary>
@@ -120,4 +143,11 @@ public interface IDataSourceProbe
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>What was found. Never throws for an expected failure.</returns>
     Task<ProbeResult> ProbeAsync(string connectionString, CancellationToken cancellationToken);
+
+    /// <summary>The databases this credential can see on that server.</summary>
+    /// <param name="connectionString">Where and as whom to connect.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The names, or why there are none. Never throws for an expected failure.</returns>
+    Task<DatabaseListing> ListDatabasesAsync(
+        string connectionString, CancellationToken cancellationToken);
 }

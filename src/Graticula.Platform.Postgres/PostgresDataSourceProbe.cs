@@ -326,6 +326,100 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
         return tables;
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>`postgres` when the caller has not chosen a database yet, because a session has to be
+    /// somewhere.</b> PostgreSQL has no way to ask a server what it holds without first connecting
+    /// to one of the things it holds, and `postgres` is the maintenance database every default
+    /// installation creates. A server that has had it dropped answers `3D000`, and the message
+    /// says which database was tried — otherwise *that database does not exist* names a database
+    /// the operator never typed.
+    /// </para>
+    /// <para>
+    /// <b>Templates are left out and the list is not filtered by anything else.</b>
+    /// `datistemplate` marks `template0` and `template1`, which exist to be copied and are not
+    /// somewhere to publish from; `datallowconn` marks a database no session may enter at all.
+    /// Beyond those two, what comes back is what this credential can see, including databases it
+    /// cannot read a table in — because *you may connect and there is nothing here for you* is a
+    /// different answer from *no such database*, and hiding the first turns it into the second.
+    /// </para>
+    /// </remarks>
+    public async Task<DatabaseListing> ListDatabasesAsync(
+        string connectionString, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        NpgsqlConnectionStringBuilder builder;
+
+        try
+        {
+            builder = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                Timeout = (int)Timeout.TotalSeconds,
+                CommandTimeout = (int)Timeout.TotalSeconds,
+            };
+        }
+        catch (ArgumentException e)
+        {
+            return new DatabaseListing(
+                ProbeOutcome.CannotConnect,
+                $"The connection string could not be parsed: {e.Message}",
+                []);
+        }
+
+        string entered = builder.Database is { Length: > 0 } named ? named : "postgres";
+
+        builder.Database = entered;
+
+        await using NpgsqlDataSource source =
+            new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+
+        List<string> databases = [];
+
+        try
+        {
+            await using NpgsqlConnection connection =
+                await source.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+            await using NpgsqlCommand command = new(
+                """
+                select datname from pg_database
+                 where datallowconn and not datistemplate
+                 order by datname
+                """,
+                connection);
+
+            await using NpgsqlDataReader reader =
+                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                databases.Add(reader.GetString(0));
+            }
+        }
+        catch (Exception e) when (e is NpgsqlException or SocketException or TimeoutException)
+        {
+            // <b>The probe's sentences, because they are the same failures.</b> A wrong password
+            // reaching this list has to read the way it reads on the test button beside it; two
+            // vocabularies for one refusal is two things to learn about one server.
+            return new DatabaseListing(
+                ProbeOutcome.CannotConnect,
+                e is PostgresException { SqlState: "3D000" }
+                    ? $"There is no database called '{entered}' on this server, so there was "
+                        + "nowhere to ask from. Name one you know exists and the rest of the list "
+                        + "will come with it."
+                    : Describe(e),
+                []);
+        }
+
+        return new DatabaseListing(
+            ProbeOutcome.Usable,
+            $"{databases.Count} database{(databases.Count == 1 ? string.Empty : "s")} "
+            + $"on {builder.Host}:{builder.Port}.",
+            databases);
+    }
+
     private static async Task<T?> ScalarAsync<T>(
         NpgsqlConnection connection, string sql, CancellationToken cancellationToken)
         where T : class

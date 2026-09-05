@@ -10303,179 +10303,342 @@ async function loadSources() {
       </tr>`).join("");
 }
 
-/** Which source the edit form is about, or null. */
-let editingSource = null;
+/** What the connection dialog is doing: the source it corrects, or null to register one. */
+let dbconn = null;
 
 /**
- * The form for correcting a source's connection string.
+ * Everything the connection dialog knows, as the server's request body.
  *
- * <b>The whole string, not the part that changed, and the form says so.</b> The stored one is sealed
- * and the server does not read it back to merge into — so an operator who types only a new password
- * would lose the host. The current host and database are shown above the field for exactly that
- * reason: they are what has to be retyped.
+ * <b>Fields, never a string.</b> An Npgsql connection string quotes a value containing a
+ * semicolon and doubles a quote inside one, and a password is exactly where those characters
+ * turn up — so a browser that concatenated `Password=` + what was typed would produce a string
+ * that parses into something else, on the passwords nobody tests with. The server assembles it
+ * with the builder that takes it apart again. The advanced box is the one exception, and it is
+ * the caller saying *I have a string already*.
  *
- * <b>What it does not offer is `force`.</b> The server refuses when layers on this source would stop
- * working, and it names them; that refusal arrives here as a sentence with a *Publish anyway* button
- * built from it, so the decision is made against the list rather than in advance of it.
+ * @returns {object} the body for `/admin/datasources` and its neighbours
  */
-async function drawSourceEdit(id, name, summary, layers) {
-  editingSource = { id, name, summary, layers, force: false };
+function dbconnBody() {
+  const raw = $("dcRaw");
 
-  const box = $("probe");
-
-  box.innerHTML = `
-    <h2>${h(name)} — connection</h2>
-    <div class="panel pad">
-      <p class="hint">Currently <code>${h(summary || "unknown")}</code>${layers > 0
-        ? ` · ${num(layers)} layer${layers === 1 ? "" : "s"} read from it`
-        : " · nothing is published on it"}. The password is the one thing not filled in below:
-        it is sealed and this server does not read it back, so it has to be typed again — which
-        also means saving requires already knowing it.</p>
-
-      <form id="sourceEditForm" autocomplete="off">
-        <div class="row">
-          <label class="field" style="flex:1">Connection string
-            <input id="seConnection" required spellcheck="false"
-                   placeholder="Host=…;Port=5432;Database=…;Username=…;Password=…"></label>
-        </div>
-        <div class="row">
-          <label class="field">Name
-            <input id="seName" value="${h(name)}" spellcheck="false"></label>
-        </div>
-        <p class="hint bad-inline" id="seRefused" hidden role="alert"></p>
-        <div class="row">
-          <button type="submit" class="primary">Test and save</button>
-          <button type="button" class="ghost" id="seCancel">Cancel</button>
-        </div>
-      </form>
-    </div>`;
-
-  $("sourceEditForm").addEventListener("submit", saveSourceEdit);
-
-  // <b>Everything but the password, read from the server rather than retyped from memory.</b>
-  // This box was empty and the hint said to send the whole string, on the reasoning that the
-  // stored one is sealed — true of the password and of nothing else. The host, the port, the
-  // database, the user and the search path are the thing being corrected, and asking somebody to
-  // reproduce them from memory is how one correction becomes two mistakes. Owner, 2026-09-05:
-  // *edit dediğimde boş oluyor.*
-  //
-  // <b>Filled after the form exists and without blocking it.</b> A reader who already knows the
-  // whole string can start typing immediately; if the read arrives and they have not, it lands.
-  try {
-    const said = await api(`/admin/datasources/${encodeURIComponent(id)}/connection`);
-    const field = $("seConnection");
-
-    if (field && !field.value && said && said.connection) {
-      field.value = said.connection;
-
-      // <b>The caret where the missing half goes.</b> The password is what has to be added, and
-      // it belongs at the end of the string that is now in front of them.
-      field.focus();
-      field.setSelectionRange(field.value.length, field.value.length);
-    }
-  } catch (e) {
-    // <b>An empty box and a sentence, rather than an empty box.</b> A source sealed with a key
-    // this build no longer holds cannot be read back at all, and that is worth saying here
-    // instead of leaving somebody to wonder why this one did not fill in.
-    const why = $("seRefused");
-
-    if (why) {
-      why.textContent = `${e.message} Type the whole connection string, including the password.`;
-      why.hidden = false;
-    }
+  if (raw && raw.value.trim()) {
+    return { name: $("dcName").value.trim(), connectionString: raw.value.trim() };
   }
-  $("seCancel").addEventListener("click", () => {
-    editingSource = null;
-    box.innerHTML = "";
-    focusSources();
-  });
-  $("seConnection").focus();
+
+  return {
+    name: $("dcName").value.trim(),
+    host: $("dcHost").value.trim(),
+    port: Number($("dcPort").value) || 5432,
+    database: $("dcDatabase").value.trim(),
+    username: $("dcUser").value,
+    password: $("dcPassword").value,
+  };
 }
 
 /**
- * Sends the correction, and turns a refusal into the decision it is.
+ * Says something in the dialog's own result line.
  *
- * <b>Two refusals arrive here and they are different.</b> *Cannot connect* is a typo — the field keeps
- * what was typed and the message says what to check. *These layers would stop working* is a judgement:
- * the server has connected, looked, and found the tables missing, so the form offers to proceed with
- * the list in front of the operator rather than asking them to guess in advance.
+ * @param {string} tone the class: `ok`, `warn`, `alert` or empty
+ * @param {string} head the bold half
+ * @param {string} rest the sentence
  */
-async function saveSourceEdit(event) {
-  event.preventDefault();
+function dbconnSays(tone, head, rest) {
+  const said = $("dcResult");
 
-  const refused = $("seRefused");
-  const connection = $("seConnection").value.trim();
+  if (!said) return;
 
-  if (!connection) {
-    refused.hidden = false;
-    refused.textContent = "A connection string is required.";
+  said.className = `testresult ${tone}`;
+  said.innerHTML = `<b>${h(head)}</b>${h(rest || "")}`;
+}
+
+/**
+ * Fills the database combo from the server, which is also the test.
+ *
+ * <b>Nothing comes back unless the host resolved, the port answered, TLS agreed and the
+ * credential was accepted</b> — so a filled list says all four at once, and an empty one says
+ * which of them failed in the probe's own sentence. That is why this is on the combo rather than
+ * behind a separate *Test* button: the operator's next action after typing a password is to
+ * choose a database, and the choosing is the check.
+ *
+ * @returns {Promise<void>} when the list has been filled or the refusal shown
+ */
+async function dbconnFill() {
+  const combo = $("dcDatabase");
+  const chosen = combo.value;
+
+  // <b>Three events reach this and a server should hear about one of them.</b> A mouse fires
+  // `mousedown` then `focus` then `click`, a keyboard fires `focus` alone, and a synthetic
+  // `element.click()` — which is what the console's own harness sends — fires only `click`. All
+  // three are listened for, so the control answers however it was reached; this is what keeps
+  // that from being three requests. The key is what the answer depends on, so changing the host
+  // or the credential asks again and moving the caret does not.
+  const asked = [
+    $("dcHost").value.trim(),
+    $("dcPort").value,
+    $("dcUser").value,
+    $("dcPassword").value,
+  ].join("\u0000");
+
+  if (combo.dataset.asked === asked) return;
+
+  if (!$("dcHost").value.trim() || !$("dcUser").value) {
+    dbconnSays("warn", "The host and the user first. ",
+      "This list comes from the server, so it cannot be asked for until there is a server to "
+      + "ask and somebody to ask as.");
     return;
   }
 
-  refused.hidden = true;
+  if (combo.dataset.filling === "yes") return;
+
+  combo.dataset.filling = "yes";
+  dbconnSays("", "Asking the server…", "");
 
   try {
-    const answer = await api(
-      `/admin/datasources/${encodeURIComponent(editingSource.id)}`
-      + (editingSource.force ? "?force=true" : ""),
-      {
-        method: "PUT",
+    const said = await api("/admin/datasources/databases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...dbconnBody(), database: "" }),
+    });
+
+    const names = said.databases || [];
+
+    if (!names.length) {
+      dbconnSays(sourceTone(said.outcome), spaced(said.outcome || "No answer"), said.message || "");
+      return;
+    }
+
+    // <b>A datalist, not a select, and that is not a detail.</b> A database this account may
+    // connect to is not always a database it may *see* in `pg_database` — and on a server that
+    // hides them, a `<select>` would be a control that refuses the correct answer. The list is a
+    // suggestion over a text field, so what the server knows helps and what it does not know
+    // does not block.
+    $("dcDatabases").innerHTML = names
+      .map(n => `<option value="${h(n)}"></option>`).join("");
+
+    if (!chosen && names.length) { combo.value = names[0]; }
+
+    combo.dataset.asked = asked;
+
+    dbconnSays("ok", `${num(names.length)} database${names.length === 1 ? "" : "s"}. `,
+      "The connection worked, so what is left is choosing one.");
+  } catch (e) {
+    dbconnSays("alert", "Refused. ", e.message);
+  } finally {
+    combo.dataset.filling = "";
+  }
+}
+
+/**
+ * Opens the connection dialog, to register a source or to correct one.
+ *
+ * <b>One dialog for both, because they are the same eight fields.</b> Registering and correcting
+ * differed only in which endpoint took the answer, and keeping two forms meant a repair to one
+ * of them left the other — which is what happened to the empty box in
+ * [D-228](docs/architecture-debt.md).
+ *
+ * <b>The password is never filled in, on either path, and the dialog says why.</b> This server
+ * seals it and does not read it back: returning it would hand a credential to anybody holding
+ * `content:registerDataStore`, and keeping it here to merge would let them repoint a source at a
+ * listener of their own and have this server deliver to it. So saving requires already knowing
+ * it.
+ *
+ * @param {object|null} source the source being corrected, or null to register a new one
+ * @returns {Promise<void>} when the dialog is on screen
+ */
+async function openDbConnection(source) {
+  dbconn = source ? { ...source, force: false } : null;
+
+  const dialog = $("dbconn");
+
+  $("dbconnTitle").textContent = source
+    ? `${source.name} — connection`
+    : "Database connection";
+
+  $("dbconnBody").innerHTML = `
+    <form id="dcForm" autocomplete="off">
+      <div class="row">
+        <label class="field" style="flex:1 1 100%">Name
+          <input id="dcName" spellcheck="false" placeholder="cadastre"
+                 value="${h(source ? source.name : "")}"></label>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:3 1 60%">Instance
+          <input id="dcHost" spellcheck="false" placeholder="localhost" required></label>
+        <label class="field" style="flex:1 1 20%">Port
+          <input id="dcPort" type="number" min="1" max="65535" value="5432"></label>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:1 1 45%">User name
+          <input id="dcUser" spellcheck="false" autocomplete="off" required></label>
+        <label class="field" style="flex:1 1 45%">Password
+          <input id="dcPassword" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:1 1 100%">Database
+          <input id="dcDatabase" list="dcDatabases" spellcheck="false"
+                 placeholder="press to list what is on that server">
+          <datalist id="dcDatabases"></datalist></label>
+      </div>
+      <p class="hint">${source
+        ? "The password is the one thing not filled in: it is sealed and this server does not "
+          + "read it back, so it has to be typed again — which also means saving requires "
+          + "already knowing it."
+        : "Choosing a database asks the server for the list, which only answers if the host, the "
+          + "port and the credential are all right."}</p>
+      <details id="dcAdvanced">
+        <summary>Write the connection string instead</summary>
+        <p class="hint">For anything the fields above cannot say — an SSL mode, a timeout, an
+          application name. Filling this in replaces every field above it.</p>
+        <label class="field" style="flex:1 1 100%">Connection string
+          <input id="dcRaw" spellcheck="false"
+                 placeholder="Host=…;Port=5432;Database=…;Username=…;Password=…"></label>
+      </details>
+      <div id="dcResult"></div>
+    </form>`;
+
+  $("dbconnFoot").innerHTML = `
+    <button type="button" id="dcTest">Test connection</button>
+    <button type="button" class="primary" id="dcSave">${source ? "Save" : "Register"}</button>
+    <button type="button" class="ghost" id="dcCancel">Cancel</button>`;
+
+  $("dcDatabase").addEventListener("mousedown", dbconnFill);
+  $("dcDatabase").addEventListener("focus", dbconnFill);
+  $("dcDatabase").addEventListener("click", dbconnFill);
+  $("dcTest").addEventListener("click", dbconnTest);
+  $("dcSave").addEventListener("click", dbconnSave);
+  $("dcCancel").addEventListener("click", () => dialog.close());
+  $("dbconnClose").onclick = () => dialog.close();
+
+  $("dcForm").addEventListener("submit", event => {
+    event.preventDefault();
+    dbconnSave();
+  });
+
+  // <b>Focus goes back to the table, said rather than inherited.</b> Closing a `<dialog>`
+  // restores focus to whatever had it when the dialog opened — which is the Edit button when a
+  // person pressed it, and nothing at all when the button was activated any other way. A
+  // keyboard reader who lands on `<body>` has to tab from the top of the page, and this screen
+  // has been measured doing exactly that once before.
+  //
+  // <b>`onclose` rather than `addEventListener`, because this function runs again every time
+  // the dialog opens</b> and a listener added on each of those would fire once per opening.
+  dialog.onclose = () => {
+    dbconn = null;
+    focusSources();
+  };
+
+  dialog.showModal();
+
+  if (!source) {
+    $("dcHost").focus();
+    return;
+  }
+
+  // <b>Everything but the password, read from the server rather than retyped from memory.</b>
+  // Owner, 2026-09-05: *edit dediğimde boş oluyor.* The host, the port, the database and the
+  // user are what is being corrected, and asking somebody to reproduce them turns one
+  // correction into two mistakes.
+  try {
+    const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
+
+    $("dcHost").value = said.host || "";
+    $("dcPort").value = said.port || 5432;
+    $("dcDatabase").value = said.database || "";
+    $("dcUser").value = said.username || "";
+    $("dcPassword").focus();
+  } catch (e) {
+    // A source sealed with a key this build no longer holds cannot be read back at all, and
+    // that is worth saying here rather than leaving somebody to wonder why this one is empty.
+    dbconnSays("alert", "Not filled in. ", `${e.message} Type the whole connection.`);
+    $("dcHost").focus();
+  }
+}
+
+/**
+ * Connects and reports, storing nothing.
+ *
+ * @returns {Promise<void>} when the answer is on screen
+ */
+async function dbconnTest() {
+  const button = $("dcTest");
+
+  button.disabled = true;
+  dbconnSays("", "Connecting…", "");
+
+  try {
+    const r = await api("/admin/datasources/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(dbconnBody()),
+    });
+
+    dbconnSays(sourceTone(r.outcome), spaced(r.outcome || "Done"), r.message || "");
+  } catch (e) {
+    dbconnSays("alert", "Refused. ", e.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * Registers or corrects, and turns a refusal into the decision it is.
+ *
+ * <b>Two refusals arrive here and they are different.</b> *Cannot connect* is a typo — the
+ * fields keep what was typed and the message says what to check. *These layers would stop
+ * working* is a judgement: the server has connected, looked, and found the tables missing, so
+ * the dialog offers to proceed with the list in front of the operator rather than asking them to
+ * guess in advance.
+ *
+ * @returns {Promise<void>} when it has saved or said why not
+ */
+async function dbconnSave() {
+  const button = $("dcSave");
+  const body = dbconnBody();
+
+  if (!body.name) {
+    dbconnSays("warn", "A name first. ", "It is what this source is called in the list.");
+    $("dcName").focus();
+    return;
+  }
+
+  button.disabled = true;
+
+  try {
+    const answer = dbconn
+      ? await api(
+        `/admin/datasources/${encodeURIComponent(dbconn.id)}`
+          + (dbconn.force ? "?force=true" : ""),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      : await api("/admin/datasources", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: $("seName").value.trim() || null,
-          connectionString: connection,
-        }),
+        body: JSON.stringify(body),
       });
 
-    editingSource = null;
-    $("probe").innerHTML = `<h2>Saved</h2>
-      <div class="panel pad"><p class="hint">${h(answer.name)} now reads
-        <code>${h(answer.summary)}</code>, and found ${num(answer.publishable ?? 0)} publishable
-        table${(answer.publishable ?? 0) === 1 ? "" : "s"} there. ${(answer.missing || []).length
-          ? `<b>${num(answer.missing.length)} layer${answer.missing.length === 1 ? "" : "s"} will not
-             work:</b> ${h(answer.missing.join(", "))}.`
-          : "Every layer on it still has its table."}</p></div>`;
+    $("dbconn").close();
+    dbconn = null;
+
+    toast(answer.name
+      ? `${answer.name} now reads ${answer.summary || "that connection"}.`
+      : "Saved.", true);
 
     await loadSources();
   } catch (e) {
-    const message = e.message || String(e);
-
-    refused.hidden = false;
-
-    // <b>The API's last sentence is not the operator's.</b> The server ends the missing-tables refusal
-    // with *"Send force=true if it is deliberate"* — which is right for the caller holding a terminal
-    // and wrong on a screen that is about to grow a button doing exactly that. Two audiences, one
-    // message: the endpoint keeps the instruction for `curl`, and the console trims it and lets the
-    // button speak. Design review 2026-08-19.
-    refused.textContent = message.replace(/\s*Send force=true[^.]*\.\s*$/, "");
-
-    // <b>The forced retry is offered only for the refusal that is a judgement.</b> A connection that
-    // cannot be reached is not a decision anybody should be able to override.
-    if (message.includes("force=true") && !editingSource.force) {
-      // <b>One button, however many times this path is taken.</b> `after` inserts, so a second
-      // force-eligible refusal used to stack a second *Save anyway* ahead of the first — two identical
-      // overrides, one of them stale. An id makes the insert idempotent.
-      $("seForceAgain")?.remove();
-
-      const again = document.createElement("button");
-
-      again.type = "button";
-      again.id = "seForceAgain";
-      again.className = "danger";
-      again.textContent = "Save anyway";
-      again.addEventListener("click", () => {
-        editingSource.force = true;
-        $("sourceEditForm").requestSubmit();
-      });
-
-      refused.after(again);
+    // <b>The missing-layers refusal is a decision, so it is offered as one.</b> The server has
+    // named which layers would stop working; repeating the save with `force` is the operator
+    // agreeing to that list rather than to an abstraction.
+    if (dbconn && /would stop working|no longer/i.test(e.message)) {
+      dbconnSays("warn", "Refused. ", `${e.message} Press Save again to do it anyway.`);
+      dbconn.force = true;
+    } else {
+      dbconnSays("alert", "Refused. ", e.message);
     }
-
-    // <b>Scrolled to, because at 1024×768 this sits below the fold.</b> The row's three action buttons
-    // wrap to two lines at that width, which pushes the form down — measured at `top: 724` in a
-    // 768-pixel viewport before any browser chrome, so in a real window the message an operator needs
-    // is off screen. Focus alone does not fix it: the field is already focused when the form draws.
-    refused.scrollIntoView({ block: "center", behavior: "instant" });
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -13773,8 +13936,12 @@ async function handleClick(event) {
   }
 
   if (d.sourceEdit) {
-    await drawSourceEdit(
-      d.sourceEdit, d.sourceName, d.sourceSummary, Number(d.sourceLayers) || 0);
+    await openDbConnection({
+      id: d.sourceEdit,
+      name: d.sourceName,
+      summary: d.sourceSummary,
+      layers: Number(d.sourceLayers) || 0,
+    });
 
     return;
   }
@@ -13792,33 +13959,9 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.id === "sTest" || t.id === "sAdd") {
+  if (t.id === "sAdd") {
     event.preventDefault();
-    const body = { name: $("sName").value.trim(), connectionString: $("sConn").value };
-    const path = t.id === "sTest" ? "/admin/datasources/test" : "/admin/datasources";
-    t.disabled = true;
-    try {
-      const r = await api(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      // The test answers 200 even when the source is unusable: the request
-      // succeeded and the answer is "no". So the outcome is read from the body.
-      const said = r.outcome || (r.name ? "Registered" : "Done");
-
-      $("sResult").className = `testresult ${sourceTone(r.outcome)}`;
-      $("sResult").innerHTML = `<b>${h(spaced(said))}</b>${
-        h(r.message || `Registered as ${r.name}.`)}`;
-
-      if (t.id === "sAdd") { $("sName").value = ""; $("sConn").value = ""; await loadSources(); }
-    } catch (e) {
-      // <b>A refusal is red whatever it was about.</b> The request itself failed, so nothing is
-      // known about the database and the next move is this server or the network.
-      $("sResult").className = "testresult alert";
-      $("sResult").innerHTML = `<b>Refused</b>${h(e.message)}`;
-    }
-    t.disabled = false;
+    await openDbConnection(null);
   }
 }
 

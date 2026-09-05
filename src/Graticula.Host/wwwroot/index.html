@@ -577,22 +577,25 @@
         <div id="probe"></div>
       </div>
 
-      <!-- A form, so Enter tests the connection instead of doing nothing. -->
-      <form class="panel pad" id="sourceForm">
+      <!--
+        <b>A button rather than a form, since 2026-09-05.</b> What was here was a name and a
+        connection string side by side, and the string is the part nobody can type correctly the
+        first time. The dialog it opens asks for the fields instead and fills the database list
+        from the server, so the test and the registration are the same gesture.
+
+        <b>The panel stays, because an empty region with one button in it reads as broken.</b>
+        It says what a source is and what registering one costs, which is what somebody who has
+        never done it needs before they press anything.
+      -->
+      <div class="panel pad" id="sourceForm">
         <div class="label" style="margin-top:0">Register a source</div>
-        <p class="hint">A PostGIS connection string. Test it first: the test connects and reports
-          what it found without storing anything.</p>
-        <div class="row">
-          <label class="field" style="flex:1 1 100%">Name<input type="text" id="sName" placeholder="cadastre"></label>
-          <label class="field" style="flex:1 1 100%">Connection string
-            <input type="text" id="sConn" placeholder="Host=…;Database=…;Username=…;Password=…"></label>
-        </div>
+        <p class="hint">A PostGIS database this server reads from. Registering stores the
+          credential, sealed, because the server connects again every time somebody opens a map
+          on it — nothing is published by registering, and you choose the tables afterwards.</p>
         <div class="row" style="margin-bottom:0">
-          <button id="sTest" type="submit">Test connection</button>
-          <button class="primary" id="sAdd" type="button">Register</button>
+          <button class="primary" id="sAdd" type="button">Add a connection&hellip;</button>
         </div>
-        <div id="sResult"></div>
-      </form>
+      </div>
     </div>
   </section>
 
@@ -1687,6 +1690,34 @@
   </header>
   <div class="dialogbody" id="addItemBody"></div>
   <footer class="dialogfoot" id="addItemFoot"></footer>
+</dialog>
+
+<!-- --------------------------------------------------------- database connection -->
+<!--
+  <b>The owner sent ArcGIS Pro's *Database Connection* dialog and asked for it here.</b> Until
+  2026-09-05 both registering a source and correcting one meant typing an Npgsql connection
+  string into a single box, which is a format with quoting rules, a spelling for every keyword,
+  and no way to be told you got it wrong except by the whole thing failing.
+
+  <b>Three controls in that picture are not drawn here, and the omissions are the design.</b>
+  *Database Platform* is a combo with one entry — v1 is PostGIS and nothing else, and
+  [ADR-034](docs/adr/ADR-034-server-and-studio.md) says a
+  control is not drawn for a feature that does not exist. *Authentication Type* is the same:
+  there is one. *Save User/Password* cannot be unticked — a registered source is read by this
+  server long after whoever registered it went home, so the sealed credential is what makes it a
+  registration rather than a session.
+
+  <b>And one control is drawn that the picture folds away.</b> Pro writes the port into
+  *Instance* as `host,port`; Npgsql takes it separately, and hiding it would mean a database on
+  5433 could not be reached from this form at all.
+-->
+<dialog id="dbconn" aria-labelledby="dbconnTitle">
+  <header class="dialoghead">
+    <h3 id="dbconnTitle" tabindex="-1">Database connection</h3>
+    <button class="tiny ghost" id="dbconnClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="dbconnBody"></div>
+  <footer class="dialogfoot" id="dbconnFoot"></footer>
 </dialog>
 
 <!-- ------------------------------------------------------------------ drawer -->

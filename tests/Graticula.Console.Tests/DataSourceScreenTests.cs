@@ -64,24 +64,157 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await ClickAsync("#sources button[data-source-edit]");
 
         await WaitForAsync(
-            "document.getElementById('seConnection') !== null",
-            "The edit form did not open.");
+            "document.getElementById('dcHost') !== null",
+            "The connection dialog did not open.");
+
+        // <b>Fields now, not a string — owner request 2026-09-05.</b> This waited on one box
+        // holding an Npgsql string; the dialog asks for the host, the port, the database and the
+        // user separately, and the server hands them over already parsed so the browser never
+        // takes a connection string apart.
+        await WaitForAsync(
+            "(document.getElementById('dcHost')?.value || '').length > 0"
+            + " && (document.getElementById('dcDatabase')?.value || '').length > 0",
+            "The dialog is still empty after opening Edit. It is a correction form: the thing "
+            + "being corrected has to be in it.");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(await Browser.EvaluateAsync<string>(
+                "document.getElementById('dcUser').value")),
+            "The user is empty, so it is one more thing being retyped from memory.");
+
+        // <b>And the password is the one field that stays empty, which is the design.</b>
+        Assert.Equal(
+            string.Empty,
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('dcPassword').value"));
+
+        // <b>Masked, because somebody is going to type it with a colleague at the desk.</b>
+        Assert.Equal(
+            "password",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('dcPassword').type"));
+    }
+
+    /// <summary>
+    /// Choosing a database asks the server what is on it, and offering none says why.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner, 2026-09-05, describing ArcGIS Pro's dialog: *user pass girdikten sonra comboya
+    /// basınca eğer ki her şey doğruysa, bağlanacağı şemayı seçer*.</b> The database is the one
+    /// field on this form the server can fill in itself, and it can only do it once the host, the
+    /// port and the credential are all right — so filling the list is the test, and it happens at
+    /// the moment somebody was going to type the value anyway.
+    /// </para>
+    /// <para>
+    /// <b>A datalist rather than a select, and that is asserted rather than assumed.</b> A
+    /// database this account may connect to is not always one it may see in `pg_database`; a
+    /// `&lt;select&gt;` would be a control that refuses the correct answer on a server that hides
+    /// them. What the server knows has to help without blocking what it does not.
+    /// </para>
+    /// <para>
+    /// <b>Stubbed, because the harness traps every non-GET.</b> This is a POST — it carries a
+    /// password and must not be a URL — so `ConsoleTest` answers it and the real endpoint is
+    /// covered over HTTP in `DataSourceLifecycleConformanceTests`. What is under test here is
+    /// that the page asks, and does something with the answer.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_database_list_is_filled_from_the_server_and_a_refusal_is_said()
+    {
+        await OpenSourcesAsync();
+
+        await ClickAsync("#sAdd");
 
         await WaitForAsync(
-            "(document.getElementById('seConnection')?.value || '').length > 0",
-            "The connection box is still empty after opening Edit. It is a correction form: the "
-            + "thing being corrected has to be in it.");
+            "document.getElementById('dcDatabase')?.offsetParent !== null",
+            "The connection dialog did not open, or it has no database field.");
 
-        string connection = await Browser.EvaluateAsync<string>(
-            "document.getElementById('seConnection').value") ?? string.Empty;
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__answer = {
+            outcome: "Usable", message: "3 databases on localhost:5432.",
+            databases: ["gis", "miami_dade", "postgres"],
+          };
+          window.fetch = async (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (!where.includes("/admin/datasources/databases")) return real(input, init);
+            return new Response(JSON.stringify(window.__answer), {
+              status: 200, headers: { "Content-Type": "application/json" },
+            });
+          };
+          return true;
+        })();
+        """);
 
-        Assert.Contains("Host=", connection, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Database=", connection, StringComparison.OrdinalIgnoreCase);
+        // <b>The host and the user first, because the list cannot be asked for without them —</b>
+        // and the dialog says so rather than sending a request that could only fail.
+        //
+        // <b>Clicked, not focused, and the difference cost a run.</b> `ClickAsync` sends
+        // `element.click()`, which fires `click` and neither `mousedown` nor `focus` — so a
+        // control listening only for the two a real mouse sends is a control this suite cannot
+        // press. The page listens for all three now; this is the one that proves it.
+        await ClickAsync("#dcDatabase");
 
-        // <b>The keyword, not the value.</b> The fixture credential is short and also appears in
-        // the host and the database name, so *the box does not contain the password* is
-        // unprovable here — the conformance suite records the same trap.
-        Assert.DoesNotContain("Password", connection, StringComparison.OrdinalIgnoreCase);
+        await WaitForAsync(
+            "(document.getElementById('dcResult')?.innerText || '').includes('host')",
+            "Pressing the database field with no host in the form did not say why there is "
+            + "nothing to list. A control that does nothing and explains nothing reads as broken.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.getElementById("dcHost").value = "localhost";
+          document.getElementById("dcUser").value = "gis";
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#dcDatabase");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#dcDatabases option').length === 3",
+            "The database list did not fill from the server's answer.");
+
+        Assert.Equal(
+            "gis | miami_dade | postgres",
+            await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#dcDatabases option')]"
+                + ".map(o => o.value).join(' | ')"));
+
+        // <b>And the field is a text input with a list, not a select.</b>
+        Assert.Equal(
+            "INPUT",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('dcDatabase').tagName"));
+
+        // <b>The other end: a server that refuses says which of the four things went wrong.</b>
+        //
+        // <b>The password changes, which is what makes this a second question.</b> The dialog
+        // remembers what it last asked about and does not ask again for the same host, port,
+        // user and password — three events reach that control for one press of it, and a
+        // request per event is three.
+        await Browser.EvaluateAsync<bool>("""
+        (window.__answer = {
+          outcome: "CannotConnect",
+          message: "The password was rejected by the server.",
+          databases: [],
+        }, document.getElementById("dcPassword").value = "wrong", true);
+        """);
+
+        await ClickAsync("#dcDatabase");
+
+        await WaitForAsync(
+            "document.getElementById('dcResult')?.classList.contains('alert')",
+            "A rejected password did not come back red on the dialog.");
+
+        Assert.Contains(
+            "password was rejected",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('dcResult').innerText") ?? string.Empty,
+            StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
     }
 
     /// <summary>
@@ -201,8 +334,17 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await OpenSourcesAsync();
 
         await WaitForAsync(
-            "document.getElementById('sTest') !== null",
-            "The register form has no Test connection button.");
+            "document.getElementById('sAdd') !== null",
+            "The sources screen offers no way to add a connection.");
+
+        // <b>The test button lives in the dialog now — owner request 2026-09-05.</b> It was
+        // beside a single connection-string box on the screen itself; the box is gone and the
+        // fields are in a modal, so the button that reports on them is in there with them.
+        await ClickAsync("#sAdd");
+
+        await WaitForAsync(
+            "document.getElementById('dcTest')?.offsetParent !== null",
+            "The connection dialog did not open, or it opened without its Test button.");
 
         await Browser.EvaluateAsync<bool>("""
         (() => {
@@ -219,20 +361,25 @@ public sealed class DataSourceScreenTests : ConsoleTest
         })();
         """);
 
-        await Browser.EvaluateAsync<bool>(
-            """(document.getElementById("sConn").value = "Host=nowhere", true)""");
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.getElementById("dcHost").value = "nowhere";
+          document.getElementById("dcUser").value = "somebody";
+          return true;
+        })();
+        """);
 
-        await ClickAsync("#sTest");
+        await ClickAsync("#dcTest");
 
         await WaitForAsync(
-            "document.getElementById('sResult')?.classList.contains('alert')",
+            "document.getElementById('dcResult')?.classList.contains('alert')",
             "A connection that could not be reached did not come back red. Somebody reading a "
             + "neutral box has no reason to look at the network before the privileges.");
 
         Assert.Contains(
             "Cannot connect",
             await Browser.EvaluateAsync<string>(
-                "document.getElementById('sResult').innerText") ?? string.Empty,
+                "document.getElementById('dcResult').innerText") ?? string.Empty,
             System.StringComparison.Ordinal);
 
         // <b>And the other end, so the box is not simply always red.</b> A single tone that
@@ -241,10 +388,10 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             """(window.__answer = { outcome: "Usable", message: "14 tables are publishable." }, true)""");
 
-        await ClickAsync("#sTest");
+        await ClickAsync("#dcTest");
 
         await WaitForAsync(
-            "document.getElementById('sResult')?.classList.contains('ok')",
+            "document.getElementById('dcResult')?.classList.contains('ok')",
             "A usable connection did not come back green.");
 
         // <b>Amber is its own answer.</b> Reached and wrong is not the same as not reached, and
@@ -252,10 +399,10 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             """(window.__answer = { outcome: "InsufficientPrivilege", message: "No read on public." }, true)""");
 
-        await ClickAsync("#sTest");
+        await ClickAsync("#dcTest");
 
         await WaitForAsync(
-            "document.getElementById('sResult')?.classList.contains('warn')",
+            "document.getElementById('dcResult')?.classList.contains('warn')",
             "A connection that worked but lacked rights came back in the same colour as one that "
             + "could not be reached at all.");
     }
@@ -491,6 +638,12 @@ public sealed class DataSourceScreenTests : ConsoleTest
     /// `document.activeElement` was `BODY` after Cancel, so a keyboard reader lost their place and had
     /// to tab from the top of the page. The same clearing happens after a successful removal, and for
     /// the same reason.
+    ///
+    /// <b>A `&lt;dialog&gt;` gives this away for free, and the test is kept anyway.</b> Since
+    /// 2026-09-05 the form is a modal, and closing one returns focus to whatever opened it — so
+    /// this now asserts a property of the element rather than of code that was written for it.
+    /// It stays because the property is what a keyboard reader depends on, and the next person
+    /// to replace the dialog with a panel will find out here rather than from the owner.
     /// </remarks>
     [Fact]
     public async Task Cancelling_the_edit_form_keeps_focus_on_the_screen()
@@ -500,15 +653,17 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await ClickAsync("#sources [data-source-edit]");
 
         await WaitForAsync(
-            "document.getElementById('seConnection') !== null",
-            "The edit form never drew.");
+            "document.getElementById('dcHost') !== null",
+            "The connection dialog never drew.");
 
-        // Opening it focuses the field it is about, which is also what scrolls it into view.
+        // Opening it puts focus inside it — `showModal` does that, and the prefill then moves it
+        // to the password, which is the one field that has to be typed again.
         await WaitForAsync(
-            "document.activeElement?.id === 'seConnection'",
-            "The connection field is not focused when the form opens.");
+            "document.activeElement?.closest('#dbconn') !== null",
+            "Nothing inside the dialog has focus, so a keyboard reader is still on the page "
+            + "behind it.");
 
-        await ClickAsync("#seCancel");
+        await ClickAsync("#dcCancel");
 
         await WaitForAsync(
             """
@@ -528,7 +683,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
-    /// The form sends the whole connection string, and its error slot is in view at 1024×768.
+    /// The dialog writes to its own source, and its refusal is in view at 1024×768.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -573,57 +728,49 @@ public sealed class DataSourceScreenTests : ConsoleTest
             await ClickAsync("#sources [data-source-edit]");
 
             await WaitForAsync(
-                "document.getElementById('seConnection') !== null", "The edit form never drew.");
+                "document.getElementById('dcHost') !== null", "The connection dialog never drew.");
 
-            // <b>An empty field writes nothing.</b> The browser's own `required` stops the submit
-            // before the handler runs, which is why the handler's own empty-string branch is
-            // unreachable in practice — worth knowing, and worth asserting that nothing is sent.
-            await Browser.EvaluateAsync<bool>(
-                "(() => { document.getElementById('sourceEditForm').requestSubmit(); return true; })()");
-
-            Assert.DoesNotContain(
-                "/admin/datasources/",
-                string.Join(" | ", await WritesAsync()),
-                StringComparison.Ordinal);
-
+            // <b>The whole connection, still, and now as fields.</b> The dialog fills every one
+            // of them but the password, so what is typed here is the half that has to be.
             await Browser.EvaluateAsync<bool>(
                 """
                 (() => {
-                  const field = document.getElementById('seConnection');
-                  field.value = 'Host=elsewhere.example;Port=5432;Database=gis;'
-                              + 'Username=gis;Password=secret';
-                  document.getElementById('sourceEditForm').requestSubmit();
+                  document.getElementById('dcHost').value = 'elsewhere.example';
+                  document.getElementById('dcPassword').value = 'not the real one';
+                  document.getElementById('dcSave').click();
                   return true;
                 })()
                 """);
 
             await WaitForAsync(
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('{id}'))",
-                "The form did not write a PUT to this source's own address. The recorded writes were: "
-                + string.Join(" | ", await WritesAsync()));
+                "The dialog did not write a PUT to this source's own address. The recorded writes "
+                + "were: " + string.Join(" | ", await WritesAsync()));
 
-            // <b>The form has to be reopened first, and finding out why cost a run.</b> The harness
-            // answers every write with `{}` and a 200, so the submit above took the *success* path and
-            // replaced the panel — `#seRefused` no longer existed, and populating it silently did
-            // nothing. This is the same lesson as the test's own docs: what is being exercised here is
-            // the page, and the page has already moved on.
+            // <b>The dialog has to be reopened, and finding out why cost a run when this was a
+            // panel.</b> The harness answers every write with `{}` and a 200, so the save above
+            // took the *success* path and closed it; populating a slot in a closed dialog does
+            // nothing, silently. What is being exercised here is the page, and the page has
+            // already moved on.
             await ClickAsync("#sources [data-source-edit]");
 
             await WaitForAsync(
-                "document.getElementById('seRefused') !== null", "The form did not reopen.");
+                "document.getElementById('dcResult') !== null", "The dialog did not reopen.");
 
-            // <b>And the slot the refusal lands in is announced and in view at this size.</b> The
-            // harness cannot produce a server refusal, so the slot is populated the way the catch block
-            // populates it; what is under test is the *position*, which is what the review measured.
+            // <b>And the slot the refusal lands in is in view at this size.</b> The harness
+            // cannot produce a server refusal, so the slot is populated the way the catch block
+            // populates it; what is under test is the *position*, which is what the review
+            // measured. A modal is the repair for that measurement rather than a way around it:
+            // it is centred in the viewport whatever the row behind it has done.
             await Browser.EvaluateAsync<bool>(
                 """
                 (() => {
-                  const said = document.getElementById('seRefused');
+                  const said = document.getElementById('dcResult');
                   if (!said) return false;
-                  said.hidden = false;
-                  said.textContent = 'No host by that name. Check the spelling and, if it is a '
-                                   + 'container name, that this server is on the same network as the '
-                                   + 'database.';
+                  said.className = 'testresult alert';
+                  said.innerHTML = '<b>Refused. </b>No host by that name. Check the spelling and, '
+                                 + 'if it is a container name, that this server is on the same '
+                                 + 'network as the database.';
                   said.scrollIntoView({ block: 'center', behavior: 'instant' });
                   return true;
                 })()
@@ -632,17 +779,16 @@ public sealed class DataSourceScreenTests : ConsoleTest
             await WaitForAsync(
                 """
                 (() => {
-                  const said = document.getElementById('seRefused');
-                  if (!said || said.hidden || said.offsetParent === null) return false;
+                  const said = document.getElementById('dcResult');
+                  if (!said || said.offsetParent === null) return false;
 
                   const box = said.getBoundingClientRect();
 
-                  return said.getAttribute('role') === 'alert'
-                      && box.top >= 0 && box.bottom <= window.innerHeight;
+                  return box.height > 0 && box.top >= 0 && box.bottom <= window.innerHeight;
                 })()
                 """,
-                "The error slot is missing, hidden, unannounced, or off screen at 1024×768. A message "
-                + "an operator has to scroll to find is a message that arrives after they have started "
+                "The refusal is missing, hidden, or off screen at 1024×768. A message an operator "
+                + "has to scroll to find is a message that arrives after they have started "
                 + "guessing.");
 
             string[] errors = await PageErrorsAsync();

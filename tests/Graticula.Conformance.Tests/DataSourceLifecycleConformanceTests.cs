@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -437,6 +438,155 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         {
             return body;
         }
+    }
+
+    /// <summary>
+    /// The fields are assembled here, and a wrong password is an answer rather than a failure.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two things this endpoint exists for, and both are asserted over real HTTP.</b> It
+    /// fills the console's database combo, and filling it is the test of everything above it —
+    /// so a right credential has to come back with names in it and a wrong one has to come back
+    /// with a sentence about the credential rather than about this server.
+    /// </para>
+    /// <para>
+    /// <b>200 either way, and that is the part worth pinning.</b> *Your password is wrong* is the
+    /// answer to the question the browser asked, not a failure to answer it; a 401 here would be
+    /// indistinguishable in a console from its own session having expired, and would send an
+    /// operator to sign in again over a typo in someone else's database password.
+    /// </para>
+    /// <para>
+    /// <b>And the request carries fields rather than a connection string</b>, which is the shape
+    /// the dialog sends: a password containing a semicolon has to be quoted into an Npgsql
+    /// string, and a browser doing that quoting would be a second implementation of a rule this
+    /// server already owns. The password used here has one in it for exactly that reason.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_databases_on_a_server_are_listed_from_the_fields_that_reach_it()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(Connection),
+            "GRATICULA_TEST_PG is not set, so these tests FAIL rather than skip.");
+
+        string asked = JsonSerializer.Serialize(new
+        {
+            host = Field("Host"),
+            port = int.TryParse(Field("Port"), out int port) ? port : 5432,
+            username = Field("Username"),
+            password = Field("Password"),
+        });
+
+        (HttpStatusCode status, string body) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/datasources/databases", token!, asked);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement said = JsonDocument.Parse(body).RootElement;
+
+        Assert.Equal("Usable", said.GetProperty("outcome").GetString());
+
+        string[] names = [.. said.GetProperty("databases").EnumerateArray()
+            .Select(x => x.GetString() ?? string.Empty)];
+
+        Assert.True(
+            names.Length > 0,
+            $"The server answered with no databases at all, on a connection this suite is "
+            + $"already using: {body}");
+
+        Assert.Contains(
+            Field("Database"),
+            names,
+            StringComparer.Ordinal);
+
+        // <b>Sorted, because a combo that reorders itself between two looks is a combo nobody
+        // can find anything in.</b>
+        Assert.Equal([.. names.OrderBy(x => x, StringComparer.Ordinal)], names);
+
+        // <b>The other end, and it answers 200 with a sentence about the credential.</b>
+        (HttpStatusCode refused, string why) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/datasources/databases", token!,
+            JsonSerializer.Serialize(new
+            {
+                host = Field("Host"),
+                port = int.TryParse(Field("Port"), out int again) ? again : 5432,
+                username = Field("Username"),
+                password = "not;the;password",
+            }));
+
+        Assert.Equal(HttpStatusCode.OK, refused);
+
+        JsonElement second = JsonDocument.Parse(why).RootElement;
+
+        Assert.Equal("CannotConnect", second.GetProperty("outcome").GetString());
+        Assert.Empty(second.GetProperty("databases").EnumerateArray());
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(second.GetProperty("message").GetString()),
+            "A refusal with no sentence in it leaves the operator with a combo that does nothing "
+            + "and no reason for it.");
+    }
+
+    /// <summary>
+    /// A request naming both a string and the fields is refused rather than half read.
+    /// </summary>
+    /// <remarks>
+    /// <b>A caller that sends both believes two different things about what it is asking for.</b>
+    /// Preferring one silently is how an operator corrects a source that was never the one on
+    /// screen — so the server says which two it was given instead of choosing.
+    /// </remarks>
+    [Fact]
+    public async Task A_request_carrying_both_a_string_and_the_fields_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (HttpStatusCode status, string body) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/datasources/test", token!,
+            JsonSerializer.Serialize(new
+            {
+                connectionString = "Host=one.example;Database=gis;Username=gis",
+                host = "two.example",
+                username = "gis",
+                database = "gis",
+            }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("not both", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>One keyword out of the suite's own connection string.</summary>
+    /// <remarks>
+    /// <b>Split rather than parsed, and the difference is deliberate.</b> Npgsql's builder is
+    /// what the *server* uses, and this suite links nothing of the server's — it is the black-box
+    /// half, and giving it the provider would let a test agree with the implementation about a
+    /// bug in both. What it reads is one string this suite writes for itself,
+    /// `GRATICULA_TEST_PG`, which carries no quoted values; anything more elaborate belongs on
+    /// the other side of the wire, where the builder is.
+    /// </remarks>
+    /// <param name="keyword">The keyword to find, spelled as the environment writes it.</param>
+    /// <returns>Its value, or an empty string.</returns>
+    private static string Field(string keyword)
+    {
+        foreach (string part in (Connection ?? string.Empty).Split(';'))
+        {
+            int at = part.IndexOf('=', StringComparison.Ordinal);
+
+            if (at > 0 && part[..at].Trim().Equals(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                return part[(at + 1)..].Trim();
+            }
+        }
+
+        return string.Empty;
     }
 
     private async Task<(HttpStatusCode Status, string Body)> SendAsync(

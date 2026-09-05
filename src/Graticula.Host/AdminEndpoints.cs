@@ -25,10 +25,38 @@ using Npgsql;
 
 namespace Graticula.Host;
 
-/// <summary>A candidate data source to test or register.</summary>
-/// <param name="Name">An administrator-chosen name. Not needed to test.</param>
-/// <param name="ConnectionString">The credential, in the clear over TLS.</param>
-internal sealed record DataSourceRequest(string? Name, string? ConnectionString);
+/// <summary>A data source, named either as one string or as the fields it is made of.</summary>
+/// <param name="Name">What to call it here.</param>
+/// <param name="ConnectionString">The whole Npgsql string, for a caller that has one.</param>
+/// <param name="Host">The server.</param>
+/// <param name="Port">Its port, or null for 5432.</param>
+/// <param name="Database">The database on it.</param>
+/// <param name="Username">Who to connect as.</param>
+/// <param name="Password">Their password, or null for a server that needs none.</param>
+/// <remarks>
+/// <para>
+/// <b>The fields exist because the console stopped asking for a string, and the assembly is
+/// here rather than there.</b> A connection string is not text with semicolons in it: a
+/// password containing one has to be quoted, and a browser building the string would be a
+/// second implementation of Npgsql's escaping rules — written in a language with no
+/// `NpgsqlConnectionStringBuilder`, and wrong on exactly the passwords nobody tests with.
+/// So the form sends what a person typed and this server assembles it, with the same builder
+/// that takes the string apart again in <c>WithoutSecrets</c>.
+/// </para>
+/// <para>
+/// <b>Either form, never both.</b> A request carrying a string and fields is a caller that
+/// believes two different things about what it is asking for, and picking one silently is how
+/// an operator ends up correcting a source that was never the one on screen.
+/// </para>
+/// </remarks>
+internal sealed record DataSourceRequest(
+    string? Name,
+    string? ConnectionString,
+    string? Host = null,
+    int? Port = null,
+    string? Database = null,
+    string? Username = null,
+    string? Password = null);
 
 /// <summary>A layer to publish.</summary>
 /// <remarks>
@@ -370,6 +398,7 @@ internal static class AdminEndpoints
 
         app.MapGet("/admin/health", HealthAsync);
         app.MapPost("/admin/datasources/test", TestDataSourceAsync);
+        app.MapPost("/admin/datasources/databases", ListDatabasesAsync);
         app.MapPost("/admin/datasources", RegisterDataSourceAsync);
         app.MapGet("/admin/datasources", ListDataSourcesAsync);
 
@@ -5500,19 +5529,87 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.ConnectionString))
+        if (Assemble(request, out string? unusable) is not { } connection)
         {
-            await Refuse(context, 400, "connectionString is required.").ConfigureAwait(false);
+            await Refuse(context, 400, unusable!).ConfigureAwait(false);
             return;
         }
 
         ProbeResult result =
-            await probe.ProbeAsync(request.ConnectionString, cancellation).ConfigureAwait(false);
+            await probe.ProbeAsync(connection, cancellation).ConfigureAwait(false);
 
         // 200 even when the source is unusable. The request succeeded — the
         // answer is "no", and it is the answer that was asked for. A 4xx here
         // would make a working diagnostic look like a broken call.
         await Results.Json(Describe(result)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The databases a server offers the credential that was typed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The one field on a registration form this server can fill in itself.</b> Everything
+    /// else — the host, the port, the account, the password — is knowledge the operator brought
+    /// with them. The database is knowledge the server they just named already has, and asking
+    /// them to type it is how a form catches a spelling mistake three steps after it was made.
+    /// Owner, 2026-09-05, asking for the dialog ArcGIS Pro opens.
+    /// </para>
+    /// <para>
+    /// <b>It is also the test, which is why it is worth more than a list.</b> Nothing comes back
+    /// unless the host resolved, the port answered, TLS agreed and the credential was accepted —
+    /// so a filled combo says all four in one gesture, and an empty one says which of them
+    /// failed in the probe's own words.
+    /// </para>
+    /// <para>
+    /// <b>No new reach, and that is checked rather than asserted.</b> `POST /admin/datasources/test`
+    /// has taken an arbitrary host and credential from this same privilege since ADR-017, opened
+    /// a connection to it and reported what happened. This asks the same holder for the same
+    /// thing and reads strictly less of what it finds. What it must not become is a door that a
+    /// weaker privilege can open, so it is guarded by `ContentRegisterDataStore` like its
+    /// neighbours and audited like nothing, because it writes nothing.
+    /// </para>
+    /// <para>
+    /// <b>200 with an outcome, never 4xx, for the same reason `test` does it.</b> *Your password
+    /// is wrong* is the answer to the question, not a failure to answer it, and a 401 here would
+    /// be indistinguishable in a browser from the console's own session having expired.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="request">Where and as whom to connect.</param>
+    /// <param name="probe">The port that does the connecting.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task ListDatabasesAsync(
+        HttpContext context,
+        DataSourceRequest request,
+        IDataSourceProbe probe,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // <b>The database is optional here and required everywhere else.</b> This is the call
+        // that answers *which databases are there*, so a caller that already had to know one
+        // would have no reason to make it.
+        if (Assemble(request, out string? unusable, databaseOptional: true) is not { } connection)
+        {
+            await Refuse(context, 400, unusable!).ConfigureAwait(false);
+            return;
+        }
+
+        DatabaseListing listing =
+            await probe.ListDatabasesAsync(connection, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            outcome = listing.Outcome.ToString(),
+            message = listing.Message,
+            databases = listing.Databases,
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -5656,12 +5753,20 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request?.ConnectionString))
+        if (request is null)
+        {
+            await Refuse(context, 400, "A connection is required.").ConfigureAwait(false);
+            return;
+        }
+
+        if (Assemble(request, out string? unusable) is not { } connection)
         {
             await Refuse(
                 context, 400,
-                "connectionString is required. Send the whole connection, not the part that changed — "
-                + "the stored one is sealed and this server does not read it back to merge into it.")
+                unusable
+                ?? "A connection is required. Send the whole connection, not the part that changed "
+                + "— the stored one is sealed and this server does not read it back to merge into "
+                + "it.")
                 .ConfigureAwait(false);
             return;
         }
@@ -5709,7 +5814,7 @@ internal static class AdminEndpoints
         }
 
         ProbeResult result =
-            await probe.ProbeAsync(request.ConnectionString, cancellation).ConfigureAwait(false);
+            await probe.ProbeAsync(connection, cancellation).ConfigureAwait(false);
 
         if (result.Outcome == ProbeOutcome.CannotConnect)
         {
@@ -5762,7 +5867,7 @@ internal static class AdminEndpoints
         }
 
         if (!await catalog.UpdateDataSourceAsync(
-                id, request.Name, request.ConnectionString, cancellation).ConfigureAwait(false))
+                id, request.Name, connection, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
             return;
@@ -5773,7 +5878,7 @@ internal static class AdminEndpoints
             Detail(new
             {
                 id,
-                summary = Summarise(request.ConnectionString),
+                summary = Summarise(connection),
                 outcome = result.Outcome.ToString(),
                 publishable = result.Tables.Count,
                 missing = missing.Count,
@@ -5785,7 +5890,7 @@ internal static class AdminEndpoints
         {
             id,
             name = request.Name ?? existing.Value.Name,
-            summary = Summarise(request.ConnectionString),
+            summary = Summarise(connection),
             publishable = result.Tables.Count,
             missing,
             note = "Layers on this source use the new connection from their next query. Pools are "
@@ -5808,15 +5913,20 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.Name)
-            || string.IsNullOrWhiteSpace(request.ConnectionString))
+        if (string.IsNullOrWhiteSpace(request.Name))
         {
-            await Refuse(context, 400, "name and connectionString are required.").ConfigureAwait(false);
+            await Refuse(context, 400, "name is required.").ConfigureAwait(false);
+            return;
+        }
+
+        if (Assemble(request, out string? unusable) is not { } connection)
+        {
+            await Refuse(context, 400, unusable!).ConfigureAwait(false);
             return;
         }
 
         ProbeResult result =
-            await probe.ProbeAsync(request.ConnectionString, cancellation).ConfigureAwait(false);
+            await probe.ProbeAsync(connection, cancellation).ConfigureAwait(false);
 
         // Probed before writing. ADR-017 §3.3's point is that registration
         // should not leave a broken row behind for somebody to find later — and
@@ -5837,7 +5947,7 @@ internal static class AdminEndpoints
         try
         {
             id = await catalog
-                .RegisterDataSourceAsync(request.Name, "postgis", request.ConnectionString, cancellation)
+                .RegisterDataSourceAsync(request.Name, "postgis", connection, cancellation)
                 .ConfigureAwait(false);
         }
         catch (PostgresException e) when (e.SqlState == "23505")
@@ -5859,7 +5969,7 @@ internal static class AdminEndpoints
             Detail(new
             {
                 id,
-                summary = Summarise(request.ConnectionString),
+                summary = Summarise(connection),
                 outcome = result.Outcome.ToString(),
                 publishable = result.Tables.Count,
             }),
@@ -8240,11 +8350,118 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>The fields as well as the string, and the fields are what the form reads.</b> A
+        // browser taking this string apart would be re-implementing Npgsql's quoting from the
+        // other side — the same objection that put `Assemble` on this server rather than in the
+        // console — and it would be wrong on exactly the values nobody tests with: a database
+        // name with a space, a host written with a quoted port. The builder has already parsed
+        // this string once to take the password out; naming what it found costs nothing.
+        NpgsqlConnectionStringBuilder taken = new(stored);
+
         await Results.Json(new
         {
             name = found.Value.Name,
             connection = WithoutSecrets(stored),
+            host = taken.Host,
+            port = taken.Port,
+            database = taken.Database,
+            username = taken.Username,
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The connection string a request means, however it was written.
+    /// </summary>
+    /// <remarks>
+    /// <b>One place that turns fields into a string, for all four endpoints that take them.</b>
+    /// Test, register, correct and list-databases each receive a <see cref="DataSourceRequest"/>,
+    /// and a second copy of this in any one of them is a fifth spelling of the same rule waiting
+    /// to drift from the other four.
+    /// </remarks>
+    /// <param name="request">What the caller sent.</param>
+    /// <param name="why">The refusal, when neither form is complete.</param>
+    /// <param name="databaseOptional">
+    /// True for the listing, which asks a server what databases it has and therefore cannot
+    /// require the caller to already know one.
+    /// </param>
+    /// <returns>The connection string, or null when <paramref name="why" /> says what is missing.</returns>
+    private static string? Assemble(
+        DataSourceRequest request, out string? why, bool databaseOptional = false)
+    {
+        why = null;
+
+        bool hasString = !string.IsNullOrWhiteSpace(request.ConnectionString);
+        bool hasFields = !string.IsNullOrWhiteSpace(request.Host);
+
+        if (hasString && hasFields)
+        {
+            why = "Send either `connectionString` or the separate fields, not both — a request "
+                + "carrying each of them describes two different servers and this one will not "
+                + "guess which was meant.";
+
+            return null;
+        }
+
+        if (hasString)
+        {
+            return request.ConnectionString;
+        }
+
+        if (!hasFields)
+        {
+            why = "A connection is required: either `connectionString`, or `host` with "
+                + "`username` and the database.";
+
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+        {
+            why = "`username` is required — this server will not connect as whoever it happens "
+                + "to be running as.";
+
+            return null;
+        }
+
+        if (!databaseOptional && string.IsNullOrWhiteSpace(request.Database))
+        {
+            why = "`database` is required. A PostgreSQL session is always in one, and which one "
+                + "decides what there is to publish.";
+
+            return null;
+        }
+
+        try
+        {
+            NpgsqlConnectionStringBuilder builder = new()
+            {
+                Host = request.Host!.Trim(),
+                Port = request.Port ?? 5432,
+                Username = request.Username!.Trim(),
+            };
+
+            if (!string.IsNullOrWhiteSpace(request.Database))
+            {
+                builder.Database = request.Database.Trim();
+            }
+
+            // <b>Set only when there is one, and not trimmed.</b> A password is a secret rather
+            // than a name: leading and trailing spaces are part of it, and a blank one is a
+            // server that authenticates some other way rather than a server with an empty
+            // password.
+            if (!string.IsNullOrEmpty(request.Password))
+            {
+                builder.Password = request.Password;
+            }
+
+            return builder.ConnectionString;
+        }
+        catch (ArgumentException e)
+        {
+            why = $"Those fields do not make a connection: {e.Message}";
+
+            return null;
+        }
     }
 
     /// <summary>
