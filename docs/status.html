@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>929e568</code> · 2026-09-05 18:21</p>
+<p class="stamp">Generated from commit <code>a6a2ba0</code> · 2026-09-05 18:21</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">55</div><div class="kpi-l">ADRs</div><div class="kpi-n">9 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">153/206</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">53 live · 0 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">56</div><div class="kpi-l">ADRs</div><div class="kpi-n">10 accepted outright</div></div>
+<div class="kpi good"><div class="kpi-v">153/208</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">55 live · 0 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">117 answered · 2 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">205 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">77 items</span></div><p><b>53 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">79 items</span></div><p><b>55 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -148,6 +148,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-056 · An item is its own thing, and a se</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-011 · Job System</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -235,6 +236,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">053</td><td>The symbology editor is three columns, and the item page has a head</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">054</td><td>The symbology document is not bounded</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on what replaces the bound until 2026-09-05, when condition 1 was measured</td><td class="num">1/2</td></tr>
 <tr><td class="id">055</td><td>A connection is fields, and this server assembles it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
+<tr><td class="id">056</td><td>An item is its own thing, and a service is one kind of it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the model · MEDIUM for which fields move onto the item</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -405,6 +407,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>a6a2ba0</code><time>2026-09-05</time><span>The status page catches up with ADR-055</span></li>
 <li><code>929e568</code><time>2026-09-05</time><span>ADR-055: a connection is fields, and the combo that lists databases is the test</span></li>
 <li><code>5850556</code><time>2026-09-05</time><span>The status page catches up with ADR-054 condition 1</span></li>
 <li><code>83ccf44</code><time>2026-09-05</time><span>ADR-054 condition 1, measured — and a classification was answered by walking it</span></li>
@@ -418,7 +421,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5a46ff2</code><time>2026-09-05</time><span>The token-redaction test waited for the wrong line, and CI caught it</span></li>
 <li><code>70e2d40</code><time>2026-09-05</time><span>A new console test selected by &#x27;.name&#x27;, and three elements wear it</span></li>
 <li><code>1e85b12</code><time>2026-09-05</time><span>D-228: Edit opened an empty box, and offered itself on the one source it cannot change</span></li>
-<li><code>e92a064</code><time>2026-09-05</time><span>D-216 closes as prevention: the panel it was measured in no longer exists</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
