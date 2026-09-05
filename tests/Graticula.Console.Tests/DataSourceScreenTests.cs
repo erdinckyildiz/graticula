@@ -35,6 +35,143 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// The register form stands beside the table rather than under it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The 1c handoff: *table left, register form right with the test result inline*.</b> The
+    /// form was below the table and the probe's report below that, so registering a source meant
+    /// scrolling past everything already registered to reach the first field, and the answer to
+    /// *test this* arrived somewhere the eye was not.
+    /// </para>
+    /// <para>
+    /// <b>Measured, and `offsetParent` is the half that keeps being the defect.</b> Three times
+    /// this console has shipped a control that was in the markup and could not be seen, and each
+    /// time the suite was green on the element existing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_register_form_stands_beside_the_table()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            "document.querySelectorAll('#sources tr').length > 0",
+            "No sources were listed, so there is no layout to measure.");
+
+        await WaitForAsync(
+            "document.getElementById('sourceForm')?.offsetParent !== null",
+            "The register form is not on screen.");
+
+        int[] box = await Browser.EvaluateAsync<int[]>("""
+        (() => {
+          const table = document.getElementById('sources').closest('.panel').getBoundingClientRect();
+          const form = document.getElementById('sourceForm').getBoundingClientRect();
+          return [
+            Math.round(table.right), Math.round(form.left),
+            Math.round(table.top), Math.round(form.top),
+          ];
+        })()
+        """) ?? [];
+
+        Assert.True(box.Length == 4, "The layout could not be measured.");
+
+        Assert.True(
+            box[1] >= box[0],
+            $"The form starts at {box[1]} and the table ends at {box[0]}, so it is under the "
+            + "table rather than beside it.");
+
+        Assert.True(
+            System.Math.Abs(box[3] - box[2]) < 40,
+            $"The table starts at {box[2]} and the form at {box[3]}, "
+            + $"{System.Math.Abs(box[3] - box[2])} pixels apart. Side by side means they begin "
+            + "together.");
+    }
+
+    /// <summary>
+    /// A connection test that fails to connect is a red box, not a neutral one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The handoff asks for green, amber and red, and the distinction is what somebody acts
+    /// on.</b> `CannotConnect` means nothing about the database is known and the next move is a
+    /// host, a port or a password; `InsufficientPrivilege` and `UnusableGeometry` mean the
+    /// connection worked and what was found is the problem, which is a different afternoon.
+    /// Painting all three failures alike sends an administrator to check a network that is fine.
+    /// </para>
+    /// <para>
+    /// <b>The answer is trapped, because the harness never lets a write reach the server.</b> A
+    /// real probe would need a real database to fail against and a real one to succeed against;
+    /// what is under test here is the mapping from an outcome to a tone, which is the console's
+    /// half. The server's half is <c>ProbeOutcome</c> and its own suites.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_connection_that_cannot_be_reached_is_red_and_one_that_works_is_green()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            "document.getElementById('sTest') !== null",
+            "The register form has no Test connection button.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__answer = { outcome: "CannotConnect", message: "No route to that host." };
+          window.fetch = async (input, init) => {
+            const method = ((init && init.method) || "GET").toUpperCase();
+            if (method !== "POST") return real(input, init);
+            return new Response(JSON.stringify(window.__answer), {
+              status: 200, headers: { "Content-Type": "application/json" },
+            });
+          };
+          return true;
+        })();
+        """);
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("sConn").value = "Host=nowhere", true)""");
+
+        await ClickAsync("#sTest");
+
+        await WaitForAsync(
+            "document.getElementById('sResult')?.classList.contains('alert')",
+            "A connection that could not be reached did not come back red. Somebody reading a "
+            + "neutral box has no reason to look at the network before the privileges.");
+
+        Assert.Contains(
+            "Cannot connect",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('sResult').innerText") ?? string.Empty,
+            System.StringComparison.Ordinal);
+
+        // <b>And the other end, so the box is not simply always red.</b> A single tone that
+        // happens to be the one asserted is a test that passes against a screen with no mapping
+        // in it at all.
+        await Browser.EvaluateAsync<bool>(
+            """(window.__answer = { outcome: "Usable", message: "14 tables are publishable." }, true)""");
+
+        await ClickAsync("#sTest");
+
+        await WaitForAsync(
+            "document.getElementById('sResult')?.classList.contains('ok')",
+            "A usable connection did not come back green.");
+
+        // <b>Amber is its own answer.</b> Reached and wrong is not the same as not reached, and
+        // the two failures were one colour before this.
+        await Browser.EvaluateAsync<bool>(
+            """(window.__answer = { outcome: "InsufficientPrivilege", message: "No read on public." }, true)""");
+
+        await ClickAsync("#sTest");
+
+        await WaitForAsync(
+            "document.getElementById('sResult')?.classList.contains('warn')",
+            "A connection that worked but lacked rights came back in the same colour as one that "
+            + "could not be reached at all.");
+    }
+
+    /// <summary>
     /// Each row says which database it is, and the datastore says why it has no Remove.
     /// </summary>
     /// <remarks>

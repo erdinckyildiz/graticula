@@ -165,6 +165,39 @@ const pill = value => {
   return `<span class="pill p-${h(key)}${glyph ? " withicon" : ""}">${glyph}${h(value)}</span>`;
 };
 
+/**
+ * Which of the three tones a probe outcome wears.
+ *
+ * <b>Three for four, and the grouping is what an administrator acts on.</b> `CannotConnect` is
+ * red because nothing about the data is known yet and the next move is a host, a port or a
+ * password; `InsufficientPrivilege` and `UnusableGeometry` are amber because the connection
+ * worked and what was found is the problem, which is a different afternoon. Colouring all three
+ * failures alike would send somebody to check a network that is fine.
+ *
+ * @param {string} outcome What the probe answered.
+ * @returns {string} The class.
+ */
+const sourceTone = outcome => ({
+  usable: "ok",
+  cannotconnect: "alert",
+  insufficientprivilege: "warn",
+  unusablegeometry: "warn",
+}[String(outcome || "").toLowerCase()] ?? "ok");
+
+/**
+ * `CannotConnect` as `Cannot connect`.
+ *
+ * <b>The enum's spelling is the wire's, not a reader's.</b> It is on the screen because the
+ * outcome is the heading of the box, and a heading in PascalCase reads as a symbol somebody
+ * forgot to translate.
+ *
+ * @param {string} word The name.
+ * @returns {string} It, with spaces.
+ */
+const spaced = word => String(word)
+  .replace(/([a-z])([A-Z])/g, (_, before, after) => `${before} ${after.toLowerCase()}`)
+  .replace(/^./, first => first.toUpperCase());
+
 const nf = new Intl.NumberFormat();
 const num = value => nf.format(value ?? 0);
 
@@ -13733,12 +13766,19 @@ async function handleClick(event) {
       });
       // The test answers 200 even when the source is unusable: the request
       // succeeded and the answer is "no". So the outcome is read from the body.
-      $("sResult").innerHTML = `<div class="row" style="margin:0">${
-        pill(r.outcome || (r.name ? "registered" : "done"))}<span style="font-size:13.5px">${
-        h(r.message || `Registered as ${r.name}.`)}</span></div>`;
+      const said = r.outcome || (r.name ? "Registered" : "Done");
+
+      $("sResult").className = `testresult ${sourceTone(r.outcome)}`;
+      $("sResult").innerHTML = `<b>${h(spaced(said))}</b>${
+        h(r.message || `Registered as ${r.name}.`)}`;
+
       if (t.id === "sAdd") { $("sName").value = ""; $("sConn").value = ""; await loadSources(); }
-    } catch (e) { $("sResult").innerHTML = `<div class="row" style="margin:0">${
-      pill("unusable")}<span style="font-size:13.5px">${h(e.message)}</span></div>`; }
+    } catch (e) {
+      // <b>A refusal is red whatever it was about.</b> The request itself failed, so nothing is
+      // known about the database and the next move is this server or the network.
+      $("sResult").className = "testresult alert";
+      $("sResult").innerHTML = `<b>Refused</b>${h(e.message)}`;
+    }
     t.disabled = false;
   }
 }

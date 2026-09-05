@@ -1893,6 +1893,31 @@ tr.groupband > td {
   <b>`align-items: start`, or the short side stretches.</b> A grid item fills its row by default, so
   a 200-pixel form beside a twenty-row table grows a 600-pixel white box under itself.
 */
+/* <b>The connection test's answer, in the form that asked it.</b> The 1c handoff: *table left,
+   register form right with the test result inline (green/amber/red box)*. It was a pill and a
+   sentence in a row, which reads as a status line rather than as the answer to the button above
+   it — and the three tones are already in the palette, so the design's colours and this page's
+   are the same colours rather than two sets that look alike.
+
+   <b>Three tones for four outcomes, and the grouping is the honest one.</b> `Usable` is green;
+   `CannotConnect` is red, because nothing about the data is known and the next move is a network
+   or a password; `InsufficientPrivilege` and `UnusableGeometry` are amber, because the connection
+   worked and what was found is the problem. Red for *cannot reach* and amber for *reached and it
+   is wrong* is the distinction an administrator acts on. */
+.testresult {
+  margin-top: var(--gap-4); padding: 11px 13px; border-radius: 5px;
+  border: 1px solid var(--rule); background: var(--surface-2);
+  font-size: 13.5px; line-height: 1.5; color: var(--ink);
+}
+
+.testresult > b { display: block; margin-bottom: 2px; }
+.testresult.ok { background: var(--ok-soft); border-color: var(--ok-line); }
+.testresult.ok > b { color: var(--ok); }
+.testresult.warn { background: var(--warn-soft); border-color: var(--warn-line); }
+.testresult.warn > b { color: var(--warn); }
+.testresult.alert { background: var(--alert-soft); border-color: var(--alert-line); }
+.testresult.alert > b { color: var(--alert); }
+
 .pickpair {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   gap: var(--gap-5); align-items: start;

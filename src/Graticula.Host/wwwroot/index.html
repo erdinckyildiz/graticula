@@ -558,31 +558,42 @@
       </div>
     </div>
 
-    <div class="panel">
-      <table>
-        <thead><tr><th>Name</th><th>Connection</th><th class="num">Layers</th><th></th></tr></thead>
-        <tbody id="sources"></tbody>
-      </table>
-    </div>
-    <div id="sourcesPager"></div>
-    <div id="probe"></div>
+    <!--
+      <b>The 1c handoff: table left, register form right, and the test result inside the form.</b>
+      The form was below the table and the probe's report below that, so registering a source
+      meant scrolling past everything already registered to reach the field, and the answer to
+      *test this* arrived somewhere the eye was not. The same class as Roles, because the handoff
+      asks both screens for one shape.
+    -->
+    <div class="pickpair">
+      <div>
+        <div class="panel">
+          <table>
+            <thead><tr><th>Name</th><th>Connection</th><th class="num">Layers</th><th></th></tr></thead>
+            <tbody id="sources"></tbody>
+          </table>
+        </div>
+        <div id="sourcesPager"></div>
+        <div id="probe"></div>
+      </div>
 
-    <div class="label">Register a source</div>
-    <p class="lede">A PostGIS connection string. Test it first: the test connects and reports
-      what it found without storing anything.</p>
-    <!-- A form, so Enter tests the connection instead of doing nothing. -->
-    <form class="panel pad" id="sourceForm">
-      <div class="row">
-        <label class="field" style="flex:1 1 180px">Name<input type="text" id="sName" placeholder="cadastre"></label>
-        <label class="field" style="flex:3 1 340px">Connection string
-          <input type="text" id="sConn" placeholder="Host=…;Database=…;Username=…;Password=…"></label>
-      </div>
-      <div class="row" style="margin-bottom:0">
-        <button id="sTest" type="submit">Test connection</button>
-        <button class="primary" id="sAdd" type="button">Register</button>
-      </div>
-      <div id="sResult" style="margin-top:14px"></div>
-    </form>
+      <!-- A form, so Enter tests the connection instead of doing nothing. -->
+      <form class="panel pad" id="sourceForm">
+        <div class="label" style="margin-top:0">Register a source</div>
+        <p class="hint">A PostGIS connection string. Test it first: the test connects and reports
+          what it found without storing anything.</p>
+        <div class="row">
+          <label class="field" style="flex:1 1 100%">Name<input type="text" id="sName" placeholder="cadastre"></label>
+          <label class="field" style="flex:1 1 100%">Connection string
+            <input type="text" id="sConn" placeholder="Host=…;Database=…;Username=…;Password=…"></label>
+        </div>
+        <div class="row" style="margin-bottom:0">
+          <button id="sTest" type="submit">Test connection</button>
+          <button class="primary" id="sAdd" type="button">Register</button>
+        </div>
+        <div id="sResult"></div>
+      </form>
+    </div>
   </section>
 
   <!-- ---------------------------------------------------------- operations -->
