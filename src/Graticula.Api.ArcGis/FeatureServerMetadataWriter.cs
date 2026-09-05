@@ -678,14 +678,19 @@ public static class FeatureServerMetadataWriter
         GeometryKind geometryType,
         LayerDescription description,
         string capabilities,
-        Envelope? servedExtent,
-        int? servedSrid,
         IEnumerable<object>? relationships = null,
         int layerId = 0,
         int? maxRecordCount = null,
         int serverMaxRecordCount = MaxRecordCount,
         string? symbology = null,
-        bool relationshipsKnown = true)
+        bool relationshipsKnown = true,
+
+        // <b>On the end and optional, because everything before them had callers.</b> Adding a
+        // required parameter in the middle of this list broke a test project in CI that nothing
+        // local had built — the same rule the `Columns` list keeps for its ordinals, for the
+        // same reason.
+        Envelope? servedExtent = null,
+        int? servedSrid = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);

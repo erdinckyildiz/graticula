@@ -2688,8 +2688,6 @@ public static class Program
             layer.GeometryType,
             description,
             CapabilitiesFor(context, layer),
-            served,
-            served is null ? null : layer.ServedSrid,
             declared ?? [],
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,
@@ -2698,7 +2696,9 @@ public static class Program
             // ADR-033 §5a: the stored canonical document, or null for the generated
             // appearance. The writer decides which; this only carries it.
             layer.Symbology,
-            relationshipsKnown: declared is not null);
+            relationshipsKnown: declared is not null,
+            servedExtent: served,
+            servedSrid: served is null ? null : layer.ServedSrid);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
