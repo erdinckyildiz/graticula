@@ -1088,6 +1088,9 @@ let roleOpen = null;
  * and the role list says who holds what.
  */
 const roleAdministrative = new Map();
+
+/** The user-type ladder, in the order the platform states it. */
+let memberUserTypes = [];
 const roleHolders = new Map();
 const roleIsAdministrative = new Set();
 
@@ -8131,6 +8134,12 @@ async function loadMembers() {
   };
 
   fill("mRole", answer.roles || [], "publisher");
+  // <b>The ladder, in the server's order.</b> `UserTypes.All` is viewer, editor, creator,
+  // unrestricted — each ceiling contains the one below — and the console needs the order to know
+  // whether a change takes something away. Ranking the names here would be a second copy of a
+  // fact the platform already states, and the two would part company the day a type is added.
+  memberUserTypes = answer.userTypes || [];
+
   fill("mType", answer.userTypes || [], "creator");
   describeRole();
 
@@ -8173,7 +8182,24 @@ async function loadMembers() {
           .join("")}
         <option value=""${m.roles.length === 0 ? " selected" : ""}>— none —</option>
       </select></td>
-      <td class="val">${h(m.userType)}</td>
+      <!--
+        <b>A control, because it was a word and the word was the answer to a question nobody
+        could act on.</b> The owner read this column and asked how to change a user type; the
+        answer was that they could not — not here, not through the API, not at all after the
+        member was created — while ADR-018's own privilege table has said that admin:manageRoles
+        grants *roles and user types* since it was written.
+
+        <b>Beside the role and shaped like it, because they are two halves of one answer.</b>
+        §1: what somebody may do is this ceiling intersected with what that role grants. Putting
+        them in different idioms — one a control, one a label — said the ceiling was a property
+        of the account rather than a decision somebody makes.
+      -->
+      <td><select class="rolepick" data-member-type="${h(m.name)}"
+        data-was-type="${h(m.userType)}">
+        ${(answer.userTypes || []).map(t =>
+          `<option value="${h(t)}"${t === m.userType ? " selected" : ""}>${h(t)}</option>`)
+          .join("")}
+      </select></td>
       <td>${pill(m.disabled ? "disabled" : "active")}</td>
       <td class="num">${num(m.ownsServices)}</td>
       <td class="val">${h(String(m.createdAt).slice(0, 10))}</td>
@@ -13878,6 +13904,41 @@ document.addEventListener("change", async event => {
 
   if (event.target?.id === "svcLock") {
     drawServiceDelete();
+    return;
+  }
+
+  if (d.memberType) {
+    // <b>Confirmed when it takes something away, and instant when it does not.</b> Same rule as
+    // the role beside it: raising a ceiling grants nothing by itself — the roles still decide —
+    // and lowering one withdraws privileges from every role the member holds at once, which is
+    // the half worth stopping to read. The ladder is the server's, so the console asks it rather
+    // than ranking the names itself.
+    const becoming = event.target.value;
+    const order = memberUserTypes;
+    const from = order.indexOf(event.target.dataset.wasType || "");
+    const to = order.indexOf(becoming);
+
+    if (from >= 0 && to >= 0 && to < from) {
+      if (!confirm(
+        `Lower '${d.memberType}' from '${event.target.dataset.wasType}' to '${becoming}'? `
+        + "A user type is a ceiling: every privilege above it stops working at once, for every "
+        + "role they hold, and the roles themselves do not change.")) {
+        await section("members", loadMembers, "members");
+        return;
+      }
+    }
+
+    try {
+      const r = await api(`/admin/members/${encodeURIComponent(d.memberType)}/usertype`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userType: becoming }),
+      });
+
+      toast(`${r.name}: ${r.from} → ${r.to}. ${r.note}`, true);
+    } catch (e) { toast(e.message); }
+
+    await section("members", loadMembers, "members");
     return;
   }
 

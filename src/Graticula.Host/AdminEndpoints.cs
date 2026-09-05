@@ -270,6 +270,10 @@ internal sealed record MemberRequest(
 /// <summary>A role to hold, or null to hold none.</summary>
 internal sealed record MemberRoleRequest(string? Role);
 
+/// <summary>What a caller sends to change a member's ceiling.</summary>
+/// <param name="UserType">The type they should hold.</param>
+internal sealed record MemberUserTypeRequest(string? UserType);
+
 /// <summary>What one operation on a service with no layers may spend.</summary>
 /// <param name="DeadlineSeconds">
 /// The cut-off in seconds, or null for the configured default. <b>Null is a value here, not an
@@ -414,6 +418,7 @@ internal static class AdminEndpoints
         app.MapGet("/admin/members", ListMembersAsync);
         app.MapPost("/admin/members", CreateMemberAsync);
         app.MapPut("/admin/members/{name}/role", SetMemberRoleAsync);
+        app.MapPut("/admin/members/{name}/usertype", SetMemberUserTypeAsync);
         app.MapPut("/admin/members/{name}/password", SetMemberPasswordAsync);
 
         // <b>ADR-015 §6c, owner decision 2026-08-18.</b> A member who owns nothing is removed
@@ -6757,6 +6762,118 @@ internal static class AdminEndpoints
             note = "Their existing sessions are unaffected as sessions and immediately affected as "
                  + "privileges: what a role grants is resolved on every request, not stamped into "
                  + "the token.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Changes the ceiling a member's roles are capped by.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-018's privilege table has always said `admin:manageRoles` grants *roles and user
+    /// types*, and until 2026-09-05 only the first half existed.</b> A type was chosen when the
+    /// member was created and could not be changed afterwards — by this API, by the console, or
+    /// by anything short of SQL. The owner asked how to change one and the honest answer was that
+    /// they could not, which is a promise the authorization model made and the surface did not
+    /// keep. Found by them looking at the Members screen and reading the column.
+    /// </para>
+    /// <para>
+    /// <b>Separate from the role, because a ceiling is not a grant.</b> §1: what a member may do
+    /// is their type's ceiling intersected with what their roles grant. Lowering a type takes
+    /// privileges from every role at once and changes no role; the endpoint that sets one must
+    /// never quietly move the other, so there are two.
+    /// </para>
+    /// <para>
+    /// <b>The last administrator keeps their ceiling, for the same reason they keep their
+    /// role.</b> `admin:*` lives only in the unrestricted ceiling (§3a), so moving the only
+    /// administrator to any other type leaves a server nobody can administer — the same lockout
+    /// `SetMemberRoleAsync` refuses, arriving by the other door. This is the shape D-46 records:
+    /// one rule, two paths to it, and only one of them guarded.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="name">The member.</param>
+    /// <param name="request">The type they should hold.</param>
+    /// <param name="directory">The member store.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task SetMemberUserTypeAsync(
+        HttpContext context,
+        string name,
+        MemberUserTypeRequest request,
+        IMemberDirectory directory,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageRoles)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string userType = (request.UserType ?? "").Trim();
+
+        if (!UserTypes.All.Contains(userType, StringComparer.Ordinal))
+        {
+            await Refuse(
+                context, 400,
+                $"'{userType}' is not a user type. They are {string.Join(", ", UserTypes.All)}, "
+                + "and a type is a ceiling: it caps whatever the role grants (ADR-018 §3).")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        // <b>Only the unrestricted ceiling carries `admin:*`.</b> So this is the same lockout the
+        // role endpoint refuses, reached by changing the ceiling instead of the grant.
+        if (!string.Equals(userType, UserTypes.Unrestricted, StringComparison.Ordinal)
+            && await HoldsAdministratorAsync(directory, name, cancellation).ConfigureAwait(false)
+            && !await SomebodyElseAdministersAsync(directory, name, cancellation)
+                .ConfigureAwait(false))
+        {
+            await Refuse(
+                context, 409,
+                $"'{name}' is the only administrator, and no ceiling except '"
+                + $"{UserTypes.Unrestricted}' carries the administrative privileges (ADR-018 §3a). "
+                + $"Moving them to '{userType}' would leave a server nobody can administer — the "
+                + "role would still say administrator and every one of its privileges would do "
+                + "nothing. Make somebody else an administrator first.").ConfigureAwait(false);
+
+            return;
+        }
+
+        string? before =
+            await directory.SetUserTypeAsync(name, userType, cancellation).ConfigureAwait(false);
+
+        if (before is null)
+        {
+            await Refuse(context, 404, $"There is no member called '{name}'.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "member.usertype", name,
+            Detail(new { from = before, to = userType }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            from = before,
+            to = userType,
+
+            // <b>The same sentence the role change makes, and for the same reason.</b> Privileges
+            // are resolved per request rather than stamped into the token, so a lowered ceiling
+            // binds on the member's next request and not on their next sign-in.
+            note = "Their existing sessions are unaffected as sessions and immediately affected "
+                 + "as privileges: the ceiling is applied on every request, not stamped into the "
+                 + "token.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

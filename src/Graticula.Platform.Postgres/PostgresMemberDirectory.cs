@@ -160,6 +160,45 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
     }
 
     /// <inheritdoc/>
+    public async Task<string?> SetUserTypeAsync(
+        string name, string userType, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userType);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // <b>One statement, and it hands back what it replaced.</b> The caller audits the change
+        // as a pair — from this, to that — and reading first would be two round trips and a
+        // window in which somebody else's write lands between them.
+        //
+        // <b>The old value comes from the `from` alias, not from a subquery.</b> A subselect in
+        // `returning` is the trap: it is evaluated against the same statement's snapshot and
+        // reads as though it might give the previous value, which makes an audit row that says
+        // *creator to creator* on every change. Joining the table to itself is the documented
+        // way, and `was` is the row before this statement touched it.
+        await using NpgsqlCommand set = new(
+            """
+            update principal as p set user_type = @type
+            from principal as was
+            where was.id = p.id and p.name = @name and p.kind = 'user'
+            returning was.user_type
+            """,
+            connection);
+
+        set.Parameters.AddWithValue("name", name);
+        set.Parameters.AddWithValue("type", userType);
+
+        await using NpgsqlDataReader reader =
+            await set.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? reader.GetString(0)
+            : null;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<string>?> SetRoleAsync(
         string name, string? role, CancellationToken cancellationToken)
     {

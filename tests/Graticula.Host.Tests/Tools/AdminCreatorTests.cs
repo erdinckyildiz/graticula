@@ -354,6 +354,12 @@ public sealed class AdminCreatorTests
             return Task.FromResult<IReadOnlyList<string>?>(GrantFails ? null : [role!]);
         }
 
+        // <b>Throws rather than returns, like its neighbours.</b> The admin creator has no
+        // business moving somebody's ceiling, and a fake that answered would let it start.
+        public Task<string?> SetUserTypeAsync(
+            string name, string userType, CancellationToken cancellationToken) =>
+            throw Not();
+
         public Task<IReadOnlyList<Member>> ListMembersAsync(CancellationToken cancellationToken) =>
             throw Not();
 

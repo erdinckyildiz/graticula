@@ -219,6 +219,27 @@ public interface IMemberDirectory
     Task<IReadOnlyList<string>?> SetRoleAsync(
         string name, string? role, CancellationToken cancellationToken);
 
+    /// <summary>Replaces the ceiling a member's roles are capped by.</summary>
+    /// <param name="name">Their sign-in name.</param>
+    /// <param name="userType">The type they should hold — see <see cref="UserTypes"/>.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The type they held before, or null when there is no such member.</returns>
+    /// <remarks>
+    /// <b>ADR-018's privilege table has said `admin:manageRoles` grants *roles and user types*
+    /// since it was written, and until 2026-09-05 nothing could change a type.</b> It was chosen
+    /// when the member was created and fixed for the life of the account — so a viewer who became
+    /// a publisher had to be deleted and made again, which is an account with different content
+    /// ownership wearing the same name. The owner asked how to change one and the answer was that
+    /// they could not.
+    ///
+    /// <b>It is a ceiling and not a grant, which is why this is not the role method.</b> Lowering
+    /// a type takes privileges away from every role the member holds at once (§1's intersection)
+    /// and leaves the roles untouched; the two are separate facts about the same member and
+    /// setting one must never quietly move the other.
+    /// </remarks>
+    Task<string?> SetUserTypeAsync(
+        string name, string userType, CancellationToken cancellationToken);
+
     /// <summary>Disables or re-enables a member.</summary>
     /// <param name="name">Their sign-in name.</param>
     /// <param name="disabled">Whether they should be disabled.</param>

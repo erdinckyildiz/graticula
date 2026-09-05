@@ -18,6 +18,77 @@ namespace Graticula.Console.Tests;
 public sealed class MemberRemovalPageTests : ConsoleTest
 {
     /// <summary>
+    /// The user type is a control on the row, and it reaches the endpoint that changes one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It was a word.</b> The Members table drew the role as a select and the user type as
+    /// plain text, so the column that decides the ceiling on everything a role grants looked like
+    /// a property of the account rather than a decision somebody makes. The owner read it and
+    /// asked how to change one; there was no answer, because until 2026-09-05 nothing in this
+    /// product could — not the console, not the API — while ADR-018's privilege table has always
+    /// said <c>admin:manageRoles</c> covers roles *and user types*.
+    /// </para>
+    /// <para>
+    /// <b>`offsetParent`, because a control that exists and cannot be seen is this console's most
+    /// repeated defect.</b> Three times, and every time the suite was green on the element being
+    /// in the markup.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_members_user_type_is_a_control_and_changing_it_reaches_the_server()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/members", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#members select[data-member-type]').length > 0",
+            "No member row offers a user type control, so the ceiling cannot be changed from the "
+            + "screen that shows it.");
+
+        await WaitForAsync(
+            "document.querySelector('#members select[data-member-type]')?.offsetParent !== null",
+            "The user type control is in the markup and not on screen.");
+
+        // <b>Every type the server names, in the server's order.</b> A short list here would be a
+        // ceiling an administrator cannot reach from the console and can reach from curl.
+        string[] offered = await Browser.EvaluateAsync<string[]>(
+            "[...document.querySelector('#members select[data-member-type]').options]"
+            + ".map(o => o.value)") ?? [];
+
+        Assert.Equal(["viewer", "editor", "creator", "unrestricted"], offered);
+
+        // <b>Raised rather than lowered, so no confirmation stands in the way.</b> Lowering a
+        // ceiling withdraws privileges from every role at once and asks first; what is under test
+        // here is the wire, not the question.
+        string who = await Browser.EvaluateAsync<string>(
+            """
+            (() => {
+              const pick = [...document.querySelectorAll('#members select[data-member-type]')]
+                .find(s => s.dataset.wasType !== 'unrestricted');
+              if (!pick) return '';
+              pick.value = 'unrestricted';
+              pick.dispatchEvent(new Event('change', { bubbles: true }));
+              return pick.dataset.memberType;
+            })()
+            """) ?? string.Empty;
+
+        Assert.False(
+            string.IsNullOrEmpty(who),
+            "Every member on this server is already unrestricted, so raising one proves nothing. "
+            + "The fixture needs a member below the ceiling for this to be a test.");
+
+        // <b>Read from the harness's trap rather than from the server.</b> Non-GET requests never
+        // leave the page here, so *click then read the API back* passes against a dead control —
+        // `WritesAsync` is what actually saw the request.
+        await WaitForAsync(
+            $"(window.__writes || []).some(w => w.includes('/admin/members/{who}/usertype'))",
+            $"Changing {who}'s user type sent nothing to /admin/members/{who}/usertype. The "
+            + "control moves and the server never hears about it.");
+    }
+
+    /// <summary>
     /// Removing yourself is refused before the question is put.
     /// </summary>
     /// <remarks>
