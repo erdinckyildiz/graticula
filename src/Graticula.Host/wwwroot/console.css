@@ -1810,6 +1810,17 @@ pre.doc {
 .roleprivilege .mono { min-width: 22em; }
 .roleprivilege input[disabled] + .privilegetext .mono { color: var(--muted); }
 
+/* <b>Capped by a user type: muted, not disabled.</b> The 1c handoff asks for these greyed with a
+   note, and the prototype greys the *text* and leaves the control — which is the honest reading.
+   The role does carry the privilege and it does work, for a member whose type has no ceiling in
+   the way; ADR-018 §1's intersection is what the note names. A disabled box would say *you cannot
+   grant this*, and that is a different and false sentence. */
+.roleprivilege.capped .mono { color: var(--muted); }
+
+/* Amber rather than the neutral chip colour, because this one is a caution and the two beside it
+   — `needs` and `includes` — are facts about the privilege rather than about who it reaches. */
+.cappednote { color: var(--warn); }
+
 /* <b>The name and its notes on one line, the sentence under them.</b> D-100: what a privilege
    does is a sentence, and a sentence in a row of chips is a chip nobody reads. The wrapper
    exists so the checkbox stays aligned with the name rather than with the middle of a
@@ -1868,6 +1879,31 @@ tr.groupband > td {
 
 /* Members beside services: the relation is the subject, so the two halves are read together.
    Collapses to one column where there is not room for two three-column tables. */
+/* ═══════════════════ a list to choose from and a panel to work in, 2026-09-05 ═══════════════════
+
+  <b>The 1c handoff asks two screens for the same shape and they are the same class.</b> Roles is
+  *list left (click selects), privilege editor right*; Data sources is *table left, register form
+  right with the test result inline*. Measured off the prototype: `minmax(0,1fr) 380px` for the
+  sources and `minmax(0,1fr) minmax(360px,440px)` for the roles, gap 22 — which is `--gap-5`
+  exactly, so the token was already the design's.
+
+  <b>One class rather than two, because the difference between 380 and 360–440 is not a decision.</b>
+  Writing both would be two numbers to keep in step and nothing to keep them there — D-46's subject.
+
+  <b>`align-items: start`, or the short side stretches.</b> A grid item fills its row by default, so
+  a 200-pixel form beside a twenty-row table grows a 600-pixel white box under itself.
+*/
+.pickpair {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  gap: var(--gap-5); align-items: start;
+}
+
+.pickpair > .panel { margin-bottom: 0; }
+
+/* Same trap as `.grouppair`, and the same fix before it is measured: `1fr` cannot shrink below
+   min-content, and the left side of both of these holds a table. */
+@media (max-width: 1180px) { .pickpair { grid-template-columns: minmax(0, 1fr); } }
+
 .grouppair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-5);
              margin-top: var(--gap-4); }
 /* Same trap, same fix, before it is measured rather than after: `1fr` cannot shrink below

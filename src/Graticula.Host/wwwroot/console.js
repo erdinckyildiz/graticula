@@ -1118,12 +1118,16 @@ function followRoleDependencies(box) {
   const boxes = [...document.querySelectorAll("#rolePrivileges input[data-privilege]")];
   const by = new Map(boxes.map(b => [b.dataset.privilege, b]));
 
-  // `needs a, b` is written into the label by loadRoles.
-  const needsOf = element => {
-    const said = element.parentElement?.querySelector(".val")?.textContent ?? "";
-    const match = said.match(/needs (.+)/);
-    return match ? match[1].split(",").map(x => x.trim()).filter(Boolean) : [];
-  };
+  // <b>Read as data, and it used to be read as text.</b> This took the first `.val` chip in the
+  // label and matched `needs (.+)` against it — so the dependency table was carried in a
+  // sentence, and it survived only as long as nothing else was ever put in front of that chip.
+  // 2026-09-05 something was: the ceiling note the 1c handoff asks for went in above it, the
+  // regex stopped matching, and ticking `publishFeatures` silently stopped ticking `create` —
+  // which the server then refuses, on a screen showing a set the operator believes is legal.
+  // The comment above still says *this reads the page rather than holding a second copy*, and
+  // that is still true and still the reason: it reads the page's own `data-needs`.
+  const needsOf = element =>
+    (element.dataset.needs || "").split(",").map(x => x.trim()).filter(Boolean);
 
   const added = [];
   const removed = [];
@@ -1305,13 +1309,48 @@ async function loadRoles() {
         <div class="rolegroup">
           <div class="rolegrouphead">${h(key)}
             <span class="val">${num(items.filter(c => held.has(c.name)).length)}/${num(items.length)}</span></div>
-          ${items.map(c => `
-            <label class="roleprivilege">
+          ${items.map(c => {
+            // <b>The 1c handoff: *privileges capped by user type are greyed with a note*.</b>
+            // ADR-018 §1's intersection, made visible on the row it applies to — a tick here does
+            // nothing for a member whose type withholds it, and the screen said that only in
+            // aggregate, in one sentence under the whole list.
+            //
+            // <b>The note is the ceiling, not the list of who is under it.</b> Measured against
+            // the running server: every one of the eighteen privileges is capped for somebody,
+            // because a viewer carries almost nothing — so *greyed when capped* would grey all
+            // eighteen and say nothing. `leastUserType` is the same fact in two words, and the
+            // server computes it because the ladder is that table's property rather than this
+            // screen's guess.
+            //
+            // <b>Muted only where the ceiling is the highest one, and never disabled.</b> The
+            // privilege is grantable: the role really does carry it and it really does work for
+            // an unrestricted member. Disabling the box would say *you cannot grant this*, which
+            // is false — the prototype greys the text and leaves the control, and it is right.
+            // The grey is spent on the six a creator cannot reach, which is where a reader
+            // ticking boxes is most likely to be surprised.
+            // <b>Absent and null are different answers.</b> A server older than this field says
+            // nothing about ceilings and the row should say nothing either; an explicit null is
+            // the server stating that no user type carries this, which cannot happen today and
+            // must be loud if it ever does. Reading both as "nothing carries it" would put that
+            // sentence on all eighteen rows the first time this console met an older server.
+            const least = c.leastUserType;
+            const narrow = least === "unrestricted";
+
+            return `
+            <label class="roleprivilege${narrow ? " capped" : ""}">
               <input type="checkbox" data-privilege="${h(c.name)}"
+                data-needs="${h(c.requires.join(","))}"
                 ${held.has(c.name) ? "checked" : ""}
                 ${chosen.editable ? "" : "disabled"}>
               <span class="privilegetext">
                 <span class="mono">${h(c.name)}</span>
+                ${least === undefined
+                  ? ""
+                  : least === null
+                    ? `<span class="val cappednote">no user type carries this</span>`
+                    : `<span class="val${narrow ? " cappednote" : ""}">${narrow
+                        ? "unrestricted only"
+                        : `${h(least)} or above`}</span>`}
                 ${c.requires.length
                   ? `<span class="val">needs ${c.requires.map(h).join(", ")}</span>` : ""}
                 ${c.includes.length
@@ -1319,7 +1358,8 @@ async function loadRoles() {
                 ${c.description
                   ? `<span class="privilegewhat">${h(c.description)}</span>` : ""}
               </span>
-            </label>`).join("")}
+            </label>`;
+          }).join("")}
         </div>`).join("")}
     </div>`;
   };

@@ -1137,39 +1137,48 @@
   -->
   <!-- Roles — ADR-035. Two sections, per-category counts, and set-from-existing-role. -->
   <section class="view" id="view-roles">
+    <!--
+      <b>The 1c handoff, and the shape is the point rather than the paint.</b> *List left (click
+      selects), privilege editor right.* It was list above and editor below, which reads as two
+      screens stacked: choosing a role scrolled the list off the top, so the reader lost the one
+      thing that says which of five they are editing. Side by side, the answer to *which role is
+      this* is always on screen beside the ticks.
+    -->
     <div class="pagehead">
       <div>
         <h2>Roles</h2>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
       </div>
-    </div>
-
-    <div class="toolbar">
-      <span class="val" id="roleCount"></span>
-      <span style="flex:1"></span>
-      <button class="primary" id="roleNew">New role</button>
-    </div>
-
-    <div class="panel">
-      <table>
-        <thead><tr>
-          <th>Role</th><th>Description</th><th class="num">Privileges</th>
-          <th class="num">Members</th><th></th>
-        </tr></thead>
-        <tbody id="roleRows"></tbody>
-      </table>
-    </div>
-    <div id="rolesPager"></div>
-
-    <div class="panel" id="roleEditor" hidden>
-      <div class="editorhead">
-        <div><h3 id="roleEditorName"></h3></div>
-        <div id="roleFrom"></div>
+      <div class="right">
+        <span class="val" id="roleCount"></span>
+        <button class="primary" id="roleNew">New role</button>
       </div>
-      <div id="roleCompatibility"></div>
-      <div id="rolePrivileges"></div>
-      <div class="row" style="margin-top:18px">
-        <button class="primary" id="roleSave">Save privileges</button>
+    </div>
+
+    <div class="pickpair">
+      <div>
+        <div class="panel">
+          <table>
+            <thead><tr>
+              <th>Role</th><th>Description</th><th class="num">Privileges</th>
+              <th class="num">Members</th><th></th>
+            </tr></thead>
+            <tbody id="roleRows"></tbody>
+          </table>
+        </div>
+        <div id="rolesPager"></div>
+      </div>
+
+      <div class="panel" id="roleEditor" hidden>
+        <div class="editorhead">
+          <div><h3 id="roleEditorName"></h3></div>
+          <div id="roleFrom"></div>
+        </div>
+        <div id="roleCompatibility"></div>
+        <div id="rolePrivileges"></div>
+        <div class="row" style="margin-top:18px">
+          <button class="primary" id="roleSave">Save privileges</button>
+        </div>
       </div>
     </div>
   </section>

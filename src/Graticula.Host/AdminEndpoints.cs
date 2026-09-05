@@ -3957,6 +3957,29 @@ internal static class AdminEndpoints
                 description = Roles.DescriptionOf(p),
 
                 administrative = Roles.IsAdministrative(p),
+
+                // <b>Which user types cannot carry it, from the table that enforces it.</b>
+                // ADR-018 §1: what somebody may do is their type's ceiling intersected with what
+                // their roles grant, so a privilege ticked here does nothing for a member whose
+                // type withholds it — and until this field the Roles screen could not say which
+                // ticks those were. Computed from `UserTypes.Ceilings` rather than restated, so
+                // the screen and the refusal cannot disagree: a type added to that table appears
+                // here without anybody remembering to add it.
+                cappedFor = UserTypes.All
+                    .Where(t => !UserTypes.CeilingOf(t).Contains(p))
+                    .ToArray(),
+
+                // <b>And the shortest true sentence about it, computed here because the order is
+                // this table's rather than the screen's.</b> `UserTypes.All` is a ladder — viewer,
+                // editor, creator, unrestricted — so *the first type that carries it* says the
+                // whole of the ceiling in two words where `cappedFor` needs a list. Measured
+                // 2026-09-05: every one of the eighteen is capped for somebody, because a viewer
+                // carries almost nothing, so a screen that greyed each capped row would grey all
+                // eighteen and mean nothing by it. Null when nothing carries it, which cannot
+                // happen today and must not be silently rendered as *anyone* if it ever does.
+                leastUserType = UserTypes.All
+                    .FirstOrDefault(t => UserTypes.CeilingOf(t).Contains(p)),
+
                 requires = Roles.Prerequisites.TryGetValue(p, out var needs)
                     ? needs.Select(Roles.NameOf)
                     : [],

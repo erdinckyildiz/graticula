@@ -235,6 +235,126 @@ public sealed class RolesPageTests : ConsoleTest
     /// cannot see a template.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The list and the editor are side by side, and the editor is on screen on arrival.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The 1c handoff asks for *list left (click selects), privilege editor right*.</b> It was
+    /// list above and editor below, which reads as two screens stacked: choosing a role scrolled
+    /// the list away, so the one thing that says which of five is being edited left the screen at
+    /// the moment the ticks arrived.
+    /// </para>
+    /// <para>
+    /// <b>Measured rather than looked at, and `offsetParent` is the half that keeps being the
+    /// bug.</b> Three times now this console has shipped a control that existed in the markup and
+    /// could not be seen, and each time the suite was green because it asserted the element was
+    /// there. A box with a width, a height and a painted ancestor is what a reader has.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_role_list_and_its_editor_stand_side_by_side()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/roles", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#roleRows tr').length > 0",
+            "No roles were listed, so there is no layout to measure.");
+
+        // <b>Nobody has clicked anything.</b> The screen picks the first role itself, and an
+        // editor that only appears after a click is an editor a reader arriving here does not
+        // know exists.
+        await WaitForAsync(
+            "document.getElementById('roleEditor')?.offsetParent !== null",
+            "The privilege editor is not on screen when the Roles page opens. It is beside the "
+            + "list now rather than under it, so there is nothing below the fold for it to be "
+            + "waiting in — if it is hidden, no reader will find it.");
+
+        int[] box = await Browser.EvaluateAsync<int[]>("""
+        (() => {
+          const list = document.getElementById('roleRows').closest('.panel').getBoundingClientRect();
+          const editor = document.getElementById('roleEditor').getBoundingClientRect();
+          return [
+            Math.round(list.right), Math.round(editor.left),
+            Math.round(list.top), Math.round(editor.top),
+            Math.round(editor.width),
+          ];
+        })()
+        """) ?? [];
+
+        Assert.True(box.Length == 5, "The layout could not be measured.");
+
+        Assert.True(
+            box[1] >= box[0],
+            $"The editor starts at {box[1]} and the list ends at {box[0]}, so they overlap or the "
+            + "editor is under the list. The handoff asks for them side by side.");
+
+        Assert.True(
+            System.Math.Abs(box[3] - box[2]) < 40,
+            $"The list starts at {box[2]} and the editor at {box[3]}, {System.Math.Abs(box[3] - box[2])} "
+            + "pixels apart. Side by side means they begin together; this is one stacked under "
+            + "the other with the window wide enough to hide it.");
+
+        Assert.True(
+            box[4] >= 340,
+            $"The editor is {box[4]} pixels wide, which is narrower than the 360 the handoff "
+            + "measures — the privilege names are twenty-two monospace characters and they wrap.");
+    }
+
+    /// <summary>
+    /// Every privilege says which user type is the lowest that can carry it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-018 §1 on the row it applies to.</b> What a member may do is their user type's
+    /// ceiling intersected with what their roles grant, so a tick here does nothing at all for a
+    /// member whose type withholds it — and the screen said so only in one sentence under the
+    /// whole list, about the role rather than about the privilege.
+    /// </para>
+    /// <para>
+    /// <b>The note is the ceiling rather than the list of who is under it.</b> Measured against a
+    /// running server: all eighteen privileges are capped for somebody, because a viewer carries
+    /// almost nothing. Greying every capped row would grey the whole list and mean nothing by it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Every_privilege_says_the_lowest_user_type_that_can_carry_it()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/roles", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#rolePrivileges input[data-privilege]').length >= 18",
+            "The roles screen offered fewer than eighteen privileges, so there is nothing to read.");
+
+        string[] silent = await Browser.EvaluateAsync<string[]>("""
+        [...document.querySelectorAll('#rolePrivileges input[data-privilege]')]
+          .filter(box => {
+            const said = box.parentElement.innerText || '';
+            return !/(or above|unrestricted only|no user type carries)/.test(said);
+          })
+          .map(box => box.dataset.privilege)
+        """) ?? [];
+
+        Assert.True(
+            silent.Length == 0,
+            $"{silent.Length} privileges say nothing about which user type can carry them: "
+            + string.Join(", ", silent.Take(6))
+            + ". A tick that does nothing for the member holding the role is the failure ADR-018 "
+            + "§1 describes, and the screen has to say which ticks those are.");
+
+        // <b>The grey is spent, not sprinkled.</b> Six of the eighteen are administrative and only
+        // an unrestricted member reaches them; if this ever counts eighteen, the note has stopped
+        // distinguishing anything and is costing the reader attention for nothing.
+        int muted = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#rolePrivileges .roleprivilege.capped').length");
+
+        Assert.InRange(muted, 1, 9);
+    }
+
     [Fact]
     public async Task Every_privilege_on_the_screen_says_what_it_does()
     {
