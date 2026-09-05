@@ -40,6 +40,20 @@ trap clean EXIT
 
 clean
 
+# <b>Build both images before anything runs them, and `--build` on step 3 was not enough.</b>
+# `compose.yaml` gives each service an `image:` as well as a `build:`, so a `run` or an `up`
+# with no `--build` uses the last *released* image when one has been published. Step 3 said so
+# and forced the source path; steps 1 and 2 did not, and step 2 is the one that writes to the
+# database. So the rehearsal migrated the store with the released binary and then started the
+# tree's server against it.
+#
+# <b>Which is invisible until the schema moves.</b> Measured 2026-09-05, on the commit that
+# added migration 38: the released image migrated the store to 37, the built server refused to
+# start against it -- *server is built for schema 38, and the platform store is at 37* -- and
+# the rehearsal reported that the README's four commands do not work. They do. What did not
+# work was testing two different builds and calling them one deployment.
+$COMPOSE build 2>&1 | tail -1
+
 printf '== 1. keygen ==\n'
 
 # The README pipes this into .env by hand; here it goes straight into the variable the
@@ -64,9 +78,9 @@ $COMPOSE run --rm server migrate --apply 2>&1 | tail -2
 
 printf '== 3. up ==\n'
 
-# <b>`--build`, since `compose.yaml` gained an image name.</b> Without it this would pull the
-# last published image and test that instead of the tree it was run from, which is the one
-# thing a rehearsal in CI must not do.
+# `--build` is redundant now that everything is built above, and it stays because it is what
+# that comment is about: without it, this pulls the last published image and tests that
+# instead of the tree it was run from, which is the one thing a rehearsal in CI must not do.
 $COMPOSE up -d --build 2>&1 | tail -2
 
 # <b>The server, not the datastore.</b> The whole point is that the datastore reporting itself
