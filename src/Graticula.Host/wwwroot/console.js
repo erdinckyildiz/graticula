@@ -10283,18 +10283,21 @@ async function loadSources() {
     : pageOf("sources", dataSources).map(d => `<tr>
         <td class="name">${h(d.name)}
           <div class="rowmeta">${h(d.kind)}${d.name === "datastore"
-            ? " · this server's own hosted store, and it cannot be removed" : ""}</div></td>
+            ? " · this server's own hosted store: its connection comes from the "
+              + "Graticula:PlatformStore setting on every start, so it is neither edited "
+              + "here nor removed"
+            : ""}</div></td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
           : h(d.summary || "—")}</td>
         <td class="num">${num(d.layerCount)}</td>
         <td class="acts"><button data-probe="${h(d.id)}"
-            data-probe-name="${h(d.name)}">Probe</button>
-          <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
-            data-source-summary="${h(d.summary || "")}"
-            data-source-layers="${num(d.layerCount)}">Edit</button>${d.name === "datastore"
+            data-probe-name="${h(d.name)}">Probe</button>${d.name === "datastore"
               ? ""
-              : ` <button class="danger" data-source-remove="${h(d.id)}"
+              : ` <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+                    data-source-summary="${h(d.summary || "")}"
+                    data-source-layers="${num(d.layerCount)}">Edit</button>
+                  <button class="danger" data-source-remove="${h(d.id)}"
                     data-source-name="${h(d.name)}"
                     data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
       </tr>`).join("");
@@ -10315,7 +10318,7 @@ let editingSource = null;
  * working, and it names them; that refusal arrives here as a sentence with a *Publish anyway* button
  * built from it, so the decision is made against the list rather than in advance of it.
  */
-function drawSourceEdit(id, name, summary, layers) {
+async function drawSourceEdit(id, name, summary, layers) {
   editingSource = { id, name, summary, layers, force: false };
 
   const box = $("probe");
@@ -10325,8 +10328,9 @@ function drawSourceEdit(id, name, summary, layers) {
     <div class="panel pad">
       <p class="hint">Currently <code>${h(summary || "unknown")}</code>${layers > 0
         ? ` · ${num(layers)} layer${layers === 1 ? "" : "s"} read from it`
-        : " · nothing is published on it"}. Send the <b>whole</b> connection string: the stored one is
-        sealed, so this server cannot merge a change into it.</p>
+        : " · nothing is published on it"}. The password is the one thing not filled in below:
+        it is sealed and this server does not read it back, so it has to be typed again — which
+        also means saving requires already knowing it.</p>
 
       <form id="sourceEditForm" autocomplete="off">
         <div class="row">
@@ -10347,6 +10351,39 @@ function drawSourceEdit(id, name, summary, layers) {
     </div>`;
 
   $("sourceEditForm").addEventListener("submit", saveSourceEdit);
+
+  // <b>Everything but the password, read from the server rather than retyped from memory.</b>
+  // This box was empty and the hint said to send the whole string, on the reasoning that the
+  // stored one is sealed — true of the password and of nothing else. The host, the port, the
+  // database, the user and the search path are the thing being corrected, and asking somebody to
+  // reproduce them from memory is how one correction becomes two mistakes. Owner, 2026-09-05:
+  // *edit dediğimde boş oluyor.*
+  //
+  // <b>Filled after the form exists and without blocking it.</b> A reader who already knows the
+  // whole string can start typing immediately; if the read arrives and they have not, it lands.
+  try {
+    const said = await api(`/admin/datasources/${encodeURIComponent(id)}/connection`);
+    const field = $("seConnection");
+
+    if (field && !field.value && said && said.connection) {
+      field.value = said.connection;
+
+      // <b>The caret where the missing half goes.</b> The password is what has to be added, and
+      // it belongs at the end of the string that is now in front of them.
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    }
+  } catch (e) {
+    // <b>An empty box and a sentence, rather than an empty box.</b> A source sealed with a key
+    // this build no longer holds cannot be read back at all, and that is worth saying here
+    // instead of leaving somebody to wonder why this one did not fill in.
+    const why = $("seRefused");
+
+    if (why) {
+      why.textContent = `${e.message} Type the whole connection string, including the password.`;
+      why.hidden = false;
+    }
+  }
   $("seCancel").addEventListener("click", () => {
     editingSource = null;
     box.innerHTML = "";
@@ -13736,7 +13773,9 @@ async function handleClick(event) {
   }
 
   if (d.sourceEdit) {
-    drawSourceEdit(d.sourceEdit, d.sourceName, d.sourceSummary, Number(d.sourceLayers) || 0);
+    await drawSourceEdit(
+      d.sourceEdit, d.sourceName, d.sourceSummary, Number(d.sourceLayers) || 0);
+
     return;
   }
 

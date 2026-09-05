@@ -376,6 +376,7 @@ internal static class AdminEndpoints
         // <b>The one field a deployment is certain to have to change, and there was no way to.</b>
         // Owner, 2026-08-19: *"registered db path'ini güncelleyemiyorum sanırım"* — a moved host, a new
         // port or a rotated password meant registering a second source and republishing every layer.
+        app.MapGet("/admin/datasources/{id:guid}/connection", ReadDataSourceConnectionAsync);
         app.MapPut("/admin/datasources/{id:guid}", UpdateDataSourceAsync);
         app.MapDelete("/admin/datasources/{id:guid}", RemoveDataSourceAsync);
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
@@ -5704,6 +5705,28 @@ internal static class AdminEndpoints
             return;
         }
 
+        // <b>The datastore's connection is configuration, and this row is a copy of it.</b>
+        // `EnsureDatastoreAsync` runs on every start and upserts the row from
+        // `Graticula:PlatformStore`, so a change made here works, reports success, and is
+        // silently undone by the next restart — which is worse than a refusal in every way a
+        // control can be. Removal has refused this since ADR-019 gave the datastore a reserved
+        // name; the update path did not, and one rule with two doors and one guard is D-46's
+        // subject. Found 2026-09-05 by the owner, who already believed it could not be changed.
+        if (string.Equals(
+                existing.Value.Name,
+                PostgresAdminCatalog.DatastoreName,
+                StringComparison.Ordinal))
+        {
+            await Refuse(
+                context, 409,
+                "That is the datastore, and its connection is not a registration this server "
+                + "keeps — it is read from the 'Graticula:PlatformStore' setting and written "
+                + "into this row on every start. Changing it here would hold until the next "
+                + "restart and no longer. Change the setting and restart.").ConfigureAwait(false);
+
+            return;
+        }
+
         ProbeResult result =
             await probe.ProbeAsync(request.ConnectionString, cancellation).ConfigureAwait(false);
 
@@ -8140,6 +8163,136 @@ internal static class AdminEndpoints
     /// Built by parsing rather than by trimming, so that a password containing a
     /// semicolon cannot survive into an audit record by accident.
     /// </remarks>
+    /// <summary>
+    /// A source's connection string with every secret taken out of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because *edit* opened an empty box.</b> The form asked for the whole connection string
+    /// and offered nothing to start from — the reasoning being that the stored one is sealed and
+    /// cannot be merged into. That is true of the password and of nothing else: the host, the
+    /// port, the database, the user and the search path are not secrets, they are the thing being
+    /// corrected, and making somebody retype them from memory is how a correction introduces a
+    /// second mistake. Found 2026-09-05 by the owner pressing Edit.
+    /// </para>
+    /// <para>
+    /// <b>The password is not returned, and that is the whole security of this route.</b> Keeping
+    /// it server-side and letting a caller submit a string without one would let anybody holding
+    /// <c>content:registerDataStore</c> repoint a source at a listener of their own and have this
+    /// server hand over a credential they were never shown. So the password comes back out and
+    /// has to be typed again: saving requires already knowing it.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="id">The source.</param>
+    /// <param name="catalog">The admin catalogue.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task ReadDataSourceConnectionAsync(
+        HttpContext context,
+        Guid id,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RegisteredDataSource? found = null;
+
+        foreach (RegisteredDataSource one in
+            await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false))
+        {
+            if (one.Id == id)
+            {
+                found = one;
+                break;
+            }
+        }
+
+        if (found is null)
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The datastore has nothing to edit, so it has nothing to read back either.</b> Same
+        // sentence as the update refuses with, because it is the same fact.
+        if (string.Equals(
+                found.Value.Name,
+                PostgresAdminCatalog.DatastoreName,
+                StringComparison.Ordinal))
+        {
+            await Refuse(
+                context, 409,
+                "That is the datastore. Its connection is read from the "
+                + "'Graticula:PlatformStore' setting on every start rather than edited here.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        string? stored = null;
+
+        try
+        {
+            stored = await catalog.ConnectionStringOfAsync(id, cancellation).ConfigureAwait(false);
+        }
+        catch (CryptographicException)
+        {
+            // <b>Read back the way the listing reads it, and refused the way the listing
+            // reports it.</b> A source sealed with a key this build no longer holds cannot be
+            // shown and cannot be merged into; the only honest answer is a whole new string.
+        }
+
+        if (string.IsNullOrEmpty(stored))
+        {
+            await Refuse(
+                context, 409,
+                $"'{found.Value.Name}' was sealed with a key this build does not hold, so its "
+                + "connection cannot be read back. Send a whole new one.").ConfigureAwait(false);
+
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name = found.Value.Name,
+            connection = WithoutSecrets(stored),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A connection string with the password removed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Rebuilt through the builder rather than edited as text.</b> A regular expression over
+    /// the string would have to know every spelling Npgsql accepts for the same keyword — and it
+    /// accepts several — so a miss would put a password on the wire while looking like it had
+    /// been removed. Parsing and re-emitting cannot miss one: what is not set is not written.
+    /// </remarks>
+    /// <param name="connectionString">The stored string.</param>
+    /// <returns>The same connection with no password in it.</returns>
+    private static string WithoutSecrets(string connectionString)
+    {
+        try
+        {
+            NpgsqlConnectionStringBuilder builder = new(connectionString) { Password = null };
+
+            return builder.ConnectionString;
+        }
+        catch (ArgumentException)
+        {
+            // <b>Nothing rather than a guess.</b> A string this build cannot parse is one this
+            // method cannot promise to have cleaned, and half a redaction is none.
+            return string.Empty;
+        }
+    }
+
     private static string Summarise(string connectionString)
     {
         try

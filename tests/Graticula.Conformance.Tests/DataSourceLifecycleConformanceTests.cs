@@ -259,6 +259,113 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         Assert.Contains("datastore", Message(body), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A source's connection comes back to be corrected, with the password taken out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because *edit* opened an empty box.</b> The form asked for the whole connection string
+    /// and gave nothing to start from, on the reasoning that the stored one is sealed and cannot
+    /// be merged into — true of the password and of nothing else. The host, the port, the
+    /// database and the user are the thing being corrected, and retyping them from memory is how
+    /// one correction becomes two mistakes. Found 2026-09-05 by the owner pressing Edit.
+    /// </para>
+    /// <para>
+    /// <b>The keyword, not the value, is what is asserted absent.</b> This suite's fixture
+    /// password is short and also appears in the host and the database name, so *the answer does
+    /// not contain the password* is unprovable here — the same trap the summary test below
+    /// records falling into. What the builder guarantees is that no password keyword is emitted,
+    /// and that holds against any credential.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_sources_connection_is_read_back_without_its_password()
+    {
+        string root = await RequireServerAsync();
+        (string token, string id) = await RegisterAsync("zz_ds_readback");
+
+        try
+        {
+            (HttpStatusCode status, string body) = await SendAsync(
+                HttpMethod.Get, $"{root}/admin/datasources/{id}/connection", token, null);
+
+            Assert.Equal(HttpStatusCode.OK, status);
+
+            string connection = JsonDocument.Parse(body).RootElement
+                .GetProperty("connection").GetString() ?? string.Empty;
+
+            // <b>Enough to correct without retyping.</b> An answer with only the host would be an
+            // empty box with extra steps.
+            Assert.Contains("Host=", connection, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Database=", connection, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Username=", connection, StringComparison.OrdinalIgnoreCase);
+
+            // <b>And the half that must never come back.</b> Returning it would let anybody with
+            // `content:registerDataStore` read a credential they were never shown; keeping it
+            // server-side and merging would let them repoint the source at a listener of their
+            // own and have this server deliver it. Neither: it is typed again.
+            Assert.DoesNotContain("Password", connection, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await RemoveAsync(token, id);
+        }
+    }
+
+    /// <summary>
+    /// The datastore's connection is configuration, so it is neither read back nor changed here.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because changing it worked, said so, and was undone by the next restart.</b>
+    /// `EnsureDatastoreAsync` runs on every start and upserts that row from
+    /// `Graticula:PlatformStore`, so the update path accepted a change it could not keep. Removal
+    /// has refused the datastore since ADR-019 gave it a reserved name and the update path did
+    /// not — one rule, two doors, one guard, which is D-46's subject. A control that reports
+    /// success and reverts is worse than either a working one or an absent one.
+    /// </remarks>
+    [Fact]
+    public async Task The_datastores_connection_is_neither_read_back_nor_changed()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (_, string listed) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/datasources", token!, null);
+
+        string? datastore = null;
+
+        foreach (JsonElement source in
+                 JsonDocument.Parse(listed).RootElement.GetProperty("dataSources").EnumerateArray())
+        {
+            if (source.GetProperty("name").GetString() == "datastore")
+            {
+                datastore = source.GetProperty("id").GetString();
+            }
+        }
+
+        Assert.False(datastore is null, "The datastore is not registered, which is a different fault.");
+
+        (HttpStatusCode read, string why) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/datasources/{datastore}/connection", token!, null);
+
+        Assert.Equal(HttpStatusCode.Conflict, read);
+        Assert.Contains("PlatformStore", Message(why), StringComparison.Ordinal);
+
+        // <b>The same string it is already on, so a missing guard would succeed rather than
+        // break the fixture.</b> A test that proves a refusal by asking for something harmful is
+        // a test that does the harm on the day the refusal is gone.
+        (HttpStatusCode changed, string said) = await SendAsync(
+            HttpMethod.Put,
+            $"{root}/admin/datasources/{datastore}",
+            token!,
+            JsonSerializer.Serialize(new { connectionString = Connection }));
+
+        Assert.Equal(HttpStatusCode.Conflict, changed);
+        Assert.Contains("PlatformStore", Message(said), StringComparison.Ordinal);
+    }
+
     /// <summary>The listing says which database each source is on, and never the credential.</summary>
     /// <remarks>
     /// <b>The privacy half is the assertion that matters.</b> `summary` exists so a screen can show

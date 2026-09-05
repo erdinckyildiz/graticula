@@ -35,6 +35,95 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// Edit opens on the connection it is editing, with the password left blank.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It opened empty.</b> The form asked for the whole connection string and gave nothing to
+    /// start from, on the reasoning that the stored one is sealed and cannot be merged into —
+    /// which is true of the password and of nothing else. The host, the port, the database and
+    /// the user are the thing being corrected; retyping them from memory is how one correction
+    /// becomes two mistakes. Owner, 2026-09-05: *edit dediğimde boş oluyor.*
+    /// </para>
+    /// <para>
+    /// <b>The password stays out, and that is not an oversight to be tidied later.</b> Returning
+    /// it would hand a credential to anybody with the privilege to register a source; keeping it
+    /// server-side and merging would let them repoint the source at a listener of their own and
+    /// have this server deliver it. Typing it again is what makes saving require knowing it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Editing_a_source_opens_on_its_connection_without_the_password()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            "document.querySelectorAll('#sources button[data-source-edit]').length > 0",
+            "No source offers an Edit button, so there is nothing to open.");
+
+        await ClickAsync("#sources button[data-source-edit]");
+
+        await WaitForAsync(
+            "document.getElementById('seConnection') !== null",
+            "The edit form did not open.");
+
+        await WaitForAsync(
+            "(document.getElementById('seConnection')?.value || '').length > 0",
+            "The connection box is still empty after opening Edit. It is a correction form: the "
+            + "thing being corrected has to be in it.");
+
+        string connection = await Browser.EvaluateAsync<string>(
+            "document.getElementById('seConnection').value") ?? string.Empty;
+
+        Assert.Contains("Host=", connection, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Database=", connection, StringComparison.OrdinalIgnoreCase);
+
+        // <b>The keyword, not the value.</b> The fixture credential is short and also appears in
+        // the host and the database name, so *the box does not contain the password* is
+        // unprovable here — the conformance suite records the same trap.
+        Assert.DoesNotContain("Password", connection, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The datastore is not offered an Edit button, because editing it would not hold.
+    /// </summary>
+    /// <remarks>
+    /// <b>`EnsureDatastoreAsync` rewrites that row from `Graticula:PlatformStore` on every
+    /// start.</b> A change made here worked, said so, and was undone by the next restart — which
+    /// is worse than a refusal in every way a control can be. Removal has refused the datastore
+    /// since ADR-019 gave it a reserved name; the update path did not, and the button was drawn
+    /// for both. ADR-034: a control is not drawn for a feature that does not exist.
+    /// </remarks>
+    [Fact]
+    public async Task The_datastore_row_offers_no_edit()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            "document.querySelectorAll('#sources tr').length > 0",
+            "No sources were listed.");
+
+        int offered = await Browser.EvaluateAsync<int>("""
+        [...document.querySelectorAll('#sources tr')]
+          .filter(row => (row.querySelector('.name')?.textContent || '').trim().startsWith('datastore'))
+          .filter(row => row.querySelector('button[data-source-edit]'))
+          .length
+        """);
+
+        Assert.Equal(0, offered);
+
+        // <b>And the row says where the value actually lives.</b> Taking the button away without
+        // saying why leaves somebody looking for it.
+        string said = await Browser.EvaluateAsync<string>("""
+        ([...document.querySelectorAll('#sources tr')]
+          .find(row => (row.querySelector('.name')?.textContent || '').trim().startsWith('datastore'))
+          ?.innerText) || ''
+        """) ?? string.Empty;
+
+        Assert.Contains("PlatformStore", said, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The register form stands beside the table rather than under it.
     /// </summary>
     /// <remarks>
@@ -195,15 +284,20 @@ public sealed class DataSourceScreenTests : ConsoleTest
               // host:port/database, in the second column.
               const SHAPE = /^\S+:[0-9]+\/\S+$/;
               const summary = datastore.children[1].textContent.trim();
+              // <b>The setting's name rather than a phrase.</b> This asked for the words
+              // *cannot be removed* and broke on 2026-09-05 when the row grew a second thing to
+              // explain — Edit went too, because that connection is rewritten from configuration
+              // on every start. A test that pins a sentence fails when the sentence improves;
+              // `PlatformStore` is the fact the row exists to carry and cannot be reworded away.
               return SHAPE.test(summary)
-                  && datastore.textContent.includes('cannot be removed')
+                  && datastore.textContent.includes('PlatformStore')
                   && !datastore.querySelector('[data-source-remove]');
             })()
             """,
             "The datastore's row does not name its database in `host:port/database` form, or it offers a "
-            + "Remove button, or it does not say why it has none. The absence of a button reads as a "
-            + "missing button unless the row says otherwise — and the actions are right-aligned as a "
-            + "group, so the two-button row looks like the three-button row shifted over.");
+            + "Remove button, or it does not say where its connection comes from. The absence of a "
+            + "button reads as a missing button unless the row says otherwise — and the actions are "
+            + "right-aligned as a group, so a short row looks like a long one shifted over.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);
