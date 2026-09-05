@@ -236,14 +236,19 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         Assert.False(token is null, "No administrator credential.");
 
         (Guid source, string schema, string table, string geometry, string identity, int srid) =
-            await ATableAsync(root, token!, skip: 2);
+            await ATableAsync(root, token!);
 
-        // <b>A different table, so only the name collides.</b> Publishing the same composition
+        // <b>The same two tables the other tests use, which is safe and deliberate.</b> Methods
+        // in one class run in sequence and each of these tears its service down, so a table is
+        // free again by the time the next one asks. Taking fresh ones instead needed four, and
+        // CI's fixture has two — measured there, after this test asked for a third and said so.
+        //
+        // <b>A different table from the first publish, so only the name collides.</b> Publishing the same composition
         // twice trips `layer_table_unique` first — one table is one layer, globally — and would
         // have tested that rule while claiming to test this one. Found by writing it the lazy
         // way and reading the refusal.
         (_, string schema2, string table2, string geometry2, string identity2, int srid2) =
-            await ATableAsync(root, token!, skip: 3);
+            await ATableAsync(root, token!, skip: 1);
 
         string name = AName();
 
