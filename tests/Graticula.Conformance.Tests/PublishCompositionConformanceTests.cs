@@ -362,21 +362,47 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.Equal(HttpStatusCode.OK, probed);
 
-        // <b>Skipped rather than reused, because a table is one layer.</b> `layer_table_unique`
-        // is on (source, schema, table, geometry) and is global, so a composition naming the
-        // same table twice is refused by the schema — which is the answer to ADR-057's open
-        // *two layers, one table*, and stricter than that question assumed.
+        // <b>Free tables only, and CI is where that turned out to matter.</b>
+        // `layer_table_unique` is on (source, schema, table, geometry) and is <b>global</b>: a
+        // table already served by a layer cannot be served by a second one, here or in another
+        // service. Locally the datastore holds ninety-one tables and almost none are published,
+        // so taking the first worked; CI's seed publishes what it makes, so the first table is
+        // always taken and both of these tests failed there and nowhere else.
+        //
+        // <b>Skipped rather than reused for the same reason</b> — a composition naming one
+        // table twice is refused by the schema, which is the answer to ADR-057's open *two
+        // layers, one table* and stricter than that question assumed (§5i).
+        (HttpStatusCode listed, string served) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/layers", token, null);
+
+        Assert.Equal(HttpStatusCode.OK, listed);
+
+        HashSet<string> taken = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (JsonElement layer in JsonDocument.Parse(served).RootElement
+            .GetProperty("layers").EnumerateArray())
+        {
+            if (layer.TryGetProperty("table", out JsonElement qualified)
+                && qualified.GetString() is { Length: > 0 } where)
+            {
+                taken.Add(where);
+            }
+        }
+
         JsonElement[] publishable =
             [.. JsonDocument.Parse(what).RootElement
                 .GetProperty("tables").EnumerateArray()
                 .Where(t => t.TryGetProperty("objectIdColumn", out JsonElement oid)
-                    && oid.ValueKind == JsonValueKind.String)];
+                    && oid.ValueKind == JsonValueKind.String)
+                .Where(t => !taken.Contains(
+                    $"{t.GetProperty("schemaName").GetString()}."
+                    + t.GetProperty("tableName").GetString()))];
 
         Assert.True(
             publishable.Length > skip,
-            $"The datastore offers {publishable.Length} publishable table(s) and this test needs "
-            + $"at least {skip + 1}. Seed another, rather than pointing two layers at one table "
-            + "— the schema refuses that.");
+            $"The datastore offers {publishable.Length} table(s) that are publishable and not "
+            + $"already served, and this test needs at least {skip + 1}. A table is one layer "
+            + "on this server, so a test cannot borrow one that is in use.");
 
         JsonElement table = publishable[skip];
 
