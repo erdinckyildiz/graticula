@@ -74,7 +74,18 @@ public sealed class TokenIsNotLoggedTests : ArcGisClient
         {
             written = await ReadFromAsync(log!, from);
 
-            if (written.Contains("/rest/info", StringComparison.Ordinal))
+            // <b>The request line, not any line that mentions the path.</b> This waited for
+            // `/rest/info` and the routing middleware logs `Executing endpoint 'HTTP: GET
+            // /rest/info'` first — measured 26 lines before the request line in a real CI log,
+            // and more than that once Kestrel is at Debug. The poll broke on the endpoint line
+            // and the assertions then ran against a log the redacted line had not reached yet,
+            // which CI reported on 2026-09-05 as *token=REDACTED not found* against a server
+            // that had redacted it correctly.
+            //
+            // <b>The question mark is what separates them.</b> The endpoint lines carry the
+            // route template and no query; only the request line carries the query, which is
+            // the thing this test is about.
+            if (written.Contains("/rest/info?", StringComparison.Ordinal))
             {
                 break;
             }
