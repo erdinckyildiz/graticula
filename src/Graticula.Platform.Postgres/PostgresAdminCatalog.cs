@@ -18,6 +18,192 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     private readonly NpgsqlDataSource _dataSource;
     private readonly SecretProtector _secrets;
 
+    /// <summary>Creates a whole service and everything in it, or none of it.</summary>
+    /// <param name="composition">The service, its groups and its layers, in draw order.</param>
+    /// <param name="owner">Who is publishing.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What was made, and the index each part answers at.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5h: one
+    /// act.</b> A service is not created without layers, so there is no empty container to make
+    /// first — and a half-published service, a container whose layers failed, is exactly the
+    /// residue that decision refuses to create deliberately. It must not be created by accident
+    /// either, which is what the transaction is for.
+    /// </para>
+    /// <para>
+    /// <b>Indices are decided here, over the whole tree, before anything is inserted.</b> A
+    /// group and a layer share one numbered space — `subLayerIds` addresses one list — and the
+    /// two live in different tables, so nothing in the schema stops them colliding. Numbering
+    /// in draw order also means the number a client sees is the position the operator put the
+    /// thing in, rather than an artefact of insertion order.
+    /// </para>
+    /// <para>
+    /// <b>The folder is created by naming it</b>, per §5d, and only for a registered source:
+    /// hosted data is always in `hosted`, which is the rule `PublishLayerAsync` already keeps
+    /// and the reason that decision is not re-derived here.
+    /// </para>
+    /// </remarks>
+    public async Task<PublishedComposition> PublishCompositionAsync(
+        ServiceComposition composition, Guid owner, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
+
+        if (composition.Nodes.Count == 0)
+        {
+            throw new ArgumentException(
+                "A service is not created without layers — ADR-057 §5h. The composition has "
+                + "nothing in it.",
+                nameof(composition));
+        }
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        Guid serviceId = Guid.NewGuid();
+        string? folder = string.IsNullOrWhiteSpace(composition.Folder)
+            ? null
+            : composition.Folder.Trim();
+
+        if (folder is not null)
+        {
+            await using NpgsqlCommand known = new(
+                "insert into folder (name) values (@name) on conflict do nothing",
+                connection,
+                transaction);
+
+            known.Parameters.AddWithValue("name", folder);
+            await known.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // <b>Counted before anything is written, so a group's index is known when the layers
+        // that name it are inserted.</b>
+        int next = 0;
+        List<(string Name, int Index)> groups = [];
+        List<(string Name, int Index, LayerPublication Layer, int? Parent)> layers = [];
+
+        foreach (CompositionNode node in composition.Nodes)
+        {
+            if (node.IsGroup)
+            {
+                int at = next++;
+                groups.Add((node.GroupName!, at));
+
+                foreach (LayerPublication child in node.Children ?? [])
+                {
+                    layers.Add((child.Name, next++, child, at));
+                }
+
+                continue;
+            }
+
+            if (node.Layer is { } alone)
+            {
+                layers.Add((alone.Name, next++, alone, null));
+            }
+        }
+
+        if (layers.Count == 0)
+        {
+            throw new ArgumentException(
+                "Every node in this composition is an empty group, so the service would have no "
+                + "layers — ADR-057 §5h.",
+                nameof(composition));
+        }
+
+        await using (NpgsqlCommand service = new(
+            """
+            insert into service
+                (id, name, folder, kind, description, owner_principal_id, sharing, status,
+                 srid, next_layer_index)
+            values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
+                    'started', @srid, @next)
+            """,
+            connection,
+            transaction))
+        {
+            service.Parameters.AddWithValue("id", serviceId);
+            service.Parameters.AddWithValue("name", composition.Name);
+            service.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+            service.Parameters.AddWithValue(
+                "description", (object?)composition.Description ?? DBNull.Value);
+            service.Parameters.AddWithValue("owner", owner);
+            service.Parameters.AddWithValue("sharing", composition.Sharing);
+            service.Parameters.AddWithValue("srid", (object?)composition.Srid ?? DBNull.Value);
+            service.Parameters.AddWithValue("next", next);
+
+            await service.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach ((string name, int at) in groups)
+        {
+            await using NpgsqlCommand group = new(
+                """
+                insert into group_layer (id, service_id, layer_index, name, parent_layer_index)
+                values (gen_random_uuid(), @service, @index, @name, null)
+                """,
+                connection,
+                transaction);
+
+            group.Parameters.AddWithValue("service", serviceId);
+            group.Parameters.AddWithValue("index", at);
+            group.Parameters.AddWithValue("name", name);
+
+            await group.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach ((string _, int at, LayerPublication layer, int? parent) in layers)
+        {
+            await using NpgsqlCommand insert = new(
+                """
+                insert into layer
+                  (id, data_source_id, name, schema_name, table_name, geometry_column,
+                   identity_column, object_id_column, srid, geometry_type,
+                   service_id, layer_index, parent_layer_index, cache_seconds)
+                values
+                  (gen_random_uuid(), @source, @name, @schema, @table, @geometry,
+                   @identity, @objectid, @srid, @type,
+                   @service, @index, @parent, @cache)
+                """,
+                connection,
+                transaction);
+
+            insert.Parameters.AddWithValue("source", layer.DataSourceId);
+            insert.Parameters.AddWithValue("name", layer.Name);
+            insert.Parameters.AddWithValue("schema", layer.SchemaName);
+            insert.Parameters.AddWithValue("table", layer.TableName);
+            insert.Parameters.AddWithValue("geometry", layer.GeometryColumn);
+            insert.Parameters.AddWithValue("identity", layer.IdentityColumn);
+            insert.Parameters.AddWithValue(
+                "objectid", (object?)layer.ObjectIdColumn ?? DBNull.Value);
+            insert.Parameters.AddWithValue("srid", layer.Srid);
+            // <b>`ToString()`, like `PublishLayerAsync` two hundred lines below.</b> The column
+            // is text and `GeometryType` is an enum; Npgsql refuses to write one without being
+            // told a type, and the refusal is a 500 rather than a mistranslation — which is the
+            // better failure, and is how this was found on the first live composition.
+            insert.Parameters.AddWithValue("type", layer.GeometryType.ToString());
+            insert.Parameters.AddWithValue("service", serviceId);
+            insert.Parameters.AddWithValue("index", at);
+            insert.Parameters.AddWithValue("parent", (object?)parent ?? DBNull.Value);
+            insert.Parameters.AddWithValue(
+                "cache", (object?)layer.CacheSeconds ?? DBNull.Value);
+
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new PublishedComposition(
+            serviceId,
+            composition.Name,
+            folder,
+            [.. layers.ConvertAll(l => (l.Name, l.Index))],
+            groups);
+    }
+
     /// <summary>Creates the catalogue.</summary>
     /// <param name="dataSource">The platform store pool.</param>
     /// <param name="secrets">Seals and opens data source credentials.</param>

@@ -87,7 +87,7 @@ Measured or read on 2026-09-05.
 
 | | |
 |---|---|
-| Ways to publish a registered table today | **0** |
+| Ways to publish a registered table today | ~~**0**~~ — `POST /admin/publish`, 2026-09-06 |
 | Migration that built group layers | **12** — table, parent column, foreign key, counter |
 | Console controls that make a group | **1** — the *New service* drawer, corrected same day |
 | Column holding a service's served reference | **none** |
@@ -204,6 +204,27 @@ together. The order is: Publish first, then the endpoint requires layers, then t
 *Create empty service* comes off the screen. Doing it in any other order leaves this server
 with no way to publish anything.
 
+### 5i. One table is one layer, and the schema said so before this decision did
+
+**Found 2026-09-06, by publishing a composition that named one table twice.** The refusal
+came back saying the *service name* was taken, which was this endpoint mistranslating a
+constraint it had not expected. The constraint is `layer_table_unique` on
+`(data_source_id, schema_name, table_name, geometry_column)`, and it is **global** — not per
+service.
+
+So *the same feature class twice with different filters*, which this ADR had left open as a
+question for the owner, **is already answered, and more strictly than the question assumed**:
+not once per service, once per server. A second view of the same data is a database view, and
+the composition names that instead.
+
+**The endpoint translates each constraint rather than assuming there is one.** A publish can
+collide four ways — the service name, the table, a layer name inside the service, and an index
+this server allocates — and telling somebody their *name* is taken when their *table* is
+published sends them to rename something that was fine. The unmatched case prints the
+constraint, which is how the first mismatch was found in one request: the service index is
+called `service_name_in_folder_ci`, because a later migration made it case-insensitive and
+renamed it, and an exact-name match had quietly fallen through.
+
 ## 6. Consequences
 
 - ~~**Two catalogue changes before the screen is worth building**: a parent on the layer row
@@ -236,12 +257,16 @@ with no way to publish anything.
    and OGC are drawn as choices and are not choices yet. Either the catalogue gains the two
    columns or the screen stops offering what it cannot deliver, and shipping it in between is
    ADR-034's prohibition with extra steps.
-3. **`POST /admin/featureservices` requires layers, and the drawer's *Create empty service*
+3. **A composition of a thousand layers is published, and the transaction is timed.** 5h
+   writes the service, its groups and its layers in one transaction, and every composition
+   anybody has published so far has held three things. A service assembled from a whole
+   database is the case where one long transaction stops being free, and nobody has looked.
+4. **`POST /admin/featureservices` requires layers, and the drawer's *Create empty service*
    comes off the screen.** 5h decides this and cannot be applied yet: that endpoint is the only
    way to make a service until the Publish path exists. The condition is here so the sequence
    is not forgotten, because the intermediate state — a rule the screen keeps and the API does
    not — is the shape ADR-033 warned about, where the next writer bypasses it.
-4. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
+5. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do
    with a group layer served by something that is not ArcGIS Server is not known here, and
    the first person to find out should not be the owner.

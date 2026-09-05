@@ -70,6 +70,35 @@ internal sealed record ServiceSridRequest(int? Srid);
 /// owner correction 2026-08-15, <em>"a service is a combination of layers"</em>.
 /// Omitting it keeps the behaviour every layer published before that date got.
 /// </remarks>
+/// <summary>A whole service, described before any of it exists.</summary>
+/// <remarks>
+/// <b>One request because it is one act — ADR-057 §5h.</b> A service is not created without
+/// layers, so there is no container to make first; the composition arrives whole and is written
+/// in one transaction or not at all.
+/// </remarks>
+/// <param name="Name">What the service is called.</param>
+/// <param name="Folder">Its folder, or null for the root. Created if it does not exist.</param>
+/// <param name="Description">What somebody finding it in a directory needs to know.</param>
+/// <param name="Sharing">Who may see it.</param>
+/// <param name="Srid">The reference to serve in, or null for each layer's own.</param>
+/// <param name="Nodes">The tree, in draw order — the first is drawn on top.</param>
+internal sealed record CompositionRequest(
+    string? Name,
+    string? Folder,
+    string? Description,
+    string? Sharing,
+    int? Srid,
+    IReadOnlyList<CompositionNodeRequest>? Nodes);
+
+/// <summary>One entry in a composition: a group with its layers, or a layer.</summary>
+/// <param name="Group">The group's name, when this is a group.</param>
+/// <param name="Layer">The layer, when this is not.</param>
+/// <param name="Layers">A group's layers, in draw order.</param>
+internal sealed record CompositionNodeRequest(
+    string? Group,
+    PublishRequest? Layer,
+    IReadOnlyList<PublishRequest>? Layers);
+
 internal sealed record PublishRequest(
     string? Name,
     Guid DataSourceId,
@@ -414,6 +443,7 @@ internal static class AdminEndpoints
         app.MapDelete("/admin/datasources/{id:guid}", RemoveDataSourceAsync);
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
         app.MapPost("/admin/layers", PublishAsync);
+        app.MapPost("/admin/publish", PublishCompositionAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
 
         // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
@@ -5630,6 +5660,253 @@ internal static class AdminEndpoints
             message = listing.Message,
             databases = listing.Databases,
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Publishes a whole service: its layers, its groups and its reference, in one act.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5a, §5h.</b>
+    /// The composition is the service. Until this existed the only way to build one was three
+    /// separate calls in the order the API wanted — create an empty container, add groups,
+    /// publish layers naming a group by a numeric index nobody could find — which is the shape
+    /// a design review called *the API rendered as a form*.
+    /// </para>
+    /// <para>
+    /// <b>Refused whole rather than half-written.</b> Each layer is validated before anything is
+    /// inserted, and the message names <i>which</i> entry was wrong: a composition that failed
+    /// on its fourth layer having written three is the residue §5h refuses to create on purpose
+    /// and must not create by accident.
+    /// </para>
+    /// <para>
+    /// <b>Uniqueness is the database's, not this method's.</b> A name already taken in that
+    /// folder violates `service_name_in_folder`, and catching the violation is how the answer
+    /// stays true under two operators pressing Publish at once — a check-then-insert would be
+    /// right up to the moment it mattered. §5e's *only its owner may replace it* is a rule about
+    /// replacing, and replacing is not built yet: for now a taken name is refused whoever owns
+    /// it, which is stated rather than implied.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="request">The composition.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task PublishCompositionAsync(
+        HttpContext context,
+        CompositionRequest? request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Name))
+        {
+            await Refuse(context, 400, "`name` is required: it is what the service is called.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (request.Nodes is not { Count: > 0 } nodes)
+        {
+            await Refuse(
+                context, 400,
+                "A service is not created without layers. Send the layers it is made of — "
+                + "there is no empty service to fill in afterwards.").ConfigureAwait(false);
+
+            return;
+        }
+
+        if (!TryReadScope(request.Sharing ?? "private", out SharingScope scope, out string? why))
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.Srid is { } srid && srid <= 0)
+        {
+            await Refuse(
+                context, 400,
+                $"'{srid}' is not a spatial reference. Send an EPSG code, or leave it out to "
+                + "serve each layer in whatever its own table is stored in.").ConfigureAwait(false);
+
+            return;
+        }
+
+        List<CompositionNode> composed = [];
+        int at = 0;
+
+        foreach (CompositionNodeRequest node in nodes)
+        {
+            at++;
+
+            if (node.Group is { Length: > 0 } named)
+            {
+                List<LayerPublication> children = [];
+
+                foreach (PublishRequest child in node.Layers ?? [])
+                {
+                    if (!TryReadPublication(child, out LayerPublication? read, out string? bad))
+                    {
+                        await Refuse(context, 400, $"Entry {at}, in group '{named}': {bad}")
+                            .ConfigureAwait(false);
+
+                        return;
+                    }
+
+                    children.Add(read!);
+                }
+
+                composed.Add(new CompositionNode(named, null, children));
+                continue;
+            }
+
+            if (node.Layer is null)
+            {
+                await Refuse(
+                    context, 400,
+                    $"Entry {at} is neither a group nor a layer. A composition holds one or the "
+                    + "other.").ConfigureAwait(false);
+
+                return;
+            }
+
+            if (!TryReadPublication(node.Layer, out LayerPublication? one, out string? refused))
+            {
+                await Refuse(context, 400, $"Entry {at}: {refused}").ConfigureAwait(false);
+                return;
+            }
+
+            composed.Add(new CompositionNode(null, one));
+        }
+
+        if (catalog is not PostgresAdminCatalog postgres)
+        {
+            await Refuse(context, 501, "This catalogue cannot publish a composition.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        try
+        {
+            PublishedComposition made = await postgres
+                .PublishCompositionAsync(
+                    new ServiceComposition(
+                        request.Name.Trim(),
+                        request.Folder,
+                        string.IsNullOrWhiteSpace(request.Description)
+                            ? null
+                            : request.Description.Trim(),
+                        PostgresSharing(scope),
+                        request.Srid,
+                        composed),
+                    current.Principal.Id,
+                    cancellation)
+                .ConfigureAwait(false);
+
+            await AuditAsync(
+                context, audit, "service.publish", made.Name,
+                Detail(new
+                {
+                    id = made.ServiceId,
+                    folder = made.Folder,
+                    layers = made.Layers.Count,
+                    groups = made.Groups.Count,
+                    srid = request.Srid,
+                }),
+                succeeded: true, cancellation).ConfigureAwait(false);
+
+            context.Response.StatusCode = StatusCodes.Status201Created;
+
+            await Results.Json(new
+            {
+                id = made.ServiceId,
+                name = made.Name,
+                folder = made.Folder,
+                url = made.Folder is { Length: > 0 } inside
+                    ? $"/rest/services/{inside}/{made.Name}/FeatureServer"
+                    : $"/rest/services/{made.Name}/FeatureServer",
+                srid = request.Srid,
+                layers = made.Layers.Select(l => new { name = l.Name, id = l.Index }),
+                groups = made.Groups.Select(g => new { name = g.Name, id = g.Index }),
+            }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context)
+                .ConfigureAwait(false);
+        }
+        catch (PostgresException e) when (e.SqlState == "23505")
+        {
+            // <b>The database's rules, caught rather than pre-checked — and there are four of
+            // them, which is what the first version of this got wrong.</b> §5e is about the
+            // service name, so that is the message this handler was written with; the first
+            // composition to publish one table twice came back saying its *name* was taken,
+            // which is a sentence about the wrong object and sends an operator to rename
+            // something that is fine. Asking before inserting would be right up to the moment
+            // two people press Publish in the same second, so the constraint stays the
+            // authority and the translation names which one spoke.
+            string where = string.IsNullOrWhiteSpace(request.Folder)
+                ? "the root"
+                : $"'{request.Folder}'";
+
+            // <b>Matched on the stem, not the whole name.</b> The service index is called
+            // `service_name_in_folder_ci` — a later migration made it case-insensitive and
+            // renamed it — and an exact match answered the generic sentence instead, which is
+            // how this was found. An index can be rebuilt under a new suffix; what it is about
+            // does not change.
+            bool Named(string stem) =>
+                e.ConstraintName is { Length: > 0 } named
+                && named.StartsWith(stem, StringComparison.Ordinal);
+
+            string sentence = true switch
+            {
+                _ when Named("service_name_in_folder") =>
+                    $"'{request.Name}' already exists in {where}. Names are unique inside a "
+                    + "folder; another folder may hold the same one.",
+
+                // <b>One layer per table, and the index says so globally rather than per
+                // service.</b> So *the same feature class twice with different filters* — the
+                // question ADR-057 left open — is already answered by the schema, and answered
+                // more strictly than the question assumed.
+                _ when Named("layer_table_unique") =>
+                    "One of these tables is already published as a layer, here or in another "
+                    + "service. A table is served by one layer on this server: point the second "
+                    + "one at a view, or use the layer that exists.",
+
+                _ when Named("layer_name_unique_in_service") =>
+                    "Two layers in this composition have the same name. A layer's name is how a "
+                    + "client asks for it inside a service, so they have to differ.",
+
+                _ when Named("group_layer_index_unique")
+                    || Named("layer_index_unique_in_service") =>
+                    "Two things in this composition were given the same index, which is this "
+                    + "server's fault rather than yours. Please report it with what you were "
+                    + "publishing.",
+
+                // <b>The constraint's own name, and it earns its place.</b> The first
+                // unmatched one was `service_name_in_folder_ci`, and this sentence is what
+                // said so in a single request rather than a debugging session.
+                _ => "This composition collides with something already published "
+                    + $"({e.ConstraintName}).",
+            };
+
+            await AuditAsync(
+                context, audit, "service.publish", request.Name,
+                Detail(new { folder = request.Folder, constraint = e.ConstraintName }),
+                succeeded: false, cancellation).ConfigureAwait(false);
+
+            await Refuse(context, 409, sentence).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
