@@ -7563,6 +7563,16 @@ function symPreviewSays() {
  */
 let symMap = null;
 
+/**
+ * The reference the symbology map works in.
+ *
+ * <b>Web Mercator, because that is what the basemap tiles are.</b> OpenLayers can reproject a
+ * view, but only between references it knows, and a national grid is not one of them without a
+ * library this console does not carry. So the browser stays in one reference and the server —
+ * which has PROJ through its datastore — does every conversion either way.
+ */
+const SYM_MAP_SR = 3857;
+
 /** Which draw is current, so a stale answer does not paint over a newer view. */
 let symDrawing = 0;
 
@@ -7681,12 +7691,91 @@ async function symFrameMap(name) {
     const described = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
     const e = described.extent;
 
-    if (e && Number.isFinite(e.xmin) && e.xmax > e.xmin && e.ymax > e.ymin) {
-      symMap.updateSize();
-      symMap.getView().fit([e.xmin, e.ymin, e.xmax, e.ymax], { padding: [24, 24, 24, 24] });
-    }
+    if (!e || !Number.isFinite(e.xmin) || !(e.xmax > e.xmin) || !(e.ymax > e.ymin)) return;
+
+    // <b>The layer's extent is in the layer's reference, and the map is not.</b> Handing those
+    // four numbers to `fit` unconverted is what put the map in the Gulf of Guinea at maximum
+    // zoom, which is why the owner's screen was open ocean: a Turkish 4326 extent read as
+    // metres is a box nineteen metres wide near where the equator meets the prime meridian.
+    const box = await symInMapSr(e);
+
+    if (!box) return;
+
+    symMap.updateSize();
+    symMap.getView().fit(box, { padding: [24, 24, 24, 24] });
   } catch {
     // A layer whose document cannot be read still gets a map; it opens where the last one was.
+  }
+}
+
+/**
+ * An ArcGIS extent in the map's reference, or null when it cannot be put there.
+ *
+ * <b>Asked of this server rather than computed here.</b> `GeometryServer/project` is the
+ * operation this product already publishes for exactly this, and it reaches the datastore's
+ * PROJ — so a layer on a national grid is framed as correctly as one on Web Mercator, and the
+ * console carries no projection library and no table of references.
+ *
+ * <b>A grid of points, not two corners.</b> A reprojected rectangle is not a rectangle, and on
+ * a wide extent the corners alone put the edges kilometres out. Nine points is the cheapest
+ * shape that catches the bulge.
+ *
+ * @param {object} e The extent, with its own `spatialReference`.
+ * @returns {Promise<number[]|null>} `[minx, miny, maxx, maxy]` in the map's reference.
+ */
+async function symInMapSr(e) {
+  const from = e.spatialReference
+    ? (e.spatialReference.latestWkid || e.spatialReference.wkid)
+    : null;
+
+  // <b>102100 is 3857.</b> ArcGIS's own code for Web Mercator, and a layer published through
+  // that face reports it rather than the EPSG number.
+  if (!from || from === SYM_MAP_SR || from === 102100) {
+    return [e.xmin, e.ymin, e.xmax, e.ymax];
+  }
+
+  const xs = [e.xmin, (e.xmin + e.xmax) / 2, e.xmax];
+  const ys = [e.ymin, (e.ymin + e.ymax) / 2, e.ymax];
+
+  const points = [];
+
+  for (const x of xs) for (const y of ys) points.push({ x, y });
+
+  const form = new URLSearchParams({
+    f: "json",
+    inSR: String(from),
+    outSR: String(SYM_MAP_SR),
+    geometries: JSON.stringify({ geometryType: "esriGeometryPoint", geometries: points }),
+  });
+
+  const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+
+  if (token) headers.Authorization = "Bearer " + token;
+
+  try {
+    const response = await fetch(
+      "/rest/services/Utilities/Geometry/GeometryServer/project",
+      { method: "POST", headers, body: form });
+
+    if (!response.ok) return null;
+
+    const said = await response.json();
+    const got = (said.geometries || []).filter(g => Number.isFinite(g.x) && Number.isFinite(g.y));
+
+    if (got.length < 2) return null;
+
+    const box = [
+      Math.min(...got.map(g => g.x)), Math.min(...got.map(g => g.y)),
+      Math.max(...got.map(g => g.x)), Math.max(...got.map(g => g.y)),
+    ];
+
+    // <b>A projection that answered with infinities has not answered.</b> Out-of-range
+    // coordinates come back as numbers that pass every comparison and frame nothing.
+    return box.every(Number.isFinite) && box[2] > box[0] && box[3] > box[1] ? box : null;
+  } catch {
+    // <b>No frame rather than a wrong one.</b> The map keeps the view it had, which is the
+    // world, and the picture is still drawn — the reader can find the layer by panning.
+    return null;
   }
 }
 
@@ -7723,7 +7812,13 @@ async function drawSymbologyPreview(name, body) {
     // there.
     const at = symExtent();
 
-    const where = at ? `?bbox=${at.box.join(",")}&size=${at.wide}x${at.tall}` : "";
+    // <b>And which reference those four numbers are in, which is the whole of the repair.</b>
+    // The map is in Web Mercator because that is what the basemap tiles are; the endpoint used
+    // to read `bbox` as the layer's own, and every seeded fixture is 3857 so the two agreed in
+    // every test. On a 4326 layer they did not, and the picture was of somewhere else.
+    const where = at
+      ? `?bbox=${at.box.join(",")}&size=${at.wide}x${at.tall}&bboxSR=${SYM_MAP_SR}`
+      : "";
 
     const response = await fetch(
       `/admin/layers/${encodeURIComponent(name)}/symbology/preview${where}`,

@@ -36,6 +36,9 @@ namespace Graticula.Conformance.Tests;
 [Collection("catalogue walk")]
 public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
 {
+    /// <summary>The layer the last <c>AFillLayerAsync</c> chose, with the box it is drawn in.</summary>
+    private (string Name, double[] Box, int Sr) Found { get; set; }
+
     /// <summary>A `drawingInfo` with one solid fill, in whatever colour is asked for.</summary>
     /// <param name="red">Its red channel.</param>
     /// <param name="green">Its green channel.</param>
@@ -83,6 +86,151 @@ public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
         Assert.Equal(before, await StoredSymbologyAsync(root, layer));
     }
 
+    /// <summary>
+    /// A frame named in another reference is projected, not read as the layer's own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written from the defect it describes.</b> The console's symbology map works in Web
+    /// Mercator, because that is what the basemap tiles are, and it sent the map's extent as
+    /// <c>bbox</c> — which this endpoint read as the layer's own coordinates. Every seeded
+    /// fixture is 3857, so the two agreed in every test that has ever run here, and disagreed on
+    /// the first real layer: a Turkish extent in degrees, read as metres, is a box nineteen
+    /// metres wide near where the equator meets the prime meridian. The owner opened Symbology
+    /// and saw open ocean.
+    /// </para>
+    /// <para>
+    /// <b>So the fixture's own reference is asserted rather than assumed.</b> This test builds a
+    /// second, honest expression of one box, and it can only do that from a reference it knows
+    /// the closed form for. If the seed moves off Web Mercator this FAILS and says so, which is
+    /// the right answer — a test that quietly stopped checking is how this defect survived.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_frame_in_another_reference_is_projected_rather_than_read_as_the_layers_own()
+    {
+        string root = await RequireServerAsync();
+        string layer = await AFillLayerAsync(root);
+
+        (_, double[] box, int sr) = Found;
+
+        Assert.True(
+            sr is 3857 or 102100,
+            $"The fixture layer is published in {sr}, and this test needs Web Mercator to write "
+            + "the same box a second way. Give it a layer in 3857 or teach it another closed "
+            + "form — do not delete the assertion, which is the one this defect got past.");
+
+        string document = Solid(220, 20, 60);
+
+        // <b>The same box, in degrees.</b> The inverse of the spherical Mercator, which is exact
+        // and four lines — a projection call here would be testing the projector rather than
+        // this endpoint's use of it.
+        static double Lon(double x) => x / 6378137.0 * 180.0 / System.Math.PI;
+
+        static double Lat(double y) =>
+            (2.0 * System.Math.Atan(System.Math.Exp(y / 6378137.0)) - (System.Math.PI / 2.0))
+            * 180.0 / System.Math.PI;
+
+        string degrees = System.String.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{Lon(box[0])},{Lat(box[1])},{Lon(box[2])},{Lat(box[3])}");
+
+        byte[] projected = await PreviewAsync(
+            root, layer, document, $"?bbox={degrees}&bboxSR=4326&size=256x256");
+
+        byte[] readAsOwn = await PreviewAsync(
+            root, layer, document, $"?bbox={degrees}&size=256x256");
+
+        // <b>A blank PNG is small and a drawn one is not.</b> Those degree numbers read as metres
+        // are a box a few tens of metres across in the Gulf of Guinea, where this layer has
+        // nothing — so the picture is transparent, and transparent compresses to almost nothing.
+        // The ratio is the assertion rather than either figure, because both depend on the
+        // fixture's shape and neither is worth pinning.
+        Assert.True(
+            projected.Length > readAsOwn.Length * 3,
+            $"The frame given in 4326 drew {projected.Length} bytes and the same numbers read as "
+            + $"the layer's own drew {readAsOwn.Length}. They are the same size, so 'bboxSR' "
+            + "changed nothing and the picture is of wherever those numbers happen to land.");
+
+        Assert.False(
+            projected.AsSpan().SequenceEqual(readAsOwn),
+            "Two different frames drew byte-identical pictures, so neither is being used.");
+    }
+
+    /// <summary>
+    /// Naming the layer's own reference changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>The other half, because the fix could have been made by projecting always.</b> A caller
+    /// that says what was already true must get the picture it would have got in silence —
+    /// otherwise every existing caller's frame moves by whatever a round trip through PROJ costs.
+    /// </remarks>
+    [Fact]
+    public async Task Naming_the_layers_own_reference_draws_the_same_picture_as_naming_none()
+    {
+        string root = await RequireServerAsync();
+        string layer = await AFillLayerAsync(root);
+
+        (_, double[] box, int sr) = Found;
+
+        string frame = System.String.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{box[0]},{box[1]},{box[2]},{box[3]}");
+
+        string document = Solid(46, 139, 87);
+
+        byte[] silent = await PreviewAsync(root, layer, document, $"?bbox={frame}&size=256x256");
+
+        byte[] named = await PreviewAsync(
+            root, layer, document, $"?bbox={frame}&bboxSR={sr}&size=256x256");
+
+        Assert.True(
+            silent.AsSpan().SequenceEqual(named),
+            $"Naming {sr} — which is what the layer is already in — drew a different picture "
+            + $"({silent.Length} bytes against {named.Length}). A no-op that is not one moves "
+            + "every frame a caller has ever asked for.");
+    }
+
+    /// <summary>
+    /// A reference that is not a number is refused in a sentence.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because the alternative is drawing the wrong place.</b> A parameter that is quietly
+    /// ignored when it cannot be read leaves the caller believing a conversion happened, and the
+    /// picture that comes back looks entirely correct — it is simply of somewhere else.
+    /// </remarks>
+    [Fact]
+    public async Task A_reference_that_is_not_a_number_is_refused_rather_than_ignored()
+    {
+        string root = await RequireServerAsync();
+        string layer = await AFillLayerAsync(root);
+
+        (_, double[] box, _) = Found;
+
+        string frame = System.String.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{box[0]},{box[1]},{box[2]},{box[3]}");
+
+        using HttpRequestMessage request = new(
+            HttpMethod.Post,
+            new Uri($"{root}/admin/layers/{Uri.EscapeDataString(layer)}/symbology/preview"
+                + $"?bbox={frame}&bboxSR=WGS84"))
+        {
+            Content = new StringContent(Solid(0, 0, 0), Encoding.UTF8, "application/json"),
+        };
+
+        await AuthenticateAsync(request, root);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string said = await response.Content.ReadAsStringAsync();
+
+        Assert.True(
+            response.StatusCode == HttpStatusCode.BadRequest,
+            $"A 'bboxSR' nothing can read answered {(int)response.StatusCode}: {said}");
+
+        Assert.Contains("bboxSR", said, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_document_that_cannot_be_read_is_refused_in_a_sentence()
     {
@@ -119,11 +267,12 @@ public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
     /// <param name="layer">The layer to draw.</param>
     /// <param name="candidate">The document to draw it with.</param>
     /// <returns>The PNG.</returns>
-    private async Task<byte[]> PreviewAsync(string root, string layer, string candidate)
+    private async Task<byte[]> PreviewAsync(
+        string root, string layer, string candidate, string query = "")
     {
         using HttpRequestMessage request = new(
             HttpMethod.Post,
-            new Uri($"{root}/admin/layers/{Uri.EscapeDataString(layer)}/symbology/preview"))
+            new Uri($"{root}/admin/layers/{Uri.EscapeDataString(layer)}/symbology/preview{query}"))
         {
             Content = new StringContent(candidate, Encoding.UTF8, "application/json"),
         };
@@ -221,6 +370,23 @@ public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
                     && extent.ValueKind == JsonValueKind.Object
                     && name.GetString() is { Length: > 0 } found)
                 {
+                    // <b>The extent comes back with it, because it was already read.</b> A second
+                    // walk to fetch the same document is the shape D-46 records, and the frame
+                    // tests below need the box this one just looked at.
+                    Found = (
+                        found,
+                        [
+                            extent.GetProperty("xmin").GetDouble(),
+                            extent.GetProperty("ymin").GetDouble(),
+                            extent.GetProperty("xmax").GetDouble(),
+                            extent.GetProperty("ymax").GetDouble(),
+                        ],
+                        extent.TryGetProperty("spatialReference", out JsonElement said)
+                            && (said.TryGetProperty("latestWkid", out JsonElement latest)
+                                || said.TryGetProperty("wkid", out latest))
+                            ? latest.GetInt32()
+                            : 0);
+
                     return found;
                 }
             }

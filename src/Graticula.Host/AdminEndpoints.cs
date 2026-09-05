@@ -2727,6 +2727,7 @@ internal static class AdminEndpoints
     /// <param name="layers">The runtime catalogue, for the layer itself.</param>
     /// <param name="contexts">Where a layer's source comes from.</param>
     /// <param name="canvases">The canvas factory.</param>
+    /// <param name="projector">For a frame the caller gave in another reference.</param>
     /// <param name="settings">For the record ceiling.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
@@ -2737,6 +2738,7 @@ internal static class AdminEndpoints
         PostgresLayerCatalog layers,
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
+        IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -2805,17 +2807,71 @@ internal static class AdminEndpoints
         // is computed from the drawn features and the size is the thumbnail's. If the map-shaped
         // editor is not built, this parameter goes with it.
         //
-        // <b>In the layer's own coordinates</b>, because that is what `RenderAsync` draws in and
-        // what the extent it computes for itself is already in. A caller working in a different
-        // reference is asking for a reprojection this route does not do, and would get a picture
-        // of the wrong place rather than a refusal — so it is stated here and asserted below.
-        (Envelope frame, int wide, int tall)? asked =
+        // <b>In the layer's own coordinates unless `bboxSR` says otherwise, and that clause is
+        // the repair.</b> This comment used to end *a caller working in a different reference is
+        // asking for a reprojection this route does not do, and would get a picture of the wrong
+        // place rather than a refusal* — and the caller written the same day was the console's
+        // own map, which works in Web Mercator because that is what the basemap tiles are in.
+        // Every seeded fixture is 3857, so the two agreed in every test and disagreed on the
+        // first real layer: a 4326 extent read as metres is a box a few metres wide off the
+        // Gulf of Guinea, and the owner saw a symbology screen whose map was open ocean.
+        //
+        // <b>So the route does the reprojection now</b>, with the projector every other face
+        // uses, and a caller that names no reference still means the layer's own.
+        (Envelope frame, int wide, int tall, int sr)? asked =
             ReadPreviewFrame(context, out string? badFrame);
 
         if (badFrame is not null)
         {
             await Refuse(context, 400, badFrame).ConfigureAwait(false);
             return;
+        }
+
+        if (asked is { } given && given.sr != 0 && given.sr != layer.Definition.Srid)
+        {
+            // <b>A grid rather than two corners.</b> A reprojected rectangle is not a rectangle:
+            // taking only the corners loses whatever the projection does to the edges between
+            // them, and at continental widths that is kilometres. `CoverageWarp` already answers
+            // this for the raster face and answers it the same way here.
+            Point[] outline = CoverageWarp.ControlPoints(
+                given.frame, given.wide, given.tall, CoverageWarp.StepsFor(given.wide, given.tall));
+
+            (IReadOnlyList<Geometry> projected, _) = await projector
+                .ProjectAsync(outline, given.sr, layer.Definition.Srid, cancellation)
+                .ConfigureAwait(false);
+
+            double minX = double.MaxValue, minY = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue;
+
+            foreach (Geometry each in projected)
+            {
+                if (each is not Point point) continue;
+
+                minX = Math.Min(minX, point.X);
+                minY = Math.Min(minY, point.Y);
+                maxX = Math.Max(maxX, point.X);
+                maxY = Math.Max(maxY, point.Y);
+            }
+
+            // <b>Ground that is not a number is not ground.</b> Out-of-range coordinates come
+            // back from PROJ as infinities rather than as a raise, and every comparison with one
+            // passes — so an unchecked box would draw a blank picture with a 200 on it, which is
+            // this repository's most-repeated failure. Same check the raster face makes.
+            if (!double.IsFinite(minX) || !double.IsFinite(minY)
+                || !double.IsFinite(maxX) || !double.IsFinite(maxY)
+                || !(maxX > minX) || !(maxY > minY))
+            {
+                await Refuse(
+                    context,
+                    400,
+                    $"The 'bbox' given in {given.sr} does not land anywhere inside "
+                    + $"{layer.Definition.Srid}, which is what '{name}' is stored in, so there "
+                    + "is no frame to draw.").ConfigureAwait(false);
+
+                return;
+            }
+
+            asked = (new Envelope(minX, minY, maxX, maxY), given.wide, given.tall, given.sr);
         }
 
         byte[] picture = asked is { } want
@@ -2857,7 +2913,7 @@ internal static class AdminEndpoints
     /// <param name="context">The request.</param>
     /// <param name="why">The refusal, when the parameters are present and wrong.</param>
     /// <returns>The frame and size, or null when none was asked for.</returns>
-    private static (Envelope Frame, int Wide, int Tall)? ReadPreviewFrame(
+    private static (Envelope Frame, int Wide, int Tall, int Sr)? ReadPreviewFrame(
         HttpContext context, out string? why)
     {
         why = null;
@@ -2878,7 +2934,7 @@ internal static class AdminEndpoints
             || !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double maxY))
         {
             why = "'bbox' is four numbers separated by commas — minx,miny,maxx,maxy — in the "
-                + "layer's own coordinate reference.";
+                + "reference named by 'bboxSR', or the layer's own when that is absent.";
 
             return null;
         }
@@ -2911,7 +2967,25 @@ internal static class AdminEndpoints
             }
         }
 
-        return (new Envelope(minX, minY, maxX, maxY), wide, tall);
+        // <b>Which reference those four numbers are in, and it defaults to the layer's.</b>
+        // Spelled `bboxSR` because that is what ArcGIS calls it everywhere it takes a box and
+        // a reference together, and a caller who already speaks that face should not have to
+        // learn a second spelling for the same idea.
+        int sr = 0;
+
+        string? bboxSr = context.Request.Query["bboxSR"];
+
+        if (!string.IsNullOrWhiteSpace(bboxSr)
+            && (!int.TryParse(bboxSr, NumberStyles.Integer, CultureInfo.InvariantCulture, out sr)
+                || sr < 1))
+        {
+            why = "'bboxSR' is the whole-number code of the reference 'bbox' is written in — "
+                + "3857 for Web Mercator, for instance. Leave it out to use the layer's own.";
+
+            return null;
+        }
+
+        return (new Envelope(minX, minY, maxX, maxY), wide, tall, sr);
     }
 
     /// <summary>
