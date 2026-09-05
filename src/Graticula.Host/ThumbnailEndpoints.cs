@@ -342,6 +342,7 @@ internal static class ThumbnailEndpoints
     /// <param name="cancellation">The caller's.</param>
     /// <param name="width">How wide to draw, or null for a thumbnail's width.</param>
     /// <param name="height">How tall to draw, or null for a thumbnail's height.</param>
+    /// <param name="srid">The reference the extent is in, or null for the layer's own.</param>
     /// <returns>The encoded picture.</returns>
     internal static async Task<byte[]> RenderAsync(
         ServiceContexts contexts,
@@ -352,13 +353,21 @@ internal static class ThumbnailEndpoints
         string? symbology,
         CancellationToken cancellation,
         int? width = null,
-        int? height = null)
+        int? height = null,
+        int? srid = null)
     {
         // <b>The thumbnail's size unless a caller names one.</b> The symbology preview asks for
         // its own when it is drawing into a map viewport rather than into a fixed slot; every
         // other caller wants the two constants above and passes nothing.
         int wide = width ?? Width;
         int tall = height ?? Height;
+
+        // <b>The reference the extent is in, which is the layer's unless a caller says
+        // otherwise.</b> Every caller but one draws a layer in its own coordinates and hands
+        // this nothing; the symbology preview draws into a map viewport that is in Web
+        // Mercator whatever the layer is, and drawing there is the only way the picture lands
+        // on the basemap under it -- see the note in `PreviewSymbologyAsync`.
+        int drawn = srid ?? layer.Definition.Srid;
 
         PixelTransform transform = new(extent, wide, tall);
 
@@ -367,17 +376,19 @@ internal static class ThumbnailEndpoints
         // <b>Transparent, not white.</b> The slot has a rounded corner and a background that
         // follows the viewer's theme; a white rectangle would sit inside it as a white
         // rectangle, in dark mode most obviously.
-        MapRenderer renderer = new(canvas, transform, geographic: IsGeographic(layer.Definition.Srid));
+        MapRenderer renderer = new(canvas, transform, geographic: IsGeographic(drawn));
 
         renderer.Clear(Rgba.Transparent);
 
         // <b>The layer's own reference, not WGS 84.</b> The extent came out of the layer's
         // description in the layer's own coordinates, so drawing in the same reference asks the
         // source for no projection at all — the cheapest correct thing, and a thumbnail is not
-        // a map anybody measures off.
+        // a map anybody measures off. When `srid` names another, `DrawLayerAsync` puts
+        // `outSrid` and `filterSrid` on the query and PostGIS does the projection, which is the
+        // same thing WMS asks of it for every request it serves.
         await WmsEndpoints
             .DrawLayerAsync(
-                contexts, renderer, transform, layer, layer.Definition.Srid, null,
+                contexts, renderer, transform, layer, drawn, null,
                 settings.MaximumRecordCount, cancellation, log: null, symbology: symbology)
             .ConfigureAwait(false);
 

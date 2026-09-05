@@ -44,14 +44,14 @@ public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
     /// <param name="green">Its green channel.</param>
     /// <param name="blue">Its blue channel.</param>
     /// <returns>The document, as it would be pasted from ArcGIS.</returns>
-    private static string Solid(int red, int green, int blue) =>
+    private static string Solid(int red, int green, int blue, int width = 1) =>
         System.String.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"{{\"renderer\":{{\"type\":\"simple\",\"symbol\":"
             + $"{{\"type\":\"esriSFS\",\"style\":\"esriSFSSolid\","
             + $"\"color\":[{red},{green},{blue},255],"
             + $"\"outline\":{{\"type\":\"esriSLS\",\"style\":\"esriSLSSolid\","
-            + $"\"color\":[0,0,0,255],\"width\":1}}}}}}}}");
+            + $"\"color\":[0,0,0,255],\"width\":{width}}}}}}}}}");
 
     [Fact]
     public async Task The_picture_follows_the_candidate_document_and_nothing_is_stored()
@@ -155,6 +155,139 @@ public sealed class SymbologyPreviewDrawsTheCandidateTests : ArcGisClient
         Assert.False(
             projected.AsSpan().SequenceEqual(readAsOwn),
             "Two different frames drew byte-identical pictures, so neither is being used.");
+    }
+
+    /// <summary>
+    /// The picture is drawn in the reference the frame was named in, not in the layer's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Projecting the frame is not the same as drawing in the frame's reference, and the
+    /// difference is where every feature lands.</b> The first repair took the four numbers, put
+    /// them into the layer's coordinates, and drew that box — so the box's *edges* were right and
+    /// its *interior* was linear in the wrong reference. Web Mercator's y is logarithmic in
+    /// latitude; a caller that lays the picture over a Mercator viewport therefore sees the layer
+    /// slide north or south of the ground under it, most at the top and bottom of the frame and
+    /// not at all in the middle.
+    /// </para>
+    /// <para>
+    /// <b>Reported by the owner as *haritalar örtüşmüyor*, on a 4326 layer of Turkish
+    /// districts.</b> Measured before this test existed, on a 40°-tall frame at 40°N: the layer
+    /// was drawn <b>19.5 pixels of 256</b> from where the frame said it was. Nothing in the suite
+    /// could see it, because every previous assertion about `bboxSR` compared byte counts — and a
+    /// picture drawn in the wrong reference is exactly as many bytes as one drawn in the right
+    /// one.
+    /// </para>
+    /// <para>
+    /// <b>So this one reads the pixels.</b> Two requests for the same ground, one framed in
+    /// degrees and one in metres, and the assertion is *which row is the layer on* against the
+    /// closed form for each — which differ by twenty rows here and by nothing at all at the
+    /// equator, so the test refuses rather than passes if the fixture ever moves there.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_frame_in_another_reference_decides_where_in_the_picture_the_layer_lands()
+    {
+        string root = await RequireServerAsync();
+        string layer = await AFillLayerAsync(root);
+
+        (_, double[] box, int sr) = Found;
+
+        Assert.True(
+            sr is 3857 or 102100,
+            $"The fixture layer is published in {sr}, and this test needs Web Mercator to write "
+            + "the same ground a second way in closed form.");
+
+        const double Radius = 6378137.0;
+        const int Size = 256;
+
+        // <b>Twenty degrees each way, which is what makes the two answers twenty rows apart.</b>
+        // Over a small frame Mercator and a linear degree grid agree to within a pixel, so a
+        // gentle frame would pass whichever reference the picture was drawn in.
+        const double Span = 20.0;
+
+        static double Lon(double x) => x / Radius * 180.0 / System.Math.PI;
+
+        static double Lat(double y) =>
+            (2.0 * System.Math.Atan(System.Math.Exp(y / Radius)) - (System.Math.PI / 2.0))
+            * 180.0 / System.Math.PI;
+
+        static double MetresX(double lon) => lon * System.Math.PI / 180.0 * Radius;
+
+        static double MetresY(double lat) => Radius * System.Math.Log(
+            System.Math.Tan((System.Math.PI / 4.0) + (lat * System.Math.PI / 180.0 / 2.0)));
+
+        double middleLon = Lon((box[0] + box[2]) / 2.0);
+        double middleLat = Lat((box[1] + box[3]) / 2.0);
+
+        double south = middleLat - Span;
+        double north = middleLat + Span;
+
+        // <b>Where the layer's own row is, if the picture is linear in each reference.</b> Both
+        // are arithmetic rather than measurement: the frame is known and the layer's middle is
+        // known, so the only question the picture answers is which of the two it agrees with.
+        double inDegrees = (north - middleLat) / (north - south) * Size;
+
+        double inMetres = (MetresY(north) - MetresY(middleLat))
+            / (MetresY(north) - MetresY(south)) * Size;
+
+        Assert.True(
+            System.Math.Abs(inDegrees - inMetres) > 10.0,
+            $"The two references put this layer {System.Math.Abs(inDegrees - inMetres):F1} rows "
+            + $"apart at {middleLat:F1}°, which is not far enough to tell them apart. Near the "
+            + "equator they agree — move the fixture back off it rather than loosening this.");
+
+        // <b>A fat outline, because the layer is two kilometres across and the frame is four
+        // thousand.</b> At seventeen kilometres to the pixel the polygons themselves are
+        // invisible; the stroke is drawn in pixels whatever the scale, so what is measured is
+        // where the renderer put a feature rather than how big it is.
+        string document = Solid(220, 20, 60, 40);
+
+        string degrees = System.String.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{middleLon - Span},{south},{middleLon + Span},{north}");
+
+        string metres = System.String.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{MetresX(middleLon - Span)},{MetresY(south)},"
+            + $"{MetresX(middleLon + Span)},{MetresY(north)}");
+
+        byte[] framedInDegrees = await PreviewAsync(
+            root, layer, document, $"?bbox={degrees}&bboxSR=4326&size={Size}x{Size}");
+
+        byte[] framedInMetres = await PreviewAsync(
+            root, layer, document, $"?bbox={metres}&size={Size}x{Size}");
+
+        (_, _, _, int topOfDegrees, _, int bottomOfDegrees, int paintedDegrees) =
+            PngInk.Ink(framedInDegrees);
+
+        (_, _, _, int topOfMetres, _, int bottomOfMetres, int paintedMetres) =
+            PngInk.Ink(framedInMetres);
+
+        Assert.True(
+            paintedDegrees > 100 && paintedMetres > 100,
+            $"One of the two pictures is empty ({paintedDegrees} and {paintedMetres} painted "
+            + "pixels), so there is no row to compare. A blank picture would satisfy every "
+            + "comparison below by having no ink anywhere.");
+
+        double rowInDegrees = (topOfDegrees + bottomOfDegrees) / 2.0;
+        double rowInMetres = (topOfMetres + bottomOfMetres) / 2.0;
+
+        // Half the stroke's width, which is the most the ink's middle can miss the feature's by.
+        const double Tolerance = 6.0;
+
+        Assert.True(
+            System.Math.Abs(rowInDegrees - inDegrees) < Tolerance,
+            $"Framed in degrees, the layer was drawn on row {rowInDegrees:F1}. A picture linear "
+            + $"in that frame puts it on {inDegrees:F1} and one linear in the layer's own "
+            + $"reference puts it on {inMetres:F1} — so the frame was projected and the drawing "
+            + "was not.");
+
+        Assert.True(
+            System.Math.Abs(rowInMetres - inMetres) < Tolerance,
+            $"Framed in the layer's own metres, the layer was drawn on row {rowInMetres:F1} "
+            + $"rather than {inMetres:F1}. This half asks for no projection at all, so it is the "
+            + "control: if it moved, the measurement rather than the projection is wrong.");
     }
 
     /// <summary>

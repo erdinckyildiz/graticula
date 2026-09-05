@@ -2733,7 +2733,6 @@ internal static class AdminEndpoints
     /// <param name="layers">The runtime catalogue, for the layer itself.</param>
     /// <param name="contexts">Where a layer's source comes from.</param>
     /// <param name="canvases">The canvas factory.</param>
-    /// <param name="projector">For a frame the caller gave in another reference.</param>
     /// <param name="settings">For the record ceiling.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
@@ -2744,7 +2743,6 @@ internal static class AdminEndpoints
         PostgresLayerCatalog layers,
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
-        IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -2822,8 +2820,33 @@ internal static class AdminEndpoints
         // first real layer: a 4326 extent read as metres is a box a few metres wide off the
         // Gulf of Guinea, and the owner saw a symbology screen whose map was open ocean.
         //
-        // <b>So the route does the reprojection now</b>, with the projector every other face
-        // uses, and a caller that names no reference still means the layer's own.
+        // <b>So the picture is drawn in the reference the caller framed it in</b>, and a
+        // caller that names no reference still means the layer's own.
+        //
+        // <b>Reprojecting the frame instead was the first repair and it was not enough.</b> It
+        // turned the four numbers into a box in the layer's coordinates and drew that box —
+        // which puts every feature at its *linear* position inside a box whose edges are right
+        // and whose interior is not. Web Mercator's y is logarithmic in latitude, so a 4326
+        // layer drawn that way lands its northern edge tens of pixels above the coastline on
+        // the basemap under it while its southern edge is nearly right: the frame agreed and
+        // the contents did not. Measured on `tr_ilce` over a viewport from 28°N to 51°N: 44
+        // pixels at 42°N, 19 at 36°N. Any pair of references that are not an affine of each
+        // other does the same thing, and most pairs are not.
+        //
+        // <b>Drawing in the caller's reference has no such gap</b>, because the projection is
+        // done per feature by PostGIS rather than once for the corners: `DrawLayerAsync` puts
+        // `outSrid` and `filterSrid` on the query, which is what it does for every WMS request
+        // in another reference. It is also what makes the simplification tolerance right — the
+        // transform's units-per-pixel are the drawn reference's, not the stored one's.
+        //
+        // <b>And a frame that lands nowhere in the layer's reference is an empty picture rather
+        // than a 400.</b> The check that used to be here read the reprojected corners for
+        // infinities; there are no corners to read now, and the failure it guarded against is
+        // caught where WMS catches it — `IsOutsideItsReference` around the query, drawing
+        // nothing. That is a change in what the console sees on an impossible frame: a
+        // transparent overlay rather than a refusal. The console's map is Web Mercator and
+        // every published layer can be drawn there, so the case is theory rather than practice,
+        // and an empty overlay over a basemap says *nothing here* legibly enough.
         (Envelope frame, int wide, int tall, int sr)? asked =
             ReadPreviewFrame(context, out string? badFrame);
 
@@ -2833,57 +2856,11 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (asked is { } given && given.sr != 0 && given.sr != layer.Definition.Srid)
-        {
-            // <b>A grid rather than two corners.</b> A reprojected rectangle is not a rectangle:
-            // taking only the corners loses whatever the projection does to the edges between
-            // them, and at continental widths that is kilometres. `CoverageWarp` already answers
-            // this for the raster face and answers it the same way here.
-            Point[] outline = CoverageWarp.ControlPoints(
-                given.frame, given.wide, given.tall, CoverageWarp.StepsFor(given.wide, given.tall));
-
-            (IReadOnlyList<Geometry> projected, _) = await projector
-                .ProjectAsync(outline, given.sr, layer.Definition.Srid, cancellation)
-                .ConfigureAwait(false);
-
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
-
-            foreach (Geometry each in projected)
-            {
-                if (each is not Point point) continue;
-
-                minX = Math.Min(minX, point.X);
-                minY = Math.Min(minY, point.Y);
-                maxX = Math.Max(maxX, point.X);
-                maxY = Math.Max(maxY, point.Y);
-            }
-
-            // <b>Ground that is not a number is not ground.</b> Out-of-range coordinates come
-            // back from PROJ as infinities rather than as a raise, and every comparison with one
-            // passes — so an unchecked box would draw a blank picture with a 200 on it, which is
-            // this repository's most-repeated failure. Same check the raster face makes.
-            if (!double.IsFinite(minX) || !double.IsFinite(minY)
-                || !double.IsFinite(maxX) || !double.IsFinite(maxY)
-                || !(maxX > minX) || !(maxY > minY))
-            {
-                await Refuse(
-                    context,
-                    400,
-                    $"The 'bbox' given in {given.sr} does not land anywhere inside "
-                    + $"{layer.Definition.Srid}, which is what '{name}' is stored in, so there "
-                    + "is no frame to draw.").ConfigureAwait(false);
-
-                return;
-            }
-
-            asked = (new Envelope(minX, minY, maxX, maxY), given.wide, given.tall, given.sr);
-        }
-
         byte[] picture = asked is { } want
             ? await ThumbnailEndpoints.RenderAsync(
                 contexts, canvases, layer, want.frame, settings, candidate, cancellation,
-                want.wide, want.tall).ConfigureAwait(false)
+                want.wide, want.tall,
+                want.sr != 0 ? want.sr : layer.Definition.Srid).ConfigureAwait(false)
             : await ThumbnailEndpoints.PictureAsync(
                 contexts, canvases, source, layer, extent, settings, candidate, cancellation)
                 .ConfigureAwait(false);
