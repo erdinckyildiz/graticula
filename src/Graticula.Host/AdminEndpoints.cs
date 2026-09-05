@@ -3046,20 +3046,24 @@ internal static class AdminEndpoints
         // indented box writes it, cut at 262,145 and reported as malformed. It was neither
         // malformed nor, once stored, too long — the canonical form is 165,470.
         //
-        // <b>Eight times the stored cap, matching `SymbologyConversion.Read`.</b> The request may
-        // be indented, quoted, or carry a `drawingInfo` that converts to something far smaller;
-        // what the column holds is checked where the canonical string is made.
+        // <b>The same bound `SymbologyConversion.Read` applies, named once.</b> This used to be
+        // *eight times the stored cap*, and the stored cap is gone — ADR-054 withdrew it, so the
+        // arithmetic had nothing left to multiply. What is left is one number about this server:
+        // how much it will read and parse in a single request. The request may be indented,
+        // quoted, or carry a `drawingInfo` that converts to something far smaller, and none of
+        // that is measured any more once it is inside the bound.
         (string body, bool cutShort) = await BoundedBodyAsync(
-            context, SymbologyConversion.MaximumCharacters * 8, cancellation)
+            context, SymbologyConversion.MaximumReadCharacters, cancellation)
             .ConfigureAwait(false);
 
         if (cutShort)
         {
             await Refuse(
                 context, 413,
-                $"The request is longer than {SymbologyConversion.MaximumCharacters * 8:N0} "
-                + "characters, which is more than any symbology document needs even written out "
-                + "with every indent. It was not read rather than being read in part.")
+                $"The request is longer than {SymbologyConversion.MaximumReadCharacters:N0} "
+                + "characters. That is not a limit on how many classes a map may have — it is "
+                + "what this server will read in one request, and it was not read rather than "
+                + "being read in part.")
                 .ConfigureAwait(false);
             return;
         }

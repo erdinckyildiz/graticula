@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(37);
+    public static SchemaVersion ComponentSchemaVersion => new(38);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -72,6 +72,7 @@ public static class PlatformMigrations
         LayerTimeFieldV35,
         GroupVisibilityWithoutPublicV36,
         GroupMemberListAndLeavingV37,
+        SymbologyIsNoLongerBoundedV38,
     ]);
 
 
@@ -602,12 +603,13 @@ public static class PlatformMigrations
     /// survives as an override for the tile face, and this is the authoring unit.
     /// </para>
     /// <para>
-    /// <b>The bound is a check constraint because ADR-033 §7's fifth condition says so
-    /// in those words.</b> The application has a constant too —
-    /// <c>SymbologyConversion.MaximumCharacters</c>, so a refusal can name a number a
-    /// caller can act on — but a bound that lives only there is a bound the next writer
-    /// bypasses. 256 KB is high enough never to be met by a real style and low enough that
-    /// the column cannot become a place to store something else.
+    /// <b>The bound was a check constraint because ADR-033 §7's fifth condition said so in
+    /// those words, and migration 38 drops it.</b> The reasoning here was right about
+    /// *where* a bound belongs and wrong about the number: 256 KB was said to be *high
+    /// enough never to be met by a real style*, and a colour per Turkish province meets it.
+    /// ADR-054 withdrew the bound by owner decision 2026-09-05. This paragraph is left
+    /// standing rather than rewritten, because a migration is a record of what was done on
+    /// the day and the constraint really was added here.
     /// </para>
     /// <para><b>Expand.</b> Two nullable columns and a check that permits null; a layer
     /// with no symbology keeps the generated appearance, which §5b makes a real answer
@@ -2446,6 +2448,39 @@ public static class PlatformMigrations
     /// migration ignores both and behaves exactly as it did.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The symbology column stops being bounded, by owner decision.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-054](../../../docs/adr/ADR-054-the-symbology-document-is-not-bounded.md), which
+    /// withdraws ADR-033 §7's fifth condition.</b> That condition asked for the bound to live in
+    /// a check constraint rather than in C#, and it was right about *where* — this migration is
+    /// not saying the constraint was in the wrong place. It is saying there is no longer a bound
+    /// for it to hold.
+    /// </para>
+    /// <para>
+    /// <b>Expand, and unusually literally: it only widens what is accepted.</b> Every row that
+    /// satisfied the constraint still satisfies its absence, and a reader from before this
+    /// migration reads the same documents it always did — it can only now meet a longer one, and
+    /// nothing in the reader ever measured them. There is no contract phase to follow because
+    /// nothing was narrowed.
+    /// </para>
+    /// <para>
+    /// <b>Going back is a data question rather than a schema one.</b> Re-adding the constraint
+    /// on a database that has since stored a longer document fails, and it should: the way back
+    /// is to shorten those documents first. The migration is not written here because a rollback
+    /// that silently truncated somebody's classification would be worse than no rollback.
+    /// </para>
+    /// </remarks>
+    private static Migration SymbologyIsNoLongerBoundedV38 => Migration.Expand(
+        new SchemaVersion(38),
+        "The symbology document has no length bound; ADR-054 withdraws it.",
+
+        """
+        alter table layer drop constraint if exists layer_symbology_is_bounded
+        """);
+
     private static Migration GroupMemberListAndLeavingV37 => Migration.Expand(
         new SchemaVersion(37),
         "Who may see a group's members, and whether a member may leave it.",

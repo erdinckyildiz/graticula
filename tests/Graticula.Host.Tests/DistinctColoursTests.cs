@@ -109,11 +109,30 @@ public sealed class DistinctColoursTests
     {
         // The golden angle's whole property: consecutive multiples never land near each other,
         // so the spread holds at any count rather than degrading once a palette runs out.
-        List<Rgba> colours = GenerateRendererEndpoints.Distinct(
-            GenerateRendererEndpoints.MostValues);
+        // <b>A thousand, because there is no ceiling to walk to any more.</b> This asked for
+        // `MostValues` — 256 — and that constant is gone: ADR-054 withdrew the stored-document
+        // cap it was derived from. The property under test never depended on the number, only on
+        // there being a lot of them, so the number is now stated here rather than borrowed from
+        // a limit that no longer exists.
+        const int Many = 1_000;
 
-        Assert.Equal(GenerateRendererEndpoints.MostValues, colours.Count);
-        Assert.Equal(GenerateRendererEndpoints.MostValues, colours.Distinct().Count());
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        List<Rgba> colours = GenerateRendererEndpoints.Distinct(Many);
+
+        long took = clock.ElapsedMilliseconds;
+
+        Assert.Equal(Many, colours.Count);
+        Assert.Equal(Many, colours.Distinct().Count());
+
+        // <b>And it has to be affordable, because this runs inside a request.</b> The grid walk
+        // that chooses each colour against everything already taken is quadratic; past a few
+        // hundred it stops being worth its cost, which is why the cheap walk takes over.
+        // <b>1.5 seconds, against a measured 372 ms here.</b> Loose enough for a shared runner
+        // and tight enough to catch what this actually cost before 2026-09-05: filling the whole
+        // greedy grid was <b>7.1 s</b> and the square roots inside the distance were another
+        // <b>2.0</b>. Both were paid inside a request by every classification ever drawn.
+        Assert.True(took < 1_500, $"A thousand colours took {took} ms.");
 
         // And none of them is black, white or invisible, which is what a bad conversion gives.
         foreach (Rgba one in colours)
@@ -125,17 +144,31 @@ public sealed class DistinctColoursTests
         }
     }
 
+    /// <summary>
+    /// The read bound is above what one document can carry, so the fit decides and not the read.
+    /// </summary>
+    /// <remarks>
+    /// <b>This test used to assert the opposite arrangement, and the arrangement changed.</b> It
+    /// checked that 256 classes fit inside the stored-document cap — *the ceiling is the document
+    /// size rather than a judgement*. ADR-054 withdrew that cap by owner decision, so there is no
+    /// ceiling to justify. What is worth pinning instead is the ordering of the two numbers that
+    /// are left: `Counted` bounds how many distinct values are read, and the parser's bound is
+    /// what the classifier shrinks to fit. Reading fewer than a document can hold would make the
+    /// read the silent truncator, which is the shape the old ceiling had and the reason it was
+    /// wrong.
+    /// </remarks>
     [Fact]
-    public void The_ceiling_is_the_document_size_rather_than_a_judgement()
+    public void The_values_read_are_more_than_one_document_is_likely_to_hold()
     {
-        // <b>256 fits every geometry inside the stored-document cap.</b> Measured: a
-        // unique-value class costs 478 characters for a polygon symbol and 690 for a point, so
-        // the document runs out at about 548 and 379 classes. The constant is not taste.
+        // Measured on the owner's own data: a CIM unique-value class costs about 646 characters,
+        // and a point symbol is the heaviest of the three geometries.
+        const int PerClass = 646;
+
         Assert.True(
-            GenerateRendererEndpoints.MostValues * 690
-                < Graticula.Cartography.SymbologyConversion.MaximumCharacters,
-            $"{GenerateRendererEndpoints.MostValues} point classes at 690 characters each do "
-            + "not fit in a stored document, so the ceiling promises something the store will "
-            + "refuse.");
+            GenerateRendererEndpoints.Counted * PerClass
+                > Graticula.Cartography.SymbologyConversion.MaximumReadCharacters,
+            $"{GenerateRendererEndpoints.Counted} classes at {PerClass} characters each still fit "
+            + "in one request, so the distinct read is what limits a classification rather than "
+            + "the fit — and a read limit truncates without saying so.");
     }
 }

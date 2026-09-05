@@ -47,42 +47,29 @@ namespace Graticula.Host;
 /// </remarks>
 public static class GenerateRendererEndpoints
 {
-    /// <summary>The most distinct values a unique-value renderer is built from.</summary>
+    /// <summary>
+    /// How many distinct values are read before the count is reported as "more than".
+    /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>256, and it was 64 for a day, which was a judgement rather than a measurement.</b> The
-    /// first version reasoned that a field with hundreds of values is *usually an identifier*
-    /// and refused there. That is true of some fields and quite wrong about others: Turkey has
-    /// **81 provinces**, and one colour per province is an ordinary map that the old ceiling
-    /// refused outright. Found 2026-09-04 by the owner asking why they could not colour a layer
-    /// by its name.
+    /// <b>There is no ceiling on classes any more, and this is not one.</b> Until 2026-09-05 a
+    /// classification was cut at 256 because a stored document was capped at 262,144 characters;
+    /// ADR-054 withdrew that cap by owner decision, and with it the only reason the ceiling had.
+    /// The renderer built below now takes every value it was given and shrinks only if the result
+    /// would not fit in one request, which is a bound about this server rather than about
+    /// somebody's map.
     /// </para>
     /// <para>
-    /// <b>The number is now taken from the thing that actually stops it.</b> A stored symbology
-    /// document is capped at <see cref="SymbologyConversion.MaximumCharacters"/> — 262,144, with
-    /// a database check constraint behind it. Measured: one unique-value class costs <b>478</b>
-    /// characters for a polygon symbol and <b>690</b> for a point, so the document runs out at
-    /// about 548 and 379 classes. 256 fits every geometry with room to spare and is the largest
-    /// round number that does.
-    /// </para>
-    /// <para>
-    /// <b>What is not the reason is readability, and saying so matters.</b> Nobody can tell 256
-    /// colours apart and no legend of that size is read — but that is the author's business, not
-    /// the server's. This refuses when it cannot store the answer, and says the rest.
+    /// <b>What is left is a read bound, and it is about transfer.</b> `DISTINCT` is computed over
+    /// the whole column whatever limit follows it, so reading five thousand values rather than
+    /// three hundred buys bytes rather than work — and it turns *more than 256* into *1,394*,
+    /// which is the number that tells an operator whether to look for another field. Past this it
+    /// says *more than 5,119*, because at that point the exact figure has stopped changing what
+    /// anybody would do. It sits above what one document can carry on purpose, so the thing that
+    /// decides how many classes there are is the fit below and never this.
     /// </para>
     /// </remarks>
-    public const int MostValues = 256;
-
-    /// <summary>How far the distinct read goes, so a refusal can name a number.</summary>
-    /// <remarks>
-    /// <b>Twenty times the ceiling, and the cost is the same shape.</b> `DISTINCT` is computed
-    /// over the whole column before any limit applies, so reading 5,120 values rather than 257
-    /// buys transfer rather than work — and it turns *more than 256* into *1,394*, which is the
-    /// number that tells an operator whether to look for another field or another question.
-    /// Past this it says *more than 5,119*, because at that point the exact figure has stopped
-    /// changing what anybody would do.
-    /// </remarks>
-    public const int Counted = (MostValues * 20) + 1;
+    public const int Counted = 5_121;
 
     /// <summary>Registers the operation under one URL prefix.</summary>
     /// <param name="app">The application.</param>
@@ -430,40 +417,36 @@ public static class GenerateRendererEndpoints
                 + "nothing to classify.");
         }
 
-        // <b>What falls to Other, said as a number rather than as "the rest".</b>
-        int shown = Math.Min(counted.Count, MostValues);
-        int hidden = counted.Count - shown;
-        long behind = 0;
-
-        for (int i = shown; i < counted.Count; i++)
-        {
-            behind += counted[i].Count;
-        }
-
         JsonObject baseSymbol = Symbol(asked["baseSymbol"], geometry);
         JsonObject? ramp = asked["colorRamp"] as JsonObject;
 
-        // <b>How many classes fit is measured, not calculated, and this is the second time that
-        // lesson has been learned here.</b> `MostValues` was set from a cost per class of 478
-        // characters for a polygon and 690 for a point, and both were measured on the wrong
-        // document: <b>what is stored is the CIM, and CIM is far heavier than Esri's
-        // renderer</b>. The same 256 classes of the owner's place names are <b>72,986</b>
-        // characters as a `drawingInfo` and <b>165,470</b> as CIM — 646 a class rather than 274 —
-        // because a point symbol becomes a `CIMVectorMarker` wrapping a graphic wrapping a
-        // polygon symbol rather than four numbers and a style name.
+        // <b>Every value, and it shrinks only if the answer will not fit in one request.</b> This
+        // began at `Math.Min(counted.Count, 256)` because a stored document was capped at 262,144
+        // characters. ADR-054 withdrew that cap — Turkey has 81 provinces and 1,394 place names,
+        // and a colour per place is an ordinary map — so there is nothing left to cut *to*.
         //
-        // <b>So it builds, converts, weighs, and if it is over the cap builds again with fewer.</b>
-        // The cost per class depends on the geometry, on the symbol somebody supplied and on how
-        // long the values are, and no constant is right for all three. Two passes settle it in
-        // every case seen; the loop is bounded at four so a pathological symbol cannot spin.
-        int allowed = Math.Min(counted.Count, MostValues);
+        // <b>What remains is the bound the console will meet when it stores this.</b> A renderer
+        // this endpoint returns is sent straight back as a PUT, so producing one that cannot be
+        // stored would be an answer that fails on arrival: generate succeeds, Store refuses, and
+        // nothing on the way says which number was the problem. Fitting it here keeps the two
+        // ends agreeing.
+        //
+        // <b>Measured rather than calculated, and that lesson was already learned once.</b> The
+        // old 256 came from 478 characters a class for a polygon and 690 for a point, both
+        // measured on the wrong document: what is stored is CIM, and CIM is far heavier than
+        // Esri's renderer. The same 256 classes of the owner's place names are <b>72,986</b>
+        // characters as a `drawingInfo` and <b>165,470</b> as CIM — 646 a class rather than 274.
+        // So it builds, converts, weighs, and builds again with fewer if it has to. Two passes
+        // settle it in every case seen; the loop is bounded at four so a pathological symbol
+        // cannot spin.
+        int allowed = counted.Count;
         JsonObject built = Renderer(allowed);
 
         for (int pass = 0; pass < 4 && allowed > 1; pass++)
         {
             int size = Stored(built, geometry);
 
-            if (size <= SymbologyConversion.MaximumCharacters)
+            if (size <= SymbologyConversion.MaximumReadCharacters)
             {
                 break;
             }
@@ -471,7 +454,7 @@ public static class GenerateRendererEndpoints
             // A tenth off the proportional answer, because the overhead outside the classes is
             // not proportional and a second pass that lands just over would cost a third.
             int fewer = (int)(allowed
-                * ((double)SymbologyConversion.MaximumCharacters / size) * 0.9);
+                * ((double)SymbologyConversion.MaximumReadCharacters / size) * 0.9);
 
             allowed = Math.Clamp(fewer, 1, allowed - 1);
             built = Renderer(allowed);
@@ -767,6 +750,18 @@ public static class GenerateRendererEndpoints
         }
     }
 
+    /// <summary>
+    /// How many colours are worth choosing against each other rather than walked.
+    /// </summary>
+    /// <remarks>
+    /// <b>256, which is where this used to stop for a different reason.</b> It was the class
+    /// ceiling until ADR-054 withdrew it, and every measurement of the greedy chooser was taken
+    /// at or under it. Keeping the number means every classification anybody has drawn so far
+    /// gets exactly the colours it got before, and the ones past it get cheaper colours instead
+    /// of a seven-second request.
+    /// </remarks>
+    private const int Greedy = 256;
+
     /// <summary>Colours for classes that have no order.</summary>
     /// <remarks>
     /// <para>
@@ -808,7 +803,80 @@ public static class GenerateRendererEndpoints
             break;
         }
 
-        return colours.Count >= classes ? colours : Spread(colours, classes);
+        if (colours.Count >= classes)
+        {
+            return colours;
+        }
+
+        // <b>The good answers are bought, and past a point they cost more than they are worth.</b>
+        // `Spread` measures every remaining candidate against everything already chosen, so its
+        // cost grows with the square of what it has picked: measured 2026-09-05, filling its whole
+        // 720-candidate grid takes <b>7.1 seconds</b>, inside a request, on this machine. At the
+        // old 256-class ceiling it was affordable and nobody could ask for more. ADR-054 removed
+        // the ceiling, so the bound has to be here instead — and it belongs here anyway, because
+        // what this buys is *visibly distinct*, which stops being a property anybody can perceive
+        // long before 720 classes.
+        Spread(colours, Math.Min(classes, Greedy));
+
+        // <b>And past what the grid holds, a walk rather than a search.</b> `Spread` chooses each
+        // colour by measuring against everything already taken, which is what makes its answers
+        // good and what makes it quadratic: its candidate grid holds 720, and asking it for more
+        // than that returned <b>fewer colours than classes</b> — silently, because it stopped
+        // when it ran out rather than saying so. The caller then indexed a list shorter than its
+        // own values and the request died on the 728th class.
+        //
+        // <b>Which nobody met until 2026-09-05.</b> The classifier was capped at 256 by the
+        // stored-document bound, so 727 was unreachable; ADR-054 withdrew that bound and the
+        // owner's own layer has 1,394 place names in it.
+        //
+        // <b>The walk is deliberately cheaper and deliberately worse.</b> Golden-angle hue with a
+        // cycling lightness and saturation is O(1) a colour and cannot exhaust; what it gives up
+        // is *furthest from what is already there*, which is a quality nobody can perceive at
+        // this many classes anyway — ADR-052 §3.12 says the readability of a thousand-class map
+        // is the author's business and not the server's. The first several hundred still come
+        // from the palette and the grid, so the maps somebody actually reads are unaffected.
+        Walk(colours, classes);
+
+        return colours;
+    }
+
+    /// <summary>
+    /// Fills the rest of a palette by walking hue, lightness and saturation.
+    /// </summary>
+    /// <remarks>
+    /// <b>The golden angle, because consecutive multiples never land near each other.</b> Cycling
+    /// three lightnesses and two saturations underneath it separates the wraps: hue alone repeats
+    /// visibly once it has been round a few times, and the two ladders are coprime with nothing,
+    /// so the combination does not come back to where it started inside any count this can be
+    /// asked for.
+    /// </remarks>
+    /// <param name="chosen">What has been picked already; appended to in place.</param>
+    /// <param name="classes">How many are wanted in total.</param>
+    private static void Walk(List<Rgba> chosen, int classes)
+    {
+        const double GoldenAngle = 137.50776405003785;
+
+        double[] lightness = [0.42, 0.58, 0.72];
+        double[] saturation = [0.55, 0.85];
+
+        HashSet<Rgba> taken = [.. chosen];
+
+        for (int i = 0; chosen.Count < classes; i++)
+        {
+            Rgba next = FromHsl(
+                (i * GoldenAngle) % 360.0,
+                saturation[i % saturation.Length],
+                lightness[(i / saturation.Length) % lightness.Length]);
+
+            // <b>Skipped rather than repeated.</b> Two walks can land on the same byte triple
+            // once the hue has been round enough times, and a duplicate colour in a legend is a
+            // class the reader cannot find. The walk is unbounded, so passing over one costs a
+            // step and nothing else.
+            if (taken.Add(next))
+            {
+                chosen.Add(next);
+            }
+        }
     }
 
     /// <summary>
@@ -840,7 +908,7 @@ public static class GenerateRendererEndpoints
     /// <param name="chosen">What is already taken, which the spread works around.</param>
     /// <param name="classes">How many are needed in total.</param>
     /// <returns>The full list.</returns>
-    private static List<Rgba> Spread(List<Rgba> chosen, int classes)
+    private static void Spread(List<Rgba> chosen, int classes)
     {
         List<Rgba> candidates = [];
 
@@ -874,8 +942,6 @@ public static class GenerateRendererEndpoints
             chosen.Add(candidates[best]);
             candidates.RemoveAt(best);
         }
-
-        return chosen;
     }
 
     /// <summary>How far a candidate is from the nearest colour already chosen.</summary>
@@ -884,14 +950,22 @@ public static class GenerateRendererEndpoints
     /// <returns>The distance to the nearest, or the whole cube when nothing is taken.</returns>
     private static double Apart(Rgba candidate, List<Rgba> chosen)
     {
+        // <b>Squared, and not square-rooted, because only the ordering is read.</b> The one
+        // caller compares these against each other to pick the furthest; the square root is
+        // monotonic, so taking it changes which number is largest not at all and changes the
+        // cost of getting there a great deal. `Math.Pow(x, 2)` for a squaring is the same trade
+        // in miniature. Measured 2026-09-05: choosing 256 colours took <b>2.0 seconds</b> with
+        // the three `Pow` calls and the root, and <b>0.1</b> without them — inside a request,
+        // both times, on a path that has been in every classification this server has drawn.
         double nearest = double.MaxValue;
 
         foreach (Rgba one in chosen)
         {
-            double apart = Math.Sqrt(
-                Math.Pow(candidate.R - one.R, 2)
-                + Math.Pow(candidate.G - one.G, 2)
-                + Math.Pow(candidate.B - one.B, 2));
+            double red = candidate.R - one.R;
+            double green = candidate.G - one.G;
+            double blue = candidate.B - one.B;
+
+            double apart = (red * red) + (green * green) + (blue * blue);
 
             nearest = Math.Min(nearest, apart);
         }

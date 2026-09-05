@@ -507,10 +507,18 @@ public sealed class SymbologyConversionTests
     }
 
     /// <summary>
-    /// A document too large to store is refused with the bound in the message.
+    /// A request too large to parse is refused; a document too large to store is not.
     /// </summary>
+    /// <remarks>
+    /// <b>This tested two bounds and there is one left.</b> ADR-054 withdrew the stored-document
+    /// cap by owner decision on 2026-09-05 — 262,144 characters refused a colour per Turkish
+    /// province and a colour per place name, which are ordinary maps, and the number it was
+    /// derived from had already been measured against the wrong document once. The half that
+    /// stays is the parser's, and it is a different kind of thing: it stops an enormous body
+    /// being read and allocated before anything is known about it.
+    /// </remarks>
     [Fact]
-    public void A_document_past_the_bound_is_refused_with_the_number()
+    public void A_request_past_the_read_bound_is_refused_and_a_long_document_is_not()
     {
         // <b>The bound is on what is stored, and this test used to prove it was on what was
         // sent.</b> It padded a layer's `metadata` past the limit — a field the conversion drops,
@@ -521,7 +529,7 @@ public sealed class SymbologyConversionTests
         //
         // Two bounds now, and they are different bounds. The raw request has a generous one
         // whose job is to stop a parse of something enormous before it allocates.
-        string huge = new('x', (SymbologyConversion.MaximumCharacters * 8) + 16);
+        string huge = new('x', SymbologyConversion.MaximumReadCharacters + 16);
 
         SymbologyException enormous = Assert.Throws<SymbologyException>(
             () => SymbologyConversion.Read(
@@ -530,7 +538,10 @@ public sealed class SymbologyConversionTests
 
         Assert.Contains("before it is even read", enormous.Message, StringComparison.Ordinal);
 
-        // And the canonical form has the real one, which is the column's.
+        // <b>And the other half is gone: this document is kept.</b> Four thousand classes with
+        // long values is well past the 262,144 characters that used to be refused, and it is the
+        // shape of the map the owner asked for — a colour per place name. What comes back is a
+        // canonical document, not an exception.
         System.Text.StringBuilder match = new(
             "{\"version\":8,\"layers\":[{\"id\":\"a\",\"type\":\"fill\",\"paint\":{"
             + "\"fill-color\":[\"match\",[\"get\",\"ad\"]");
@@ -543,11 +554,12 @@ public sealed class SymbologyConversionTests
 
         match.Append(",\"#000000\"]}}]}");
 
-        SymbologyException stored = Assert.Throws<SymbologyException>(
-            () => SymbologyConversion.Read(match.ToString(), GeometryKind.Polygon));
+        SymbologyWrite kept = SymbologyConversion.Read(match.ToString(), GeometryKind.Polygon);
 
-        Assert.Contains("262,144", stored.Message, StringComparison.Ordinal);
-        Assert.Contains("very many classes", stored.Message, StringComparison.Ordinal);
+        Assert.True(
+            kept.Canonical.Length > 262_144,
+            $"The document came back at {kept.Canonical.Length:N0} characters, which is inside "
+            + "the bound that was withdrawn — so this no longer tests that it was withdrawn.");
     }
 
     /// <summary>

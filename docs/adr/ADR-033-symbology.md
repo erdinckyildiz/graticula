@@ -458,7 +458,16 @@ separately.
    the URL in the message. Refused rather than stripped there, deliberately — it is not a
    block this server regenerates, so dropping it would change the appearance and keeping
    it would store a fact with an expiry date.)*
-5. **The size bound on the new column is a check constraint, not a C# guard.** Migration
+5. ~~**The size bound on the new column is a check constraint, not a C# guard.**~~
+   **WITHDRAWN 2026-09-05 by owner decision —
+   [ADR-054](ADR-054-the-symbology-document-is-not-bounded.md).** The condition was right
+   about where a bound belongs and wrong about whether there should be one: 262,144
+   characters refused a colour per Turkish province, which is an ordinary map, and this
+   paragraph's own claim below that *256 KB is high enough never to be met by a real
+   style* is the sentence that was wrong. Migration 38 drops the constraint. The original
+   text and its discharge are left standing rather than deleted, because a condition that
+   was met and then withdrawn is a different history from one that was never written.
+   Migration
    14 already did this for the per-service style and its comment says why: a bound that
    lives only in the application is a bound the next writer bypasses. A column that can
    hold a megabyte of anything becomes a place to store something else.
