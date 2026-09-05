@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED` |
-| **Confidence** | `HIGH` for removing the bound · `MEDIUM` for what replaces it |
+| **Confidence** | `HIGH` — `MEDIUM` on what replaces the bound until 2026-09-05, when condition 1 was measured |
 | **Decided** | 2026-09-05, by owner decision |
 | **Supersedes** | [ADR-033](ADR-033-symbology.md) §7 condition 5 |
 | **Superseded by** | — |
@@ -83,10 +83,15 @@ still true.** It is. The bound that remains is in the application. If a second w
 `layer.symbology` is ever added, this decision has to be revisited rather than inherited,
 and that is written into §6.
 
-**Nobody has measured what a five-megabyte document costs on the tile path.** Nobody has.
+~~**Nobody has measured what a five-megabyte document costs on the tile path.** Nobody has.
 That is the honest state and it is why the confidence on *what replaces it* is `MEDIUM`
-rather than `HIGH`. The read bound keeps the worst case to two megabytes, which is eight
-times what was possible before rather than unbounded.
+rather than `HIGH`.~~ **Measured 2026-09-05 — §7 condition 1.** The tile path does not pay for
+classes at all: it composes a *style* from the symbology and a tile carries geometry, so 1,177
+classes are 74 KB fetched once. The drawn path did pay, three times over, and the reason was an
+evaluator that walked every class for every feature rather than the document's size. That is
+repaired and this paragraph is struck rather than deleted, because the counterargument was
+right to be made and the answer is not the one it expected. The read bound keeps the worst case
+to two megabytes, which is eight times what was possible before rather than unbounded.
 
 ## 4. Evidence
 
@@ -141,9 +146,12 @@ arrival.
   furthest from the ones already taken is capped there — it is quadratic, and *visibly
   distinct* stops being perceptible long before a thousand classes. Past it, a golden-angle
   walk with cycling lightness and saturation, which cannot exhaust and costs nothing.
-- **The document is read on the drawing path.** A very large one is a per-request cost on
-  `MapServer` and `VectorTileServer`. Nobody has measured it, and nobody could produce one
-  before this decision.
+- **The document is read on the drawing path**, and what that costs is now measured rather
+  than feared — §7 condition 1. `VectorTileServer` turns it into a style and pays nothing per
+  class; `MapServer` draws it, and paid **1.3 seconds of a 2-second country-wide picture** to
+  an evaluator that walked every class for every feature. A keyed table took the same picture
+  to 0.80 s. Nobody could produce a document this large before this decision, which is why the
+  fault was reachable only after it.
 - **State.** Nothing new. This decision removes a constraint from `layer.symbology`, a
   column ADR-033 already put in the catalogue; it adds no column, no cache and no runtime
   state of its own. What it changes is how long one existing shared value may be.
@@ -156,6 +164,35 @@ arrival.
 1. **A layer with more than a thousand classes is drawn, and the tile path is timed
    against one that has ten.** The consequence above is stated and unmeasured; this is the
    measurement. Until it exists, the `MEDIUM` on this decision's confidence is doing real
-   work.
+   work. **DISCHARGED 2026-09-05**, on the owner's own `tr_ilce` — 25,280 polylines, 1,177
+   classes — and it found a fault rather than confirming a guess.
+
+   | | |
+   |---|---|
+   | Tile face, style document | **74,048 characters, 90 ms** — three `match` expressions of 1,177 stops each |
+   | Tile face, z4 (whole country) | 902 KB, **403 ms** |
+   | Tile face, z8 / z10 / z12 | 65 ms / 26 ms / 28 ms |
+   | Drawn face, 1600×800 of Turkey | **1.90–2.04 s**, and **0.80–0.83 s** after the repair below |
+   | The same picture with a simple renderer, 46,041 features | **0.56–0.88 s** |
+
+   **The tile path does not pay for classes at all**, and that is the answer to the half of
+   this condition that named it: `VectorTileEndpoints` uses the symbology to compose the
+   *style*, and a tile carries geometry and attributes. A client applies the classification.
+   So the cost of a thousand classes there is 74 KB fetched once.
+
+   **The drawn face did, and the reason was the evaluator rather than the data.** A layer with
+   **twice the features and no classification** drew in a third of the time. `StyleExpression`
+   answered a `match` by walking every case and asking `Same` about each label — three paint
+   properties × 25,280 features × up to 1,177 labels, about 45 million comparisons for one
+   picture. At the 256 classes this decision removed the cap on, that walk costs a fifth as
+   much and nobody could have met it. **A table keyed the way `Same` compares** takes the same
+   layer to 0.80 s for a byte-identical picture; measured in isolation, 200,000 evaluations of a
+   2,000-class match went from **20,361 ms to about what 8 classes cost**.
+
+   **What the table refuses is as much of the repair as what it holds.** `Same` compares two
+   doubles as numbers and everything else as invariant text, and those rules disagree about
+   `-0.0`; a match carrying a zero, or a null label, keeps the walk, because a table cannot
+   reproduce a comparison that is not transitive and *nearly the same answer* is worse than
+   none.
 2. **A second writer to `layer.symbology` reopens this.** Not a task — a trigger. It is
    written here so that whoever adds one finds it.

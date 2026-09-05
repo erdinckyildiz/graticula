@@ -215,7 +215,7 @@ public abstract record StyleExpression
             cases.Add((labels, Compile(array[i + 1])));
         }
 
-        return new Match(input, cases, Compile(array[^1]));
+        return new Match(input, cases, Compile(array[^1]), Lookup(cases));
 
         static IEnumerable<object?> Many(JsonArray labels)
         {
@@ -224,6 +224,73 @@ public abstract record StyleExpression
                 yield return Value(each);
             }
         }
+    }
+
+    /// <summary>
+    /// The cases as a table keyed the way <see cref="Same"/> compares, or null when they
+    /// cannot be.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A classification used to cost a scan of every class for every feature.</b>
+    /// `Match.Evaluate` walked the list and asked `Same` about each label, which is fine at
+    /// eight classes and is what a unique-value renderer is made of at a thousand. Measured
+    /// 2026-09-05 on the owner's own layer, drawn at 1600×800 over the whole country:
+    /// <b>25,280 polylines with 1,177 classes took 1.9 s</b>, while <b>46,041 polylines with a
+    /// simple renderer took 0.65 s</b> — nearly twice the features and a third of the time. The
+    /// difference is not the drawing and not the data; it is three paint properties each
+    /// scanning up to 1,177 labels, 45 million comparisons for one picture.
+    /// </para>
+    /// <para>
+    /// <b>Which nobody could meet until ADR-054.</b> A classification was capped at 256 classes
+    /// because a stored document was capped at 262,144 characters, and at 256 the scan costs a
+    /// fifth of this. Removing the cap is what made the shape of the loop matter.
+    /// </para>
+    /// <para>
+    /// <b>The key is `Text`, and one kind of label is refused rather than keyed.</b> `Same`
+    /// compares two doubles with `Equals` and everything else as invariant text, and those two
+    /// rules disagree in exactly one place: `-0.0` equals `0.0` as a number and reads as `"-0"`
+    /// against `"0"` as text. A table cannot reproduce a comparison that is not transitive, so
+    /// a match whose labels include a zero keeps the scan — the answer stays the one the scan
+    /// would have given rather than becoming *nearly* that.
+    /// </para>
+    /// <para>
+    /// <b>First occurrence wins, because that is what the scan does.</b> Two cases carrying the
+    /// same label are a document somebody wrote by hand or a merge of two classifications; the
+    /// scan returns the first and so does this.
+    /// </para>
+    /// </remarks>
+    /// <param name="cases">The compiled cases, in document order.</param>
+    /// <returns>The table, or null when the scan has to be kept.</returns>
+    private static Dictionary<string, StyleExpression>? Lookup(
+        IReadOnlyList<(object?[] Labels, StyleExpression Output)> cases)
+    {
+        Dictionary<string, StyleExpression> table = new(StringComparer.Ordinal);
+
+        foreach ((object?[] labels, StyleExpression output) in cases)
+        {
+            foreach (object? label in labels)
+            {
+                // <b>A null label is a case the table cannot hold and the scan can.</b>
+                // `Same(null, null)` is true, so a null feature value would have to find it;
+                // keying it would mean a second, parallel slot for one rare document.
+                if (label is null || (label is double zero && zero == 0.0))
+                {
+                    return null;
+                }
+
+                if (Text(label) is { } key)
+                {
+                    table.TryAdd(key, output);
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        return table;
     }
 
     /// <summary>["step", input, first, stop, output, …].</summary>
@@ -507,11 +574,25 @@ public abstract record StyleExpression
     private sealed record Match(
         StyleExpression Input,
         IReadOnlyList<(object?[] Labels, StyleExpression Output)> Cases,
-        StyleExpression Fallback) : StyleExpression
+        StyleExpression Fallback,
+        Dictionary<string, StyleExpression>? Table) : StyleExpression
     {
         public override object? Evaluate(in Context context)
         {
             object? value = Input.Evaluate(context);
+
+            // <b>The table when there is one, and it is the same answer.</b> `Lookup` builds it
+            // only from labels whose text is what `Same` would have compared, and refuses the
+            // one shape where the two disagree — see the note there, and the measurement that
+            // made it worth having.
+            if (Table is { } table)
+            {
+                return value is not null
+                    && Text(value) is { } key
+                    && table.TryGetValue(key, out StyleExpression? found)
+                        ? found.Evaluate(context)
+                        : Fallback.Evaluate(context);
+            }
 
             foreach ((object?[] labels, StyleExpression output) in Cases)
             {
