@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d697ad1</code> · 2026-09-05 13:30</p>
+<p class="stamp">Şu commit’ten üretildi: <code>b7a64a7</code> · 2026-09-05 14:27</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">54</div><div class="kpi-l">ADR</div><div class="kpi-n">8 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">205 ödendi · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2352</div><div class="kpi-l">test</div><div class="kpi-n">265 kaynak dosya, 107,271 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2353</div><div class="kpi-l">test</div><div class="kpi-n">265 kaynak dosya, 107,259 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -390,7 +390,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">503</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:85.9%"></div></div><div class="bar-n">432</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.1%"></div></div><div class="bar-n">433</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:83.9%"></div></div><div class="bar-n">422</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:72.2%"></div></div><div class="bar-n">363</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.4%"></div></div><div class="bar-n">148</div></div>
@@ -403,6 +403,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>b7a64a7</code><time>2026-09-05</time><span>D-226: projecting the frame is not the same as drawing in the frame&#x27;s reference</span></li>
+<li><code>35294ee</code><time>2026-09-05</time><span>The status page catches up with D-173</span></li>
 <li><code>d697ad1</code><time>2026-09-05</time><span>D-173 closes on the bar it set for itself: sixteen runs, no 0B/0B asset</span></li>
 <li><code>6c870cf</code><time>2026-09-05</time><span>The quickstart rehearsal migrated with one build and started another</span></li>
 <li><code>d5a15ad</code><time>2026-09-05</time><span>ADR-054: the symbology document is not bounded, by owner decision</span></li>
@@ -415,8 +417,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>73a149a</code><time>2026-09-05</time><span>D-220 closes: the viewer says how far, who drew it, and what the colours mean</span></li>
 <li><code>973881a</code><time>2026-09-05</time><span>D-220: Data sources is the handoff&#x27;s shape, and the test says which afternoon it is</span></li>
 <li><code>bae175c</code><time>2026-09-05</time><span>The user-type console test lowered nothing, because the seed has nothing to raise</span></li>
-<li><code>c5f153a</code><time>2026-09-05</time><span>D-227: a user type could not be changed, and the privilege table said it could</span></li>
-<li><code>dc6554e</code><time>2026-09-05</time><span>D-220: Roles is the handoff&#x27;s shape, and every privilege says its ceiling</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
