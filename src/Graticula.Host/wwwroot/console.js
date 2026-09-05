@@ -1510,6 +1510,12 @@ const SURFACES = {
     tabs: [
       ["services", "Services"],
 
+      // <b>Publish, and it is Server's because a registered database is.</b> ADR-057: a
+      // service is composed from tables in databases this server was pointed at, and pointing
+      // it at one is an administrator's act on the tab next door. Studio publishes a layer
+      // somebody imported; this publishes a service somebody assembled.
+      ["publish", "Publish"],
+
       // <b>Data sources is Server's, by owner decision 2026-08-17</b> — *"data sources studio'nun
       // değil server'in bir seçeneği. onu da sadece admin ayarlayabilir."* This corrects ADR-034
       // §5c, which had put it in Studio beside publishing. Registering a source is not publishing:
@@ -1573,6 +1579,11 @@ const SURFACES = {
  */
 const SCREEN_SURFACE = {
   services: "server",
+
+  // <b>Publish, and the suite caught this being missing.</b> A tab that is not in this table is
+  // an address the other surface accepts and silently redirects — D-115's *silent navigation*,
+  // which has happened twice. Adding a tab is two edits and this is the second one.
+  publish: "server",
 
   // <b>Deliberately absent: `service`, for the reason `layer` is absent two lines down.</b> Naming
   // Server as the owner made **Studio's only service page unreachable** — `sharing` belongs to Studio
@@ -1958,6 +1969,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
+  if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") section("logs", loadLogs, "logRows");
 }
 
@@ -10272,6 +10284,674 @@ function fillEndpoints(name, layer, place) {
  * <b>Host, port and database; never the credential.</b> The server sends `summary`, which is
  * `Summarise` over the decrypted string — the same shape the audit log records for the same reason.
  */
+/*
+  ---------------------------------------------------------------- publish a service
+
+  <b>ADR-057.</b> The composition is the service: the tree's order is the layer order, index 0
+  is drawn on top, and pressing Publish sends the whole thing to `POST /admin/publish`, which
+  writes it in one transaction or not at all. There is no empty container to make first —
+  §5h, by owner decision — so there is no sequence to remember and no layer index to type.
+
+  <b>What is not here, and it is not an oversight.</b> The study drew a map between the two
+  trees; nothing on this server turns an unpublished composition into a picture, so drawing a
+  preview would be a control for a feature that does not exist. Symbology is the same: a
+  layer's appearance is edited on the Symbology screen once it exists, and offering a swatch
+  here that writes nowhere would be worse than the link that is here instead.
+*/
+
+/** The composition being assembled: groups and layers, in draw order. */
+let pubTree = [];
+
+/** Which nodes are selected, by id, for grouping. */
+let pubPicked = new Set();
+
+/** The registered databases and what they hold, once probed. */
+let pubDatabases = [];
+
+let pubSeq = 0;
+
+/** Every layer in the composition, groups flattened, in draw order. */
+function pubLayers() {
+  const out = [];
+
+  for (const node of pubTree) {
+    if (node.kind === "group") { out.push(...node.children); } else { out.push(node); }
+  }
+
+  return out;
+}
+
+/** A node, the list holding it, and where in that list it sits. */
+function pubFind(id) {
+  for (let i = 0; i < pubTree.length; i++) {
+    if (pubTree[i].id === id) return { node: pubTree[i], list: pubTree, at: i };
+
+    if (pubTree[i].kind === "group") {
+      const kids = pubTree[i].children;
+
+      for (let k = 0; k < kids.length; k++) {
+        if (kids[k].id === id) return { node: kids[k], list: kids, at: k, group: pubTree[i] };
+      }
+    }
+  }
+
+  return null;
+}
+
+function pubDetach(id) {
+  const found = pubFind(id);
+
+  if (!found) return null;
+
+  found.list.splice(found.at, 1);
+  return found.node;
+}
+
+/** A group with nothing in it is not a group. */
+function pubTidy() {
+  pubTree = pubTree.filter(n => n.kind !== "group" || n.children.length > 0);
+}
+
+/**
+ * Reads the registered databases and what each holds.
+ *
+ * <b>Probed one at a time and drawn as they arrive.</b> A capability read opens a connection to
+ * somebody else's database; doing four at once to fill a tree nobody has expanded yet is a cost
+ * this screen has no reason to pay, and a source that is unreachable says so in its own row
+ * rather than failing the screen.
+ */
+async function loadPublish() {
+  const { dataSources = [] } = await api("/admin/datasources") || {};
+
+  pubDatabases = dataSources.map(d => ({
+    id: d.id,
+    name: d.name,
+    summary: d.summary,
+    open: false,
+    schemas: null,
+    why: null,
+  }));
+
+  $("pubDbSays").textContent = `${num(pubDatabases.length)} registered`;
+
+  pubDraw();
+}
+
+/** Opens one database and reads what can be published from it. */
+async function pubProbe(db) {
+  if (db.schemas || db.reading) return;
+
+  db.reading = true;
+  pubDraw();
+
+  try {
+    const answer = await api(`/admin/datasources/${encodeURIComponent(db.id)}/capability`) || {};
+
+    // <b>Already served is greyed rather than hidden.</b> `layer_table_unique` is global — one
+    // table is one layer on this server — so a table in use cannot be dragged, and a reader
+    // looking for it needs to find it and see why rather than wonder where it went. ADR-057 §5i.
+    const taken = new Set(
+      (await api("/admin/layers") || {}).layers?.map(l => (l.table || "").toLowerCase()) || []);
+
+    const schemas = new Map();
+
+    for (const t of answer.tables || []) {
+      if (!schemas.has(t.schemaName)) schemas.set(t.schemaName, { name: t.schemaName, open: true, tables: [] });
+
+      schemas.get(t.schemaName).tables.push({
+        ...t,
+        used: taken.has(`${t.schemaName}.${t.tableName}`.toLowerCase()),
+      });
+    }
+
+    db.schemas = [...schemas.values()];
+  } catch (e) {
+    db.why = e.message;
+  } finally {
+    db.reading = false;
+    pubDraw();
+  }
+}
+
+/** Adds a table to the composition, if it can be. */
+function pubAdd(dbId, schema, table) {
+  const db = pubDatabases.find(d => d.id === dbId);
+  const found = db?.schemas
+    ?.find(s => s.name === schema)?.tables
+    ?.find(t => t.tableName === table);
+
+  if (!found || found.used || !found.objectIdColumn || !found.geometryColumn) return;
+
+  pubTree.unshift({
+    kind: "layer",
+    id: `L${++pubSeq}`,
+    name: found.tableName,
+    source: dbId,
+    sourceName: db.name,
+    schema: found.schemaName,
+    table: found.tableName,
+    geometry: found.geometryColumn,
+    identity: found.objectIdColumn,
+    srid: found.srid,
+    type: found.geometryType,
+  });
+
+  found.used = true;
+  pubPicked = new Set();
+  pubDraw();
+}
+
+/** Puts a layer back: it stops being in the composition and becomes draggable again. */
+function pubRemove(id) {
+  const gone = pubDetach(id);
+
+  if (!gone) return;
+
+  const returned = gone.kind === "group" ? gone.children : [gone];
+
+  for (const layer of returned) {
+    const db = pubDatabases.find(d => d.id === layer.source);
+    const table = db?.schemas
+      ?.find(s => s.name === layer.schema)?.tables
+      ?.find(t => t.tableName === layer.table);
+
+    if (table) table.used = false;
+  }
+
+  pubTidy();
+  pubPicked.delete(id);
+  pubDraw();
+}
+
+/** Wraps the selected nodes in a group, keeping their order. */
+function pubGroup() {
+  const rows = pubRows().filter(n => pubPicked.has(n.id));
+
+  if (rows.length < 2) return;
+
+  const where = pubTree.findIndex(n =>
+    pubPicked.has(n.id) || (n.kind === "group" && n.children.some(c => pubPicked.has(c.id))));
+
+  const kids = [];
+
+  for (const node of rows) {
+    const taken = pubDetach(node.id);
+
+    if (!taken) continue;
+
+    if (taken.kind === "group") { kids.push(...taken.children); } else { kids.push(taken); }
+  }
+
+  pubTidy();
+
+  const made = {
+    kind: "group",
+    id: `G${++pubSeq}`,
+    name: `Group ${pubTree.filter(n => n.kind === "group").length + 1}`,
+    children: kids,
+  };
+
+  pubTree.splice(Math.max(0, Math.min(where, pubTree.length)), 0, made);
+  pubPicked = new Set([made.id]);
+  pubDraw();
+}
+
+function pubUngroup(id) {
+  const found = pubFind(id);
+
+  if (!found || found.node.kind !== "group") return;
+
+  pubTree.splice(found.at, 1, ...found.node.children);
+  pubPicked = new Set();
+  pubDraw();
+}
+
+/** Every row the tree draws, in the order it draws them. */
+function pubRows() {
+  const out = [];
+
+  for (const node of pubTree) {
+    out.push(node);
+    if (node.kind === "group") out.push(...node.children);
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------------------ drawing */
+
+function pubNode(node, inside) {
+  if (node.kind === "group") {
+    return `<div class="pubnode ${pubPicked.has(node.id) ? "sel" : ""}" draggable="true"
+        data-pubnode="${h(node.id)}">
+        <div class="pubrow" data-pubgroup="${h(node.id)}">
+          <span aria-hidden="true" style="color:var(--faint)">&#9707;</span>
+          <span class="pubname pubgroupname">${h(node.name)}</span>
+          <span class="pubcount">${num(node.children.length)}</span>
+          <button class="pubkill" data-pubkill="${h(node.id)}"
+            aria-label="Remove ${h(node.name)}">&#10005;</button>
+        </div>
+      </div>`
+      + node.children.map(c => pubNode(c, true)).join("");
+  }
+
+  return `<div class="pubnode ${inside ? "grouped" : ""} ${pubPicked.has(node.id) ? "sel" : ""}"
+      draggable="true" data-pubnode="${h(node.id)}">
+      <div class="pubrow">
+        <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}">${h(node.name)}</span>
+        <span class="pubsr">EPSG:${num(node.srid)}</span>
+        <button class="pubkill" data-pubkill="${h(node.id)}"
+          aria-label="Remove ${h(node.name)}">&#10005;</button>
+      </div>
+    </div>`;
+}
+
+/* ------------------------------------------------------------------ publishing */
+
+/** The references this console offers, and why somebody would pick each. */
+const PUB_REFERENCES = [
+  { code: 0, name: "Each layer's own", note: "no reprojection" },
+  { code: 3857, name: "WGS 84 / Pseudo-Mercator", note: "what web basemaps use" },
+  { code: 4326, name: "WGS 84", note: "degrees" },
+  { code: 5254, name: "TUREF / TM30", note: "Turkish national grid" },
+];
+
+/**
+ * Asks where the service goes and what it can do, then publishes it.
+ *
+ * <b>One request, because it is one act.</b> ADR-057 §5h: a service is not created without
+ * layers, so this does not make a container and fill it — `POST /admin/publish` writes the
+ * service, its groups and its layers in one transaction or none of them.
+ */
+async function openPublishDialog() {
+  const dialog = $("publish");
+  const layers = pubLayers();
+
+  const folders = [...new Set([
+    ...(await api("/admin/folders").catch(() => null))?.folders?.map(f => f.name || f) ?? [],
+  ].filter(Boolean))];
+
+  $("publishBody").innerHTML = `
+    <form id="publishForm" autocomplete="off">
+      <div class="row">
+        <label class="field" style="flex:2 1 60%">Service name
+          <input id="pbName" spellcheck="false" required placeholder="cadastre"></label>
+        <label class="field" style="flex:1 1 30%">Folder <span class="val">(optional)</span>
+          <input id="pbFolder" list="pbFolders" spellcheck="false" placeholder="the root">
+          <datalist id="pbFolders">${folders
+            .map(f => `<option value="${h(f)}"></option>`).join("")}</datalist></label>
+      </div>
+      <p class="hint" id="pbNewFolder" hidden></p>
+
+      <div class="row">
+        <label class="field" style="flex:1 1 100%">Description <span class="val">(optional)</span>
+          <input id="pbAbout" spellcheck="false"
+                 placeholder="what somebody finding this in the directory needs to know"></label>
+      </div>
+
+      <div class="row">
+        <label class="field">Who can see it<select id="pbShare">
+          <option value="private" selected>Only me</option>
+          <option value="organization">Everybody signed in</option>
+          <option value="public">Anybody, without signing in</option>
+        </select></label>
+
+        <label class="field">Served in<select id="pbSrid">${PUB_REFERENCES
+          .map(r => `<option value="${r.code}">${h(r.name)}${r.code ? ` — EPSG:${r.code}` : ""}</option>`)
+          .join("")}</select></label>
+      </div>
+
+      <p class="hint" id="pbWarp"></p>
+      <p class="hint bad-inline" id="pbRefused" hidden role="alert"></p>
+    </form>`;
+
+  $("publishFoot").innerHTML = `
+    <button type="button" class="ghost" id="pbCancel">Cancel</button>
+    <button type="button" class="primary" id="pbGo">Publish ${num(layers.length)}
+      layer${layers.length === 1 ? "" : "s"}</button>`;
+
+  const warp = () => {
+    const wanted = Number($("pbSrid").value) || 0;
+    const moved = layers.filter(l => wanted && l.srid !== wanted);
+
+    $("pbWarp").innerHTML = wanted === 0
+      ? "Every layer answers in whatever its own table is stored in."
+      : moved.length === 0
+        ? `Every layer is already stored in EPSG:${num(wanted)}, so nothing is reprojected.`
+        : `<b>${num(moved.length)} of ${num(layers.length)}</b> will be reprojected on the way
+           out: ${moved.map(l => `${h(l.name)} (EPSG:${num(l.srid)})`).join(", ")}.`;
+  };
+
+  const folderNote = () => {
+    const given = $("pbFolder").value.trim();
+    const note = $("pbNewFolder");
+
+    note.hidden = !(given && !folders.includes(given));
+    note.textContent = note.hidden
+      ? ""
+      : `There is no folder called ${given} — publishing will create it.`;
+  };
+
+  $("pbSrid").addEventListener("change", warp);
+  $("pbFolder").addEventListener("input", folderNote);
+  $("pbCancel").addEventListener("click", () => dialog.close());
+  $("publishClose").onclick = () => dialog.close();
+  $("pbGo").addEventListener("click", sendPublish);
+
+  warp();
+  dialog.showModal();
+  $("pbName").focus();
+}
+
+/** Sends the composition, and turns a refusal into a sentence on the dialog. */
+async function sendPublish() {
+  const refused = $("pbRefused");
+  const button = $("pbGo");
+  const name = $("pbName").value.trim();
+
+  if (!name) {
+    refused.hidden = false;
+    refused.textContent = "A name first — it is what the service is called and how it is found.";
+    $("pbName").focus();
+    return;
+  }
+
+  const srid = Number($("pbSrid").value) || null;
+
+  const nodes = pubTree.map(node => node.kind === "group"
+    ? { group: node.name, layers: node.children.map(pubWire) }
+    : { layer: pubWire(node) });
+
+  refused.hidden = true;
+  button.disabled = true;
+
+  try {
+    const made = await api("/admin/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        folder: $("pbFolder").value.trim() || null,
+        description: $("pbAbout").value.trim() || null,
+        sharing: $("pbShare").value,
+        srid,
+        nodes,
+      }),
+    });
+
+    $("publish").close();
+
+    // <b>The composition is spent, and the tables it held are free again.</b> Leaving it on
+    // screen after a successful publish invites a second press, which is a second service.
+    pubTree = [];
+    pubPicked = new Set();
+
+    for (const db of pubDatabases) { db.schemas = null; db.open = false; }
+
+    toast(`${made.name} is served at ${made.url}.`, true);
+    pubDraw();
+  } catch (e) {
+    // <b>The server's own sentence.</b> It names which entry, or which collision — a name
+    // taken, a table already served, two layers of one name — and each of those is a different
+    // repair.
+    refused.hidden = false;
+    refused.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** One composed layer, as `POST /admin/publish` takes it. */
+function pubWire(layer) {
+  return {
+    name: layer.name,
+    dataSourceId: layer.source,
+    schemaName: layer.schema,
+    tableName: layer.table,
+    geometryColumn: layer.geometry,
+    identityColumn: layer.identity,
+    objectIdColumn: layer.identity,
+    srid: layer.srid,
+    geometryType: layer.type,
+  };
+}
+
+/* ------------------------------------------------------------------ interaction */
+
+let pubDragging = null;
+
+document.addEventListener("dragover", event => {
+  if (event.target.closest?.("#pubContents")) pubOver(event);
+});
+
+document.addEventListener("drop", event => {
+  if (event.target.closest?.("#pubContents")) pubDrop(event);
+});
+
+document.addEventListener("contextmenu", event => {
+  const node = event.target.closest?.("[data-pubnode]");
+
+  if (!node || !event.target.closest("#pubTree")) return;
+
+  event.preventDefault();
+
+  if (!pubPicked.has(node.dataset.pubnode)) {
+    pubPicked = new Set([node.dataset.pubnode]);
+    pubDraw();
+  }
+
+  const found = pubFind(node.dataset.pubnode);
+
+  // <b>Group when several are chosen, ungroup on a group, remove either way.</b> ADR-057 §5b:
+  // one level, so a group swept into a group contributes its layers.
+  if (found?.node.kind === "group") {
+    if (confirm(`Ungroup "${found.node.name}"?`)) pubUngroup(node.dataset.pubnode);
+    return;
+  }
+
+  if (pubPicked.size > 1) {
+    if (confirm(`Group ${pubPicked.size} layers?`)) pubGroup();
+  }
+});
+
+document.addEventListener("dragstart", event => {
+  const table = event.target.closest?.("[data-pubtable]");
+  const node = event.target.closest?.("[data-pubnode]");
+
+  if (table && table.getAttribute("draggable") === "true") {
+    pubDragging = { kind: "table", id: table.dataset.pubtable };
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/plain", table.dataset.pubtable);
+    return;
+  }
+
+  if (node) {
+    pubDragging = { kind: "node", id: node.dataset.pubnode };
+    node.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", node.dataset.pubnode);
+  }
+});
+
+document.addEventListener("dragend", () => {
+  pubDragging = null;
+  $("pubContents")?.classList.remove("dropping");
+  document.querySelectorAll("[data-pubnode]").forEach(n =>
+    n.classList.remove("dragging", "over", "into"));
+});
+
+/**
+ * Where a drop would land, drawn while the pointer is over the tree.
+ *
+ * <b>A group's own row accepts a layer into it; anything else inserts beside.</b> Without the
+ * distinction there is no way to put a layer <i>in</i> a group with a mouse, and the only
+ * alternative is a menu — which is the shape this screen exists to replace.
+ */
+function pubOver(event) {
+  if (!pubDragging) return;
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = pubDragging.kind === "table" ? "copy" : "move";
+
+  document.querySelectorAll("[data-pubnode]").forEach(n => n.classList.remove("over", "into"));
+
+  if (pubDragging.kind === "table") {
+    $("pubContents").classList.add("dropping");
+    return;
+  }
+
+  const group = event.target.closest?.("[data-pubgroup]");
+  const over = event.target.closest?.("[data-pubnode]");
+
+  if (group) { group.closest("[data-pubnode]").classList.add("into"); return; }
+  if (over && over.dataset.pubnode !== pubDragging.id) over.classList.add("over");
+}
+
+function pubDrop(event) {
+  event.preventDefault();
+
+  if (!pubDragging) return;
+
+  if (pubDragging.kind === "table") {
+    const [db, schema, table] = pubDragging.id.split("|");
+    pubAdd(db, schema, table);
+  } else {
+    const into = event.target.closest?.("[data-pubgroup]");
+    const over = event.target.closest?.("[data-pubnode]");
+    const moved = pubDetach(pubDragging.id);
+
+    if (moved) {
+      if (into && moved.kind === "layer") {
+        const group = pubFind(into.dataset.pubgroup);
+
+        if (group && group.node.kind === "group") { group.node.children.push(moved); }
+        else { pubTree.push(moved); }
+      } else if (over && over.dataset.pubnode !== pubDragging.id) {
+        const target = pubFind(over.dataset.pubnode);
+
+        if (target) {
+          // A group cannot go inside a group — ADR-057 §5b — so it lands beside the one it
+          // was dropped on.
+          if (moved.kind === "group" && target.list !== pubTree) {
+            pubTree.splice(pubTree.indexOf(target.group), 0, moved);
+          } else {
+            target.list.splice(target.at, 0, moved);
+          }
+        } else {
+          pubTree.push(moved);
+        }
+      } else {
+        pubTree.push(moved);
+      }
+
+      pubTidy();
+      pubPicked = new Set([moved.id]);
+      pubDraw();
+    }
+  }
+
+  $("pubContents").classList.remove("dropping");
+  pubDragging = null;
+}
+
+/** Selects a row, or extends the selection the way a list does. */
+function pubPick(id, event) {
+  const rows = pubRows().map(n => n.id);
+
+  if (event.shiftKey && pubPicked.size > 0) {
+    const anchored = rows.findIndex(r => pubPicked.has(r));
+    const to = rows.indexOf(id);
+
+    pubPicked = new Set(rows.slice(Math.min(anchored, to), Math.max(anchored, to) + 1));
+    return;
+  }
+
+  if (event.ctrlKey || event.metaKey) {
+    if (pubPicked.has(id)) { pubPicked.delete(id); } else { pubPicked.add(id); }
+    return;
+  }
+
+  pubPicked = new Set([id]);
+}
+
+function pubDraw() {
+  const tree = $("pubTree");
+
+  if (!tree) return;
+
+  tree.innerHTML = pubTree.length
+    ? pubTree.map(n => pubNode(n, false)).join("")
+    : `<div class="pubempty">Drag a table here from Databases.<br>
+        <span style="font-size:11.5px">The order you build is the order it is served in —
+        the top is drawn on top. Select two and right-click to group them.</span></div>`;
+
+  // ------------------------------------------------------------ databases
+  let html = "";
+
+  for (const db of pubDatabases) {
+    html += `<div class="pubdb" data-pubdb="${h(db.id)}">
+      <span style="width:12px;color:var(--faint);font-size:10px">${db.open ? "&#9660;" : "&#9654;"}</span>
+      <span>${h(db.name)}</span>
+      ${db.reading ? `<span class="val" style="margin-left:auto">reading…</span>` : ""}
+    </div>`;
+
+    if (!db.open) continue;
+
+    if (db.why) {
+      html += `<div class="pubwhy">${h(db.why)}</div>`;
+      continue;
+    }
+
+    for (const schema of db.schemas || []) {
+      html += `<div class="pubschema" data-pubschema="${h(db.id)}:${h(schema.name)}">
+        <span style="width:12px;font-size:10px">${schema.open ? "&#9660;" : "&#9654;"}</span>
+        <span>${h(schema.name)}</span>
+      </div>`;
+
+      if (!schema.open) continue;
+
+      for (const t of schema.tables) {
+        const can = Boolean(t.objectIdColumn) && Boolean(t.geometryColumn);
+
+        html += `<div class="pubtable ${can ? "" : "no"} ${t.used ? "used" : ""}"
+            ${can && !t.used ? `draggable="true"` : ""}
+            data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
+            title="${can ? (t.used ? "already served by a layer" : "drag into Contents") : "cannot be published"}">
+          <span class="pubdot ${can && !t.used ? "" : "no"}"></span>
+          <span>${h(t.tableName)}</span>
+          ${t.used ? `<span class="val">· in use</span>` : ""}
+          <span class="pubsrid">${t.srid ? "EPSG:" + num(t.srid) : "—"}</span>
+        </div>`;
+
+        if (!can) {
+          html += `<div class="pubwhy">${t.geometryColumn
+            ? "No integer column this server can use as an ArcGIS object id."
+            : "No geometry column — a table without one is not a feature class."}</div>`;
+        }
+      }
+    }
+  }
+
+  $("pubDbTree").innerHTML = html;
+
+  // ------------------------------------------------------------ what will exist
+  const layers = pubLayers();
+
+  $("pubOpen").disabled = layers.length === 0;
+
+  $("pubWhat").innerHTML = layers.length
+    ? `<ul class="pubwill">${pubRows().map((n, i) => n.kind === "group"
+        ? `<li><b>${h(n.name)}</b> <span class="pubsame">group layer, index ${num(i)}</span></li>`
+        : `<li><code>${h(n.name)}</code> <span class="pubsame">index ${num(i)} ·
+             ${h(n.schema)}.${h(n.table)}</span></li>`).join("")}</ul>
+       <p class="hint" style="padding:0 12px">${num(layers.length)}
+          layer${layers.length === 1 ? "" : "s"} in
+          ${num(pubTree.filter(n => n.kind === "group").length)} group(s). The reference it is
+          served in is chosen when you press Publish.</p>`
+    : `<div class="pubempty">Nothing yet. What you build on the left is what will be
+        served.</div>`;
+}
+
 async function loadSources() {
   const { dataSources } = await api("/admin/datasources");
   $("cSources").textContent = dataSources.length;
@@ -14062,6 +14742,70 @@ async function handleClick(event) {
     try { renderProbe(d.probeName, await api(`/admin/datasources/${d.probe}/capability`)); }
     catch (e) { toast(e.message); }
     t.disabled = false;
+    return;
+  }
+
+  // ---------------------------------------------------------------- publish screen
+  if (t.id === "pubClear") {
+    for (const layer of pubLayers()) {
+      const db = pubDatabases.find(d => d.id === layer.source);
+      const table = db?.schemas
+        ?.find(x => x.name === layer.schema)?.tables
+        ?.find(x => x.tableName === layer.table);
+
+      if (table) table.used = false;
+    }
+
+    pubTree = [];
+    pubPicked = new Set();
+    pubDraw();
+    return;
+  }
+
+  if (t.id === "pubOpen") { openPublishDialog(); return; }
+
+  const killed = t.closest?.("[data-pubkill]");
+
+  if (killed) { pubRemove(killed.dataset.pubkill); return; }
+
+  const openDb = t.closest?.("[data-pubdb]");
+
+  if (openDb) {
+    const db = pubDatabases.find(d => d.id === openDb.dataset.pubdb);
+
+    if (db) {
+      db.open = !db.open;
+      pubDraw();
+      if (db.open) await pubProbe(db);
+    }
+
+    return;
+  }
+
+  const openSchema = t.closest?.("[data-pubschema]");
+
+  if (openSchema) {
+    const [id, name] = openSchema.dataset.pubschema.split(":");
+    const schema = pubDatabases.find(d => d.id === id)?.schemas?.find(x => x.name === name);
+
+    if (schema) { schema.open = !schema.open; pubDraw(); }
+
+    return;
+  }
+
+  const picked = t.closest?.("[data-pubtable]");
+
+  if (picked) {
+    const [db, schema, table] = picked.dataset.pubtable.split("|");
+    pubAdd(db, schema, table);
+    return;
+  }
+
+  const composed = t.closest?.("[data-pubnode]");
+
+  if (composed && t.closest("#pubTree")) {
+    pubPick(composed.dataset.pubnode, event);
+    pubDraw();
     return;
   }
 

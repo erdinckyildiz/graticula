@@ -3348,3 +3348,77 @@ tr.rowbad > td { background: var(--alert-soft); }
 */
 label.overridden { opacity: .5; }
 label.overridden input { background: var(--surface-2); cursor: not-allowed; }
+
+/* ------------------------------------------------------------------- the composer */
+/*
+  <b>Three columns, and the middle one is not a map.</b> ADR-057's study drew a preview
+  between Contents and Databases; nothing on this server turns an unpublished composition
+  into a picture, so what sits there is the service that will exist rather than a control
+  for a feature that does not — ADR-034's rule applied to our own design.
+*/
+.composer {
+  display: grid; grid-template-columns: 300px 1fr 320px; gap: 12px; align-items: stretch;
+}
+.composerpane { display: flex; flex-direction: column; min-height: 420px; min-width: 0; padding: 0; }
+.composerhead {
+  display: flex; align-items: baseline; gap: 8px; padding: 9px 12px;
+  border-bottom: 1px solid var(--rule); background: var(--surface-2);
+}
+.composerhead b {
+  font-size: var(--t-tiny); letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+}
+.composerbody { flex: 1; overflow: auto; padding: 6px 0 12px; }
+
+.pubempty {
+  margin: 18px 12px; padding: 26px 14px; text-align: center; color: var(--faint);
+  border: 1px dashed var(--rule-strong); border-radius: 4px; font-size: var(--t-small);
+}
+#pubContents.dropping .pubempty { border-color: var(--accent); color: var(--accent); }
+
+.pubnode { margin: 0 8px; border-radius: 3px; }
+.pubnode + .pubnode { margin-top: 1px; }
+.pubnode.dragging { opacity: .45; }
+.pubnode.over { box-shadow: inset 0 2px 0 var(--blue); }
+.pubnode.into .pubrow { box-shadow: inset 0 0 0 2px var(--accent); }
+.pubnode.sel > .pubrow { background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue-line); }
+.pubrow {
+  display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 3px;
+  cursor: grab; user-select: none; font-size: var(--t-small);
+}
+.pubrow:hover { background: var(--surface-2); }
+.pubrow .pubname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pubrow .pubsr { margin-left: auto; font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
+.pubrow .pubkill { border: 0; background: transparent; color: var(--faint); padding: 0 4px;
+  cursor: pointer; font-size: 13px; }
+.pubrow .pubkill:hover { color: var(--alert-dot); }
+.pubnode.grouped .pubrow { margin-left: 20px; }
+.pubgroupname { font-weight: 600; }
+.pubcount {
+  font: var(--t-tiny)/1 var(--mono); color: var(--faint); background: var(--surface-3);
+  border-radius: 8px; padding: 2px 6px;
+}
+
+.pubdb, .pubschema, .pubtable {
+  display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 3px;
+  font-size: var(--t-small); user-select: none;
+}
+.pubdb { font-weight: 600; cursor: pointer; margin: 0 8px; }
+.pubschema { padding-left: 24px; color: var(--muted); cursor: pointer; margin: 0 8px; }
+.pubtable { padding-left: 40px; cursor: grab; margin: 0 8px; }
+.pubdb:hover, .pubschema:hover, .pubtable:hover { background: var(--surface-2); }
+.pubtable.no, .pubtable.used { cursor: not-allowed; color: var(--faint); }
+.pubtable .pubsrid { margin-left: auto; font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
+.pubdot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ok-dot); }
+.pubdot.no { background: var(--rule-strong); }
+.pubwhy { padding: 0 8px 6px 54px; font-size: var(--t-tiny); color: var(--warn); line-height: 1.45; }
+
+.pubwill { margin: 0; padding: 4px 12px; list-style: none; }
+.pubwill li { padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: var(--t-small); }
+.pubwill li:last-child { border-bottom: 0; }
+.pubwill code { font-family: var(--mono); font-size: 12.5px; }
+.pubwill .pubwarp { color: var(--accent); font-size: var(--t-tiny); }
+.pubwill .pubsame { color: var(--faint); font-size: var(--t-tiny); }
+
+@media (max-width: 1180px) {
+  .composer { grid-template-columns: 1fr; }
+}

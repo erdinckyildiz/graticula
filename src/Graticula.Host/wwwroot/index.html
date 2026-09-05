@@ -545,6 +545,54 @@
   </section>
 
   <!-- ------------------------------------------------------------- sources -->
+  <!-- ------------------------------------------------------------------ publish -->
+  <!--
+    <b>Two panes and a summary, and the map the owner drew is deliberately not here yet.</b>
+    ADR-057's screen study put a preview between Contents and Databases; drawing one needs a
+    picture of a composition that does not exist on the server, and no endpoint takes an
+    unpublished composition and returns an image. ADR-034: a control is not drawn for a feature
+    that does not exist. What sits between them instead is the thing this screen can prove — the
+    service that will exist, layer by layer, with the reference each is stored in beside the one
+    it will be served in.
+  -->
+  <section class="view" id="view-publish">
+    <div class="pagehead">
+      <div>
+        <h2>Publish a service</h2>
+        <p class="hint">Compose a service from tables in the databases this server is pointed
+          at, then publish it. Nothing is served until you press Publish, and a service is
+          published whole — its layers and its groups arrive together or not at all.</p>
+      </div>
+      <div class="pageacts">
+        <button id="pubClear" class="ghost">Clear</button>
+        <button id="pubOpen" class="primary" disabled>Publish&hellip;</button>
+      </div>
+    </div>
+
+    <div class="composer">
+      <section class="panel composerpane" id="pubContents">
+        <div class="composerhead">
+          <b>Contents</b>
+          <span class="val">drawing order</span>
+        </div>
+        <div class="composerbody" id="pubTree"></div>
+      </section>
+
+      <section class="panel composerpane" id="pubSummary">
+        <div class="composerhead"><b>What will exist</b></div>
+        <div class="composerbody" id="pubWhat"></div>
+      </section>
+
+      <section class="panel composerpane" id="pubDatabases">
+        <div class="composerhead">
+          <b>Databases</b>
+          <span class="val" id="pubDbSays"></span>
+        </div>
+        <div class="composerbody" id="pubDbTree"></div>
+      </section>
+    </div>
+  </section>
+
   <section class="view" id="view-sources">
     <!--
       Every screen names itself the same way, which is the brief's *same Graticula
@@ -1690,6 +1738,24 @@
   </header>
   <div class="dialogbody" id="addItemBody"></div>
   <footer class="dialogfoot" id="addItemFoot"></footer>
+</dialog>
+
+<!-- ------------------------------------------------------------------ publish -->
+<!--
+  <b>General and Configuration, the way ArcGIS Pro's sharing pane divides it.</b> Where it
+  goes and what it is called, then what it can do. ADR-057 §5d: the folder box takes a name
+  that does not exist and publishing creates it. §5g: the capability ceiling is chosen here,
+  and `Editing` is not a switch — the REST specification says it appears when any write
+  operation does, so the line under the boxes shows what will be advertised rather than
+  offering a control that can disagree with the server.
+-->
+<dialog id="publish" aria-labelledby="publishTitle">
+  <header class="dialoghead">
+    <h3 id="publishTitle" tabindex="-1">Publish</h3>
+    <button class="tiny ghost" id="publishClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="publishBody"></div>
+  <footer class="dialogfoot" id="publishFoot"></footer>
 </dialog>
 
 <!-- --------------------------------------------------------- database connection -->
