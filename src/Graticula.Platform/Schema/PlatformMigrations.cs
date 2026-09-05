@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(38);
+    public static SchemaVersion ComponentSchemaVersion => new(39);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -73,6 +73,7 @@ public static class PlatformMigrations
         GroupVisibilityWithoutPublicV36,
         GroupMemberListAndLeavingV37,
         SymbologyIsNoLongerBoundedV38,
+        AServiceNamesItsReferenceV39,
     ]);
 
 
@@ -2473,6 +2474,50 @@ public static class PlatformMigrations
     /// that silently truncated somebody's classification would be worse than no rollback.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The reference a service is served in, which need not be the one its tables are stored in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5c.</b>
+    /// A service had no reference of its own: every face answered in whatever the layer's table
+    /// happened to be, and an operator composing a service out of tables stored in three
+    /// different systems had no way to say which one clients should get. The owner asked for
+    /// exactly that while the Publish screen was being designed — *servisin projeksiyonu 3857
+    /// ama aslında db&#39;deki tablonun projeksiyonu 4326 olabilir*.
+    /// </para>
+    /// <para>
+    /// <b>Nullable, and null is not a default in disguise.</b> Null means *the layer&#39;s own*,
+    /// which is what every existing service does today, so this migration changes the behaviour
+    /// of nothing already published. A number means *serve in this, whatever the table says*,
+    /// and the reprojection is the one the drawing and query paths already do — `outSrid` and
+    /// `filterSrid` on the query, PostGIS doing the work per feature.
+    /// </para>
+    /// <para>
+    /// <b>Positive if present, checked here rather than in the application.</b> An EPSG code of
+    /// zero or a negative one is not a reference, and a column that can hold one is a column
+    /// that will. The check names what it refuses.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> One nullable column with no backfill: there is nothing to backfill to,
+    /// because the absence is the meaning.
+    /// </para>
+    /// </remarks>
+    private static Migration AServiceNamesItsReferenceV39 => Migration.Expand(
+        new SchemaVersion(39),
+        "A service names the reference it is served in; null keeps the layer's own.",
+
+        "alter table service add column if not exists srid integer",
+
+        """
+        alter table service drop constraint if exists service_srid_is_a_reference
+        """,
+
+        """
+        alter table service add constraint service_srid_is_a_reference
+          check (srid is null or srid > 0)
+        """);
+
     private static Migration SymbologyIsNoLongerBoundedV38 => Migration.Expand(
         new SchemaVersion(38),
         "The symbology document has no length bound; ADR-054 withdraws it.",

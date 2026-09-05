@@ -72,6 +72,7 @@ public sealed class PublishedService
     /// <param name="sharedWith">
     /// Which groups this service is shared with — ADR-036. Empty unless the scope is `group`.
     /// </param>
+    /// <param name="srid">The reference to serve in, or null for each layer's own.</param>
     public PublishedService(
         Guid id,
         string name,
@@ -85,7 +86,8 @@ public sealed class PublishedService
         IEnumerable<GroupLayer>? groups = null,
         string? style = null,
         ServiceCapabilityLimits? limits = null,
-        IEnumerable<Guid>? sharedWith = null)
+        IEnumerable<Guid>? sharedWith = null,
+        int? srid = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -100,6 +102,7 @@ public sealed class PublishedService
         Sharing = sharing;
         SharedWith = sharedWith is null ? [] : [.. sharedWith];
         Status = status;
+        Srid = srid;
         Style = style;
         Layers = [.. layers.OrderBy(l => l.LayerIndex)];
         Groups = [.. (groups ?? []).OrderBy(g => g.Index)];
@@ -138,6 +141,16 @@ public sealed class PublishedService
 
     /// <summary>The ArcGIS service type — <c>FeatureServer</c> in v1.</summary>
     public string Kind { get; }
+
+    /// <summary>The reference this service is served in, or null for each layer's own.</summary>
+    /// <remarks>
+    /// <b>Null is the meaning, not a missing value.</b> A service composed before
+    /// [ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5c — and any
+    /// service whose author never chose — answers in whatever its tables are stored in, which is
+    /// what every service did before migration 39. A number says *serve in this whatever the
+    /// table says*, and the reprojection is the one the query and drawing paths already do.
+    /// </remarks>
+    public int? Srid { get; }
 
     /// <summary>What it is for, or null.</summary>
     public string? Description { get; }

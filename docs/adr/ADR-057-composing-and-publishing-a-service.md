@@ -88,6 +88,9 @@ Measured or read on 2026-09-05.
 | | |
 |---|---|
 | Ways to publish a registered table today | **0** |
+| Migration that built group layers | **12** — table, parent column, foreign key, counter |
+| Console controls that make a group | **0** |
+| Column holding a service's served reference | **none** |
 | Face flags in the catalogue | **2** — `ServesFeatures`, `ServesTiles` |
 | Faces the screen offers | **4** — Feature, Map, VectorTile, OGC |
 | Capability ceiling the catalogue holds | `Query`, `Create`, `Update`, `Delete` |
@@ -106,15 +109,24 @@ The Contents tree's root **is** the service being published: its name is the ser
 its order is the layer order, and index 0 is drawn on top. It is called `Map` until renamed,
 which is Pro's default and the owner's request.
 
-### 5b. Groups are one level deep
+### 5b. Groups are one level deep, and the catalogue already holds them
 
-A layer may sit in a group; a group may not sit in a group. The catalogue gains a parent on
-the layer row, and the ArcGIS face answers with `type: "Group Layer"` and its
-`subLayerIds`. Dragging a group into a group contributes its layers rather than itself.
+A layer may sit in a group; a group may not sit in a group. Dragging a group into a group
+contributes its layers rather than itself.
 
-**One level by owner decision, with real nesting put beside it and costed.** Arbitrary depth
-needs the same parent column and makes ordering, visibility, removal and the `subLayerIds`
-tree recursive — including the tests. Nothing anybody has asked for needs the second level.
+~~The catalogue gains a parent on the layer row, and the ArcGIS face answers with
+`type: "Group Layer"` and its `subLayerIds`.~~ **Corrected 2026-09-05, on reading the
+schema: all of that exists.** Migration **12** created `group_layer`, put
+`parent_layer_index` on `layer` with a foreign key saying a parent must be a group, gave
+`service` a `next_layer_index` counter, and allowed a group inside a group. The face emits
+`type: "Group Layer"`, `parentLayerId` and `subLayerIds`, and
+`POST /admin/services/{name}/groups` creates one.
+
+**So there is no migration here and the decision is narrower than it read.** What is missing
+is a way to make a group *from a screen* — nothing in the console offers one — and the depth
+limit, which is a rule this screen keeps rather than a constraint the database enforces.
+The schema is more permissive than the decision; that is the right way round, and the day
+somebody wants real nesting it is a screen change and not a migration.
 
 ### 5c. The coordinate system belongs to the service
 
@@ -157,8 +169,11 @@ specification and not in this server, so they are not drawn —
 
 ## 6. Consequences
 
-- **Two catalogue changes before the screen is worth building**: a parent on the layer row
-  (5b) and a served reference on the service (5c). Both are migrations.
+- ~~**Two catalogue changes before the screen is worth building**: a parent on the layer row
+  (5b) and a served reference on the service (5c). Both are migrations.~~ **One**, and it is
+  5c. Grouping was built in migration 12 and is reachable at
+  `POST /admin/services/{name}/groups`; what it has never had is a control. Corrected before
+  either was written, which is the only useful moment to correct a cost.
 - **Two more if the faces are to mean anything.** `MapServer` and the OGC faces are derived
   today; making them switchable is two columns beside `ServesFeatures` and `ServesTiles`.
 - **The uniqueness rule needs a listing the dialog can ask** — folder plus name plus owner —

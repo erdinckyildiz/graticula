@@ -72,7 +72,11 @@ public sealed class PostgresLayerCatalog
         -- group and make the reader deduplicate. Empty for all but a `group`-scoped service, and the
         -- read path does not consult it otherwise.
         (select coalesce(array_agg(gi.group_id), '{}')
-           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups
+           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
+
+        -- The reference this service is served in, or null for each layer's own
+        -- (ADR-057 §5c, migration 39). On the end, per the rule above.
+        s.srid as service_srid
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -667,7 +671,7 @@ public sealed class PostgresLayerCatalog
         HashSet<Guid> hidden = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
-            ServiceCapabilityLimits Limits, Guid[] SharedWith)> heads = [];
+            ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -705,7 +709,14 @@ public sealed class PostgresLayerCatalog
                         // ordinal above was written, and hand-counting the last index is what
                         // served a stored symbology as *generated* (ADR-033 §5i).
                         reader.GetFieldValue<Guid[]>(
-                            reader.GetOrdinal("shared_with_groups")));
+                            reader.GetOrdinal("shared_with_groups")),
+
+                        // <b>By name, like the two above it.</b> Ordinals past the
+                        // capability block are a trap the comment on `Columns` names, and
+                        // this one is on the end for the same reason.
+                        reader.IsDBNull(reader.GetOrdinal("service_srid"))
+                            ? null
+                            : reader.GetInt32(reader.GetOrdinal("service_srid")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -762,7 +773,8 @@ public sealed class PostgresLayerCatalog
                 groups.TryGetValue(id, out List<GroupLayer>? mine) ? mine : [],
                 head.Style,
                 head.Limits,
-                head.SharedWith));
+                head.SharedWith,
+                head.Srid));
         }
 
         return services;
