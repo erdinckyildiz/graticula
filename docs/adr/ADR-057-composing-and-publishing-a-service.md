@@ -89,7 +89,7 @@ Measured or read on 2026-09-05.
 |---|---|
 | Ways to publish a registered table today | **0** |
 | Migration that built group layers | **12** — table, parent column, foreign key, counter |
-| Console controls that make a group | **0** |
+| Console controls that make a group | **1** — the *New service* drawer, corrected same day |
 | Column holding a service's served reference | **none** |
 | Face flags in the catalogue | **2** — `ServesFeatures`, `ServesTiles` |
 | Faces the screen offers | **4** — Feature, Map, VectorTile, OGC |
@@ -122,8 +122,14 @@ schema: all of that exists.** Migration **12** created `group_layer`, put
 `type: "Group Layer"`, `parentLayerId` and `subLayerIds`, and
 `POST /admin/services/{name}/groups` creates one.
 
-**So there is no migration here and the decision is narrower than it read.** What is missing
-is a way to make a group *from a screen* — nothing in the console offers one — and the depth
+**So there is no migration here and the decision is narrower than it read.** ~~What is missing
+is a way to make a group *from a screen* — nothing in the console offers one —~~ **wrong twice
+in one paragraph, corrected 2026-09-05 when the owner sent a picture of the screen that does
+it.** Server's *New service* drawer creates an empty service and then a group layer inside one.
+What is missing is not the control but the *shape* of it: that drawer asks for a container
+first, then a group, then a layer index to nest under, which is this server's API in the order
+the API wants and not the order a person works in. The Publish screen is the replacement, and
+this drawer is what it retires — and the depth
 limit, which is a rule this screen keeps rather than a constraint the database enforces.
 The schema is more permissive than the decision; that is the right way round, and the day
 somebody wants real nesting it is a screen change and not a migration.

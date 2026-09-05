@@ -455,6 +455,18 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
         TimeoutException =>
             "The host accepted nothing within the probe's timeout. A firewall that drops packets "
             + "silently looks exactly like this, and so does a database that is starting up.",
+        // <b>No password at all is a different mistake from a wrong one, and it is the one
+        // this form makes.</b> The edit dialog leaves the password empty on purpose — the
+        // stored one is sealed and never read back — so *saving without retyping it* is the
+        // single most likely thing to go wrong here. Npgsql answers that with a sentence about
+        // SASL/SCRAM-SHA-256, which is true and tells an administrator nothing about what they
+        // did. Found by a design review on 2026-09-06, doing exactly that.
+        NpgsqlException e when e.Message.Contains("password", StringComparison.OrdinalIgnoreCase)
+            && e.Message.Contains("SASL", StringComparison.OrdinalIgnoreCase) =>
+            "This server asked for a password and none was sent. The stored one is sealed and "
+            + "is never read back, so correcting a connection means typing it again — which is "
+            + "also what makes saving require knowing it.",
+
         PostgresException { SqlState: "28P01" } =>
             "The password was rejected by the server. The host is reachable; the credential is wrong.",
         PostgresException { SqlState: "28000" } =>

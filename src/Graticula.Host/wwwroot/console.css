@@ -3338,3 +3338,13 @@ tr.rowbad > td { background: var(--alert-soft); }
 .sympreview .ol-zoom button:hover { background: var(--surface-2); color: var(--accent); }
 /* The legend keeps the bottom-left corner, so it moves up out of the buttons' way. */
 .symlegend { bottom: 74px; }
+
+/*
+  <b>Visibly out of use rather than gone.</b> When the advanced connection string is filled in
+  it is what gets sent, and the fields above it are ignored — a design review found that
+  happening silently on 2026-09-06, with a Test failing against a host nowhere on screen. The
+  fields are disabled and dimmed instead of hidden, because somebody who typed a host into them
+  wants to see it still there when they empty the advanced box again.
+*/
+label.overridden { opacity: .5; }
+label.overridden input { background: var(--surface-2); cursor: not-allowed; }

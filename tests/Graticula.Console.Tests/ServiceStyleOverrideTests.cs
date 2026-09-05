@@ -262,6 +262,106 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// A refusal on the New service drawer is said, and a success empties the name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by a design review on 2026-09-06, by forcing refusals against a live server.</b>
+    /// `createService` and `createGroupLayer` called `api(...)` with no `try`, so a 409 for a
+    /// duplicate name and a 400 for a nesting target that is not a group both surfaced as an
+    /// uncaught exception: no toast, no message, no change to the form. The server had written
+    /// a sentence for the person reading it and nothing put it on the screen. The delete
+    /// handler two hundred lines below had done this correctly since the day it was written.
+    /// </para>
+    /// <para>
+    /// <b>And the second press made a duplicate.</b> Nothing disabled the button while the
+    /// request was in flight and nothing emptied the field afterwards, so two clicks on
+    /// *Create group layer* produced two groups with one name — verified in that review against
+    /// the live fixture, then removed again.
+    /// </para>
+    /// <para>
+    /// <b>Stubbed, because the harness answers every write with `{}` and a 200.</b> A real 409
+    /// cannot be produced from here — the conformance suite has that half — so what is under
+    /// test is the half this harness can see: that a refusal reaches the screen at all, and that
+    /// a success leaves the form unable to repeat itself.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_refused_service_says_why_and_a_created_one_clears_its_name()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/services", token);
+
+        await WaitForAsync(
+            "document.getElementById('newService') !== null",
+            "The Services screen offers no New service action.");
+
+        await ClickAsync("#newService");
+
+        await WaitForAsync(
+            "document.getElementById('cName')?.offsetParent !== null",
+            "The New service drawer did not open.");
+
+        // <b>The server's own sentence, which is what has to reach the screen.</b>
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__refuse = true;
+          window.fetch = async (input, init) => {
+            const method = ((init && init.method) || "GET").toUpperCase();
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (method !== "POST" || !where.includes("/admin/featureservices")) {
+              return real(input, init);
+            }
+            if (!window.__refuse) {
+              return new Response(
+                JSON.stringify({ name: "ZZZFine", url: "/rest/services/ZZZFine/FeatureServer",
+                                 sharing: "private" }),
+                { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            return new Response(
+              JSON.stringify({ error: { code: 409, message:
+                "A service called ZZZTaken already exists in that folder." } }),
+              { status: 409, headers: { "Content-Type": "application/json" } });
+          };
+          return true;
+        })();
+        """);
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("cName").value = "ZZZTaken", true)""");
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("svcForm").requestSubmit(), true)""");
+
+        await WaitForAsync(
+            "(document.getElementById('toast')?.textContent || '').includes('already exists')",
+            "A refused creation said nothing. The server answered 409 with a sentence and the "
+            + "form sat unchanged, which is indistinguishable from the button doing nothing.");
+
+        // <b>And the name survives a refusal.</b> Clearing it here would make the operator
+        // retype what was rejected before they could change one letter of it.
+        Assert.Equal(
+            "ZZZTaken",
+            await Browser.EvaluateAsync<string>("document.getElementById('cName').value"));
+
+        // <b>The other half: a success empties it, so a second press is a second service.</b>
+        await Browser.EvaluateAsync<bool>("(window.__refuse = false, true)");
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("svcForm").requestSubmit(), true)""");
+
+        await WaitForAsync(
+            "document.getElementById('cName').value === ''",
+            "The name stayed in the box after the service was created, so pressing the button "
+            + "again asks for the same service a second time — which is how the review ended up "
+            + "with two groups of one name.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// Every service opens on Overview, and the way back goes where the reader came from.
     /// </summary>
     /// <remarks>

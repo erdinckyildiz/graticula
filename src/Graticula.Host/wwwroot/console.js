@@ -10336,6 +10336,39 @@ function dbconnBody() {
 }
 
 /**
+ * Shows, or stops showing, that the advanced string is what will be sent.
+ *
+ * <b>The fields are disabled rather than hidden.</b> Somebody who typed a host into them wants
+ * to see it still there when they empty the advanced box again, and a control that vanishes and
+ * returns is harder to trust than one that is visibly out of use.
+ */
+function dbconnOverride() {
+  const raw = $("dcRaw");
+  const on = Boolean(raw && raw.value.trim());
+  const said = $("dcOverride");
+
+  for (const id of ["dcHost", "dcPort", "dcUser", "dcPassword", "dcDatabase"]) {
+    const field = $(id);
+
+    if (field) {
+      field.disabled = on;
+      field.closest("label")?.classList.toggle("overridden", on);
+    }
+  }
+
+  if (said) {
+    said.hidden = !on;
+    said.textContent = on
+      ? "The connection string below is what will be sent. Empty it to go back to the fields."
+      : "";
+  }
+
+  // <b>Kept open while it has content.</b> Collapsing a disclosure that is deciding the
+  // request is how the value became invisible in the first place.
+  if (on) { $("dcAdvanced").open = true; }
+}
+
+/**
  * Says something in the dialog's own result line.
  *
  * @param {string} tone the class: `ok`, `warn`, `alert` or empty
@@ -10493,13 +10526,26 @@ async function openDbConnection(source) {
           <input id="dcRaw" spellcheck="false"
                  placeholder="Host=…;Port=5432;Database=…;Username=…;Password=…"></label>
       </details>
-      <div id="dcResult"></div>
+      <p class="hint" id="dcOverride" hidden></p>
+      <div id="dcResult" role="status" aria-live="polite"></div>
     </form>`;
 
   $("dbconnFoot").innerHTML = `
     <button type="button" id="dcTest">Test connection</button>
     <button type="button" class="primary" id="dcSave">${source ? "Save" : "Register"}</button>
     <button type="button" class="ghost" id="dcCancel">Cancel</button>`;
+
+  // <b>An abandoned advanced string still wins, so the form has to say so.</b> Found by a
+  // design review on 2026-09-06: type a host into *Write the connection string instead*, change
+  // your mind, collapse the disclosure — and the box keeps the value, `dbconnBody` keeps
+  // preferring it, and Test reports a failure against a host that is nowhere on screen. The
+  // fields above are then visibly right and completely ignored.
+  //
+  // <b>Said rather than silently discarded.</b> Clearing the box on collapse would throw away
+  // something somebody typed; leaving it unsaid is what the review caught. So the fields grey
+  // out, the disclosure stays open while it has content, and a line under it names what is
+  // being sent.
+  $("dcRaw").addEventListener("input", dbconnOverride);
 
   $("dcDatabase").addEventListener("mousedown", dbconnFill);
   $("dcDatabase").addEventListener("focus", dbconnFill);
@@ -10522,11 +10568,27 @@ async function openDbConnection(source) {
   //
   // <b>`onclose` rather than `addEventListener`, because this function runs again every time
   // the dialog opens</b> and a listener added on each of those would fire once per opening.
+  // <b>Back to whatever opened it, and `focusSources` was the wrong answer.</b> Yesterday this
+  // sent focus to the first row of the table, which is right only when the first row is the one
+  // you pressed — a design review edited a later row and watched focus land on row one. The
+  // opener is remembered because a synthetic click does not focus a button and a real one does,
+  // so `<dialog>`'s own restoration cannot be relied on either way.
+  const opener = document.activeElement instanceof HTMLElement
+      && document.activeElement !== document.body
+    ? document.activeElement
+    : null;
+
   dialog.onclose = () => {
     dbconn = null;
-    focusSources();
+
+    if (opener && opener.isConnected && opener.offsetParent !== null) {
+      opener.focus();
+    } else {
+      focusSources();
+    }
   };
 
+  dbconnOverride();
   dialog.showModal();
 
   if (!source) {
@@ -11641,28 +11703,55 @@ async function createService(event) {
   event.preventDefault();
 
   const folder = $("cFolder").value.trim();
-  const created = await api("/admin/featureservices", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: $("cName").value.trim(),
-      folder: folder || null,
-      description: $("cDesc").value.trim() || null,
-      sharing: $("cShare").value,
-    }),
-  });
+  const button = event.submitter || $("svcForm").querySelector("[type=submit]");
 
-  reportCreated("Service created", [
-    `<b>${h(created.name)}</b> at <code>${h(created.url)}</code>, shared ${h(created.sharing)}.`,
-    // The server's own next-step note, which names the two calls that fill it.
-    created.note ? `<span class="val">${h(created.note)}</span>` : "",
-  ]);
+  // <b>Every refusal this form can meet was invisible until 2026-09-06.</b> A design review
+  // forced two of them against the live server — a duplicate name (409) and a nesting target
+  // that is not a group (400) — and the server answered both with a sentence written for the
+  // person reading it. `api` throws on a refusal, nothing caught it, and the form sat there
+  // unchanged: no toast, no message, no clue that a request had been made at all. The delete
+  // handler two hundred lines below has done this correctly since it was written; these two
+  // just never used the pattern.
+  //
+  // <b>Disabled while it is in flight, and the name cleared after.</b> The same review
+  // double-clicked *Create group layer* and got two identically named groups, because nothing
+  // stopped the second click and nothing emptied the field the first one had used.
+  if (button) button.disabled = true;
 
-  // Pre-fill the group form, because creating an empty service and then adding a
-  // group to it is the sequence the note just described.
-  $("gService").value = folder ? `${folder}/${created.name}` : created.name;
+  try {
+    const created = await api("/admin/featureservices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("cName").value.trim(),
+        folder: folder || null,
+        description: $("cDesc").value.trim() || null,
+        sharing: $("cShare").value,
+      }),
+    });
 
-  await section("service names", fillServiceChoices);
+    reportCreated("Service created", [
+      `<b>${h(created.name)}</b> at <code>${h(created.url)}</code>, shared ${h(created.sharing)}.`,
+      // The server's own next-step note, which names the two calls that fill it.
+      created.note ? `<span class="val">${h(created.note)}</span>` : "",
+    ]);
+
+    // Pre-fill the group form, because creating an empty service and then adding a
+    // group to it is the sequence the note just described.
+    $("gService").value = folder ? `${folder}/${created.name}` : created.name;
+
+    // <b>Emptied, so a second press is a second service rather than the same one twice.</b>
+    // The folder and the sharing stay: somebody making two services usually makes them in the
+    // same place, and re-choosing that is work the first answer already did.
+    $("cName").value = "";
+    $("cDesc").value = "";
+
+    await section("service names", fillServiceChoices);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function createGroupLayer(event) {
@@ -11672,19 +11761,26 @@ async function createGroupLayer(event) {
   if (!where.name) { toast("Name the service the group goes in."); return; }
 
   const parent = $("gParent").value.trim();
+  const button = event.submitter || $("grpForm")?.querySelector("[type=submit]");
 
-  const created = await api(
-    `/admin/services/${encodeURIComponent(where.name)}/groups`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: $("gName").value.trim(),
-        folder: where.folder,
-        parentLayerId: parent === "" ? null : Number(parent),
-      }),
-    });
+  // See `createService`: the refusal was invisible and the second click made a duplicate.
+  // A nesting target that is not a group answers 400 with a sentence naming why, and until
+  // 2026-09-06 that sentence went nowhere.
+  if (button) button.disabled = true;
 
-  reportCreated("Group created", [
+  try {
+    const created = await api(
+      `/admin/services/${encodeURIComponent(where.name)}/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: $("gName").value.trim(),
+          folder: where.folder,
+          parentLayerId: parent === "" ? null : Number(parent),
+        }),
+      });
+
+    reportCreated("Group created", [
     `<b>${h(created.name)}</b> is layer ${created.layerId} of
      <code>${h($("gService").value.trim())}</code>${created.parentLayerId >= 0
        ? `, nested under layer ${created.parentLayerId}` : ", at the top level"}.`,
@@ -11692,10 +11788,20 @@ async function createGroupLayer(event) {
      parent to put it inside this group.</span>`,
   ]);
 
-  // The list under the form is the record of what this service now holds, so it moves
-  // with the thing it lists rather than on the next drawer opening.
-  await section("groups", () => showServiceGroups($("gService").value));
-  await section("services", loadServices, "services");
+    // <b>Emptied, because two presses meant two groups with one name.</b> The service and the
+    // parent stay: filling a service with several groups is one sitting, and retyping where
+    // they go each time is the work this form is supposed to save.
+    $("gName").value = "";
+
+    // The list under the form is the record of what this service now holds, so it moves
+    // with the thing it lists rather than on the next drawer opening.
+    await section("groups", () => showServiceGroups($("gService").value));
+    await section("services", loadServices, "services");
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function reportCreated(title, lines) {
