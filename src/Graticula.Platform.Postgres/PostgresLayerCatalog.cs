@@ -446,7 +446,16 @@ public sealed class PostgresLayerCatalog
             // right. One row, two facts, and only one of them travelled.
             reader.IsDBNull(reader.GetOrdinal("capability_ceiling"))
                 ? null
-                : reader.GetFieldValue<string[]>(reader.GetOrdinal("capability_ceiling")));
+                : reader.GetFieldValue<string[]>(reader.GetOrdinal("capability_ceiling")),
+
+            // <b>The service's reference, travelling for the same reason the ceiling above
+            // does.</b> The query handler resolves a layer and never the service over it, so a
+            // service that names its own reference would be ignored by the one path that
+            // decides what a query answers in — the D-179 shape a second time, on the column
+            // that decides which coordinates a client gets.
+            reader.IsDBNull(reader.GetOrdinal("service_srid"))
+                ? null
+                : reader.GetInt32(reader.GetOrdinal("service_srid")));
     }
 
     /// <summary>The group layers held by the services named.</summary>

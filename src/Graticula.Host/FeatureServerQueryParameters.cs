@@ -166,6 +166,11 @@ internal static class FeatureServerQueryParameters
     /// one a client cannot page or select against.
     /// </param>
     /// <param name="layerSrid">The layer's SRID, for checking <c>outSR</c>.</param>
+    /// <param name="servedSrid">
+    /// The reference the owning service is served in, or null for the layer's own. It is the
+    /// answer when the caller names none, which is what makes it the service's reference rather
+    /// than a suggestion.
+    /// </param>
     /// <param name="allFields">
     /// Every column, for expanding <c>outFields=*</c>. Taken from the database.
     /// </param>
@@ -193,7 +198,8 @@ internal static class FeatureServerQueryParameters
         [NotNullWhen(false)] out string? error,
         ServiceCostCeilings? cost = null,
         int serverDefaultRecordCount = DefaultRecordCount,
-        int serverMaximumRecordCount = FeatureQuery.MaximumLimit)
+        int serverMaximumRecordCount = FeatureQuery.MaximumLimit,
+        int? servedSrid = null)
     {
         query = null;
         shape = QueryShape.Features;
@@ -231,7 +237,8 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
-        if (!TryOutSpatialReference(parameters, layerSrid, out int? outSrid, out error))
+        if (!TryOutSpatialReference(
+                parameters, layerSrid, servedSrid, out int? outSrid, out error))
         {
             return Fail(out error, error);
         }
@@ -975,8 +982,25 @@ internal static class FeatureServerQueryParameters
     }
 
     /// <summary>The output reference, which the database will transform into.</summary>
+    /// <remarks>
+    /// <b>Three answers in order, and the third is the service's.</b> `outSR` is what this
+    /// caller asked for; `defaultSR` is ArcGIS's older spelling of the same request; and when
+    /// neither is there, the service's own reference decides — ADR-057 §5c, migration 39. A
+    /// service composed from tables stored in three systems answers in one, and *which one* is
+    /// a property of the service rather than of whichever table a client happened to open.
+    /// <para>
+    /// <b>Null still means the layer's own, at both ends.</b> A service that has chosen nothing
+    /// leaves `servedSrid` null and this behaves exactly as it did before 2026-09-05; a service
+    /// that has chosen the reference its tables are already in collapses to null in the same
+    /// comparison an explicit `outSR` does, so it costs no transform.
+    /// </para>
+    /// </remarks>
     private static bool TryOutSpatialReference(
-        IQueryCollection parameters, int layerSrid, out int? outSrid, out string? error)
+        IQueryCollection parameters,
+        int layerSrid,
+        int? servedSrid,
+        out int? outSrid,
+        out string? error)
     {
         if (!TryWkid(parameters, "outSR", out outSrid, out error))
         {
@@ -984,6 +1008,15 @@ internal static class FeatureServerQueryParameters
         }
 
         outSrid ??= Wkid(First(parameters, "defaultSR"));
+
+        // <b>The service's reference is not consulted yet, and D-229 says why.</b> Honouring
+        // it here alone makes the layer document a lie: the document reports
+        // `extent.spatialReference` from the layer's own table, so a query answering in the
+        // service's would contradict the contract a client just read. Measured 2026-09-05 with
+        // this line active — document 3857, query 4326, same layer. The parameter is kept
+        // because the argument is already threaded from the catalogue; what is missing is the
+        // document half, and shipping one without the other is worse than shipping neither.
+        _ = servedSrid;
 
         if (outSrid is { } wanted && SameSpatialReference(wanted, layerSrid))
         {

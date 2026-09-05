@@ -39,13 +39,15 @@ public sealed class PublishedLayer
         TimeSpan? statementTimeout = null,
         IEnumerable<Guid>? sharedWith = null,
         string? timeField = null,
-        IEnumerable<string>? capabilityCeiling = null)
+        IEnumerable<string>? capabilityCeiling = null,
+        int? servedSrid = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
         Id = id;
+        ServedSrid = servedSrid;
         Cost = cost ?? ServiceCostCeilings.Unset;
         CapabilityCeiling = capabilityCeiling is null ? null : [.. capabilityCeiling];
         StatementTimeout = statementTimeout;
@@ -205,6 +207,22 @@ public sealed class PublishedLayer
 
     /// <summary>The service's folder, or null for the root.</summary>
     public string? Folder { get; }
+
+    /// <summary>
+    /// The reference the owning service is served in, or null for this layer's own.
+    /// </summary>
+    /// <remarks>
+    /// <b>Carried from the service, for the reason the capability ceiling is — D-179.</b> A
+    /// reader holding only a layer has no service to ask, and the served reference decides what
+    /// a query with no <c>outSR</c> answers in. One row holds both facts, so both travel; the
+    /// ceiling was the case where only one did, and the layer document then advertised something
+    /// the write path did not enforce.
+    /// <para>
+    /// <b>Null is the meaning.</b> It is *this layer's own*, which is what every service did
+    /// before migration 39 and what every service still does until somebody chooses otherwise.
+    /// </para>
+    /// </remarks>
+    public int? ServedSrid { get; }
 
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }

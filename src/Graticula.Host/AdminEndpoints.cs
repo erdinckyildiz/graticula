@@ -58,6 +58,10 @@ internal sealed record DataSourceRequest(
     string? Username = null,
     string? Password = null);
 
+/// <summary>The reference a service should be served in, or null for each layer's own.</summary>
+/// <param name="Srid">The EPSG code, or null to go back to the tables'.</param>
+internal sealed record ServiceSridRequest(int? Srid);
+
 /// <summary>A layer to publish.</summary>
 /// <remarks>
 /// <b><c>ServiceName</c> is the service to publish into, or null for a service
@@ -494,6 +498,12 @@ internal static class AdminEndpoints
         // readable through the same API that writes it.
         app.MapGet("/admin/services/{name}/capabilities", GetServiceCapabilitiesAsync);
         app.MapPut("/admin/services/{name}/capabilities", SetServiceCapabilitiesAsync);
+        // <b>Not mapped, and D-229 is the row that says when it will be.</b> The handler is
+        // written and the column behind it exists; what is missing is the layer document, which
+        // still reports the layer's own reference. A route that lets somebody set a value the
+        // document then contradicts is worse than no route — measured, document 3857 against a
+        // query answering 4326 on the same layer.
+        _ = (object?)SetServiceSridAsync;
 
         // <b>Roles, and the privilege that has had nothing behind it since it was written.</b>
         // ADR-035: `admin:manageRoles` existed, was granted to the administrator, and no endpoint
@@ -5625,6 +5635,95 @@ internal static class AdminEndpoints
             message = listing.Message,
             databases = listing.Databases,
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the reference a service is served in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-057 §5c.</b> A service composed from tables stored in three different systems
+    /// answers in one, and which one is a property of the service rather than of whichever
+    /// table a client happened to open. Until migration 39 there was nowhere to say it.
+    /// </para>
+    /// <para>
+    /// <b>Null clears it, and that is a request rather than an omission.</b> Going back to
+    /// *each layer's own* is a thing an author can want; an API where null means *leave it*
+    /// could not express it, so the body carries the property explicitly and its absence is
+    /// read as null.
+    /// </para>
+    /// <para>
+    /// <b>Refused rather than accepted-and-ignored when the reference is not one.</b> The
+    /// column's check constraint would refuse a zero anyway; catching it here says which value
+    /// was wrong instead of returning a database error, and the message names what a caller
+    /// should send.
+    /// </para>
+    /// <para>
+    /// <b>`AdminManageServer`, beside the capability ceiling it sits next to.</b> Which
+    /// coordinates a service answers in is a serving decision, not a content one — the same
+    /// judgement `/capabilities` and `/limits` are already guarded by.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="request">The reference, or null.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task SetServiceSridAsync(
+        HttpContext context,
+        string name,
+        ServiceSridRequest? request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        int? wanted = request?.Srid;
+
+        if (wanted is { } given && given <= 0)
+        {
+            await Refuse(
+                context, 400,
+                $"'{given}' is not a spatial reference. Send an EPSG code — 3857, 4326, 5254 — "
+                + "or null to serve each layer in whatever its own table is stored in.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (catalog is not PostgresAdminCatalog postgres)
+        {
+            await Refuse(context, 501, "This catalogue cannot set a service's reference.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        bool found = await postgres
+            .SetServiceSridAsync(name, wanted, cancellation)
+            .ConfigureAwait(false);
+
+        if (!found)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.srid", name,
+            Detail(new { srid = wanted }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, srid = wanted }).ExecuteAsync(context)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

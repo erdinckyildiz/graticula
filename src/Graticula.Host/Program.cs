@@ -3689,7 +3689,12 @@ public static class Program
                 out string? error,
                 cost,
                 settings.DefaultRecordCount,
-                settings.MaximumRecordCount))
+                settings.MaximumRecordCount,
+
+                // <b>The service's reference, when it has named one.</b> It travels on the
+                // layer because this handler resolves a layer and never the service over it —
+                // the same reason the capability ceiling does, which is D-179.
+                layer.ServedSrid))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },

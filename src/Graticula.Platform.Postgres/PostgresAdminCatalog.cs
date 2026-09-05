@@ -513,6 +513,33 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return (Guid)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
 
+    /// <summary>Sets the reference a service is served in, or clears it.</summary>
+    /// <param name="name">The service.</param>
+    /// <param name="srid">The reference, or null for each layer's own.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a service by that name was found.</returns>
+    /// <remarks>
+    /// <b>Null clears rather than leaves alone, and the caller has to be able to say so.</b>
+    /// A service that has chosen a reference and wants to stop having one is a real request —
+    /// the tables are the answer again — and an API where null means *no change* has no way to
+    /// express it. ADR-057 §5c, migration 39.
+    /// </remarks>
+    public async Task<bool> SetServiceSridAsync(
+        string name, int? srid, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Sql = """
+            update service set srid = @srid where lower(name) = lower(@name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("srid", (object?)srid ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
     /// <summary>
     /// The reserved name of the datastore source.
     /// </summary>
