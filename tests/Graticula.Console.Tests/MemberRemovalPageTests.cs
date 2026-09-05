@@ -59,16 +59,21 @@ public sealed class MemberRemovalPageTests : ConsoleTest
 
         Assert.Equal(["viewer", "editor", "creator", "unrestricted"], offered);
 
-        // <b>Raised rather than lowered, so no confirmation stands in the way.</b> Lowering a
-        // ceiling withdraws privileges from every role at once and asks first; what is under test
-        // here is the wire, not the question.
+        // <b>Lowered, because every seeded member is unrestricted and raising one would be a
+        // change to nothing.</b> `tools/seed-conformance.py` creates them all at the top of the
+        // ladder, so a test that looked for somebody below it would fail on a fresh fixture and
+        // pass on a machine where an earlier run happened to leave one — which is a test that
+        // reports the machine rather than the product.
+        //
+        // The harness answers `confirm` with true and records the question, so the warning this
+        // raises is asserted below rather than stepped around.
         string who = await Browser.EvaluateAsync<string>(
             """
             (() => {
               const pick = [...document.querySelectorAll('#members select[data-member-type]')]
-                .find(s => s.dataset.wasType !== 'unrestricted');
+                .find(s => s.dataset.wasType === 'unrestricted');
               if (!pick) return '';
-              pick.value = 'unrestricted';
+              pick.value = 'viewer';
               pick.dispatchEvent(new Event('change', { bubbles: true }));
               return pick.dataset.memberType;
             })()
@@ -76,8 +81,16 @@ public sealed class MemberRemovalPageTests : ConsoleTest
 
         Assert.False(
             string.IsNullOrEmpty(who),
-            "Every member on this server is already unrestricted, so raising one proves nothing. "
-            + "The fixture needs a member below the ceiling for this to be a test.");
+            "No member on this server is unrestricted, so there is nothing to lower. The seed "
+            + "creates every member at the top of the ladder.");
+
+        // <b>Lowering asks first, and the question is the point.</b> A ceiling withdraws
+        // privileges from every role the member holds at once — silently, and with the roles
+        // still reading as though they work — so this is the one direction that must stop.
+        await WaitForAsync(
+            "(window.__confirmed || []).some(q => /ceiling/i.test(q))",
+            "Lowering a user type did not ask. It takes privileges away from every role at once, "
+            + "which is exactly the change that should not happen on a stray click.");
 
         // <b>Read from the harness's trap rather than from the server.</b> Non-GET requests never
         // leave the page here, so *click then read the API back* passes against a dead control —
